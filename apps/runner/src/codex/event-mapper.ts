@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+  browserUseApprovalSchema,
+  browserUseRequestSchema,
+  browserUseToolName,
   coreMcpServerKey,
   codexMessagePhaseSchema,
   imageGenerationMcpSuccessSchema,
@@ -52,6 +55,7 @@ export type CodexEventPreviewContext = {
 export type CodexNotificationProjectionContext = {
   supersededItemId?: string;
   subAgentLabelsByThreadId?: ReadonlyMap<string, string | null>;
+  desktopBrowserApproval?: boolean;
 };
 
 const turnStatuses = new Set([
@@ -1054,6 +1058,18 @@ function sanitizeItem(
         tool,
         status,
       };
+      if (projectionContext.desktopBrowserApproval &&
+        server === coreMcpServerKey && tool === browserUseToolName && status === "inProgress") {
+        const { data: request } = browserUseRequestSchema.safeParse(item.arguments);
+        if (request) {
+          const approval = browserUseApprovalSchema.safeParse({
+            action: request.action,
+            ...("tab_id" in request && { tab_id: request.tab_id }),
+            ...("url" in request && { destination_host: new URL(request.url).host }),
+          });
+          if (approval.success) result.browserApproval = approval.data;
+        }
+      }
       if (item.pluginId === null) result.pluginId = null;
       else {
         const pluginId = sanitizeTextPreview(

@@ -5,10 +5,10 @@ import { setTimeout as delay } from "node:timers/promises"
 import type { Logger } from "pino"
 import {
   desktopExecutionMaxInFlight,
-  desktopExecutionStartReceiptSchema, runnerTurnInterruptResultSchema,
+  desktopExecutionStartReceiptSchema, desktopUserInputReceiptSchema, runnerTurnInterruptResultSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE, RUNNER_TURN_INTERRUPT_REQUESTED,
   RUNNER_EVENT_BATCH_MAX_COUNT, RUNNER_EVENT_BATCH_TARGET_BYTES,
-  type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult,
+  type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult, type DesktopToolOperation,
 } from "@linksense/shared"
 import { z } from "zod"
 import type { DesktopWorkerProvider } from "../controller/desktop-worker-provider.js"
@@ -30,6 +30,7 @@ type DrainDelivery = (body: DesktopExecutionRecovery["body"]) => Promise<Desktop
 export type DesktopRuntimeRun = { scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout }
 const emptyMcpGeneration = createHash("sha256").update("").digest("hex")
 const healthSchema = z.object({ status: z.literal("available") })
+class DesktopUserInputUnavailableError extends Error {}
 
 /** Adapt only the negotiated desktop operations to the existing supervised worker. */
 export class DesktopTurns {
@@ -44,7 +45,7 @@ export class DesktopTurns {
     private readonly origin: string,
     private readonly workerLost: () => void,
     private readonly logger: Logger,
-    private readonly connectionsEnabled = false,
+    private readonly toolOperations: readonly DesktopToolOperation[] = [],
   ) {}
 
   scopedRun(conversationId: string) {
@@ -97,6 +98,15 @@ export class DesktopTurns {
         const terminal = await this.withRecovery(command.conversation_id, () => this.drain(command, signal, deliver))
         return { ...envelope, operation: command.operation, ok: true, result: { drained: true, ...(terminal && { terminal }) } }
       }
+      if (command.operation === "user-input.respond") {
+        const run = this.scopedRun(command.conversation_id)
+        if (!this.toolOperations.includes("browser.execute") || !sameTurn?.worker ||
+            !run || run !== sameTurn.run || sameTurn.interrupted) throw new DesktopUserInputUnavailableError()
+        uncertain = true
+        const result = desktopUserInputReceiptSchema.parse(await this.request(sameTurn.worker, command,
+          "/user-input/respond", signal, { ...command.body, ownerId: command.owner_id }))
+        return { ...envelope, operation: command.operation, ok: true, result }
+      }
       if (!sameTurn?.worker || !sameTurn.run) {
         if (sameTurn) sameTurn.interrupted = true
         if (!sameTurn && session) {
@@ -110,15 +120,18 @@ export class DesktopTurns {
             ? RUNNER_TURN_INTERRUPT_REQUESTED : RUNNER_TURN_INTERRUPT_NOT_ACTIVE },
         }
       }
-      uncertain = true
       const result = runnerTurnInterruptResultSchema.parse(await this.request(sameTurn.worker, command,
         `/turns/start/${command.turn_id}/interrupt`, signal, {
           ownerId: command.owner_id, expectedRuntimeGeneration: command.runtime_generation,
+        }, () => {
+          sameTurn.interrupted = true
+          uncertain = true
         }))
       return { ...envelope, operation: command.operation, ok: true, result }
-    } catch {
-      return { ...envelope, ok: false, error_code: uncertain || command.operation === "turn.inspect"
-        ? "RUNNER_OPERATION_UNCERTAIN" : "RUNNER_UNAVAILABLE" }
+    } catch (error) {
+      return { ...envelope, ok: false, error_code: error instanceof DesktopUserInputUnavailableError
+        ? "USER_INPUT_REQUEST_UNAVAILABLE"
+        : uncertain || command.operation === "turn.inspect" ? "RUNNER_OPERATION_UNCERTAIN" : "RUNNER_UNAVAILABLE" }
     }
   }
 
@@ -261,7 +274,7 @@ export class DesktopTurns {
     const { owner_id: ownerId, conversation_id: id, runtime_generation: runtimeGeneration, turn_id: turnId } = scope
     const worker = await this.provider.acquire({
       ownerId, serviceSessionId: id, storageKey: id, name: "desktop", probe: false,
-      run: { turnId, runtimeGeneration, ...(this.connectionsEnabled ? { connectionsEnabled: true } : {}) },
+      run: { turnId, runtimeGeneration, toolOperations: this.toolOperations },
     })
     try {
       while (!signal.aborted) {
@@ -365,14 +378,18 @@ export class DesktopTurns {
     }
   }
 
-  private async request(worker: WorkerInstance, command: Scope, suffix: string, signal: AbortSignal, body?: unknown): Promise<unknown> {
+  private async request(worker: WorkerInstance, command: Scope, suffix: string, signal: AbortSignal, body?: unknown, dispatched?: () => void): Promise<unknown> {
     if (worker.ownerId !== command.owner_id || worker.serviceSessionId !== command.conversation_id) {
       throw new Error("desktop worker scope mismatch")
     }
     const route = suffix === "/health/ready" ? suffix : `/conversations/${command.conversation_id}${suffix}`
-    const response = await this.provider.request(worker, route, signal, body)
+    signal.throwIfAborted()
+    const delivery = this.provider.request(worker, route, signal, body)
+    dispatched?.()
+    const response = await delivery
     if (!response.ok) {
       await response.body?.cancel()
+      if (suffix === "/user-input/respond" && response.status === 409) throw new DesktopUserInputUnavailableError()
       throw new Error("desktop worker request failed")
     }
     return response.json()

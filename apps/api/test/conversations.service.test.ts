@@ -6489,6 +6489,61 @@ describe("ConversationService native user input", () => {
     expect(durableCalls).not.toContain(secretAnswer);
   });
 
+  it.each([
+    { ack: "accepted", closure: null, expected: "answered" },
+    { ack: "accepted", closure: "expired", expected: "answered" },
+    { ack: "accepted", closure: "cancelled", expected: "cancelled" },
+    { ack: "RUNNER_UNAVAILABLE", closure: null, expected: "pending" },
+    { ack: "RUNNER_UNAVAILABLE", closure: "expired", expected: "expired" },
+    { ack: "USER_INPUT_REQUEST_UNAVAILABLE", closure: null, expected: "cancelled" },
+    { ack: "RUNNER_OPERATION_UNCERTAIN", closure: null, expected: "answering" },
+    { ack: "RUNNER_OPERATION_UNCERTAIN", closure: "expired", expected: "expired" },
+  ] as const)("settles a Mac answer with $ack after native closure=$closure as $expected", async ({ ack, closure, expected }) => {
+    const fixture = await conversationFixture();
+    const turn = turnRow();
+    const conversation = conversationRow({ codexThreadId: turn.codexThreadId, executionTarget: "local" });
+    let row = userInputRequestRow();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.findUnique.mockResolvedValue(turn);
+    const tx = fixture.defaultTransaction;
+    tx.conversationUserInputRequest.findFirst.mockImplementation(async () => row);
+    tx.conversationUserInputRequest.findUnique.mockImplementation(async () => row);
+    const update = async ({ where, data }: {
+      where: Prisma.ConversationUserInputRequestWhereInput;
+      data: Prisma.ConversationUserInputRequestUpdateManyMutationInput;
+    }) => {
+      const status = where.status;
+      const matches = typeof status === "string" ? row.status === status
+        : Array.isArray(status?.in) && status.in.includes(row.status);
+      if (!matches || (typeof where.resolvedAction === "string" && row.resolvedAction !== where.resolvedAction)) return { count: 0 };
+      row = userInputRequestRow({ ...row, ...data });
+      return { count: 1 };
+    };
+    tx.conversationUserInputRequest.updateMany.mockImplementation(update);
+    fixture.prisma.conversationUserInputRequest.updateMany.mockImplementation(update);
+    fixture.runner.respondUserInputRequest.mockImplementationOnce(async () => {
+      if (closure) row = userInputRequestRow({ ...row, status: closure, resolvedAt: NOW });
+      if (ack !== "accepted") throw new AppError(ack);
+      return { accepted: true };
+    });
+    const answer = () => fixture.service.respondToUserInputRequest(
+      OWNER_ID, CONVERSATION_ID, USER_INPUT_REQUEST_ID, { action: "accept", content: { approval: "fixture answer" } }, {},
+    );
+    if (ack === "accepted" && closure !== "cancelled") {
+      await expect(answer()).resolves.toMatchObject({ status: "answered", resolved_action: "accept" });
+    } else {
+      await expect(answer()).rejects.toMatchObject({
+        code: ack === "accepted" ? "USER_INPUT_REQUEST_UNAVAILABLE" : ack,
+      });
+      expect(tx.conversationEvent.create).not.toHaveBeenCalled();
+    }
+    expect(row.status).toBe(expected);
+    if (expected !== "pending") await expect(answer()).rejects.toMatchObject({ code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      desktop: { turnId: turn.id, runtimeGeneration: conversation.runtimeGeneration },
+    }));
+  });
+
   it("validates and responds to a persisted MCP form in the same native turn", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
@@ -12485,7 +12540,10 @@ async function conversationFixture() {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn<(input: {
+        where: Prisma.ConversationUserInputRequestWhereInput;
+        data: Prisma.ConversationUserInputRequestUpdateManyMutationInput;
+      }) => Promise<{ count: number }>>(async () => ({ count: 0 })),
       createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationPlanReview: {
@@ -13303,7 +13361,10 @@ function transactionFixture() {
       create: vi.fn(async () => ({})),
       findUniqueOrThrow: vi.fn(async () => ({} as Record<string, unknown>)),
       update: vi.fn(async () => ({})),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn<(input: {
+        where: Prisma.ConversationUserInputRequestWhereInput;
+        data: Prisma.ConversationUserInputRequestUpdateManyMutationInput;
+      }) => Promise<{ count: number }>>(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
       createMany: vi.fn(async () => ({ count: 0 })),
     },

@@ -1210,11 +1210,13 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
   });
 
   it.each([
-    ["pending", null, "expired", "cancel"],
-    ["answering", "accept", "answered", "accept"],
+    { runtime: "cloud", status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
+    { runtime: "cloud", status: "answering", resolvedAction: "accept", transition: { status: "answered", resolvedAction: "accept" } },
+    { runtime: "Mac", status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
+    { runtime: "Mac", status: "answering", resolvedAction: "accept", transition: { status: "expired", resolvedAction: "accept" } },
   ] as const)(
-    "resolves a native user-input request from %s to %s",
-    async (status, resolvedAction, expectedStatus, expectedAction) => {
+    "records native request closure for a $runtime request in $status with action $resolvedAction",
+    async ({ runtime, status, resolvedAction, transition }) => {
       const fixture = eventFixture();
       const storedRequest = {
         id: "72000000-0000-4000-8000-000000000001",
@@ -1245,30 +1247,49 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         storedRequest,
       );
 
-      const result = await fixture.service.ingest(CONVERSATION_ID, {
+      const event = {
         method: "serverRequest/resolved",
         visibility: "user_visible",
         params: { threadId: "codex-thread-1", requestId: 17 },
-      });
+      } as const;
+      const deliveryId = "73000000-0000-4000-8000-000000000001";
+      if (runtime === "Mac") {
+        const credential = {
+          id: CONVERSATION_ID, codexThreadId: storedRequest.codexThreadId,
+          revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active",
+        };
+        fixture.tx.$queryRaw.mockResolvedValueOnce([credential]);
+        fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(turnRow());
+        await expect(fixture.service.ingestDesktopBatch({
+          scope: {
+            conversationId: CONVERSATION_ID, ownerId: OWNER_ID, turnId: TURN_ID,
+            deviceId: "74000000-0000-4000-8000-000000000001",
+            runtimeGeneration: "75000000-0000-4000-8000-000000000001",
+          },
+          check: async () => {},
+          questions: true,
+        }, { conversationId: CONVERSATION_ID, events: [{ deliveryId, event }] }, error => { throw error; }))
+          .resolves.toEqual([deliveryId]);
+      } else {
+        await expect(fixture.service.ingest(CONVERSATION_ID, event, deliveryId))
+          .resolves.toMatchObject({ accepted: true });
+      }
 
       expect(fixture.tx.conversationUserInputRequest.update).toHaveBeenCalledWith(
         {
           where: { id: storedRequest.id },
           data: {
-            status: expectedStatus,
-            resolvedAction: expectedAction,
+            ...transition,
             resolvedAt: expect.any(Date),
           },
         },
       );
-      expect(result).toMatchObject({
-        accepted: true,
-        event: {
-          payload: {
-            local: { user_input_request_id: storedRequest.id },
-          },
+      expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(CONVERSATION_ID, expect.objectContaining({
+        payload: {
+          schema_version: 2, source: "codex_app_server", method: event.method,
+          params: event.params, local: { user_input_request_id: storedRequest.id },
         },
-      });
+      }));
     },
   );
 

@@ -1,6 +1,7 @@
 import {
   desktopConnectionTextPageBytes, desktopExecutionMaxFrameBytes, desktopToolErrorSchema, desktopToolResultSchema,
-  isWorkspaceInput, type DesktopConnectionRequestBody, type DesktopToolRequest, type DesktopToolResult, type WorkspaceResult,
+  isWorkspaceInput, browserUseFailure, browserUseReadOnly,
+  type DesktopConnectionRequestBody, type DesktopToolRequest, type DesktopToolResult, type WorkspaceResult,
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
@@ -11,6 +12,7 @@ import type { DesktopRunLeases, DesktopRunScope } from "../desktop-credentials/r
 import type { CheckKnowledgeAssetPublication } from "../knowledge/conversation-asset-snapshots.js";
 import type { InternalKnowledgeSearchService } from "../knowledge/internal-search.js";
 import type { WebSearchSettingsService } from "../system/web-search-settings.js";
+import type { DesktopBrowserUse } from "./browser-use.js";
 
 type ToolRequestServices = {
   leases: Pick<DesktopRunLeases, "verifyRunBinding" | "claimToolRequest">;
@@ -20,6 +22,7 @@ type ToolRequestServices = {
     "search" | "listDocuments" | "getDocumentMarkdown" | "assertDocumentReferencesCurrent"> | null;
   checkPublication: CheckKnowledgeAssetPublication;
   connections?: Pick<ConnectionService, "executeScoped">;
+  browserUse?: Pick<DesktopBrowserUse, "execute">;
 };
 
 export async function executeDesktopTool(
@@ -35,7 +38,8 @@ export async function executeDesktopTool(
   if (!await services.leases.claimToolRequest(scope.turnId, frame.id)) {
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
-  let recheckConnection: (() => Promise<void>) | undefined;
+  let recheckResource: (() => Promise<void>) | undefined;
+  let browserMutationMayHaveRun = false;
   let result: DesktopToolResult;
   try {
     await authorize();
@@ -45,10 +49,17 @@ export async function executeDesktopTool(
       const connection = await services.connections.executeScoped(
         scope.ownerId, scope.conversationId, scope.turnId, frame.body.input, signal, authorize,
       );
-      recheckConnection = connection.assertCurrent;
+      recheckResource = connection.assertCurrent;
       data = connection.data.kind === "workspace_data"
         ? pageWorkspaceText(frame.body, connection.data)
         : connection.data;
+    } else if (frame.operation === "browser.execute") {
+      if (!services.browserUse) throw new AppError("RUNNER_UNAVAILABLE");
+      const browser = await services.browserUse.execute(scope, frame.body, signal, authorize);
+      browserMutationMayHaveRun = !browserUseReadOnly(frame.body) &&
+        (browser.data.result.ok || browser.data.result.code === "RUNNER_OPERATION_UNCERTAIN");
+      recheckResource = browser.assertCurrent;
+      data = browser.data;
     } else {
       data = await dispatchTool(services, scope, frame, signal, authorize);
     }
@@ -58,35 +69,52 @@ export async function executeDesktopTool(
     }
     result = desktopToolResultSchema.parse({ ...base, ok: true, data });
     if (Buffer.byteLength(JSON.stringify(result)) > desktopExecutionMaxFrameBytes) {
-      result = { ...base, ok: false, error_code: frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID" : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
+      result = frame.operation === "browser.execute"
+        ? { ...base, operation: frame.operation, ok: true, data: { result: browserUseFailure("BROWSER_USE_COMMAND_FAILED") } }
+        : { ...base, ok: false, error_code: frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID" : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
     }
   } catch (error) {
-    const code = desktopToolErrorSchema.safeParse(error instanceof AppError ? error.code : undefined);
+    const errorCode = error instanceof AppError ? error.code : undefined;
+    const code = desktopToolErrorSchema.safeParse(errorCode);
     result = {
       ...base, ok: false,
-      error_code: code.success ? code.data : error instanceof AppError && ["AUTH_REQUIRED", "ACCESS_DENIED"].includes(error.code)
+      error_code: browserMutationMayHaveRun ? "RUNNER_OPERATION_UNCERTAIN"
+        : code.success ? code.data : errorCode === "AUTH_REQUIRED" || errorCode === "ACCESS_DENIED"
         ? "FORBIDDEN" : "RUNNER_OPERATION_UNCERTAIN",
     };
   }
+  const reason = !result.ok ? result.error_code
+    : result.operation === "browser.execute" && !result.data.result.ok ? result.data.result.code : undefined;
   try {
     await services.audit.write({
       actorId: scope.ownerId, action: "desktop_tool_requested", targetId: frame.id,
-      targetType: frame.operation === "web.search" ? "web_search" :
-        frame.operation === "connection.execute" ? "connection" : "knowledge_base",
-      result: result.ok ? "success" : "failed",
+      targetType: frame.operation === "web.search" ? "web_search" : frame.operation === "browser.execute" ? "browser_use"
+        : frame.operation === "connection.execute" ? "connection" : "knowledge_base",
+      result: reason ? "failed" : "success",
       metadata: {
         operation: frame.operation, conversation_id: scope.conversationId, turn_id: scope.turnId, device_id: scope.deviceId,
-        ...(result.ok ? {} : { reason_code: result.error_code }),
+        ...(frame.operation === "browser.execute" ? { browser_action: frame.body.action } : {}),
+        ...(reason ? { reason_code: reason } : {}),
       },
     });
   } catch {
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
   if (result.ok) {
-    if (recheckConnection) {
+    if (browserMutationMayHaveRun) {
+      try {
+        await authorize();
+        await recheckResource?.();
+        signal.throwIfAborted();
+      } catch {
+        return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
+      }
+      return result;
+    }
+    if (recheckResource) {
       await authorize();
       try {
-        await recheckConnection();
+        await recheckResource();
       } catch (error) {
         const code = desktopToolErrorSchema.safeParse(error instanceof AppError ? error.code : undefined);
         return { ...base, ok: false, error_code: code.success ? code.data : "RUNNER_UNAVAILABLE" };
@@ -94,7 +122,8 @@ export async function executeDesktopTool(
       signal.throwIfAborted();
       return result;
     }
-    if (result.operation !== "web.search" && result.operation !== "connection.execute" && services.knowledgeSearch) {
+    if ((result.operation === "knowledge.search" || result.operation === "knowledge.documents" ||
+        result.operation === "knowledge.markdown") && services.knowledgeSearch) {
       const refs = result.operation === "knowledge.search" ? result.data.results.map(doc => doc.document_ref)
         : result.operation === "knowledge.documents" ? result.data.documents.map(doc => doc.document_ref)
           : [result.data.document_ref];
@@ -148,7 +177,7 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" }>,
+  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {

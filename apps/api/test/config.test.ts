@@ -81,6 +81,14 @@ describe("parseConfig", () => {
       .toThrow("desktop_local_execution_not_released")
   })
 
+  it("requires separate opt-in for the API desktop Browser Use transport", () => {
+    const localExecution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
+    const desktopBrowser = { LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true" }
+    expect(parseConfig(testEnvironment(localExecution)).desktopBrowserUseEnabled).toBe(false)
+    expect(parseConfig(testEnvironment({ ...localExecution, ...desktopBrowser })).desktopBrowserUseEnabled).toBe(true)
+    expect(() => parseConfig(testEnvironment(desktopBrowser))).toThrow("desktop_browser_use_requires_local_execution")
+  })
+
   it("keeps local filesystem storage out of production and the Full edition", () => {
     expect(() =>
       parseConfig(

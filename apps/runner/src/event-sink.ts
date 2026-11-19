@@ -4,6 +4,9 @@ import type { Logger } from "pino";
 import { relative } from "node:path";
 
 import {
+  browserUseFailure,
+  browserUseReadOnly,
+  browserUseResultSchema,
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
@@ -575,9 +578,25 @@ export class HttpRunnerEventSink implements RunnerEventSink {
 
   async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
-    const response = await this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
-    if (!response.ok) return { ok: false, code: "BROWSER_USE_ACCESS_DENIED", retryable: false, help_path: "/settings/general#browser-extension" };
-    return parseResponseBody(response);
+    const request = () => this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    if (!this.options.desktopOutboxScope) {
+      const response = await request();
+      if (!response.ok) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+      return parseResponseBody(response);
+    }
+    try {
+      const response = await request();
+      const payload = await parseResponseBody(response);
+      if (!response.ok) {
+        const code = asRecord(payload).error_code;
+        if (code === "RUNNER_OPERATION_UNCERTAIN") return browserUseFailure(code);
+        return browserUseFailure(response.status === 401 || response.status === 403
+          ? "BROWSER_USE_ACCESS_DENIED" : "BROWSER_USE_COMMAND_FAILED");
+      }
+      return browserUseResultSchema.parse(payload);
+    } catch {
+      return browserUseFailure(browserUseReadOnly(input.input) ? "BROWSER_USE_COMMAND_FAILED" : "RUNNER_OPERATION_UNCERTAIN");
+    }
   }
 
   async emitInteractiveApplicationEvent(input: {

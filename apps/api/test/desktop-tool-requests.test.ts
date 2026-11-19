@@ -81,6 +81,45 @@ it("withholds buffered connector data when the account is disconnected during fi
   expect(result).not.toHaveProperty("data");
 });
 
+it.each([
+  { loss: "before dispatch", action: "click", expected: "FORBIDDEN" },
+  { loss: "after extension success", action: "click", expected: "RUNNER_OPERATION_UNCERTAIN" },
+  { loss: "during audit", action: "click", expected: "RUNNER_OPERATION_UNCERTAIN" },
+  { loss: "extension replaced during audit", action: "click", expected: "RUNNER_OPERATION_UNCERTAIN" },
+  { loss: "extension replaced during audit", action: "snapshot", expected: "FORBIDDEN" },
+])("withholds a $action result on authority loss $loss with $expected", async ({ loss, action, expected }) => {
+  const { scope, raw } = connectionFrame();
+  const frame = desktopToolRequestSchema.parse({
+    ...raw, operation: "browser.execute",
+    body: action === "click" ? { action, tab_id: 1, ref: "fixture" } : { action, tab_id: 1 },
+  });
+  let active = true;
+  let extensionCurrent = true;
+  const execute = vi.fn(async () => {
+    if (loss === "before dispatch") throw new AppError("FORBIDDEN");
+    if (loss === "after extension success") active = false;
+    return {
+      data: { result: { ok: true as const, browser: "local" as const, data: { title: "fixture private result" } } },
+      assertCurrent: async () => { if (!extensionCurrent) throw new AppError("FORBIDDEN"); },
+    };
+  });
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: {
+      claimToolRequest: async () => true,
+      verifyRunBinding: async () => { if (!active) throw new AppError("AUTH_REQUIRED"); },
+    },
+    audit: { write: async () => {
+      if (loss === "during audit") active = false;
+      if (loss === "extension replaced during audit") extensionCurrent = false;
+    } },
+    knowledgeSearch: null, webSearchSettings: { search: vi.fn() }, browserUse: { execute },
+  }, scope, frame, new AbortController().signal);
+  expect(result).toMatchObject({ ok: false, error_code: expected });
+  expect(result).not.toHaveProperty("data");
+  expect(execute).toHaveBeenCalledOnce();
+});
+
 it("pages projected connector text before it crosses the bridge and rejects a changed revision", async () => {
   const { scope, raw } = connectionFrame();
   const text = '白盒🌿 "\\\n'.repeat(100_000);

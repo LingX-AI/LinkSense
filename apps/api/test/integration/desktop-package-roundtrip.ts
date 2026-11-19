@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
+  browserUseApprovalSchema,
+  browserUseResultSchema,
   connectionResultSchema,
+  conversationUserInputQuestionSchema,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
@@ -28,6 +31,7 @@ import type { ModelProviderSettingsService } from "../../src/modules/system/mode
 const fixtureModel = "desktop-fixture";
 const readPrompt = "Read the local fixture file";
 const interruptPrompt = "Wait for the local interruption";
+const interruptApprovalPrompt = "Wait for interruption during browser approval";
 const answer = "The packaged Mac read the workspace.";
 
 export async function verifyPackagedDesktopGateway(input: {
@@ -47,6 +51,7 @@ export async function verifyPackagedDesktopGateway(input: {
   serverSecrets: string[];
   searchMarker: string;
   connector: { driveName: string; documentName: string; documentText: string };
+  browser: { title: string; tabId: number; image: Buffer; ref: string; observed: readonly string[] };
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
 }): Promise<void> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
@@ -71,13 +76,14 @@ export async function verifyPackagedDesktopGateway(input: {
   const secrets = [...input.serverSecrets, providerKey];
   const marker = `workspace-marker-${randomUUID()}`;
   const model = Fastify();
-  const modelRequests = { read: 0, interrupt: 0, aborted: false };
+  const modelRequests = { read: 0, interrupt: 0, interruptApproval: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
   let citation: string | undefined;
   let documentRef: string | undefined;
   let connectorText = "";
   let connectorPages = 0;
+  let browserStep = 0;
   model.setErrorHandler((error, _request, reply) => {
     modelFailure = error instanceof assert.AssertionError
       ? `Synthetic provider: ${error.message}`
@@ -107,8 +113,9 @@ export async function verifyPackagedDesktopGateway(input: {
       reply.raw.once("close", () => { modelRequests.aborted = true; });
       return;
     }
-    assert(text.includes(readPrompt), "unexpected input");
-    const call = ++modelRequests.read;
+    const interruptApproval = text.includes(interruptApprovalPrompt);
+    assert(interruptApproval || text.includes(readPrompt), "unexpected input");
+    const call = interruptApproval ? ++modelRequests.interruptApproval : ++modelRequests.read;
     const functions = body.tools?.find(tool => tool.type === "namespace" &&
       tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
     const callTool = (name: string, args: object, group = functions) => {
@@ -119,6 +126,11 @@ export async function verifyPackagedDesktopGateway(input: {
         namespace: group.name, arguments: JSON.stringify(args), status: "completed",
       }));
     };
+    const fixtureClick = { action: "click", tab_id: input.browser.tabId, ref: input.browser.ref };
+    if (interruptApproval) {
+      assert.equal(call, 1, "interrupted browser approval replayed the turn");
+      return callTool("browser_use", fixtureClick);
+    }
     if (call === 1) {
       assert(text.includes(input.knowledge.baseName), "selected knowledge base did not reach Codex");
       assert(body.tools?.some(tool => tool.type === "function" && tool.name === "exec_command"));
@@ -185,6 +197,44 @@ export async function verifyPackagedDesktopGateway(input: {
       assert.deepEqual(JSON.parse(search.data), [{ name: input.connector.documentName }]);
       return callTool("read", { request: documentRequest }, docs);
     }
+    if (browserStep === 1) {
+      const status = browserUseResultSchema.parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+      assert(status.ok && status.data.connected && status.data.browser === "chrome", "Mac did not see the paired browser");
+      browserStep++;
+      return callTool("browser_use", { action: "snapshot", tab_id: input.browser.tabId });
+    }
+    if (browserStep === 2) {
+      const snapshot = browserUseResultSchema.parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+      assert(snapshot.ok && snapshot.data.title === input.browser.title && snapshot.data.elements?.[0]?.ref === input.browser.ref);
+      browserStep++;
+      return callTool("browser_use", fixtureClick);
+    }
+    if (browserStep === 3) {
+      assert.match(JSON.stringify(nativeToolOutput(body.input, `fixture-call-${call - 1}`)),
+        /user cancelled MCP tool call/u, "the refused click did not return native cancellation");
+      browserStep++;
+      return callTool("browser_use", fixtureClick);
+    }
+    if (browserStep === 4) {
+      const click = browserUseResultSchema.parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+      assert(click.ok && click.data.tab_id === input.browser.tabId, "the fixture click failed");
+      browserStep++;
+      return callTool("browser_use", { action: "screenshot", tab_id: input.browser.tabId });
+    }
+    if (browserStep === 5) {
+      const output = nativeToolOutput(body.input, `fixture-call-${call - 1}`);
+      const metadata = browserUseResultSchema.parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+      assert(metadata.ok && metadata.data.tab_id === input.browser.tabId && !metadata.data.image);
+      const image = z.array(z.looseObject({ type: z.string(), image_url: z.string().optional() })).parse(output)
+        .find(item => item.type === "input_image");
+      assert(image?.image_url === `data:image/jpeg;base64,${input.browser.image.toString("base64")}`,
+        "Codex did not receive the binary screenshot through the scoped result channel");
+      assert(citation, "native knowledge search did not return a citation");
+      return reply.type("text/event-stream").send(responseStream({
+        id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
+        content: [{ type: "output_text", text: `${answer} ${citation}`, annotations: [] }],
+      }));
+    }
     assert(call <= 14, "the connector issued too many pages for the fixture");
     const page = z.object({
       data: z.string(), complete: z.boolean(), sha256: z.string(), next_byte_offset: z.number().nullable(),
@@ -199,11 +249,8 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.deepEqual(JSON.parse(connectorText), {
       documentId: "fixture-doc", title: input.connector.documentName, text: input.connector.documentText,
     });
-    assert(citation, "native knowledge search did not return a citation");
-    return reply.type("text/event-stream").send(responseStream({
-      id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
-      content: [{ type: "output_text", text: `${answer} ${citation}`, annotations: [] }],
-    }));
+    browserStep++;
+    return callTool("browser_use", { action: "status" });
   });
 
   let child: ReturnType<typeof spawn> | undefined;
@@ -240,6 +287,7 @@ export async function verifyPackagedDesktopGateway(input: {
     };
     const read = await task("Packaged Mac workspace read");
     const stop = await task("Packaged Mac interruption");
+    const stopApproval = await task("Packaged Mac browser approval interruption");
     child = spawn(binary, ["-test.run=^TestPackagedDesktopGateway$", "-test.timeout=85s"], {
       env: {
         PATH: process.env.PATH,
@@ -266,12 +314,13 @@ export async function verifyPackagedDesktopGateway(input: {
     child.stdin.write(`${JSON.stringify({
       origin: input.address, dataRoot, credential: { token: input.token, ownerId, deviceId, name: "Mac fixture" },
     })}\n`);
-    const waitFor = async (description: string, check: () => Promise<boolean>, timeout = 15_000) => {
+    const waitFor = async <T>(description: string, check: () => Promise<T | null | false>, timeout = 15_000): Promise<T> => {
       const deadline = Date.now() + timeout;
       do {
         if (modelFailure) throw new Error(modelFailure);
         if (nativeExited) throw new Error(`Mac bridge exited while waiting for ${description}`);
-        if (await check()) return;
+        const value = await check();
+        if (value !== null && value !== false) return value;
         await delay(60);
       } while (Date.now() < deadline);
       throw new Error(`Mac gateway timed out waiting for ${description}`);
@@ -282,12 +331,61 @@ export async function verifyPackagedDesktopGateway(input: {
     }, 25_000);
     const submission = (inputText: string, idempotencyKey: string) =>
       ({ inputText, idempotencyKey, submitMode: "normal" as const, priorityCapabilityIds: [] });
+    const waitForBrowserApproval = async (conversationId: string, turnId: string, action: z.infer<typeof browserUseApprovalSchema>["action"]) => {
+      const request = await waitFor(`the pending native browser approval for ${action}`, () =>
+        prisma.conversationUserInputRequest.findFirst({
+          where: { ownerId, conversationId, turnId, requestKind: "questions", status: "pending" },
+          select: { id: true, codexItemId: true, questionsJson: true },
+        }));
+      const [question] = z.tuple([conversationUserInputQuestionSchema]).parse(request.questionsJson);
+      assert(question.id.startsWith("mcp_tool_call_approval_"), "expected a native MCP tool approval");
+      const { options } = question;
+      assert(options && options.some(option => option.label === "Allow") && options.some(option => option.label === "Cancel"),
+        "native approval must offer Allow and Cancel");
+      assert(!options.some(option => option.label === "Allow for this session" || option.label === "Always allow"),
+        "native browser approval must apply only to the current action");
+      const events = await prisma.conversationEvent.findMany({
+        where: { conversationId, turnId, eventType: "item/started" },
+        select: { payloadJson: true },
+      });
+      const approvalItem = z.object({ params: z.object({
+        item: z.object({ id: z.literal(request.codexItemId), browserApproval: browserUseApprovalSchema }),
+      }) });
+      assert(events.some(({ payloadJson }) =>
+        approvalItem.safeParse(payloadJson).data?.params.item.browserApproval.action === action),
+      "the native call must identify the action before the answer is requested");
+      return { id: request.id, itemId: request.codexItemId, questionId: question.id, options };
+    };
+    const browserAuditCount = (turnId: string) => prisma.auditLog.count({
+      where: { action: "desktop_tool_requested", targetType: "browser_use", metadataJson: { path: ["turn_id"], equals: turnId } },
+    });
+    const initialBrowserCommands = input.browser.observed.length;
     const completed = await conversations.acceptTurn(ownerId, read.id, {
       ...submission(readPrompt, "desktop-read"), knowledgeBaseIds: [input.knowledge.baseId],
     }, {});
     const status = async (id: string) =>
       (await prisma.conversationTurn.findUnique({ where: { id }, select: { status: true } }))?.status;
     try {
+      const approvals = [
+        { action: "status", choice: "Allow", audits: 0, commands: [] },
+        { action: "snapshot", choice: "Allow", audits: 1, commands: [] },
+        { action: "click", choice: "Cancel", audits: 2, commands: ["snapshot"] },
+        { action: "click", choice: "Allow", audits: 2, commands: ["snapshot"] },
+        { action: "screenshot", choice: "Allow", audits: 3, commands: ["snapshot", "click"] },
+      ] as const;
+      for (const [index, { action, choice, audits, commands }] of approvals.entries()) {
+        const request = await waitForBrowserApproval(read.id, completed.turn_id, action);
+        assert.equal(browserStep, index + 1);
+        assert.equal(request.itemId, `fixture-call-${modelRequests.read}`);
+        assert.equal(await browserAuditCount(completed.turn_id), audits, `${action} reached the gateway before approval`);
+        assert.deepEqual(input.browser.observed.slice(initialBrowserCommands), commands, `${action} reached the extension before approval`);
+        const selected = request.options.find(option => option.label === choice);
+        assert(selected, `native approval did not offer ${choice}`);
+        const response = await conversations.respondToUserInputRequest(ownerId, read.id, request.id, {
+          action: "accept", content: { [request.questionId]: selected.label },
+        }, {});
+        assert.equal(response.status, "answered");
+      }
       await waitFor("completed workspace read and slot release", async () =>
         await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
       );
@@ -310,7 +408,9 @@ export async function verifyPackagedDesktopGateway(input: {
         { cause: error },
       );
     }
-    assert.equal(modelRequests.read, 8 + connectorPages);
+    assert.equal(modelRequests.read, 13 + connectorPages);
+    assert.equal(await browserAuditCount(completed.turn_id), 4);
+    assert.deepEqual(input.browser.observed.slice(initialBrowserCommands), ["snapshot", "click", "screenshot"]);
     const readHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
     assert(readHistory.items.some(event => event.event_type === "item/completed" &&
       JSON.stringify(event.payload).includes("commandExecution") && event.turn_id === completed.turn_id));
@@ -327,6 +427,28 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.deepEqual(citations, [{
       knowledgeBaseId: input.knowledge.baseId, documentNameSnapshot: input.knowledge.documentName, citationNo: 1,
     }]);
+
+    const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
+      submission(interruptApprovalPrompt, "desktop-interrupt-approval"), {});
+    const unanswered = await waitForBrowserApproval(stopApproval.id, pendingApproval.turn_id, "click");
+    assert.equal(unanswered.itemId, "fixture-call-1");
+    assert.equal(await browserAuditCount(pendingApproval.turn_id), 0);
+    const stoppedApproval = await conversations.interrupt(ownerId, stopApproval.id, pendingApproval.turn_id, {});
+    assert.equal(stoppedApproval.code, RUNNER_TURN_INTERRUPT_REQUESTED);
+    await waitFor("native interruption during browser approval and slot release", async () =>
+      await status(pendingApproval.turn_id) === "interrupted" &&
+      !await redis.hasTurnSlot(stopApproval.id, pendingApproval.turn_id, ownerId));
+    const cleared = await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: unanswered.id }, select: { status: true, resolvedAt: true },
+    });
+    assert(cleared.resolvedAt && (cleared.status === "cancelled" || cleared.status === "expired"),
+      "native interruption left an open approval");
+    await assert.rejects(conversations.respondToUserInputRequest(ownerId, stopApproval.id, unanswered.id, {
+      action: "accept", content: { [unanswered.questionId]: "Allow" },
+    }, {}), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    assert.equal(await browserAuditCount(pendingApproval.turn_id), 0);
+    assert.deepEqual(input.browser.observed.slice(initialBrowserCommands), ["snapshot", "click", "screenshot"]);
+    assert.equal(modelRequests.interruptApproval, 1);
 
     const stopRequest = submission(interruptPrompt, "desktop-interrupt");
     const pending = await conversations.acceptTurn(ownerId, stop.id, stopRequest, {});
@@ -353,7 +475,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: local Shell, scoped web, knowledge, and connector tools, citations, interrupt, and start idempotency.");
+    console.log("Packaged Mac gateway passed: local Shell, scoped web, knowledge, connectors, browser screenshot and native approval, citations, interrupt, and start idempotency.");
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();
@@ -366,17 +488,21 @@ export async function verifyPackagedDesktopGateway(input: {
   }
 }
 
-function toolOutput(input: unknown, callId: string): unknown {
+function nativeToolOutput(input: unknown, callId: string): unknown {
   const item = z.looseObject({ type: z.string(), call_id: z.string().optional(), output: z.unknown().optional() });
   const match = z.array(item).parse(input).find(entry =>
     entry.type === "function_call_output" && entry.call_id === callId,
   );
   assert(match, "native tool output missing");
+  return match.output;
+}
+
+function toolOutput(input: unknown, callId: string): unknown {
   const textItem = z.object({ type: z.literal("input_text"), text: z.string() });
   const [, payload] = z.tuple([
     textItem.extend({ text: z.string().regex(/^Wall time: \d+(?:\.\d+)? seconds\nOutput:$/u) }),
     textItem,
-  ]).parse(match.output);
+  ]).rest(z.unknown()).parse(nativeToolOutput(input, callId));
   return JSON.parse(payload.text);
 }
 

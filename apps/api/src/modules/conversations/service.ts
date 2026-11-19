@@ -6091,6 +6091,7 @@ export class ConversationService {
       nativeRequestId: bigint | null;
       requestKind: string;
       questionsJson: unknown;
+      desktop?: { turnId: string; runtimeGeneration: string };
     };
     try {
       request = await this.prisma.$transaction(async (tx) => {
@@ -6114,6 +6115,7 @@ export class ConversationService {
           !conversation ||
           !turn ||
           turn.status !== "running" ||
+          (conversation.executionTarget === "local" && turn.interruptRequestedAt !== null) ||
           turn.conversationId !== conversationId ||
           conversation.codexThreadId !== stored.codexThreadId ||
           turn.codexThreadId !== stored.codexThreadId ||
@@ -6132,7 +6134,12 @@ export class ConversationService {
         if (claimed.count !== 1) {
           throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
         }
-        return stored;
+        return {
+          ...stored,
+          ...(conversation.executionTarget === "local" && {
+            desktop: { turnId: turn.id, runtimeGeneration: conversation.runtimeGeneration },
+          }),
+        };
       });
     } finally {
       await this.redis
@@ -6152,8 +6159,11 @@ export class ConversationService {
         codexTurnId: request.codexTurnId,
         itemId: request.codexItemId,
         response,
+        ...(request.desktop && { desktop: request.desktop }),
       });
     } catch (error) {
+      // The answer may have arrived. Native resolution or turn termination will settle it.
+      if (request.desktop && error instanceof AppError && error.code === "RUNNER_OPERATION_UNCERTAIN") throw error;
       await this.prisma.conversationUserInputRequest.updateMany({
         where: { id: request.id, status: "answering" },
         data:
@@ -6178,7 +6188,14 @@ export class ConversationService {
       response.action === "accept" ? "answered" : "cancelled";
     const result = await this.prisma.$transaction(async (tx) => {
       const completed = await tx.conversationUserInputRequest.updateMany({
-        where: { id: request.id, status: "answering" },
+        where: {
+          id: request.id,
+          ...(request.desktop ? {
+            // Native prompt closure may arrive before the submission receipt. Never undo a terminal cancellation.
+            status: { in: ["answering", "expired"] },
+            resolvedAction: response.action,
+          } : { status: "answering" }),
+        },
         data: {
           status: terminalStatus,
           resolvedAction: response.action,

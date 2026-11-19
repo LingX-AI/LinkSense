@@ -6,9 +6,10 @@ import { AppError } from "../../lib/errors.js";
 import type { AppServices } from "../../services.js";
 import type { ConnectionService } from "../connections/service.js";
 import { isDesktopRunActive } from "../desktop-credentials/run-authority.js";
-import { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
+import type { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import type { RedisDesktopDeviceCoordinator } from "./coordinator.js";
+import { registerDesktopBrowserScreenshotRoute, type DesktopBrowserUse } from "./browser-use.js";
 import { assertDesktopKnowledgeAssetCurrent } from "./knowledge-publication.js";
 import { executeDesktopTool } from "./tool-requests.js";
 
@@ -19,28 +20,36 @@ type ExecutionServices = Pick<AppServices,
 
 export async function registerDesktopExecution(
   app: FastifyInstance,
-  services: ExecutionServices & { connections?: Pick<ConnectionService, "executeScoped"> },
+  services: ExecutionServices & {
+    connections?: Pick<ConnectionService, "executeScoped">;
+    browserUse?: DesktopBrowserUse;
+  },
   coordinator: RedisDesktopDeviceCoordinator,
+  leases: DesktopRunLeases,
 ): Promise<DesktopDeviceTransport | undefined> {
   const { config, prisma, redis } = services;
   if (!config.desktopLocalExecutionEnabled) return undefined;
-  const leases = new DesktopRunLeases(redis.client, (scope, phase) => isDesktopRunActive(prisma, coordinator, scope, phase));
   const turnScope = (frame: Pick<DesktopExecutionCommand, "conversation_id" | "turn_id" | "runtime_generation">) => ({
     conversationId: frame.conversation_id,
     turnId: frame.turn_id,
     runtimeGeneration: frame.runtime_generation,
   });
-  const transport = new DesktopDeviceTransport(redis.client, (binding, command) =>
-    isDesktopRunActive(prisma, coordinator, {
-      ...binding, ownerId: command.owner_id, ...turnScope(command),
-    }, command.operation === "turn.start" ? "issue" : "settle"),
+  const transport = new DesktopDeviceTransport(redis.client, (binding, command) => {
+    const scope = {
+      deviceId: binding.deviceId, connectionId: binding.connectionId, ownerId: command.owner_id, ...turnScope(command),
+    };
+    return command.operation === "user-input.respond"
+      ? leases.isActiveToolScope(scope)
+      : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
+  },
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
-    async ({ ownerId, ...binding }, frame, signal) => {
+    async ({ ownerId, toolOperations, ...binding }, frame, signal) => {
       const scope = { ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId, ...turnScope(frame) };
       if (frame.type === "tool.request") {
         return executeDesktopTool({
           leases, audit: services.audit, webSearchSettings: services.webSearchSettings, knowledgeSearch: services.knowledgeSearch,
           ...(services.connections ? { connections: services.connections } : {}),
+          ...(services.browserUse ? { browserUse: services.browserUse } : {}),
           checkPublication: async (tx, source) => {
             signal.throwIfAborted();
             await assertDesktopKnowledgeAssetCurrent(prisma, tx, scope, source);
@@ -75,7 +84,8 @@ export async function registerDesktopExecution(
         await services.events.scheduleDesktopRecovery({ ...binding, projectionTurnId });
         return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true };
       }
-      const accepted = await services.events.ingestDesktopBatch({ scope, check }, frame.body, (error, deliveryId) => {
+      const questions = frame.type === "execution.callback" && toolOperations.includes("browser.execute");
+      const accepted = await services.events.ingestDesktopBatch({ scope, check, questions }, frame.body, (error, deliveryId) => {
         app.log.warn({ deliveryId, errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR" }, "desktop event batch stopped before acknowledgement");
       });
       return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true, data: { accepted_delivery_ids: accepted } };
@@ -95,5 +105,6 @@ export async function registerDesktopExecution(
     redis: redis.client,
     rateLimitSecret: config.loginRateLimitHmacSecret,
   });
+  if (services.browserUse) registerDesktopBrowserScreenshotRoute(app, services.browserUse, leases);
   return transport;
 }

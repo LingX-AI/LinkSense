@@ -6,6 +6,9 @@ export class MemoryBrowserStore implements BrowserStore {
     const stored = this.values.get(key);
     return stored && stored.until > Date.now() ? stored.value : null;
   }
+  getMany(...keys: string[]): Promise<Array<string | null>> {
+    return Promise.all(keys.map(key => this.get(key)));
+  }
   async put(
     key: string,
     value: string,
@@ -27,9 +30,10 @@ export class MemoryBrowserStore implements BrowserStore {
     ttl: number,
     guard: string,
     expected: string,
+    exclusive = false,
   ): Promise<boolean> {
     if ((await this.get(guard)) !== expected) return false;
-    return this.put(key, value, ttl);
+    return this.put(key, value, ttl, exclusive);
   }
   async takeIf(
     key: string,

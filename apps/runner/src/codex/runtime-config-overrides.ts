@@ -1,4 +1,5 @@
 import {
+  browserUseToolName,
   conversationFormToolTimeoutSeconds,
   coreMcpServerKey,
   managedBrowserMcpServerKey,
@@ -143,6 +144,8 @@ export function builtInMcpConfigOverrides(input: {
   args: string[];
   managedBrowserArgs?: string[];
   knowledgeSearchTimeoutMs?: number;
+  disableBrowserUse?: boolean;
+  promptForBrowserUse?: boolean;
 }): string[] {
   const knowledgeSearchTimeouts = deriveKnowledgeSearchTimeouts(
     input.knowledgeSearchTimeoutMs ?? DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -162,6 +165,8 @@ export function builtInMcpConfigOverrides(input: {
     `${corePrefix}.required=false`,
     `${corePrefix}.startup_timeout_sec=10`,
     `${corePrefix}.tool_timeout_sec=${String(coreToolTimeoutSeconds)}`,
+    ...(input.disableBrowserUse ? [`${corePrefix}.disabled_tools=${JSON.stringify([browserUseToolName])}`] : []),
+    ...(input.promptForBrowserUse ? [`${corePrefix}.tools.${browserUseToolName}.approval_mode="prompt"`] : []),
     ...(input.managedBrowserArgs
       ? [
           `${managedBrowserPrefix}.command=${JSON.stringify(input.command)}`,

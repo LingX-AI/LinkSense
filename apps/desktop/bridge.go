@@ -126,7 +126,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
-		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute")
+		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute")
 	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,

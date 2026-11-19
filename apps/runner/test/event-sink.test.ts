@@ -36,6 +36,19 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("keeps a desktop browser mutation with no confirmed receipt nonretryable", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ error_code: "RUNNER_OPERATION_UNCERTAIN" }, { status: 503 }),
+    );
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
+      fetch: fetchMock, desktopOutboxScope: { generation: ownerId, turnId: conversationId },
+    });
+    await expect(sink.browserUse({ conversationId, turnId: conversationId, input: { action: "click", tab_id: 1, ref: "button" } }))
+      .resolves.toMatchObject({ ok: false, code: "RUNNER_OPERATION_UNCERTAIN", retryable: false });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("delivers a bounded multibyte final answer before native completion on desktop", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const batches: ReturnType<typeof runnerEventBatchSchema.parse>[] = [];

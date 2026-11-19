@@ -346,8 +346,11 @@ export async function registerBrowserUseRoutes(
             socket.close(4403);
             break;
           }
-          socket.send(JSON.stringify(command));
-          inFlight = command.id;
+          // A cancelled request can disappear while the extension principal is checked.
+          if (await service.activeCommand(owner, connection) === command.id) {
+            socket.send(JSON.stringify(command));
+            inFlight = command.id;
+          }
         }
         await delay(250);
       }

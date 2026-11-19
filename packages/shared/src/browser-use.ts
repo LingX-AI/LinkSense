@@ -86,6 +86,17 @@ export const browserUseRequestSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("open_site"), site_id: z.uuid() }),
 ]);
 export type BrowserUseRequest = z.infer<typeof browserUseRequestSchema>;
+export const browserUseActionSchema = z.enum(
+  browserUseRequestSchema.options.flatMap(({ shape: { action } }) =>
+    action instanceof z.ZodEnum ? action.options : [action.value],
+  ),
+);
+export const browserUseApprovalSchema = z.strictObject({
+  action: browserUseActionSchema,
+  tab_id: tabId.optional(),
+  destination_host: z.string().min(1).max(260).regex(/^[a-z0-9.:[\]-]+$/iu).optional(),
+});
+export type BrowserUseApproval = z.infer<typeof browserUseApprovalSchema>;
 export function browserUseReadOnly(request: BrowserUseRequest): boolean {
   return ["status", "tabs", "snapshot", "screenshot"].includes(request.action);
 }
@@ -98,6 +109,8 @@ export const browserUseFailureCodes = [
   "BROWSER_USE_TIMEOUT",
   "BROWSER_USE_CANCELLED",
   "BROWSER_USE_COMMAND_FAILED",
+  "BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED",
+  "RUNNER_OPERATION_UNCERTAIN",
 ] as const;
 const legacyFailureCodes = {
   BROWSER_USE_NOT_CONNECTED: "LOCAL_BROWSER_NOT_CONNECTED",
@@ -164,9 +177,24 @@ export const browserUseResultSchema = z.discriminatedUnion("ok", [
   }),
 ]);
 export type BrowserUseResult = z.infer<typeof browserUseResultSchema>;
+// The desktop relay carries screenshot metadata; only the scoped download carries bytes.
+export const desktopBrowserScreenshotMaxBytes = 3_000_000;
+export const desktopBrowserScreenshotPath = "/api/v1/desktop/browser-screenshots";
+export const desktopBrowserScreenshotParamsSchema = z.strictObject({ turnId: z.uuid(), screenshotId: z.uuid() });
+export const desktopBrowserUseResultSchema = z.strictObject({
+  result: z.discriminatedUnion("ok", [
+    browserUseResultSchema.options[0].extend({ data: browserUseDataSchema.omit({ image: true }) }),
+    browserUseResultSchema.options[1],
+  ]),
+  screenshot_id: z.uuid().optional(),
+}).refine(({ result, screenshot_id }) => !screenshot_id || (result.ok && result.data.mime_type === "image/jpeg"));
+export type DesktopBrowserUseResult = z.infer<typeof desktopBrowserUseResultSchema>;
 // Keep the installed extension/server protocol stable while normalizing internally.
 export function browserUseLegacyResult(result: BrowserUseResult) {
-  return result.ok ? result : { ...result, code: legacyFailureCodes[result.code] };
+  if (result.ok) return result;
+  const { code } = result;
+  return { ...result, code: code === "RUNNER_OPERATION_UNCERTAIN" || code === "BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED"
+    ? legacyFailureCodes.BROWSER_USE_COMMAND_FAILED : legacyFailureCodes[code] };
 }
 export function browserUseFailure(
   code: (typeof browserUseFailureCodes)[number],

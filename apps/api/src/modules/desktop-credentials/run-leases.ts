@@ -19,7 +19,7 @@ import { desktopNoticeChannel, type DesktopNotice } from "../desktop-devices/not
 
 const leaseTtlMs = 10 * 60 * 1000;
 const runIdSchema = z.uuid().transform(value => value.toLowerCase());
-const scopeSchema = z.strictObject({
+export const desktopRunScopeSchema = z.strictObject({
   ownerId: runIdSchema,
   deviceId: runIdSchema,
   connectionId: runIdSchema,
@@ -29,7 +29,7 @@ const scopeSchema = z.strictObject({
 });
 const credentialHash = z.string().regex(/^[a-f0-9]{64}$/u);
 const storedLeaseSchema = z.strictObject({
-  scope: scopeSchema,
+  scope: desktopRunScopeSchema,
   expiresAt: z.number().int().positive(),
   runHash: credentialHash,
   models: z.partialRecord(desktopModelPurposeSchema, z.strictObject({
@@ -41,7 +41,7 @@ const storedLeaseSchema = z.strictObject({
   })),
 });
 
-export type DesktopRunScope = z.infer<typeof scopeSchema>;
+export type DesktopRunScope = z.infer<typeof desktopRunScopeSchema>;
 type StoredLease = z.infer<typeof storedLeaseSchema>;
 type ModelGrant = NonNullable<StoredLease["models"][DesktopModelPurpose]>;
 type StartModels = Pick<RunnerStartInput,
@@ -62,7 +62,7 @@ export class DesktopRunLeases {
     binding: Pick<DesktopRunScope, "deviceId" | "connectionId">,
     input: StartModels,
   ): Promise<DesktopRunCredentials> {
-    const scope = scopeSchema.parse({
+    const scope = desktopRunScopeSchema.parse({
       ownerId: input.ownerId,
       deviceId: binding.deviceId,
       connectionId: binding.connectionId,
@@ -153,12 +153,29 @@ export class DesktopRunLeases {
 
   /** Verifies the binding; the device gateway must still authorize the specific operation. */
   async verifyRunBinding(scope: DesktopRunScope, token: string, phase: "use" | "settle" = "settle"): Promise<void> {
-    scope = scopeSchema.parse(scope);
+    scope = desktopRunScopeSchema.parse(scope);
     if (!desktopRunTokenSchema.safeParse(token).success) throw new AppError("AUTH_REQUIRED");
     await this.authorize(scope.turnId, lease =>
       matchesScope(lease.scope, scope) && tokenMatches(token, lease.runHash),
       phase,
     );
+  }
+
+  /** Authenticates a short-lived result read outside the device socket. */
+  async authorizeToolResult(turnId: string, token: string): Promise<DesktopRunScope> {
+    if (!desktopRunTokenSchema.safeParse(token).success) throw new AppError("AUTH_REQUIRED");
+    return (await this.authorize(turnId, lease => tokenMatches(token, lease.runHash))).scope;
+  }
+
+  async isActiveToolScope(scope: DesktopRunScope): Promise<boolean> {
+    const expected = desktopRunScopeSchema.parse(scope);
+    try {
+      await this.authorize(expected.turnId, lease => matchesScope(expected, lease.scope));
+      return true;
+    } catch (error) {
+      if (error instanceof AppError && error.code === "AUTH_REQUIRED") return false;
+      throw error;
+    }
   }
 
   /** Use only while the corresponding database authority is locked. */
@@ -176,7 +193,7 @@ export class DesktopRunLeases {
   }
 
   async renew(scope: DesktopRunScope): Promise<number> {
-    scope = scopeSchema.parse(scope);
+    scope = desktopRunScopeSchema.parse(scope);
     const leaseKey = key(scope.turnId);
     const raw = await this.redis.get(leaseKey);
     const lease = parseLease(raw);

@@ -11,6 +11,7 @@ export type CoreMcpModuleContext = {
 export type CoreMcpToolCall = {
   toolName: string
   argumentsValue: unknown
+  nativeCallId?: string
   signal: AbortSignal
 }
 

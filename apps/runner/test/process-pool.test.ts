@@ -109,6 +109,29 @@ describe("AppServerProcessPool", () => {
       await pool.closeAll();
     }
   });
+  it("rejects desktop screenshots before dispatch when the model bridge only supports text tool results", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-browser-model-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    input.modelProvider = { ...input.modelProvider, protocolMode: "chat_completions_bridge" };
+    try {
+      await pool.startTurn(input);
+      const token = controlled.environment?.LINKSENSE_CURRENT_USER_TOKEN;
+      if (!token) throw new Error("Missing fixture token");
+      const signal = new AbortController().signal;
+      await expect(pool.browserUse(input.conversationId, token, { action: "screenshot", tab_id: 1 }, signal))
+        .resolves.toMatchObject({ ok: false, code: "BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED" });
+      expect(eventSink.browserUse).not.toHaveBeenCalled();
+      await pool.browserUse(input.conversationId, token, { action: "snapshot", tab_id: 1 }, signal);
+      expect(eventSink.browserUse).toHaveBeenCalledOnce();
+    } finally {
+      await pool.closeAll();
+    }
+  });
   it("passes the dedicated extraction route without changing the task or consolidation model", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-memory-model-"));
     roots.push(root);
@@ -2309,6 +2332,91 @@ trust_level = "trusted"
       '"answers"',
     );
     await pool.closeAll();
+  });
+
+  it.each(["confirmed", "pipe error", "interrupted", "process exit"] as const)("settles a Mac answer only with matching native confirmation (%s)", async (outcome) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-answer-"));
+    roots.push(root);
+    let finishWrite: ((error?: Error) => void) | undefined;
+    const controlled = createControlledAppServer({
+      turnStartNotification: "before-response",
+      holdUserInputWrite: finish => { finishWrite = finish; },
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      const nativeItem = {
+        type: "mcpToolCall", id: "approval-item", server: "linksense_core",
+        tool: "browser_use", status: "inProgress", arguments: { action: "status" },
+      };
+      controlled.notify({
+        method: "item/started",
+        params: { threadId: "thread-native-1", turnId: "turn-native-1", item: nativeItem },
+      });
+      controlled.notify({
+        id: 77, method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1", itemId: "approval-item",
+          questions: [{ id: "approval", header: "Approval", question: "Continue?", isOther: false, isSecret: false,
+            options: [{ label: "Allow", description: "" }, { label: "Cancel", description: "" }] }],
+          isBlocking: true, autoResolutionMs: null,
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/tool/requestUserInput" }),
+      ));
+      const answer = () => pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1", itemId: "approval-item",
+        response: { action: "accept", content: { approval: "Allow" } },
+      });
+      const response = answer();
+      const delivered = vi.fn();
+      void response.then(delivered, () => {});
+      await waitForFast(() => expect(finishWrite).toBeDefined());
+      expect(delivered).not.toHaveBeenCalled();
+      const finish = finishWrite;
+      finishWrite = undefined;
+      if (!finish) throw new Error("Native write did not start");
+      if (outcome === "pipe error") {
+        finish(new Error("fixture pipe closed"));
+        await expect(response).rejects.toThrow("app-server answer unconfirmed");
+        expect(controlled.requests.filter(request => request.id === 77 && "result" in request)).toHaveLength(0);
+      } else {
+        const interrupt = outcome === "interrupted" ? pool.interrupt(input.conversationId, "turn-native-1") : null;
+        void interrupt?.catch(() => {});
+        finish();
+        await waitForFast(() => expect(controlled.requests.filter(request => request.id === 77 && "result" in request)).toHaveLength(1));
+        const resolved = (requestId: number) => ({
+          method: "serverRequest/resolved", params: { threadId: "thread-native-1", requestId },
+        });
+        controlled.notify(resolved(77));
+        await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+          input.conversationId, expect.objectContaining(resolved(77)),
+        ));
+        expect(delivered).not.toHaveBeenCalled();
+        const token = controlled.environment?.LINKSENSE_CURRENT_USER_TOKEN;
+        if (!token) throw new Error("Missing fixture token");
+        const signal = new AbortController().signal;
+        await pool.browserUse(input.conversationId, token, { action: "status" }, signal, "other-item");
+        expect(delivered).not.toHaveBeenCalled();
+        if (outcome === "confirmed") {
+          await pool.browserUse(input.conversationId, token, { action: "status" }, signal, "approval-item");
+          await expect(response).resolves.toEqual({ accepted: true });
+        } else {
+          if (outcome === "process exit") controlled.exit(1);
+          await expect(response).rejects.toThrow("app-server answer unconfirmed");
+        }
+        if (interrupt) await expect(interrupt).resolves.toBe("requested");
+      }
+      await expect(answer()).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+    } finally {
+      finishWrite?.();
+      await pool.closeAll();
+    }
   });
 
   it("keeps Plan mode available without exposing a disabled managed browser runtime", async () => {
@@ -12110,6 +12218,7 @@ function createStartOperationPool(
     globalFeatureOverrides?: readonly string[];
     managedBrowserEnabled?: boolean;
     desktopWorkspace?: boolean;
+    desktopBrowserEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
@@ -12147,6 +12256,7 @@ function createStartOperationPool(
     searchWeb: vi.fn(async () => ({})),
     manageAutomation: vi.fn(async () => ({})),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
+    browserUse: vi.fn<NonNullable<RunnerEventSink["browserUse"]>>(async () => ({ ok: true, browser: "local", data: {} })),
     alignConversationThread: vi.fn(async () => undefined),
   } satisfies RunnerEventSink;
   const capabilityRuntimeManager =
@@ -12156,6 +12266,7 @@ function createStartOperationPool(
   const modelGateway = overrides.modelGateway ?? createModelGatewayMock();
   const pool = new AppServerProcessPool({
     ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
+    ...(overrides.desktopBrowserEnabled ? { desktopBrowserEnabled: true } : {}),
     command: "codex",
     model: "test-model",
     ...(overrides.modelCatalog
@@ -12464,6 +12575,7 @@ function createControlledAppServer(
     threadForkTurnsByCall?: CodexTurn[][];
     rejectUnmaterializedThreadRead?: boolean;
     ignoreKill?: boolean;
+    holdUserInputWrite?: (finish: (error?: Error) => void) => void;
   } = {},
 ): {
   factory: ChildProcessFactory;
@@ -12517,7 +12629,13 @@ function createControlledAppServer(
       state.args = [...args];
       const child = new EventEmitter() as EventEmitter &
         Partial<ChildProcessWithoutNullStreams>;
-      const stdin = new PassThrough();
+      const stdin = new PassThrough({
+        transform(chunk: Buffer, _encoding, done) {
+          if (options.holdUserInputWrite && chunk.includes('"result":{"answers":')) {
+            options.holdUserInputWrite(error => done(error, error ? undefined : chunk));
+          } else done(null, chunk);
+        },
+      });
       const stdout = new PassThrough();
       const stderr = new PassThrough();
       state.child = child;

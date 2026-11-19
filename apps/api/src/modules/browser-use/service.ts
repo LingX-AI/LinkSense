@@ -5,12 +5,16 @@ import {
   browserUseCommandSchema,
   browserUseOpenSiteCapability,
   browserUseFailure,
+  browserUseReadOnly,
   browserUseReplySchema,
   type BrowserUseCommand,
   type BrowserUseExtensionRequest,
   type BrowserUseResult,
 } from "@linksense/shared";
+import type { AppConfig } from "../../config.js";
+import { decryptJson, encryptJson } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
+import { desktopRunScopeSchema, type DesktopRunScope } from "../desktop-credentials/run-leases.js";
 import type { BrowserStore } from "./store.js";
 
 const ttl = 45_000;
@@ -34,14 +38,23 @@ const key = (owner: string, part: string) => `local-browser:${owner}:${part}`;
 // Pre-upgrade replicas cannot parse site-window jobs in the legacy mailbox.
 const siteWindowJobKey = (owner: string, connectionId: string, part: "command" | "request") =>
   key(owner, `site-window:${connectionId}:${part}`);
+const desktopJobKey = (owner: string, part: "command" | "request") => key(owner, `desktop:${part}`);
+const desktopReplyKey = (owner: string, id: string) => key(owner, `desktop:reply:${id}`);
+const desktopJobSchema = z.strictObject({ command: browserUseCommandSchema, scope: desktopRunScopeSchema });
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export type BrowserCredential = z.infer<typeof credentialSchema>;
+type DesktopBrowserMailbox = Pick<AppConfig, "credentialMasterKey" | "credentialKeyId"> & {
+  isActiveRun: (scope: DesktopRunScope) => Promise<boolean>;
+};
+type PendingMarker = { key: string; expected: string };
+type PendingCommand = { command: BrowserUseCommand; desktopMarker?: PendingMarker };
 
 export class BrowserUseService {
   constructor(
     readonly store: BrowserStore,
     readonly endpoint: string,
+    private readonly desktopMailbox?: DesktopBrowserMailbox,
   ) {}
 
   async pairing(
@@ -122,8 +135,10 @@ export class BrowserUseService {
       await this.store.remove(`local-browser:credential:${hash}`);
     }
     await this.store.remove(key(owner, "connection"));
-    await this.store.remove(key(owner, "command"));
     await this.store.remove(key(owner, "request"));
+    await this.store.remove(key(owner, "command"));
+    await this.store.remove(desktopJobKey(owner, "request"));
+    await this.store.remove(desktopJobKey(owner, "command"));
   }
 
   async wasRevoked(token: string): Promise<boolean> {
@@ -169,21 +184,22 @@ export class BrowserUseService {
     browser?: "chrome" | "edge";
     connection_id?: string;
   }> {
-    const value = await this.store.get(key(owner, "connection"));
-    if (!value) return { connected: false };
-    const connection = connectionSchema.parse(JSON.parse(value));
-    if (connection.approval_id && await this.store.get(key(owner, "approval")) !== connection.approval_id)
-      return { connected: false };
-    if (
-      (await this.store.get(key(owner, "credential"))) !==
-      connection.credential_hash
-    )
-      return { connected: false };
-    return {
+    const connection = await this.currentConnection(owner);
+    return connection ? {
       connected: true,
       browser: connection.browser,
       connection_id: connection.id,
-    };
+    } : { connected: false };
+  }
+
+  private async currentConnection(owner: string, marker?: PendingMarker): Promise<z.infer<typeof connectionSchema> | null> {
+    const [value, credential, approval, pending] = await this.store.getMany(
+      key(owner, "connection"), key(owner, "credential"), key(owner, "approval"), ...(marker ? [marker.key] : []),
+    );
+    if (!value || (marker && pending !== marker.expected)) return null;
+    const connection = connectionSchema.parse(JSON.parse(value));
+    return credential === connection.credential_hash && (!connection.approval_id || approval === connection.approval_id)
+      ? connection : null;
   }
 
   async maintain(owner: string, connectionId: string): Promise<boolean> {
@@ -234,29 +250,46 @@ export class BrowserUseService {
       key(owner, "connection"),
       current,
     );
-    if (!value) return null;
-    const command = browserUseCommandSchema.parse(JSON.parse(value));
-    if (
-      command.connection_id !== connectionId ||
-      command.expires_at <= Date.now()
-    )
-      return null;
-    return command;
+    if (value) {
+      const command = browserUseCommandSchema.parse(JSON.parse(value));
+      return isCurrentCommand(command, connectionId) ? command : null;
+    }
+    const mailbox = this.desktopMailbox;
+    if (!mailbox) return null;
+    const commandKey = desktopJobKey(owner, "command");
+    const encrypted = await this.store.get(commandKey);
+    if (!encrypted) return null;
+    const { command } = desktopJobSchema.parse(decryptJson<unknown>(encrypted,
+      mailbox.credentialMasterKey, mailbox.credentialKeyId, commandKey));
+    if (await this.activeCommand(owner, connectionId) !== command.id) return null;
+    return await this.store.takeIf(commandKey, commandKey, encrypted) ? command : null;
   }
 
-  private async pendingCommand(owner: string, connectionId: string): Promise<BrowserUseCommand | null> {
+  private async pendingCommand(owner: string, connectionId: string): Promise<PendingCommand | null> {
     if ((await this.status(owner)).connection_id !== connectionId) return null;
     const value = await this.store.get(key(owner, "request")) ??
       await this.store.get(siteWindowJobKey(owner, connectionId, "request"));
-    if (!value) return null;
-    const command = browserUseCommandSchema.parse(JSON.parse(value));
-    return command.connection_id === connectionId && command.expires_at > Date.now()
-      ? command
-      : null;
+    if (value) {
+      const command = browserUseCommandSchema.parse(JSON.parse(value));
+      return isCurrentCommand(command, connectionId) ? { command } : null;
+    }
+    const mailbox = this.desktopMailbox;
+    if (!mailbox) return null;
+    const requestKey = desktopJobKey(owner, "request");
+    const encrypted = await this.store.get(requestKey);
+    if (!encrypted) return null;
+    const { command, scope } = desktopJobSchema.parse(decryptJson<unknown>(encrypted,
+      mailbox.credentialMasterKey, mailbox.credentialKeyId, requestKey));
+    if (!isCurrentCommand(command, connectionId) || scope.ownerId !== owner || scope.conversationId !== command.conversation_id ||
+      !await mailbox.isActiveRun(scope)) return null;
+    const desktopMarker = { key: requestKey, expected: encrypted };
+    if ((await this.currentConnection(owner, desktopMarker))?.id !== connectionId || !isCurrentCommand(command, connectionId))
+      return null;
+    return { command, desktopMarker };
   }
 
   async activeCommand(owner: string, connectionId: string): Promise<string | null> {
-    return (await this.pendingCommand(owner, connectionId))?.id ?? null;
+    return (await this.pendingCommand(owner, connectionId))?.command.id ?? null;
   }
 
   async reply(
@@ -265,8 +298,15 @@ export class BrowserUseService {
     body: unknown,
   ): Promise<void> {
     const reply = browserUseReplySchema.parse(body);
-    const command = await this.pendingCommand(owner, connectionId);
-    if (command?.id !== reply.id) return;
+    const pending = await this.pendingCommand(owner, connectionId);
+    if (pending?.command.id !== reply.id) return;
+    if (pending.desktopMarker && this.desktopMailbox) {
+      const replyKey = desktopReplyKey(owner, reply.id);
+      const { credentialMasterKey, credentialKeyId } = this.desktopMailbox;
+      await this.store.putIf(replyKey, encryptJson(reply.result, credentialMasterKey, credentialKeyId, replyKey), ttl,
+        pending.desktopMarker.key, pending.desktopMarker.expected, true);
+      return;
+    }
     await this.store.put(
       key(owner, `reply:${reply.id}`),
       JSON.stringify(reply.result),
@@ -280,8 +320,13 @@ export class BrowserUseService {
     conversationId: string,
     request: BrowserUseExtensionRequest,
     signal?: AbortSignal,
+    desktop?: { connectionId: string; scope: DesktopRunScope; checkRun: () => Promise<void> },
   ): Promise<BrowserUseResult> {
+    const mailbox = desktop ? this.desktopMailbox : undefined;
+    if (desktop && !mailbox) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
     const status = await this.status(owner);
+    if (desktop && status.connection_id !== desktop.connectionId)
+      return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
     if (request.action === "status")
       return { ok: true, browser: "local", data: status };
     if (!status.connection_id)
@@ -290,6 +335,7 @@ export class BrowserUseService {
       if (await this.store.get(key(owner, `site-window:${status.connection_id}`)) !== browserUseOpenSiteCapability)
         return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
     }
+    await desktop?.checkRun();
     const id = randomUUID();
     if (!(await this.store.put(key(owner, "lock"), id, ttl, true)))
       return browserUseFailure("BROWSER_USE_BUSY");
@@ -300,40 +346,104 @@ export class BrowserUseService {
       expires_at: Date.now() + 30_000,
       request,
     };
-    const encoded = JSON.stringify(command);
-    const commandKey = request.action === "open_site_window"
+    const commandKey = desktop ? desktopJobKey(owner, "command") : request.action === "open_site_window"
       ? siteWindowJobKey(owner, command.connection_id, "command")
       : key(owner, "command");
-    const requestKey = request.action === "open_site_window"
+    const requestKey = desktop ? desktopJobKey(owner, "request") : request.action === "open_site_window"
       ? siteWindowJobKey(owner, command.connection_id, "request")
       : key(owner, "request");
+    const replyKey = desktop ? desktopReplyKey(owner, id) : key(owner, `reply:${id}`);
+    try {
+      const legacy = JSON.stringify(command);
+      const job = desktop && { command, scope: desktop.scope };
+      const encodedRequest = mailbox
+        ? encryptJson(job, mailbox.credentialMasterKey, mailbox.credentialKeyId, requestKey) : legacy;
+      const encodedCommand = mailbox
+        ? encryptJson(job, mailbox.credentialMasterKey, mailbox.credentialKeyId, commandKey) : legacy;
+      return await this.runCommand({
+        owner, command, commandKey, requestKey, replyKey, encodedRequest, encodedCommand, signal, desktop, mailbox,
+      });
+    } finally {
+      await this.store.remove(key(owner, "lock"), id);
+    }
+  }
+
+  private async runCommand({
+    owner, command, commandKey, requestKey, replyKey, encodedRequest, encodedCommand, signal, desktop, mailbox,
+  }: {
+    owner: string;
+    command: BrowserUseCommand;
+    commandKey: string;
+    requestKey: string;
+    replyKey: string;
+    encodedRequest: string;
+    encodedCommand: string;
+    signal: AbortSignal | undefined;
+    desktop: { checkRun: () => Promise<void> } | undefined;
+    mailbox: DesktopBrowserMailbox | undefined;
+  }): Promise<BrowserUseResult> {
+    const mutation = mailbox !== undefined &&
+      (command.request.action === "open_site_window" || !browserUseReadOnly(command.request));
+    let mayBeClaimed = false;
+    const stop = async (code: "BROWSER_USE_CANCELLED" | "BROWSER_USE_NOT_CONNECTED" | "BROWSER_USE_TIMEOUT") => {
+      if (mayBeClaimed) {
+        // Withdraw the exact job atomically. If the pump won, the mutation may have run.
+        const unclaimed = await this.store.takeIf(commandKey, commandKey, encodedCommand);
+        if (!unclaimed) return browserUseFailure("RUNNER_OPERATION_UNCERTAIN");
+      }
+      return browserUseFailure(code);
+    };
     try {
       if (signal?.aborted)
         return browserUseFailure("BROWSER_USE_CANCELLED");
-      await this.store.put(requestKey, encoded, ttl);
-      await this.store.put(commandKey, encoded, ttl);
-      while (Date.now() < command.expires_at) {
-        if (signal?.aborted)
-          return browserUseFailure("BROWSER_USE_CANCELLED");
-        if ((await this.status(owner)).connection_id !== command.connection_id)
-          return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
-        const response = await this.store.take(key(owner, `reply:${id}`));
-        if (response)
-          return browserUseReplySchema.shape.result.parse(
-            JSON.parse(response),
-          );
-        await delay(100, undefined, { signal });
-      }
-      return browserUseFailure("BROWSER_USE_TIMEOUT");
-    } catch (error) {
+      await this.store.put(requestKey, encodedRequest, ttl);
+      await desktop?.checkRun();
       if (signal?.aborted)
         return browserUseFailure("BROWSER_USE_CANCELLED");
+      if (mailbox) {
+        if (!await this.store.putIf(commandKey, encodedCommand, ttl, requestKey, encodedRequest))
+          return browserUseFailure("BROWSER_USE_CANCELLED");
+        mayBeClaimed = mutation;
+      } else await this.store.put(commandKey, encodedCommand, ttl);
+      while (Date.now() < command.expires_at) {
+        if (signal?.aborted)
+          return await stop("BROWSER_USE_CANCELLED");
+        if ((await this.status(owner)).connection_id !== command.connection_id)
+          return await stop("BROWSER_USE_NOT_CONNECTED");
+        const response = mailbox ? await this.store.get(replyKey) : await this.store.take(replyKey);
+        if (response) {
+          const result = browserUseReplySchema.shape.result.parse(
+            mailbox ? decryptJson<unknown>(response, mailbox.credentialMasterKey, mailbox.credentialKeyId, replyKey)
+              : JSON.parse(response),
+          );
+          // A legacy extension can report these after the action has already run.
+          if (mayBeClaimed && !result.ok &&
+              (result.code === "BROWSER_USE_COMMAND_FAILED" || result.code === "BROWSER_USE_CANCELLED" ||
+               result.code === "BROWSER_USE_TIMEOUT" || result.code === "BROWSER_USE_ACCESS_DENIED")) {
+            return browserUseFailure("RUNNER_OPERATION_UNCERTAIN");
+          }
+          try {
+            await desktop?.checkRun();
+          } catch (error) {
+            if (mayBeClaimed && result.ok) return browserUseFailure("RUNNER_OPERATION_UNCERTAIN");
+            throw error;
+          }
+          return result;
+        }
+        await delay(100, undefined, { signal });
+      }
+      return await stop("BROWSER_USE_TIMEOUT");
+    } catch (error) {
+      if (signal?.aborted) return await stop("BROWSER_USE_CANCELLED");
       throw error;
     } finally {
-      await this.store.remove(commandKey, encoded);
-      await this.store.remove(requestKey, encoded);
-      await this.store.remove(key(owner, "lock"), id);
-      await this.store.remove(key(owner, `reply:${id}`));
+      await this.store.remove(requestKey, encodedRequest);
+      await this.store.remove(commandKey, encodedCommand);
+      await this.store.remove(replyKey);
     }
   }
+}
+
+function isCurrentCommand(command: BrowserUseCommand, connectionId: string): boolean {
+  return command.connection_id === connectionId && command.expires_at > Date.now();
 }

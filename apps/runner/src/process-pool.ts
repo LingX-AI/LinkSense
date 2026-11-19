@@ -44,6 +44,7 @@ import type {
   RuntimeMcpServer,
 } from "@linksense/shared";
 import {
+  browserUseToolName,
   builtInCapabilityId,
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
@@ -455,6 +456,7 @@ const PROCESS_EXIT_RETRY_MAX_MS = 5_000;
 const DEFAULT_CODEX_HEALTH_PROBE_TTL_MS = 60_000;
 const NATIVE_TURN_REGISTRATION_TIMEOUT_MS = 5_000;
 const NATIVE_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
+const NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS = 5_000;
 const MODEL_TRANSITION_COMPACTION_TIMEOUT_MS = 180_000;
 const SUB_AGENT_THREAD_SOURCE_KINDS = [
   "subAgent",
@@ -757,6 +759,14 @@ type ManagedProcess = {
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
+  browserApprovalItems: Map<string, string>;
+  userInputConfirmations: Map<number, {
+    threadId: string;
+    turnId: string;
+    itemId: string;
+    browserDecision: "allow" | "cancel" | null;
+    settle: (confirmed: boolean) => void;
+  }>;
   assistantMessageProjections: Map<string, string>;
   imageViewProjections: Map<string, string | null>;
   /** Raw child ids remain Runner-local and only index UI-safe labels. */
@@ -773,6 +783,7 @@ type ManagedProcess = {
   mcpProxyRuntimeId: string | null;
   runtimeFingerprint: string | null;
   modelGatewayLease: ModelGatewayLease;
+  modelProviderProtocolMode: ModelProviderProtocolMode;
   capabilityLeaseToken: TaskCapabilityLeaseToken | null;
   finalizationPromise: Promise<void> | null;
 };
@@ -804,6 +815,8 @@ type PendingUserInputRequest =
       kind: "questions";
       questions: ToolRequestUserInputQuestion[];
       resolve: (response: ToolRequestUserInputResponse) => void;
+      responseWritten: Promise<boolean>;
+      browserApproval: boolean;
     })
   | (PendingUserInputRequestBase & {
       kind: "form";
@@ -918,6 +931,7 @@ export class AppServerProcessPool {
       ) => Promise<Record<string, string>>;
       codexProcessIdentity?: { uid: number; gid: number };
       desktopWorkspace?: boolean;
+      desktopBrowserEnabled?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -2558,6 +2572,9 @@ export class AppServerProcessPool {
       ? this.interruptNativeGoal(managed)
       : this.interruptRegisteredTurn(managed, turnId);
     managed.interruptRequest = { targetKey, result };
+    for (const confirmation of managed.userInputConfirmations.values()) {
+      if (confirmation.turnId === managed.activeTurnId) confirmation.settle(false);
+    }
     try {
       return await result;
     } finally {
@@ -2677,24 +2694,29 @@ export class AppServerProcessPool {
       !pending ||
       pending.threadId !== input.codexThreadId ||
       pending.turnId !== input.codexTurnId ||
-      pending.itemId !== input.itemId
+      pending.itemId !== input.itemId ||
+      (this.options.desktopWorkspace && (managed.activeTurnId !== pending.turnId ||
+        managed.nativeTerminalTurnIds.has(pending.turnId) || managed.interruptRequest !== null))
     ) {
       throw new UserInputRequestUnavailableError();
     }
     if (pending.kind === "questions") {
-      if (input.response.action !== "accept") {
-        pending.resolve({ answers: {} });
-        return { accepted: true as const };
-      }
-      const answers = Object.fromEntries(
+      const answers = input.response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
         Object.entries(input.response.content).map(([fieldId, value]) => [
           fieldId,
           typeof value === "string" ? [value] : [],
         ]),
-      );
-      pending.resolve({
-        answers: validateUserInputAnswers(pending.questions, answers),
-      });
+      )) : {};
+      const confirmation = this.options.desktopWorkspace
+        ? this.confirmNativeUserInputResponse(managed, input.requestId, pending,
+            pending.browserApproval
+              ? Object.values(answers).some(answer => answer.answers[0] === "Allow") ? "allow" : "cancel"
+              : null)
+        : null;
+      pending.resolve({ answers });
+      if (confirmation && !await confirmation) {
+        throw new CodexProtocolError("app-server answer unconfirmed");
+      }
       return { accepted: true as const };
     }
     if (
@@ -2710,6 +2732,42 @@ export class AppServerProcessPool {
     }
     pending.resolve(input.response);
     return { accepted: true as const };
+  }
+
+  private confirmNativeUserInputResponse(
+    managed: ManagedProcess,
+    requestId: number,
+    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
+    browserDecision: "allow" | "cancel" | null,
+  ): Promise<boolean> {
+    return new Promise(resolve => {
+      let observed = false;
+      let written = false;
+      const finish = (confirmed: boolean) => {
+        clearTimeout(timer);
+        managed.userInputConfirmations.delete(requestId);
+        resolve(confirmed);
+      };
+      const timer = setTimeout(() => finish(false), NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS);
+      timer.unref();
+      managed.userInputConfirmations.set(requestId, {
+        threadId: pending.threadId,
+        turnId: pending.turnId,
+        itemId: pending.itemId,
+        browserDecision,
+        settle: confirmed => {
+          if (!confirmed) finish(false);
+          else if (written) finish(true);
+          else observed = true;
+        },
+      });
+      void pending.responseWritten.then(success => {
+        if (!managed.userInputConfirmations.has(requestId)) return;
+        if (!success) finish(false);
+        else if (observed) finish(true);
+        else written = true;
+      });
+    });
   }
 
   async requestUserForm(
@@ -4602,13 +4660,30 @@ export class AppServerProcessPool {
     return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
   }
 
-  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal): Promise<unknown> {
+  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal, nativeCallId?: string): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     const { browserUseReadOnly, browserUseFailure } = await import("@linksense/shared");
     if (managed.activeCollaborationMode === "plan" && !browserUseReadOnly(input)) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
+    if (this.options.desktopWorkspace && nativeCallId && !signal.aborted && !managed.interruptRequest &&
+        !managed.nativeTerminalTurnIds.has(managed.activeTurnId)) {
+      for (const confirmation of managed.userInputConfirmations.values()) {
+        if (confirmation.browserDecision === "allow" && confirmation.threadId === managed.codexThreadId &&
+            confirmation.turnId === managed.activeTurnId && confirmation.itemId === nativeCallId) {
+          confirmation.settle(true);
+        }
+      }
+    }
+    if (this.options.desktopWorkspace && input.action === "screenshot" && managed.modelProviderProtocolMode === "chat_completions_bridge") {
+      return browserUseFailure("BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED");
+    }
     if (!this.options.eventSink.browserUse) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
-    return this.options.eventSink.browserUse({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
+    const turnId = managed.activeProjectionTurnId;
+    const result = await this.options.eventSink.browserUse({ conversationId, turnId, input, signal });
+    if (this.options.desktopWorkspace && (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId))
+      return browserUseFailure(browserUseReadOnly(input) ? "BROWSER_USE_CANCELLED" : "RUNNER_OPERATION_UNCERTAIN");
+    return result;
   }
 
   async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
@@ -5611,6 +5686,8 @@ export class AppServerProcessPool {
                   }),
             }),
             ...builtInMcpConfigOverrides({
+              disableBrowserUse: this.options.desktopWorkspace === true && !this.options.desktopBrowserEnabled,
+              promptForBrowserUse: this.options.desktopWorkspace === true && this.options.desktopBrowserEnabled === true,
               command: this.options.mcpCommand,
               args: this.options.mcpArgs,
               ...(this.options.managedBrowserMcpArgs
@@ -5653,7 +5730,7 @@ export class AppServerProcessPool {
           ...(this.options.codexProcessIdentity
             ? { processIdentity: this.options.codexProcessIdentity }
             : {}),
-          onServerRequest: (request) => {
+          onServerRequest: (request, responseWritten) => {
             const current = managedReference.current;
             if (!current) {
               throw new CodexProtocolError(
@@ -5661,7 +5738,7 @@ export class AppServerProcessPool {
               );
             }
             return current.notificationQueue
-              .enqueueOperation(() => this.prepareServerRequest(current, request))
+              .enqueueOperation(() => this.prepareServerRequest(current, request, responseWritten))
               .then(({ response }) => response);
           },
         });
@@ -5726,6 +5803,8 @@ export class AppServerProcessPool {
           { maxCount: RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT, maxBytes: RUNNER_EVENT_BATCH_TARGET_BYTES },
         ),
         pendingUserInputRequests: new Map(),
+        browserApprovalItems: new Map(),
+        userInputConfirmations: new Map(),
         assistantMessageProjections: new Map(),
         imageViewProjections: new Map(),
         subAgentLabelsByThreadId: new Map(),
@@ -5739,6 +5818,7 @@ export class AppServerProcessPool {
         mcpProxyRuntimeId: preparedMcpProxy.runtime?.id ?? null,
         runtimeFingerprint: creationContext?.runtimeFingerprint ?? null,
         modelGatewayLease,
+        modelProviderProtocolMode: input.modelProvider.protocolMode,
         capabilityLeaseToken: creationContext?.capabilityLeaseToken ?? null,
         finalizationPromise: null,
       };
@@ -5756,6 +5836,32 @@ export class AppServerProcessPool {
         // earlier output is waiting for asset processing or durable storage.
         const params = objectRecord(notification.params);
         const turn = objectRecord(params.turn);
+        const item = objectRecord(params.item);
+        if (this.options.desktopBrowserEnabled && params.threadId === managed.codexThreadId &&
+            typeof params.turnId === "string" && typeof item.id === "string" &&
+            item.type === "mcpToolCall" && item.server === coreMcpServerKey && item.tool === browserUseToolName) {
+          if (notification.method === "item/started") {
+            rememberBounded(managed.browserApprovalItems, item.id, params.turnId, 128);
+          } else if (notification.method === "item/completed") {
+            managed.browserApprovalItems.delete(item.id);
+            // Codex 0.170.0 emits this error for an explicit Cancel or empty answer.
+            if (item.status === "failed" && objectRecord(item.error).message === "user cancelled MCP tool call" &&
+                !managed.interruptRequest && !managed.nativeTerminalTurnIds.has(params.turnId)) {
+              for (const confirmation of managed.userInputConfirmations.values()) {
+                if (confirmation.browserDecision === "cancel" && confirmation.turnId === params.turnId &&
+                    confirmation.itemId === item.id) confirmation.settle(true);
+              }
+            }
+          }
+        }
+        if (notification.method === "serverRequest/resolved" && typeof params.requestId === "number") {
+          const confirmation = managed.userInputConfirmations.get(params.requestId);
+          if (confirmation && confirmation.browserDecision === null && confirmation.threadId === params.threadId) {
+            // Native question closure can confirm submission, not browser authorization.
+            confirmation.settle(managed.activeTurnId === confirmation.turnId &&
+              !managed.interruptRequest && !managed.nativeTerminalTurnIds.has(confirmation.turnId));
+          }
+        }
         if (
           params.threadId === managed.codexThreadId &&
           typeof turn.id === "string" &&
@@ -5772,6 +5878,9 @@ export class AppServerProcessPool {
           ) {
             rememberBounded(managed.nativeTerminalTurnIds, turn.id, true, 128);
             this.settleNativeTurnStartedWaiters(managed, turn.id, false);
+            for (const confirmation of managed.userInputConfirmations.values()) {
+              if (confirmation.turnId === turn.id) confirmation.settle(false);
+            }
           }
         }
         const preparation = managed.internalModelTransitionCompaction;
@@ -5826,6 +5935,7 @@ export class AppServerProcessPool {
           for (const turnId of managed.nativeTurnStartedWaiters.keys()) {
             this.settleNativeTurnStartedWaiters(managed, turnId, false);
           }
+          for (const confirmation of managed.userInputConfirmations.values()) confirmation.settle(false);
           const wasCurrent =
             this.processes.get(input.conversationId) === managed;
           if (wasCurrent) {
@@ -6371,6 +6481,7 @@ export class AppServerProcessPool {
     const projectionContext = {
       ...this.correlateNativeStopHook(managed, notification),
       subAgentLabelsByThreadId: managed.subAgentLabelsByThreadId,
+      desktopBrowserApproval: this.options.desktopBrowserEnabled === true,
     } satisfies CodexNotificationProjectionContext;
     const events = notifications.flatMap(entry => mapCodexNotification(
       entry,
@@ -6818,6 +6929,7 @@ export class AppServerProcessPool {
   private async prepareServerRequest(
     managed: ManagedProcess,
     request: JsonRpcRequest,
+    responseWritten: Promise<boolean>,
   ): Promise<{ response: Promise<ToolRequestUserInputResponse> }> {
     const [mapped] = mapCodexServerRequest(request);
     if (!mapped || mapped.method !== "item/tool/requestUserInput") {
@@ -6827,6 +6939,10 @@ export class AppServerProcessPool {
           ? -32_602
           : -32_601,
       );
+    }
+    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled) {
+      // Older peers cannot present or answer questions; resolve without granting anything.
+      return { response: Promise.resolve({ answers: {} }) };
     }
     const itemId = mapped.params.itemId;
     if (
@@ -6847,6 +6963,8 @@ export class AppServerProcessPool {
         turnId: mapped.params.turnId,
         itemId,
         questions: mapped.params.questions,
+        responseWritten,
+        browserApproval: managed.browserApprovalItems.get(itemId) === mapped.params.turnId,
         timer: null,
         resolve: (result) => {
           if (
@@ -7444,6 +7562,7 @@ export class AppServerProcessPool {
     if (this.processes.get(managed.conversationId) !== managed) return;
     this.clearIdleTimer(managed);
     managed.closing = true;
+    for (const confirmation of managed.userInputConfirmations.values()) confirmation.settle(false);
     for (const pending of [...managed.pendingUserInputRequests.values()]) {
       cancelPendingUserInputRequest(pending);
     }

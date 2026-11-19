@@ -333,6 +333,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     LINKSENSE_TINYTRAFFIC_URL: optionalString,
     LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
@@ -434,6 +438,13 @@ const rawConfigSchema = z
       .default("false"),
   })
   .superRefine((config, context) => {
+    if (config.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_DESKTOP_BROWSER_USE_ENABLED"],
+        message: "desktop_browser_use_requires_local_execution",
+      });
+    }
     // Production admission needs server-side metering, masking and crash cleanup.
     if (config.NODE_ENV === "production" && config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
       context.addIssue({
@@ -577,6 +588,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
+    desktopBrowserUseEnabled: raw.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     appwrite,
     analytics,

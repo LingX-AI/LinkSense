@@ -322,6 +322,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   await modelGateway.start()
   const pool = new AppServerProcessPool({
     desktopWorkspace: isDesktopWorker,
+    desktopBrowserEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_BROWSER_ENABLED,
     command: config.CODEX_BIN,
     processLimit: config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
     idleTtlMs: config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS * 1000,

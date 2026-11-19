@@ -23,7 +23,7 @@ it("reports app-server exit on the same link after retiring the actual worker pr
   const controlToken = "a".repeat(64)
   const fail = vi.fn()
   const state: { current?: { link: DesktopLink; turns: DesktopTurns } } = {}
-  const callbacks = desktopWorkerCallbacks(controlToken, () => state.current)
+  const callbacks = desktopWorkerCallbacks(controlToken, () => state.current, "https://server.example.test")
   const origin = await callbacks.listen({ host: "127.0.0.1", port: 0 })
   const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken, bridgeUrl: `${origin}/` }, logger, fail)
   const turns = new DesktopTurns(provider, runtimeRoot, origin, fail, logger)
@@ -168,6 +168,66 @@ it.each(["rejected", "canceled"] as const)("retires and seals a %s start before 
     expect(workerLost).not.toHaveBeenCalled()
   } finally {
     controller.abort()
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(["undelivered", "uncertain"] as const)("fences Mac answers according to %s Stop delivery", async outcome => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-stop-delivery-"))
+  const origin = "https://server.example.test"
+  const workerLost = vi.fn()
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot: root, controlToken: "a".repeat(64) }, logger)
+  const turns = new DesktopTurns(provider, root, origin, workerLost, logger, ["browser.execute"])
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const worker = {
+    id: randomUUID(), ownerId: scope.owner_id, serviceSessionId: scope.conversation_id,
+    storageKey: scope.conversation_id, name: "fixture", endpoint: "http://127.0.0.1:1", state: "running" as const,
+  }
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const command = { ...scope, type: "command", expires_at: expiresAt }
+  const signal = AbortSignal.timeout(5_000)
+  const answers = vi.fn(() => Response.json({ accepted: true }))
+  vi.spyOn(provider, "acquire").mockResolvedValue(worker)
+  vi.spyOn(provider, "request").mockImplementation((_worker, route) => {
+    if (route.endsWith("/interrupt")) {
+      if (outcome === "undelivered") throw new Error("fixture dispatch rejected")
+      return Promise.reject(new Error("fixture receipt lost"))
+    }
+    if (route.endsWith("/user-input/respond")) return Promise.resolve(answers())
+    return Promise.resolve(Response.json(route === "/health/ready" ? { status: "available" } : {
+      status: "starting", createdAt: expiresAt, updatedAt: expiresAt,
+      conversationId: scope.conversation_id, projectionTurnId: scope.turn_id,
+    }))
+  })
+  try {
+    const generation = "0".repeat(64)
+    const bundle = path.join(root, "capabilities")
+    for (const name of ["skills", "plugins", "plugin-sources"]) await mkdir(path.join(bundle, name), { recursive: true })
+    await writeFile(path.join(bundle, "capability-snapshot.json"), JSON.stringify({
+      version: 1, id: `${generation}-${randomUUID()}`, generation, contentDigest: generation, sourceDigest: generation, pluginNames: [],
+    }))
+    await expect(turns.execute(desktopExecutionCommandSchema.parse({
+      ...command, id: randomUUID(), operation: "turn.start",
+      body: { native_thread_id: null, input: "Fixture", reasoning_effort: "low", credentials: {
+        turn_id: scope.turn_id, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      } },
+    }), signal)).resolves.toMatchObject({ ok: true })
+    await expect(turns.execute(desktopExecutionCommandSchema.parse({
+      ...command, id: randomUUID(), operation: "turn.interrupt",
+    }), signal)).resolves.toMatchObject({
+      ok: false, error_code: outcome === "undelivered" ? "RUNNER_UNAVAILABLE" : "RUNNER_OPERATION_UNCERTAIN",
+    })
+    await expect(turns.execute(desktopExecutionCommandSchema.parse({
+      ...command, id: randomUUID(), operation: "user-input.respond",
+      body: { codexThreadId: "native-thread", codexTurnId: "native-turn", itemId: "native-item", requestId: 7, response: { action: "cancel" } },
+    }), signal)).resolves.toMatchObject(outcome === "undelivered"
+      ? { ok: true, result: { accepted: true } }
+      : { ok: false, error_code: "USER_INPUT_REQUEST_UNAVAILABLE" })
+    expect(answers).toHaveBeenCalledTimes(Number(outcome === "undelivered"))
+  } finally {
     await turns.shutdown()
     await provider.shutdown()
     await rm(root, { recursive: true, force: true })

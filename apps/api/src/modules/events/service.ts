@@ -354,7 +354,7 @@ export class ConversationEventService {
     });
     return projectRunnerEventBatch(events, async (entry, text) => {
       await desktop.check();
-      if (skipDesktopEvent(entry.event)) return true;
+      if (skipDesktopEvent(entry.event, desktop.questions === true)) return true;
       const result = text.length > 1
         ? await this.ingestTextDeltaBatch(scope.conversationId, text, desktop)
         : await this.ingest(scope.conversationId, entry.event, entry.deliveryId, desktop);
@@ -806,6 +806,7 @@ export class ConversationEventService {
         conversationId,
         input,
         deliveryId,
+        desktop,
       );
     }
 
@@ -1503,6 +1504,7 @@ export class ConversationEventService {
     conversationId: string,
     input: MethodRunnerEventInput,
     deliveryId: string,
+    desktop?: DesktopProjectionFence,
   ) {
     const threadId = nativeThreadId(input.params);
     const requestId = input.params.requestId;
@@ -1520,21 +1522,24 @@ export class ConversationEventService {
           conversationId,
           codexThreadId: threadId,
           nativeRequestId: BigInt(requestId),
+          ...(desktop && { turnId: desktop.scope.turnId, ownerId: desktop.scope.ownerId, requestKind: "questions" }),
         },
         orderBy: { createdAt: "desc" },
       });
     if (!projectedRequest) {
-      return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
+      return desktop ? { accepted: true, ignored: true } : { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId))) {
+      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId, desktop, projectedRequest.codexTurnId))) {
         return { event: null, payload: {}, ignored: true };
       }
       const existingEvent = await tx.conversationEvent.findUnique({
         where: { id: deliveryId },
       });
       if (existingEvent) {
+        if (desktop && (existingEvent.conversationId !== conversationId || existingEvent.turnId !== desktop.scope.turnId ||
+          existingEvent.eventType !== input.method)) throw new AppError("FORBIDDEN");
         return {
           event: existingEvent,
           payload: asObject(existingEvent.payloadJson),
@@ -1552,19 +1557,13 @@ export class ConversationEventService {
       });
       if (!current) return { event: null, payload: {}, ignored: true };
       if (current.status === "pending" || current.status === "answering") {
+        // Stop can clear the same native request. Only the answer's receipt proves delivery.
+        const submitting = current.status === "answering";
         await tx.conversationUserInputRequest.update({
           where: { id: current.id },
           data: {
-            status:
-              current.status === "answering"
-                ? current.resolvedAction === "accept"
-                  ? "answered"
-                  : "cancelled"
-                : "expired",
-            resolvedAction:
-              current.status === "answering"
-                ? (current.resolvedAction ?? "cancel")
-                : "cancel",
+            status: !submitting || desktop ? "expired" : current.resolvedAction === "accept" ? "answered" : "cancelled",
+            resolvedAction: submitting ? (current.resolvedAction ?? "cancel") : "cancel",
             resolvedAt: new Date(),
           },
         });
@@ -3556,13 +3555,14 @@ export class ConversationEventService {
   }
 }
 
-function skipDesktopEvent(event: RunnerCodexEvent): boolean {
-  // These methods need dedicated accounting, model transition, goals or approvals integration.
+function skipDesktopEvent(event: RunnerCodexEvent, questions: boolean): boolean {
+  if (event.method === "serverRequest/resolved") return false;
+  if (event.method === "item/tool/requestUserInput") return !questions;
+  // These methods need dedicated accounting, model transition or goals integration.
   return ("preparation" in event && event.preparation !== undefined) ||
     nativeTurnId(event.params) === null ||
     event.method === "thread/tokenUsage/updated" || event.method === "thread/goal/updated" ||
-    event.method === "thread/goal/cleared" || event.method === "item/tool/requestUserInput" ||
-    event.method === "serverRequest/resolved";
+    event.method === "thread/goal/cleared";
 }
 
 async function settlePreparingPlanReview(

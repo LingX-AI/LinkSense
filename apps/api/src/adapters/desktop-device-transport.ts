@@ -73,7 +73,7 @@ type PendingReply = {
 };
 type ExecutionAuthority = (binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>;
 type ExecutionCallback = (
-  binding: DesktopExecutionBinding & { ownerId: string },
+  binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopToolOperation[] },
   frame: DesktopExecutionCallback,
   signal: AbortSignal,
 ) => Promise<DesktopExecutionAck>;
@@ -297,7 +297,7 @@ export class DesktopDeviceTransport {
         reply(reject("FORBIDDEN"));
         return;
       }
-      const ack = await this.callback({ ...binding, ownerId }, frame, signal);
+      const ack = await this.callback({ ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal);
       if (!signal.aborted && (frame.type !== "execution.recovery" || socket.pending.get(frame.drain_id) === pending)) reply(ack);
     } catch (error) {
       if (!signal.aborted) reply(reject(error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "AUTH_REQUIRED")
@@ -363,7 +363,7 @@ export class DesktopDeviceTransport {
           sameBinding(waiting.binding, envelope.binding) && matchesResult(waiting.command, envelope.frame)) {
           const { frame } = envelope;
           if (envelope.beforeDelivery && !frame.ok && frame.operation === "turn.start" &&
-              frame.error_code !== "RUNNER_OPERATION_UNCERTAIN") {
+              (frame.error_code === "RUNNER_UNAVAILABLE" || frame.error_code === "FORBIDDEN")) {
             waiting.reject(new DesktopCommandUndeliveredError(frame.error_code));
           } else {
             waiting.resolve(frame);
@@ -413,6 +413,11 @@ export class DesktopDeviceTransport {
       return;
     }
     if (pending) return;
+    // Browser Use is the first desktop protocol consumer of native questions.
+    if (frame.operation === "user-input.respond" && !socket.toolOperations.includes("browser.execute")) {
+      await this.reply(request, failure(frame, "USER_INPUT_REQUEST_UNAVAILABLE"), true);
+      return;
+    }
     if (frame.operation === "turn.start" && frame.body.selected_knowledge_bases?.length &&
       !knowledgeTools.every(op => socket.toolOperations.includes(op))) {
       await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
@@ -483,7 +488,8 @@ function sameBinding(a: DesktopExecutionBinding, b: DesktopExecutionBinding): bo
 
 function matchesResult(command: DesktopExecutionCommand, frame: DesktopExecutionResult): boolean {
   if (frame.operation !== command.operation) return false;
-  if (!frame.ok || frame.operation === "turn.interrupt" || frame.operation === "turn.drain" || frame.result === null) return true;
+  if (!frame.ok || frame.operation === "turn.interrupt" || frame.operation === "turn.drain" ||
+      frame.operation === "user-input.respond" || frame.result === null) return true;
   return frame.result.conversationId === command.conversation_id && frame.result.projectionTurnId === command.turn_id;
 }
 

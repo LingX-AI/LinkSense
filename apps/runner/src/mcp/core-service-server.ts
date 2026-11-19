@@ -1,4 +1,4 @@
-import { coreMcpServerKey } from "@linksense/shared"
+import { coreMcpServerKey, runnerNativeIdSchema } from "@linksense/shared"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
@@ -28,9 +28,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   try {
+    const callId = runnerNativeIdSchema.safeParse(request.params._meta?.callId)
     return await registry.callTool({
       toolName: request.params.name,
       argumentsValue: request.params.arguments,
+      ...(callId.success ? { nativeCallId: callId.data } : {}),
       signal: extra.signal,
     })
   } catch (error) {

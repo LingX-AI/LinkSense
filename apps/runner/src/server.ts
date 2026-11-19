@@ -1472,18 +1472,21 @@ export function buildRunnerServer(
   });
 
   for (const path of ["/mcp-current-user/:conversationId/browser-use", "/mcp-current-user/:conversationId/local-browser"]) app.post<{ Params: { conversationId: string } }>(path, { bodyLimit: 40_000 }, async (request, reply) => {
-    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema } = await import("@linksense/shared");
+    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema, runnerNativeIdSchema } = await import("@linksense/shared");
     const response = (result: import("@linksense/shared").BrowserUseResult) =>
       path.endsWith("/local-browser") ? browserUseLegacyResult(result) : result;
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
     const conversationId = uuid.safeParse(request.params.conversationId);
-    const body = browserUseRequestSchema.safeParse(request.body);
+    const body = z.union([
+      z.strictObject({ input: browserUseRequestSchema, nativeCallId: runnerNativeIdSchema }),
+      browserUseRequestSchema.transform(input => ({ input, nativeCallId: undefined })),
+    ]).safeParse(request.body);
     if (!token) return reply.code(401).send(response(browserUseFailure("BROWSER_USE_ACCESS_DENIED")));
     if (!conversationId.success || !body.success) return reply.code(400).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED")));
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
-    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data, controller.signal))); }
+    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data.input, controller.signal, body.data.nativeCallId))); }
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
     finally { reply.raw.off("close", abort); }
   });

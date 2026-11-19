@@ -37,6 +37,7 @@ export type ChildProcessFactory = (
 
 export type ServerRequestHandler = (
   request: JsonRpcRequest,
+  responseWritten: Promise<boolean>,
 ) => Promise<unknown>;
 
 export type CodexClientUnhealthyReason =
@@ -139,6 +140,9 @@ export class CodexJsonRpcClient extends EventEmitter {
       this.rejectPending(
         new CodexProtocolError("codex app-server failed to start"),
       );
+    });
+    this.child.stdin.on("error", () => {
+      this.markUnhealthy({ type: "child_process_error" });
     });
   }
 
@@ -281,8 +285,9 @@ export class CodexJsonRpcClient extends EventEmitter {
 
   private write(
     message: JsonRpcRequest | JsonRpcNotification | JsonRpcResponse,
+    onWrite?: (error?: Error | null) => void,
   ): void {
-    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    this.child.stdin.write(`${JSON.stringify(message)}\n`, onWrite);
   }
 
   private handleLine(line: string): void {
@@ -323,6 +328,9 @@ export class CodexJsonRpcClient extends EventEmitter {
   }
 
   private async handleServerRequest(request: JsonRpcRequest): Promise<void> {
+    let settleWrite: (written: boolean) => void = () => {};
+    const responseWritten = new Promise<boolean>(resolve => { settleWrite = resolve; });
+    let response: JsonRpcResponse;
     try {
       if (!this.onServerRequest) {
         throw new CodexProtocolError(
@@ -330,22 +338,35 @@ export class CodexJsonRpcClient extends EventEmitter {
           -32601,
         );
       }
-      const result = await this.onServerRequest(request);
-      if (!this.closed && !this.exited) this.write({ id: request.id, result });
+      const result = await this.onServerRequest(request, responseWritten);
+      response = { id: request.id, result };
     } catch (error) {
       const protocolError =
         error instanceof CodexProtocolError
           ? error
           : new CodexProtocolError("server request failed");
-      if (!this.closed && !this.exited) {
-        this.write({
-          id: request.id,
-          error: {
-            code: protocolError.code ?? -32_000,
-            message: protocolError.message,
-          },
-        });
-      }
+      response = {
+        id: request.id,
+        error: {
+          code: protocolError.code ?? -32_000,
+          message: protocolError.message,
+        },
+      };
+    }
+    if (this.closed || this.exited) {
+      settleWrite(false);
+      return;
+    }
+    const deadline = setTimeout(() => settleWrite(false), this.requestTimeoutMs);
+    deadline.unref();
+    try {
+      this.write(response, error => {
+        clearTimeout(deadline);
+        settleWrite(!error && "result" in response);
+      });
+    } catch {
+      clearTimeout(deadline);
+      settleWrite(false);
     }
   }
 }

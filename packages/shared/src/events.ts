@@ -28,6 +28,7 @@ import { knowledgeNoAvailableBasesCodeSchema } from "./knowledge.js";
 import { imageGenerationFailureCodeSchema } from "./image-generation.js";
 import { coreMcpServerKey } from "./mcp.js";
 import { publicKnowledgeOutputLimit } from "./public-knowledge-output.js";
+import { browserUseApprovalSchema, browserUseToolName } from "./browser-use.js";
 
 export const conversationEventVisibilitySchema = z.enum([
   "user_visible",
@@ -1074,8 +1075,17 @@ const runnerCodexMcpToolCallItemSchema = z
     /** Registered image IDs only; raw generation arguments and results stay private. */
     generatedImageFileIds: z.array(z.uuid()).min(1).max(10).optional(),
     imageGenerationFailureCode: imageGenerationFailureCodeSchema.optional(),
+    browserApproval: browserUseApprovalSchema.optional(),
   })
   .superRefine((item, context) => {
+    if (item.browserApproval &&
+      (item.server !== coreMcpServerKey || item.tool !== browserUseToolName || item.status !== "inProgress")) {
+      context.addIssue({
+        code: "custom",
+        path: ["browserApproval"],
+        message: "browser_approval_requires_pending_browser_use",
+      });
+    }
     if (
       item.generatedImageFileIds !== undefined &&
       (item.server !== coreMcpServerKey ||

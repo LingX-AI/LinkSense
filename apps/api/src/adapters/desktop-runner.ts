@@ -17,8 +17,9 @@ import type { RunnerStartInput, RunnerStartOperation } from "./runner.js";
 type ConversationScope = Pick<DesktopRunScope, "ownerId" | "conversationId">;
 type TurnScope = ConversationScope & { turnId: string; runtimeGeneration?: string; connectionId?: string };
 type StartCommand = Extract<DesktopExecutionCommand, { operation: "turn.start" }>;
-type CommandInput = Pick<StartCommand, "operation" | "body"> |
-  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start"> };
+type UserInputCommand = Extract<DesktopExecutionCommand, { operation: "user-input.respond" }>;
+type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<UserInputCommand, "operation" | "body"> |
+  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start" | "user-input.respond"> };
 
 export class DesktopRunner {
   constructor(
@@ -92,6 +93,18 @@ export class DesktopRunner {
     const frame = await this.send(await this.resolve(scope), scope, { operation: "turn.interrupt" });
     if (frame.operation !== "turn.interrupt") throw new DesktopCommandUncertainError();
     return frame.result;
+  }
+
+  async respondUserInput(scope: TurnScope, body: UserInputCommand["body"]): Promise<{ accepted: true }> {
+    const target = await this.resolve(scope);
+    try {
+      const frame = await this.send(target, scope, { operation: "user-input.respond", body });
+      if (frame.operation !== "user-input.respond") throw new DesktopCommandUncertainError();
+      return frame.result;
+    } catch (error) {
+      if (error instanceof DesktopCommandUncertainError) throw new AppError("RUNNER_OPERATION_UNCERTAIN");
+      throw error;
+    }
   }
 
   async drain(scope: TurnScope & { runtimeGeneration: string }): Promise<{

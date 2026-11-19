@@ -3,6 +3,8 @@ import { z } from "zod";
 import { timestampSchema, uuidSchema } from "./common.js";
 import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenSchema } from "./desktop-device.js";
 import { connectionFailureCodeSchema } from "./connections.js";
+import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
+import { conversationUserInputResponseSchema } from "./conversation-forms.js";
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
@@ -28,11 +30,12 @@ export const desktopExecutionMaxInFlight = 8;
 // Leave room for lifecycle callbacks while tool requests wait on providers.
 export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
-export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain"]);
-export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute"]);
+export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
 export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
   if (operation === "connection.execute") return 58_000;
+  if (operation === "browser.execute") return 34_000;
   return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
 }
 const toolOperations = z.array(desktopToolOperationSchema).max(desktopToolOperationSchema.options.length);
@@ -51,6 +54,14 @@ const command = z.strictObject({
   turn_id: uuidSchema,
   expires_at: timestampSchema,
 });
+const desktopUserInputResponseSchema = z.strictObject({
+  codexThreadId: z.string().min(1).max(240),
+  codexTurnId: z.string().min(1).max(240),
+  itemId: z.string().min(1).max(240),
+  requestId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  response: conversationUserInputResponseSchema,
+});
+export const desktopUserInputReceiptSchema = z.strictObject({ accepted: z.literal(true) });
 export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
   command.extend({
     operation: z.literal("turn.start"),
@@ -66,6 +77,7 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
   command.extend({ operation: z.literal("turn.seal") }),
   command.extend({ operation: z.literal("turn.interrupt") }),
   command.extend({ operation: z.literal("turn.drain") }),
+  command.extend({ operation: z.literal("user-input.respond"), body: desktopUserInputResponseSchema }),
 ]).refine(frame => frame.operation !== "turn.start" || frame.turn_id === frame.body.credentials.turn_id, {
   path: ["body", "credentials", "turn_id"], error: "desktop_turn_scope_mismatch",
 });
@@ -111,7 +123,7 @@ export const desktopExecutionResultSchema = z.union([
   receipt.extend({
     ok: z.literal(false),
     operation: desktopExecutionOperation,
-    error_code: z.enum(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN", "FORBIDDEN"]),
+    error_code: z.enum(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN", "FORBIDDEN", "USER_INPUT_REQUEST_UNAVAILABLE"]),
   }),
   receipt.extend({
     ok: z.literal(true),
@@ -127,6 +139,11 @@ export const desktopExecutionResultSchema = z.union([
     ok: z.literal(true),
     operation: z.literal("turn.interrupt"),
     result: runnerTurnInterruptResultSchema,
+  }),
+  receipt.extend({
+    ok: z.literal(true),
+    operation: z.literal("user-input.respond"),
+    result: desktopUserInputReceiptSchema,
   }),
   receipt.extend({
     ok: z.literal(true),
@@ -161,6 +178,7 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("knowledge.documents"), body: listKnowledgeDocumentsInputSchema }),
   request.extend({ operation: z.literal("knowledge.markdown"), body: getKnowledgeDocumentMarkdownInputSchema }),
   request.extend({ operation: z.literal("connection.execute"), body: desktopConnectionRequestBodySchema }),
+  request.extend({ operation: z.literal("browser.execute"), body: browserUseRequestSchema }),
 ]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
@@ -206,6 +224,7 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("knowledge.documents"), data: knowledgeDocumentListSuccessSchema }),
   toolResult.extend({ operation: z.literal("knowledge.markdown"), data: knowledgeDocumentMarkdownSuccessSchema }),
   toolResult.extend({ operation: z.literal("connection.execute"), data: desktopConnectionResultSchema }),
+  toolResult.extend({ operation: z.literal("browser.execute"), data: desktopBrowserUseResultSchema }),
   toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([

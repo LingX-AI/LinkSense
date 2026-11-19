@@ -9,6 +9,7 @@ type DesktopConversationBinding = Pick<DesktopRunScope, "ownerId" | "deviceId" |
 export type DesktopProjectionFence = {
   scope: DesktopConversationBinding & Pick<DesktopRunScope, "turnId">;
   check: () => Promise<void>;
+  questions?: boolean;
 };
 
 /** Hold the same device and account credential fence until the projection commits. */

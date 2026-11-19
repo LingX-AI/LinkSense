@@ -876,7 +876,12 @@ export class RunnerClient {
     codexTurnId: string;
     itemId: string;
     response: ConversationUserInputResponse;
+    desktop?: { turnId: string; runtimeGeneration: string };
   }): Promise<{ accepted: true }> {
+    if (input.desktop) {
+      const { desktop, ownerId, conversationId, ...body } = input;
+      return this.desktopRunner().respondUserInput({ ownerId, conversationId, ...desktop }, body);
+    }
     let response: Response;
     try {
       response = await fetch(

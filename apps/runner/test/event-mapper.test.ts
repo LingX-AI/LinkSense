@@ -19,6 +19,35 @@ const previewContext = {
 };
 
 describe("mapCodexNotification", () => {
+  it("projects only a bounded Mac Browser Use action and destination, never raw arguments", () => {
+    const notification = {
+      method: "item/started",
+      params: {
+        threadId: "thr_1",
+        turnId: "turn_1",
+        item: {
+          type: "mcpToolCall",
+          id: "native-browser-call",
+          status: "inProgress",
+          server: "linksense_core",
+          tool: "browser_use",
+          arguments: { action: "navigate", tab_id: 9, url: "https://example.test/private?key=fixture#secret" },
+        },
+      },
+    };
+    const mapped = mapCodexNotification(notification, {}, { desktopBrowserApproval: true });
+    expect(mapped[0]).toMatchObject({ params: { item: {
+      browserApproval: { action: "navigate", tab_id: 9, destination_host: "example.test" },
+    } } });
+    expect(JSON.stringify(mapped)).not.toMatch(/private|fixture|secret|arguments/u);
+    expect(JSON.stringify(mapCodexNotification(notification))).not.toContain("browserApproval");
+    expect(JSON.stringify(mapCodexNotification({
+      ...notification, params: { ...notification.params, item: {
+        ...notification.params.item, server: "external",
+      } },
+    }, {}, { desktopBrowserApproval: true }))).not.toContain("browserApproval");
+  });
+
   it("preserves asynchronous questions, including empty message text and free-text questions", () => {
     const item = {
       id: "async-question", type: "agentMessage", text: "", phase: "final_answer",

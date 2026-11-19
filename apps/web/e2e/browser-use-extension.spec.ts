@@ -8,7 +8,7 @@ import path from "node:path"
 import { createBrowserExtensionFixture } from "../../api/test/fixtures/browser-use-extension.js"
 import type { BrowserUseExtensionRequest, BrowserUseResult } from "@linksense/shared"
 
-test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, controls and revokes a real tab", async ({
+test("an isolated Chrome extension pairs over non-localhost HTTP and lets a Mac run control a shared tab", async ({
   playwright,
 }, testInfo) => {
   test.setTimeout(60_000)
@@ -44,6 +44,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     api,
     service,
     address: fixtureAddress,
+    connectDesktop,
     dropBrowserTransport,
   } = await createBrowserExtensionFixture(owner, date)
   const address = fixtureAddress.replace("127.0.0.1", "linksense-http.test")
@@ -336,7 +337,11 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     expect(await previewRequest("activate", tabId + 999)).toMatchObject({
       ok: false,
     })
-    const snapshot = await execute({ action: "snapshot", tab_id: tabId })
+    const desktop = await connectDesktop(task)
+    const { result: desktopStatus } = await desktop.execute({ action: "status" })
+    expect(desktopStatus).toMatchObject({ ok: true, data: { connected: true, browser: "chrome" } })
+    const { result: snapshot } = await desktop.execute({ action: "snapshot", tab_id: tabId })
+    if (!snapshot.ok) throw new Error(snapshot.code)
     expect(
       snapshot.data.elements?.some(
         (element) => element.name === "Stop sharing this page"
@@ -350,7 +355,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     )
     expect(button).toBeTruthy()
     expect(input).toBeTruthy()
-    const movingClick = execute({
+    const movingClick = desktop.execute({
       action: "click",
       tab_id: tabId,
       ref: button!.ref,
@@ -365,7 +370,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           `cursor-motion-${String(frame).padStart(2, "0")}.png`
         ),
       })
-    await movingClick
+    expect((await movingClick).result).toMatchObject({ ok: true, data: { tab_id: tabId } })
     await expect(
       targetPage.getByRole("button", { name: "Clicked" })
     ).toBeVisible()
@@ -525,6 +530,20 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     const screenshot = await execute({ action: "screenshot", tab_id: tabId })
     expect(screenshot.data.image!.length).toBeGreaterThan(100)
     expect(screenshot.data.viewport!.width).toBeGreaterThan(0)
+    const { result: desktopScreenshot, screenshot_id: screenshotId } = await desktop.execute({
+      action: "screenshot", tab_id: tabId,
+    })
+    if (!desktopScreenshot.ok || !screenshotId) throw new Error("Mac screenshot reference missing")
+    expect(desktopScreenshot.data).not.toHaveProperty("image")
+    expect(desktopScreenshot.data.viewport?.width).toBeGreaterThan(0)
+    const image = await desktop.readScreenshot(screenshotId)
+    expect(image.status).toBe(200)
+    expect(image.headers.get("content-type")).toBe("image/jpeg")
+    expect(image.headers.get("cache-control")).toBe("private, no-store")
+    const jpeg = Buffer.from(await image.arrayBuffer())
+    expect(jpeg.length).toBeGreaterThan(100)
+    expect(jpeg.subarray(0, 2).toString("hex")).toBe("ffd8")
+    expect((await desktop.readScreenshot(screenshotId)).status).toBe(404)
     const coordinateButton = await targetPage
       .getByRole("button", { name: "Coordinates" })
       .boundingBox()
@@ -589,7 +608,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
       .boundingBox())!
     const cursor = control.locator("[data-linksense-cursor]")
     const previousX = Number(await cursor.getAttribute("data-x"))
-    const stoppedClick = service.execute(owner, task, {
+    const stoppedClick = desktop.execute({
       action: "click_at",
       tab_id: tabId,
       x: cancelTarget.x + cancelTarget.width / 2,
@@ -599,15 +618,24 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
       .poll(async () => Number(await cursor.getAttribute("data-x")))
       .not.toBe(previousX)
     await popup.evaluate(() => document.getElementById("release")!.click())
-    expect(await stoppedClick).toMatchObject({
+    expect((await stoppedClick).result).toMatchObject({
       ok: false,
-      code: "BROWSER_USE_CANCELLED",
+      code: "RUNNER_OPERATION_UNCERTAIN",
+      retryable: false,
     })
     await expect(control).toBeHidden()
     await expect(
       targetPage.getByRole("button", { name: "Do not click" })
     ).toBeVisible()
     expect((await execute({ action: "tabs" })).data.tabs).toEqual([])
+    expect(await service.execute(owner, task, { action: "snapshot", tab_id: tabId })).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_ACCESS_DENIED",
+    })
+    expect((await desktop.execute({ action: "snapshot", tab_id: tabId })).result).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_ACCESS_DENIED",
+    })
     expect((await service.status(owner)).connected).toBe(true)
     await popup.reload()
     await targetPage.bringToFront()
@@ -623,17 +651,15 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           .analyze()
       ).violations
     ).toEqual([])
-    await popup.reload()
-    await targetPage.bringToFront()
-    await popup.evaluate(() => document.getElementById("release")!.click())
-    await expect
-      .poll(async () => (await execute({ action: "tabs" })).data.tabs)
-      .toEqual([])
-    expect(
-      await service.execute(owner, task, { action: "snapshot", tab_id: tabId })
-    ).toMatchObject({ ok: false, code: "BROWSER_USE_ACCESS_DENIED" })
-    await service.revoke(owner)
+    const pendingScreenshot = await desktop.execute({ action: "screenshot", tab_id: tabId })
+    if (!pendingScreenshot.screenshot_id) throw new Error("Mac screenshot reference missing before revocation")
+    expect((await api.inject({ method: "DELETE", url: "/api/v1/browser-use" })).statusCode).toBe(200)
     expect(await service.status(owner)).toEqual({ connected: false })
+    expect((await desktop.execute({ action: "snapshot", tab_id: tabId })).result).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_NOT_CONNECTED",
+    })
+    expect((await desktop.readScreenshot(pendingScreenshot.screenshot_id)).status).toBe(404)
     expect(targetPage.isClosed()).toBe(false)
   } finally {
     await browser.close()

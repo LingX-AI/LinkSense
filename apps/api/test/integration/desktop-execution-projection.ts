@@ -37,6 +37,12 @@ import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices
 import { registerDesktopExecution } from "../../src/modules/desktop-devices/execution.js";
 import { desktopNoticeChannel, type DesktopNotice } from "../../src/modules/desktop-devices/notices.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
+import { DesktopBrowserUse } from "../../src/modules/desktop-devices/browser-use.js";
+import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
+import { DesktopRunLeases } from "../../src/modules/desktop-credentials/run-leases.js";
+import { registerBrowserUseRoutes } from "../../src/modules/browser-use/routes.js";
+import { BrowserUseService } from "../../src/modules/browser-use/service.js";
+import { RedisBrowserStore } from "../../src/modules/browser-use/store.js";
 import { registerDesktopDeviceRoutes } from "../../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/modules/events/recovery-scheduler.js";
@@ -51,6 +57,7 @@ import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js"
 import { verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
+import { attachDesktopBrowserFixture } from "./desktop-browser-fixture.js";
 
 const capabilityGeneration = "0".repeat(64);
 type RecoveryJobData = Parameters<TaskRecoveryQueueControl["add"]>[1];
@@ -73,6 +80,7 @@ export async function verifyDesktopExecutionProjection(input: {
     LINKSENSE_USER_DATA_ROOT: input.workspaceRoot,
     LINKSENSE_RUNNER_URL: "http://127.0.0.1:1",
     LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true",
+    LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true",
     LINKSENSE_CREDENTIAL_MASTER_KEY: randomBytes(32).toString("base64"),
     LINKSENSE_RUNNER_SHARED_SECRET: randomUUID(),
   });
@@ -88,6 +96,11 @@ export async function verifyDesktopExecutionProjection(input: {
     const redis = new LinkSenseRedis(config, fixture.client);
     const knowledge = await createDesktopKnowledgeFixture(prisma, redis.client, ownerId, input.otherOwnerId);
     const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
+    const leases = new DesktopRunLeases(redis.client, (scope, phase) => isDesktopRunActive(prisma, coordinator, scope, phase));
+    const browserStore = new RedisBrowserStore(redis.client);
+    const browser = new BrowserUseService(browserStore, "http://127.0.0.1/api/v1/browser-use", {
+      ...config, isActiveRun: scope => leases.isActiveToolScope(scope),
+    });
     const runner = new RunnerClient(config, async (owner, conversationId) => {
       const row = await prisma.conversation.findFirst({
         where: { id: conversationId, ownerId: owner },
@@ -140,20 +153,28 @@ export async function verifyDesktopExecutionProjection(input: {
       config, prisma, redis, runner, conversations, events,
       modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
       knowledgeSearch: knowledge.service, connections: connector.service,
-    }, coordinator);
+      browserUse: new DesktopBrowserUse(prisma, browser, browserStore, config),
+    }, coordinator, leases);
     assert(execution, "Mac execution must be enabled in this fixture");
     let rejectNextRecovery = false;
+    const { authValidAfter } = await prisma.user.findUniqueOrThrow({ where: { id: ownerId }, select: { authValidAfter: true } });
     app.decorate("authenticate", async request => {
       request.authUser = {
         id: ownerId, name: "Desktop owner", email: "desktop-owner@example.test",
-        role: "user", status: "active", preferredLocale: null, avatarObjectKey: null, authValidAfter: new Date(0),
+        role: "user", status: "active", preferredLocale: null, avatarObjectKey: null, authValidAfter,
       };
+    });
+    await registerBrowserUseRoutes(app, {
+      service: browser, prisma, redis: redis.client, intent: { detect: async () => false },
+      sharedSecret: config.runnerSharedSecret, rateLimitHmacSecret: config.loginRateLimitHmacSecret,
+      socketPath: "/api/v1/browser-use/socket",
     });
     await registerDesktopDeviceRoutes(app, {
       service: new DesktopDeviceService(new PrismaDesktopDeviceRepository(prisma), coordinator),
       redis: redis.client, rateLimitHmacSecret: config.loginRateLimitHmacSecret, execution,
       knowledgeTools: true,
       connectionTools: true,
+      browserTools: true,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;
@@ -161,6 +182,8 @@ export async function verifyDesktopExecutionProjection(input: {
       },
     });
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const browserFixture = await attachDesktopBrowserFixture({ app, address, ownerId });
+    sockets.push(browserFixture.socket);
     const connect = async (expectRecovery = true, tools = false, operations = false) => {
       const url = new URL("/api/v1/desktop/devices/socket", address);
       url.protocol = "ws:";
@@ -333,6 +356,35 @@ export async function verifyDesktopExecutionProjection(input: {
     assert(accounts.ok && accounts.operation === "connection.execute" && accounts.data.kind === "connections");
     assert.deepEqual(accounts.data.items.filter(account => account.status === "connected").map(account => account.provider), ["onedrive", "google_docs"]);
     assert(!JSON.stringify(accounts).includes(connector.foreignAccount));
+    const browserRequest = {
+      ...tool, id: randomUUID(), operation: "browser.execute",
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor("browser.execute")).toISOString(),
+      body: { action: "screenshot", tab_id: browserFixture.tabId },
+    } as const satisfies DesktopToolRequest;
+    const wrongBrowser = await invokeTool({ ...browserRequest, turn_id: randomUUID() });
+    assert(!wrongBrowser.ok && wrongBrowser.error_code === "FORBIDDEN");
+    const browserReply = await invokeTool(browserRequest);
+    assert(browserReply.ok && browserReply.operation === "browser.execute" && browserReply.data.screenshot_id);
+    assert(!JSON.stringify(browserReply).includes(browserFixture.image.toString("base64")), "screenshot bytes in device frame");
+    assert.equal((await invokeTool(browserRequest)).ok, false);
+    assert.equal((await browserFixture.readImage(turnId, browserReply.data.screenshot_id, start.body.credentials.primary.token)).ok, false);
+    assert.equal((await browserFixture.readImage(randomUUID(), browserReply.data.screenshot_id, tool.run_token)).ok, false);
+    const screenshot = await browserFixture.readImage(turnId, browserReply.data.screenshot_id, tool.run_token);
+    assert(screenshot.ok);
+    assert.equal(screenshot.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(Buffer.from(await screenshot.arrayBuffer()), browserFixture.image);
+    assert.equal((await browserFixture.readImage(turnId, browserReply.data.screenshot_id, tool.run_token)).ok, false);
+    const scroll = { ...browserRequest, id: randomUUID(), body: {
+      action: "scroll", tab_id: browserFixture.tabId, x: 10, y: 10, delta_x: 0, delta_y: 100,
+    } } as const satisfies DesktopToolRequest;
+    send(initial.socket, scroll);
+    for (let retry = 0; !browserFixture.observed.includes("scroll") && retry < 150; retry++) await delay(10);
+    assert(browserFixture.observed.includes("scroll"), "the accepted command reached the extension");
+    send(initial.socket, { type: "tool.cancel", ...callbackScope, id: scroll.id, operation: scroll.operation });
+    for (let retry = 0; !browserFixture.cancelled.length && retry < 150; retry++) await delay(10);
+    assert.equal(browserFixture.cancelled.length, 1);
+    assert.equal((await invokeTool(scroll)).ok, false);
+    assert.deepEqual(browserFixture.observed, ["screenshot", "scroll"]);
     const foreignConnector = await invokeTool({
       ...connectorRequest, id: randomUUID(), turn_id: randomUUID(),
       body: { input: { operation: "list_drives", provider: "onedrive" } },
@@ -628,9 +680,10 @@ export async function verifyDesktopExecutionProjection(input: {
       await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, prisma, redis, coordinator, conversations,
         events, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
-        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey, ...connector.secrets],
+        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey, browserFixture.token, ...connector.secrets],
         searchMarker,
         connector,
+        browser: browserFixture,
         knowledge: {
           baseId: knowledge.owned.base.id, baseName: knowledge.owned.base.name,
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,

@@ -70,7 +70,7 @@ try {
   const logger = pino(createLoggerOptions({ name: "desktop-runtime" }), process.stderr)
   let bridgeUrl: string | undefined
   if (config.server_origin) {
-    callbacks = desktopWorkerCallbacks(config.control_token, () => current)
+    callbacks = desktopWorkerCallbacks(config.control_token, () => current, config.server_origin)
     bridgeUrl = new URL("/", await callbacks.listen({ host: "127.0.0.1", port: 0 })).href
   }
   const runtime = new DesktopWorkerProvider({
@@ -93,7 +93,7 @@ try {
     if (message.type === "link.open") {
       if (current || !origin) throw new Error("desktop link is not available")
       const operations = message.tool_operations ?? (message.tools_version !== undefined ? ["web.search" as const] : [])
-      const turns = new DesktopTurns(runtime, config.runtime_root, origin, fail, logger, operations.includes("connection.execute"))
+      const turns = new DesktopTurns(runtime, config.runtime_root, origin, fail, logger, operations)
       current = {
         turns,
         link: new DesktopLink(message.link_id, message.owner_id, turns, frame =>
