@@ -477,7 +477,7 @@ function sanitizeTokenUsage(value: unknown) {
 
 function sanitizeHookRun(value: unknown) {
   const run = asRecord(value);
-  // Codex 0.150.1 derives this id from event, display order, and sourcePath.
+  // The pinned Codex derives this id from event, display order, and sourcePath.
   // Validate its presence but never project it across the Runner boundary.
   const privateRunId = boundedString(run.id, 4_096);
   const eventName = enumValue(run.eventName, hookEventNames);

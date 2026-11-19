@@ -58,7 +58,7 @@ type CommandRunner = (
  * Codex clamps `model_context_window` to the model's `max_context_window`, and
  * unknown models fall back to 272k, so a 1M model still compacts at ~258k.
  *
- * `models_cache.json` cannot fix that: Codex 0.168 only reuses cache entries
+ * `models_cache.json` cannot fix that: Codex 0.168 and later only reuse cache entries
  * whose identity hash matches the current provider and credentials, and the
  * hash covers the gateway URL and token, which change per run. `model_catalog_json`
  * replaces the bundled catalog without that gate, so write a catalog that keeps

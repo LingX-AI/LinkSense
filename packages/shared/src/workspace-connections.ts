@@ -271,7 +271,10 @@ export const desktopConnectionRequestBodySchema = z.strictObject({
 }).refine(({ input, page }) => !page || isWorkspaceInput(input));
 export type DesktopConnectionRequestBody = z.infer<typeof desktopConnectionRequestBodySchema>;
 
-// Leave room for the native MCP wrapper under Codex 0.170's 10,000-byte fallback budget.
+// Codex's default model truncation policy is 10,000 bytes; the bundled model
+// catalog declares 10,000 tokens and LinkSense's generated catalog inherits
+// that policy. Keep the shared page under the smaller default so both paths
+// deliver the page intact, including the native MCP wrapper.
 export const desktopConnectionTextPageBytes = 8 * 1024;
 export const desktopConnectionTextSchema = z.strictObject({
   kind: z.literal("workspace_text"),
