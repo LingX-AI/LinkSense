@@ -107,6 +107,26 @@ The fixture uses a local synthetic provider. Separate acceptance is required
 for orphaned Shell processes after a force quit, installed upgrades and
 production signing/notarization.
 
+Mac single-file artifact registration is separately disabled by default. To
+enable it in development/test, upgrade all serving API replicas and
+`linksense-maintenance` consumers first, then set
+`LINKSENSE_DESKTOP_ARTIFACTS_ENABLED=true` uniformly and reconnect the Mac.
+Older clients keep their existing negotiated tools. The API confirms the size,
+MIME type and checksum before publishing the existing download card. If the
+confirmation response is lost, check the task's artifacts for the original ID.
+
+Before rolling back to a consumer that cannot read `desktop-artifact-cleanup`,
+disable artifact registration on every API replica. Keep updated consumers
+running until in-flight grants have expired and their delayed cleanup jobs have
+drained. Retry failed cleanup in the existing system-maintenance view before
+rolling back. Older consumers can discard the new payload, so do not run mixed
+consumer versions while these jobs are pending.
+
+By default the packaged fixture uses the local filesystem to verify API
+streaming. Set `LINKSENSE_TEST_MINIO_BIN` to an absolute path to a local MinIO
+executable to verify direct upload instead. The fixture starts a private server
+on loopback and checks that the packaged Mac did not use the API fallback.
+
 `desktop:whitebox` uses an in-memory credential store. On macOS,
 `desktop:whitebox:os` additionally opens the real system browser twice, verifies
 reuse of an isolated fixture session, delivers callbacks through Launch Services
