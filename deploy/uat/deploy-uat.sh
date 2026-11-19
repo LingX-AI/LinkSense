@@ -111,10 +111,12 @@ if [ "$schema_present" = t ]; then
   test -z "$running" || { echo "UAT API or Runner is still running; refusing to back up or migrate" >&2; exit 1; }
   active=$(active_operation_count)
   test "$active" = 0 || { echo "UAT has $active active operation(s) after stopping; restart its existing API and Runner containers to let them finish before retrying" >&2; exit 1; }
-  backup=$root/.data/uat/database-$(date -u +%Y%m%dT%H%M%SZ).dump
-  compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup.partial"
-  compose exec -T postgres pg_restore --list < "$backup.partial" >/dev/null
-  mv "$backup.partial" "$backup"
+  if [ "${LINKSENSE_UAT_SKIP_DB_BACKUP:-0}" != 1 ]; then
+    backup=$root/.data/uat/database-$(date -u +%Y%m%dT%H%M%SZ).dump
+    compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup.partial"
+    compose exec -T postgres pg_restore --list < "$backup.partial" >/dev/null
+    mv "$backup.partial" "$backup"
+  fi
 fi
 compose up -d --wait --wait-timeout 600
 # Compose does not detect content changes to the bind-mounted gateway template.
