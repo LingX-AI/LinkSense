@@ -1,16 +1,25 @@
 import { timingSafeEqual } from "node:crypto"
+import path from "node:path"
 import Fastify from "fastify"
 import {
-  browserUseFailure, browserUseRequestSchema, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
+  browserUseFailure, browserUseRequestSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
+  desktopArtifactUploadLifetimeMs, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
   desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, errorCatalog, internalKnowledgeDocumentListRequestSchema,
   internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
   runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
+  type DesktopToolResult,
 } from "@linksense/shared"
 import { z } from "zod"
 import { desktopWorkerSecret } from "../controller/desktop-worker-provider.js"
 import { acknowledgedEventCount } from "../event-sink.js"
+import { FileServiceRequestError } from "../file-service-error.js"
+import { openDesktopArtifactSource, type DesktopArtifactSource } from "./artifact-source.js"
+import { uploadDesktopArtifact } from "./artifact-upload.js"
 import type { DesktopLink, DesktopToolInvocation } from "./link.js"
 import type { DesktopTurns } from "./turns.js"
+
+// Bound the whole local transfer even when a worker stops responding.
+const desktopArtifactTimeoutMs = desktopArtifactUploadLifetimeMs + 10_000
 
 const workerIdentity = z.strictObject({ ownerId: z.uuid(), conversationId: z.uuid() })
 const processExit = runnerStartSettledSchema.pick({ conversationId: true }).extend({
@@ -147,6 +156,62 @@ export function desktopWorkerCallbacks(
     reply.raw.once("finish", () => turns.finishAfterAcknowledgement(run, () => link.reportTurnExit(run)))
     return { data: { confirmed: true, outcome: "not_applicable" } }
   })
+  const artifactRequest = z.strictObject({
+    conversationId: z.uuid(), turnId: z.uuid(),
+    workspaceRelativePath: z.string().min(1).max(2_000),
+    displayName: z.string().min(1).max(260),
+    mimeType: z.string().max(160).optional(),
+    // Accepted only so the rejection is explicit; Mac has no website snapshot.
+    webRootRelativePath: z.string().min(1).max(2_000).optional(),
+  })
+  app.post("/internal/file-service/register-artifact", { bodyLimit: 16_384 }, async (request, reply) => {
+    const { link, run } = authenticate(request.headers)
+    const parsed = artifactRequest.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ code: "ARTIFACT_REGISTRATION_INVALID", retryable: false })
+    const body = parsed.data
+    if (body.conversationId !== run.scope.conversation_id || body.turnId !== run.scope.turn_id) {
+      return reply.code(403).send({ code: "FILE_SERVICE_FORBIDDEN", retryable: false })
+    }
+    // Reject before touching the filesystem: desktop artifacts are single files.
+    if (body.webRootRelativePath) return reply.code(400).send({ code: "ARTIFACT_REGISTRATION_INVALID", retryable: false })
+    const artifacts = run.artifacts
+    if (!artifacts) return reply.code(403).send({ code: "FILE_SERVICE_FORBIDDEN", retryable: false })
+    try {
+      return await whileResponseOpen(reply.raw, async signal => {
+        const lifetime = AbortSignal.any([
+          signal, link.signal, artifacts.signal, AbortSignal.timeout(desktopArtifactTimeoutMs),
+        ])
+        let source: DesktopArtifactSource | undefined
+        try {
+          source = await openDesktopArtifactSource(artifacts.workspace, body.workspaceRelativePath, desktopArtifactMaxBytes, lifetime, artifacts.check)
+          const prepared = desktopArtifactPrepareSchema.safeParse({
+            filename: path.posix.basename(body.workspaceRelativePath),
+            display_name: body.displayName,
+            ...(body.mimeType ? { mime_type: body.mimeType } : {}),
+            size_bytes: source.sizeBytes,
+            sha256: source.sha256,
+          })
+          if (!prepared.success) throw invalidArtifact()
+          const grant = await link.requestTool(run, { operation: "artifact.prepare", body: prepared.data }, lifetime)
+          if (!grant.ok) throw artifactToolFailure(grant)
+          if (grant.operation !== "artifact.prepare") {
+            throw new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
+          }
+          return await uploadDesktopArtifact({
+            origin: serverOrigin, turnId: run.scope.turn_id, runToken: run.token, source, grant: grant.data, signal: lifetime,
+          })
+        } finally {
+          if (source) await source.close().catch(() => undefined)
+        }
+      })
+    } catch (error) {
+      const failure = artifactFailure(error)
+      return reply.code(failure.statusCode).send({
+        code: failure.code, retryable: failure.retryable,
+        ...(failure.artifactId && { artifact_id: failure.artifactId }),
+      })
+    }
+  })
   const toolScope = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid() })
   const registerTool = <T extends z.infer<typeof toolScope>>(
     path: string, schema: z.ZodType<T>, invoke: (body: T) => DesktopToolInvocation, bodyLimit = 8_192,
@@ -198,4 +263,28 @@ export function desktopWorkerCallbacks(
   registerTool("/internal/browser-use/execute", toolScope.extend({ input: browserUseRequestSchema }),
     ({ input }) => ({ operation: "browser.execute", body: input }), 64_000)
   return app
+}
+
+function invalidArtifact(): FileServiceRequestError {
+  return new FileServiceRequestError("ARTIFACT_REGISTRATION_INVALID", false, 400)
+}
+
+/** Map only negotiated artifact failures; unknown codes stay retryable. */
+function artifactToolFailure(result: Extract<DesktopToolResult, { ok: false }>): FileServiceRequestError {
+  switch (result.error_code) {
+    case "ARTIFACT_REGISTRATION_INVALID":
+      return invalidArtifact()
+    case "FILE_LIMIT_EXCEEDED":
+      return new FileServiceRequestError("FILE_LIMIT_EXCEEDED", false, 413)
+    case "FORBIDDEN":
+      return new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403)
+    default:
+      return new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
+  }
+}
+
+function artifactFailure(error: unknown): FileServiceRequestError {
+  return error instanceof FileServiceRequestError
+    ? error
+    : new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
 }

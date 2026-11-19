@@ -128,6 +128,24 @@ describe("RunnerClient start operation", () => {
       expect(send).toHaveBeenCalledOnce();
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it("reopens artifact publication after a rejected dispatch but keeps it paused when Stop may have arrived", async () => {
+      const leases = new DesktopRunLeases(redis.client, async () => true);
+      const { client, send } = desktopRunnerFixture(redis.client, turnId => leases.pauseArtifactPublication(turnId));
+      const turnId = randomUUID();
+      const stop = () => client.interruptStartOperation(conversationId, turnId, ownerId, runtimeGeneration);
+      for (const [failure, code, stillPaused] of [
+        [new DesktopCommandUndeliveredError(), "RUNNER_UNAVAILABLE", false],
+        [new DesktopCommandUncertainError(), "RUNNER_OPERATION_UNCERTAIN", true],
+      ] as const) {
+        send.mockImplementationOnce(async () => {
+          expect(await leases.isArtifactPublicationPaused(turnId)).toBe(true);
+          throw failure;
+        });
+        await expect(stop()).rejects.toMatchObject({ code });
+        expect(await leases.isArtifactPublicationPaused(turnId)).toBe(stillPaused);
+      }
+    });
   });
   it("resolves each task's current project cwd and forwards it without changing the caller identity", async () => {
     const resolveWorkspace = vi.fn(async (): Promise<import("@linksense/shared").RuntimePlacement> => ({ workspacePath: `projects/${projectionTurnId}` }));
@@ -1585,7 +1603,10 @@ function startInput(): RunnerStartInput {
   };
 }
 
-function desktopRunnerFixture(redis: Awaited<ReturnType<typeof createRedisFixture>>["client"]) {
+function desktopRunnerFixture(
+  redis: Awaited<ReturnType<typeof createRedisFixture>>["client"],
+  pauseArtifactPublication?: ConstructorParameters<typeof DesktopRunner>[5],
+) {
   const deviceId = randomUUID();
   const binding = { deviceId, connectionId: randomUUID(), gatewayId: randomUUID() };
   const findConversation = async () => ({ desktopDeviceId: deviceId, runtimeGeneration });
@@ -1595,7 +1616,7 @@ function desktopRunnerFixture(redis: Awaited<ReturnType<typeof createRedisFixtur
   const manifest = vi.fn();
   const runner = new DesktopRunner(findConversation, {
     connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
-  }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest });
+  }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest }, pauseArtifactPublication);
   const client = new RunnerClient(testConfig(), async () => "local");
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();

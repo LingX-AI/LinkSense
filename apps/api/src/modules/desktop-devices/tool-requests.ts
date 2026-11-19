@@ -9,6 +9,7 @@ import type { AuditService } from "../audit/service.js";
 import { projectDesktopWorkspaceData } from "../connections/desktop-workspace-data.js";
 import type { ConnectionService } from "../connections/service.js";
 import type { DesktopRunLeases, DesktopRunScope } from "../desktop-credentials/run-leases.js";
+import type { DesktopArtifacts } from "../files/desktop-artifacts.js";
 import type { CheckKnowledgeAssetPublication } from "../knowledge/conversation-asset-snapshots.js";
 import type { InternalKnowledgeSearchService } from "../knowledge/internal-search.js";
 import type { WebSearchSettingsService } from "../system/web-search-settings.js";
@@ -23,6 +24,7 @@ type ToolRequestServices = {
   checkPublication: CheckKnowledgeAssetPublication;
   connections?: Pick<ConnectionService, "executeScoped">;
   browserUse?: Pick<DesktopBrowserUse, "execute">;
+  artifacts?: Pick<DesktopArtifacts, "prepare">;
 };
 
 export async function executeDesktopTool(
@@ -60,6 +62,9 @@ export async function executeDesktopTool(
         (browser.data.result.ok || browser.data.result.code === "RUNNER_OPERATION_UNCERTAIN");
       recheckResource = browser.assertCurrent;
       data = browser.data;
+    } else if (frame.operation === "artifact.prepare") {
+      if (!services.artifacts) throw new AppError("RUNNER_UNAVAILABLE");
+      data = await services.artifacts.prepare(scope, frame.body, signal, authorize);
     } else {
       data = await dispatchTool(services, scope, frame, signal, authorize);
     }
@@ -89,7 +94,8 @@ export async function executeDesktopTool(
     await services.audit.write({
       actorId: scope.ownerId, action: "desktop_tool_requested", targetId: frame.id,
       targetType: frame.operation === "web.search" ? "web_search" : frame.operation === "browser.execute" ? "browser_use"
-        : frame.operation === "connection.execute" ? "connection" : "knowledge_base",
+        : frame.operation === "connection.execute" ? "connection"
+        : frame.operation === "artifact.prepare" ? "conversation_file" : "knowledge_base",
       result: reason ? "failed" : "success",
       metadata: {
         operation: frame.operation, conversation_id: scope.conversationId, turn_id: scope.turnId, device_id: scope.deviceId,
@@ -177,7 +183,7 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" }>,
+  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {

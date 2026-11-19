@@ -1,7 +1,8 @@
-import { constants, createReadStream } from "node:fs";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import {
   access,
   mkdir,
+  mkdtempDisposable,
   readFile,
   rename,
   rm,
@@ -10,7 +11,9 @@ import {
 } from "node:fs/promises";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { dirname, relative, resolve, sep } from "node:path";
+import { addAbortSignal, Transform } from "node:stream";
 import type { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import { Client } from "minio";
 import dayjs from "dayjs";
@@ -20,6 +23,8 @@ import type { AppConfig } from "../config.js";
 import { createMinioTransport } from "./minio-transport.js";
 
 const localObjectMetadataSchema = z.record(z.string(), z.string());
+const OBJECT_STORAGE_STREAM_SIZE_MISMATCH =
+  "OBJECT_STORAGE_STREAM_SIZE_MISMATCH";
 
 export interface ObjectStorage {
   ensureBucket(): Promise<void>;
@@ -29,15 +34,29 @@ export interface ObjectStorage {
     metadata?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<void>;
+  putObjectStream?(
+    key: string,
+    data: Readable,
+    sizeBytes: number,
+    metadata?: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<void>;
   getObjectSize(key: string): Promise<number>;
-  getObjectStream(key: string): Promise<Readable>;
+  getObjectStream(key: string, signal?: AbortSignal): Promise<Readable>;
   getObjectRangeStream(
     key: string,
     start: number,
     length: number,
   ): Promise<Readable>;
   removeObject(key: string, signal?: AbortSignal): Promise<void>;
+  removeIncompleteUpload?(key: string, signal: AbortSignal): Promise<void>;
   presignedGetObject(key: string, expiresSeconds: number): Promise<string>;
+  presignedPostObject?(
+    key: string,
+    sizeBytes: number,
+    expiresAt: Date,
+    signal?: AbortSignal,
+  ): Promise<{ url: string; fields: Record<string, string> }>;
   health(): Promise<void>;
 }
 
@@ -97,12 +116,62 @@ export class MinioObjectStorage implements ObjectStorage {
     ));
   }
 
+  async putObjectStream(
+    key: string,
+    data: Readable,
+    sizeBytes: number,
+    metadata: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): Promise<void> {
+    assertPositiveByteSize(sizeBytes, "OBJECT_STORAGE_STREAM_SIZE_INVALID");
+    signal?.throwIfAborted();
+    const controller = new AbortController();
+    const abort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) controller.abort(signal.reason);
+    else signal?.addEventListener("abort", abort, { once: true });
+    const bounded = createExactSizeStream(sizeBytes);
+    const transfer = pipeline(data, bounded, { signal: controller.signal });
+    try {
+      await Promise.all([
+        transfer,
+        this.transport.run(controller.signal, () => this.client.putObject(
+          this.config.minio.bucket,
+          key,
+          bounded,
+          sizeBytes,
+          encodeMetadataHeaderValues(metadata),
+        )),
+      ]);
+    } catch (error) {
+      // Stop the HTTP request and source stream as soon as either side fails.
+      controller.abort();
+      await transfer.catch(() => undefined);
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+      bounded.destroy();
+    }
+  }
+
   async removeObject(key: string, signal?: AbortSignal): Promise<void> {
     await this.transport.run(signal, () => this.client.removeObject(this.config.minio.bucket, key));
   }
 
-  getObjectStream(key: string): Promise<Readable> {
-    return this.client.getObject(this.config.minio.bucket, key);
+  async removeIncompleteUpload(key: string, signal: AbortSignal): Promise<void> {
+    await this.transport.run(signal, async () => {
+      const bucket = this.config.minio.bucket;
+      const id = await this.client.findUploadId(bucket, key);
+      if (id) await this.client.abortMultipartUpload(bucket, key, id);
+    });
+  }
+
+  async getObjectStream(key: string, signal?: AbortSignal): Promise<Readable> {
+    if (!signal) return this.client.getObject(this.config.minio.bucket, key);
+    signal.throwIfAborted();
+    const stream = await this.transport.run(signal, () =>
+      this.client.getObject(this.config.minio.bucket, key),
+    );
+    return addAbortSignal(signal, stream);
   }
 
   getObjectRangeStream(
@@ -129,6 +198,28 @@ export class MinioObjectStorage implements ObjectStorage {
       key,
       expiresSeconds,
     );
+  }
+
+  async presignedPostObject(
+    key: string,
+    sizeBytes: number,
+    expiresAt: Date,
+    signal?: AbortSignal,
+  ): Promise<{ url: string; fields: Record<string, string> }> {
+    assertPositiveByteSize(sizeBytes, "MINIO_POST_POLICY_INVALID");
+    if (!Number.isFinite(expiresAt.getTime())) {
+      throw new Error("MINIO_POST_POLICY_INVALID");
+    }
+    signal?.throwIfAborted();
+    const policy = this.presignClient.newPostPolicy();
+    policy.setBucket(this.config.minio.bucket);
+    policy.setKey(key);
+    policy.setContentLengthRange(sizeBytes, sizeBytes);
+    policy.setContentType("application/octet-stream");
+    policy.setExpires(expiresAt);
+    const post = await this.presignClient.presignedPostPolicy(policy);
+    signal?.throwIfAborted();
+    return { url: post.postURL, fields: post.formData };
   }
 
   async health(): Promise<void> {
@@ -191,14 +282,49 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     }
   }
 
+  async putObjectStream(
+    key: string,
+    data: Readable,
+    sizeBytes: number,
+    metadata: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): Promise<void> {
+    assertPositiveByteSize(
+      sizeBytes,
+      "LOCAL_OBJECT_STORAGE_STREAM_SIZE_INVALID",
+    );
+    signal?.throwIfAborted();
+    const objectPath = this.resolveObjectPath(key);
+    const metadataPath = this.resolveMetadataPath(key);
+    const uploadRoot = this.streamUploadRoot(key);
+    await settleFileOperations([dirname(objectPath), dirname(metadataPath), uploadRoot]
+      .map(directory => mkdir(directory, { recursive: true, mode: 0o700 }).then(() => undefined)));
+    await using upload = await mkdtempDisposable(resolve(uploadRoot, "write-"));
+    const content = resolve(upload.path, "content");
+    const metadataFile = resolve(upload.path, "metadata");
+    await pipeline(data, createExactSizeStream(sizeBytes), createWriteStream(content, { mode: 0o600 }), { signal });
+    await writeFile(metadataFile, JSON.stringify(metadata), { mode: 0o600, signal });
+    signal?.throwIfAborted();
+    await settleFileOperations([rename(content, objectPath), rename(metadataFile, metadataPath)]);
+  }
+
+  async removeIncompleteUpload(key: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    await rm(this.streamUploadRoot(key), { recursive: true, force: true });
+  }
+
   async getObjectSize(key: string): Promise<number> {
     return (await stat(this.resolveObjectPath(key))).size;
   }
 
-  async getObjectStream(key: string): Promise<Readable> {
+  async getObjectStream(key: string, signal?: AbortSignal): Promise<Readable> {
+    signal?.throwIfAborted();
     const objectPath = this.resolveObjectPath(key);
     await stat(objectPath);
-    return createReadStream(objectPath);
+    signal?.throwIfAborted();
+    return signal
+      ? createReadStream(objectPath, { signal })
+      : createReadStream(objectPath);
   }
 
   async getObjectRangeStream(
@@ -290,12 +416,41 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     const digest = createHash("sha256").update(key).digest("hex");
     return resolve(this.metadataRoot, `${digest}.json`);
   }
+
+  private streamUploadRoot(key: string): string {
+    return resolve(this.config.objectStorage.localRoot, ".stream-uploads", createHash("sha256").update(key).digest("hex"));
+  }
 }
 
 async function settleFileOperations(operations: Promise<void>[]): Promise<void> {
   for (const result of await Promise.allSettled(operations)) {
     if (result.status === "rejected") throw result.reason;
   }
+}
+
+function assertPositiveByteSize(sizeBytes: number, errorCode: string): void {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+    throw new Error(errorCode);
+  }
+}
+
+function createExactSizeStream(sizeBytes: number): Transform {
+  let receivedBytes = 0;
+  const mismatch = () => new Error(OBJECT_STORAGE_STREAM_SIZE_MISMATCH);
+  return new Transform({
+    transform(chunk: Buffer | string, encoding, callback) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+      receivedBytes += bytes.byteLength;
+      if (receivedBytes > sizeBytes) {
+        callback(mismatch());
+        return;
+      }
+      callback(null, bytes);
+    },
+    flush(callback) {
+      callback(receivedBytes === sizeBytes ? null : mismatch());
+    },
+  });
 }
 
 function resolveStoragePath(root: string, key: string): string {

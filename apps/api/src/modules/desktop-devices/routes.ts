@@ -47,6 +47,7 @@ export async function registerDesktopDeviceRoutes(
     knowledgeTools?: boolean;
     connectionTools?: boolean;
     browserTools?: boolean;
+    artifactTools?: boolean;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -174,7 +175,8 @@ export async function registerDesktopDeviceRoutes(
       : desktopToolOperationSchema.options.filter(operation => offered.has(operation) &&
         (operation === "web.search" ||
           (operation === "connection.execute" ? options.connectionTools
-            : operation === "browser.execute" ? options.browserTools : options.knowledgeTools)));
+            : operation === "browser.execute" ? options.browserTools
+            : operation === "artifact.prepare" ? options.artifactTools : options.knowledgeTools)));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);

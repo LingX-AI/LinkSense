@@ -12,6 +12,11 @@ export type DesktopProjectionFence = {
   questions?: boolean;
 };
 
+// Covers a Stop for a turn that still has only a start intent.
+export async function lockDesktopArtifactPublication(tx: Prisma.TransactionClient, turnId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`desktop-artifact:${turnId.toLowerCase()}`}, 0))`;
+}
+
 /** Hold the same device and account credential fence until the projection commits. */
 export async function lockDesktopConversation(
   tx: Prisma.TransactionClient,
@@ -48,19 +53,19 @@ export async function isDesktopRunActive(
         AND c.runtime_generation = ${scope.runtimeGeneration}::uuid
         AND d.id = ${scope.deviceId}::uuid AND d.platform = 'darwin'
         AND (
-          EXISTS (
+          (${phase !== "artifact"} AND EXISTS (
             SELECT 1 FROM conversation_turn_start_intents i
             WHERE i.projection_turn_id = ${scope.turnId}::uuid AND i.conversation_id = c.id
               AND i.owner_id = c.owner_id AND i.runtime_generation = c.runtime_generation
               AND (i.runner_status = 'prepared'
                 OR (${phase === "use" || phase === "settle"} AND i.runner_status = 'runner_succeeded')
                 OR (${phase === "settle"} AND i.runner_status = 'slot_pending'))
-          )
-          OR (${phase === "use" || phase === "settle"} AND EXISTS (
+          ))
+          OR (${phase === "use" || phase === "settle" || phase === "artifact"} AND EXISTS (
             SELECT 1 FROM conversation_turns t
             WHERE t.id = ${scope.turnId}::uuid AND t.conversation_id = c.id AND t.submitted_by = u.id
               AND t.codex_thread_id = c.codex_thread_id
-              AND ((${phase === "use"} AND t.status = 'running' AND t.interrupt_requested_at IS NULL AND t.completed_at IS NULL)
+              AND ((${phase === "use" || phase === "artifact"} AND t.status = 'running' AND t.interrupt_requested_at IS NULL AND t.completed_at IS NULL)
                 OR (${phase === "settle"} AND t.status IN ('running', 'completed', 'failed', 'interrupted')))
           ))
         )`;

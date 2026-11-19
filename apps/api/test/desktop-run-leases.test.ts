@@ -54,6 +54,20 @@ function fixture() {
 }
 
 describe("desktop run leases", () => {
+  it("keeps artifact publication paused across replicas until both pending Stops release", async () => {
+    const { input, scope } = fixture();
+    const first = new DesktopRunLeases(redis.client, async () => true);
+    const second = new DesktopRunLeases(redis.client, async () => true);
+    const credentials = await first.issue(scope, input);
+    const releaseFirst = await first.pauseArtifactPublication(scope.turnId.toUpperCase());
+    const releaseSecond = await second.pauseArtifactPublication(scope.turnId);
+    await releaseFirst();
+    expect(await first.isArtifactPublicationPaused(scope.turnId)).toBe(true);
+    await expect(first.verifyRunBinding(scope, credentials.run_token, "use")).resolves.toBeUndefined();
+    await releaseSecond();
+    expect(await second.isArtifactPublicationPaused(scope.turnId)).toBe(false);
+  });
+
   it("accepts an exact settlement after model access is closed, until the run is revoked", async () => {
     const { input, scope } = fixture();
     const live = vi.fn(async (_scope: DesktopRunScope, phase: string) => phase === "issue" || phase === "settle");

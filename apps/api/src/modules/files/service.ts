@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
+  open,
   realpath,
   rm,
   writeFile,
@@ -22,6 +23,7 @@ import {
 } from "@linksense/shared";
 import { detectCfbf } from "@file-type/cfbf";
 import { FileTypeParser } from "file-type";
+import { z } from "zod";
 
 import type { AppConfig } from "../../config.js";
 import {
@@ -51,6 +53,7 @@ import { taskArtifactFileTypeFilter } from "./task-artifact-file-type-filter.js"
 import { getOrCreateArtifactThumbnail } from "./artifact-thumbnail.js";
 import { captureWebBundle } from "../web-sites/bundle.js";
 import type { WebBundleManifest } from "@linksense/shared";
+import { desktopArtifactObjectKey } from "./desktop-artifact-storage.js";
 
 export interface FileCleanupScheduler {
   enqueueObjectDelete(objectKey: string): Promise<void>;
@@ -116,6 +119,33 @@ type ReferenceableFileSummary = {
     archive_status: string;
   };
 };
+
+const desktopArtifactIdSchema = z
+  .uuid()
+  .transform((value) => value.toLowerCase());
+
+/**
+ * A desktop artifact receipt whose bytes were already streamed, byte-verified
+ * (size, MIME, SHA-256) and committed by the upload-confirmation step. Every
+ * identifier is server-issued; the device never chooses ids or object keys.
+ */
+const verifiedDesktopArtifactInputSchema = z.strictObject({
+  ownerId: desktopArtifactIdSchema,
+  conversationId: desktopArtifactIdSchema,
+  projectionTurnId: desktopArtifactIdSchema,
+  artifactId: desktopArtifactIdSchema,
+  displayName: z.string().min(1).max(260),
+  mimeType: z.string().min(1).max(160),
+  sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/iu)
+    .transform((value) => value.toLowerCase()),
+});
+
+export type VerifiedDesktopArtifactInput = z.infer<
+  typeof verifiedDesktopArtifactInputSchema
+>;
 
 export function parseTaskArtifactCursor(
   value: string,
@@ -1033,128 +1063,27 @@ export class FileService {
             cleanup: (key) => this.removeObjectOrEnqueue(input.conversationId, key),
           });
         }
-        const file = await this.prisma.$transaction(async (tx) => {
-          const eventSequence = await nextConversationEventSequence(
-            tx,
-            input.conversationId,
-          );
-          const downloadCardEventId = randomUUID();
-          const systemCapabilityEventId = randomUUID();
-          const created = await tx.conversationFile.create({
-            data: {
-              id,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              kind: "artifact",
-              source: "agent_generated",
-              status: "registered",
-              filename: displayName,
-              mimeType,
-              sizeBytes: BigInt(data.byteLength),
-              checksumSha256: sha256(data),
-              storageBackend: "minio",
-              minioObjectKey: objectKey,
-              downloadable: true,
-              downloadCardEventId,
-            },
-          });
-          if (webBundle) await tx.webArtifactBundle.create({ data: { fileId: id, ownerId: input.ownerId, conversationId: input.conversationId, manifestJson: webBundle } });
-          await tx.conversationEvent.create({
-            data: {
-              id: systemCapabilityEventId,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              sequenceNo: eventSequence,
-              eventType: "conversation.system_capability.used",
-              visibility: "user_collapsed",
-              payloadJson: {
-                schema_version: 1,
-                system_capability_key: "linksense_file_service",
-                usage_type: "system_file_service",
-                name: "LinkSense File Service",
-                safe_summary: "registered downloadable artifact",
-              },
-              sseEventId: `${input.conversationId}:${eventSequence}`,
-            },
-          });
-          await tx.conversationEvent.create({
-            data: {
-              id: downloadCardEventId,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              sequenceNo: eventSequence + 1n,
-              eventType: "conversation.artifact.created",
-              visibility: "user_visible",
-              payloadJson: {
-                schema_version: 1,
-                file_id: created.id,
-                display_name: created.filename,
-                mime_type: created.mimeType,
-                size_bytes: Number(created.sizeBytes),
-              },
-              sseEventId: `${input.conversationId}:${eventSequence + 1n}`,
-            },
-          });
-          await tx.auditLog.create({
-            data: {
-              actorId: turn.submittedBy,
-              action: "conversation_artifact_registered",
-              targetType: "conversation_file",
-              targetId: created.id,
-              result: "success",
-              metadataJson: sanitizeAuditMetadata(
-                "conversation_artifact_registered",
-                {
-                  conversation_id: input.conversationId,
-                  turn_id: turn.id,
-                  size_bytes: Number(created.sizeBytes),
-                  mime_type: created.mimeType,
-                },
-              ),
-            },
-          });
-          return { created, eventSequence, systemCapabilityEventId };
-        });
-        const systemCapabilityEvent = {
-          id: file.systemCapabilityEventId,
-          conversation_id: input.conversationId,
-          turn_id: turn.id,
-          sequence_no: Number(file.eventSequence),
-          event_type: "conversation.system_capability.used",
-          visibility: "user_collapsed",
-          payload: {
-            schema_version: 1,
-            system_capability_key: "linksense_file_service",
-            usage_type: "system_file_service",
-            name: "LinkSense File Service",
-            safe_summary: "registered downloadable artifact",
-          },
-          sse_event_id: `${input.conversationId}:${file.eventSequence}`,
-          created_at: new Date().toISOString(),
-        };
-        const artifactEvent = {
-          id: file.created.downloadCardEventId,
-          conversation_id: input.conversationId,
-          turn_id: turn.id,
-          sequence_no: Number(file.eventSequence + 1n),
-          event_type: "conversation.artifact.created",
-          visibility: "user_visible",
-          payload: {
-            schema_version: 1,
-            file_id: file.created.id,
-            display_name: file.created.filename,
-            mime_type: file.created.mimeType,
-            size_bytes: Number(file.created.sizeBytes),
-          },
-          sse_event_id: `${input.conversationId}:${file.eventSequence + 1n}`,
-          created_at: new Date().toISOString(),
-        };
-        await this.redis
-          .publishConversationEvent(input.conversationId, systemCapabilityEvent)
-          .catch(() => undefined);
-        await this.redis
-          .publishConversationEvent(input.conversationId, artifactEvent)
-          .catch(() => undefined);
+        const file = await this.prisma.$transaction((tx) =>
+          this.createArtifactRecord(tx, {
+            ownerId: input.ownerId,
+            conversationId: input.conversationId,
+            turnId: turn.id,
+            fileId: id,
+            displayName,
+            mimeType,
+            sizeBytes: BigInt(data.byteLength),
+            checksumSha256: sha256(data),
+            objectKey,
+            webBundle,
+          }),
+        );
+        await this.publishArtifactEvents(
+          input.conversationId,
+          turn.id,
+          file.created,
+          file.eventSequence,
+          file.systemCapabilityEventId,
+        );
         return {
           success: true,
           artifact_id: file.created.id,
@@ -1168,6 +1097,294 @@ export class FileService {
         throw error;
       }
     });
+  }
+
+  /**
+   * Registers an artifact whose final object was already streamed and
+   * byte-verified (size, MIME, SHA-256) by the desktop upload-confirmation
+   * step. Identity and the object key are server-issued, so replaying the same
+   * receipt is an idempotent read: it creates no new events or audit rows and
+   * never rewrites or deletes the committed artifact.
+   *
+   * Everything runs under the conversation lock in one transaction:
+   *  1. lock the owned, active, local conversation row;
+   *  2. run `check(tx)`, which must fence the exact device, run, turn and
+   *     revocation state (the orchestrator locks the device/owner rows there);
+   *  3. read the exact running, non-interrupted, non-completed turn;
+   *  4. only then read or create the artifact row and its receipt.
+   *
+   * The fence precedes the receipt read, so a revoked or finished run cannot
+   * replay a committed artifact, and there is no expiry or terminal grace.
+   *
+   * The object belongs to the caller. This method must not delete it: a failed
+   * registration leaves the bytes for the orchestrator to reconcile instead of
+   * destroying an object whose write may have succeeded.
+   */
+  async registerVerifiedDesktopArtifact(
+    input: VerifiedDesktopArtifactInput,
+    check: (tx: Prisma.TransactionClient) => Promise<void>,
+  ) {
+    const parsed = verifiedDesktopArtifactInputSchema.safeParse(input);
+    if (!parsed.success) throw new AppError("VALIDATION_ERROR");
+    const verified = parsed.data;
+    const mimeType = normalizeMime(verified.mimeType);
+    if (!isStructuredMimeType(mimeType)) {
+      throw new AppError("ARTIFACT_REGISTRATION_INVALID");
+    }
+    if (verified.sizeBytes > this.config.upload.maxFileSizeBytes) {
+      throw new AppError("FILE_LIMIT_EXCEEDED");
+    }
+    const displayName = artifactDisplayName(verified.displayName, mimeType);
+    const objectKey = desktopArtifactObjectKey(
+      verified.conversationId,
+      verified.artifactId,
+    );
+    const sizeBytes = BigInt(verified.sizeBytes);
+
+    return this.withConversationLock(verified.conversationId, async () => {
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        // Same lock as the attachment, deletion, and desktop projection flows,
+        // so ownership, archive state, and the execution target cannot change
+        // while this receipt is validated and committed.
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id
+          FROM conversations
+          WHERE id = ${verified.conversationId}::uuid
+            AND owner_id = ${verified.ownerId}::uuid
+            AND archive_status = 'active'
+            AND execution_target = 'local'
+          FOR UPDATE
+        `;
+        if (locked.length !== 1) throw new AppError("FORBIDDEN");
+
+        await check(tx);
+
+        const turn = await tx.conversationTurn.findFirst({
+          where: {
+            id: verified.projectionTurnId,
+            conversationId: verified.conversationId,
+            submittedBy: verified.ownerId,
+            status: "running",
+            interruptRequestedAt: null,
+            completedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!turn) throw new AppError("FORBIDDEN");
+
+        const committed = await tx.conversationFile.findFirst({
+          where: { id: verified.artifactId },
+        });
+        if (committed) {
+          assertCommittedDesktopArtifact(committed, {
+            conversationId: verified.conversationId,
+            turnId: turn.id,
+            displayName,
+            mimeType,
+            sizeBytes,
+            checksumSha256: verified.sha256,
+            objectKey,
+          });
+          return { artifact: committed, turnId: turn.id, created: null };
+        }
+
+        const created = await this.createArtifactRecord(tx, {
+          ownerId: verified.ownerId,
+          conversationId: verified.conversationId,
+          turnId: turn.id,
+          fileId: verified.artifactId,
+          displayName,
+          mimeType,
+          sizeBytes,
+          checksumSha256: verified.sha256,
+          objectKey,
+        });
+        return { artifact: created.created, turnId: turn.id, created };
+      });
+
+      if (outcome.created) {
+        await this.publishArtifactEvents(
+          verified.conversationId,
+          outcome.turnId,
+          outcome.created.created,
+          outcome.created.eventSequence,
+          outcome.created.systemCapabilityEventId,
+        );
+      }
+      return {
+        success: true,
+        artifact_id: outcome.artifact.id,
+        file_id: outcome.artifact.id,
+        display_name: outcome.artifact.filename,
+        download_card_event_id: outcome.artifact.downloadCardEventId,
+      };
+    });
+  }
+
+  /**
+   * The single artifact publication path shared by the cloud workspace flow and
+   * the verified desktop flow: file row, optional web bundle, capability event,
+   * download-card event, and audit row commit together or not at all.
+   */
+  private async createArtifactRecord(
+    tx: Prisma.TransactionClient,
+    input: {
+      ownerId: string;
+      conversationId: string;
+      turnId: string;
+      fileId: string;
+      displayName: string;
+      mimeType: string;
+      sizeBytes: bigint;
+      checksumSha256: string;
+      objectKey: string;
+      webBundle?: WebBundleManifest | null;
+    },
+  ) {
+    const eventSequence = await nextConversationEventSequence(
+      tx,
+      input.conversationId,
+    );
+    const downloadCardEventId = randomUUID();
+    const systemCapabilityEventId = randomUUID();
+    const created = await tx.conversationFile.create({
+      data: {
+        id: input.fileId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        kind: "artifact",
+        source: "agent_generated",
+        status: "registered",
+        filename: input.displayName,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        checksumSha256: input.checksumSha256,
+        storageBackend: "minio",
+        minioObjectKey: input.objectKey,
+        downloadable: true,
+        downloadCardEventId,
+      },
+    });
+    if (input.webBundle) {
+      await tx.webArtifactBundle.create({
+        data: {
+          fileId: input.fileId,
+          ownerId: input.ownerId,
+          conversationId: input.conversationId,
+          manifestJson: input.webBundle,
+        },
+      });
+    }
+    await tx.conversationEvent.create({
+      data: {
+        id: systemCapabilityEventId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        sequenceNo: eventSequence,
+        eventType: "conversation.system_capability.used",
+        visibility: "user_collapsed",
+        payloadJson: {
+          schema_version: 1,
+          system_capability_key: "linksense_file_service",
+          usage_type: "system_file_service",
+          name: "LinkSense File Service",
+          safe_summary: "registered downloadable artifact",
+        },
+        sseEventId: `${input.conversationId}:${eventSequence}`,
+      },
+    });
+    await tx.conversationEvent.create({
+      data: {
+        id: downloadCardEventId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        sequenceNo: eventSequence + 1n,
+        eventType: "conversation.artifact.created",
+        visibility: "user_visible",
+        payloadJson: {
+          schema_version: 1,
+          file_id: created.id,
+          display_name: created.filename,
+          mime_type: created.mimeType,
+          size_bytes: Number(created.sizeBytes),
+        },
+        sseEventId: `${input.conversationId}:${eventSequence + 1n}`,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: input.ownerId,
+        action: "conversation_artifact_registered",
+        targetType: "conversation_file",
+        targetId: created.id,
+        result: "success",
+        metadataJson: sanitizeAuditMetadata(
+          "conversation_artifact_registered",
+          {
+            conversation_id: input.conversationId,
+            turn_id: input.turnId,
+            size_bytes: Number(created.sizeBytes),
+            mime_type: created.mimeType,
+          },
+        ),
+      },
+    });
+    return { created, eventSequence, systemCapabilityEventId };
+  }
+
+  private async publishArtifactEvents(
+    conversationId: string,
+    turnId: string,
+    created: {
+      id: string;
+      filename: string;
+      mimeType: string | null;
+      sizeBytes: bigint;
+      downloadCardEventId: string | null;
+    },
+    eventSequence: bigint,
+    systemCapabilityEventId: string,
+  ): Promise<void> {
+    const systemCapabilityEvent = {
+      id: systemCapabilityEventId,
+      conversation_id: conversationId,
+      turn_id: turnId,
+      sequence_no: Number(eventSequence),
+      event_type: "conversation.system_capability.used",
+      visibility: "user_collapsed",
+      payload: {
+        schema_version: 1,
+        system_capability_key: "linksense_file_service",
+        usage_type: "system_file_service",
+        name: "LinkSense File Service",
+        safe_summary: "registered downloadable artifact",
+      },
+      sse_event_id: `${conversationId}:${eventSequence}`,
+      created_at: new Date().toISOString(),
+    };
+    const artifactEvent = {
+      id: created.downloadCardEventId,
+      conversation_id: conversationId,
+      turn_id: turnId,
+      sequence_no: Number(eventSequence + 1n),
+      event_type: "conversation.artifact.created",
+      visibility: "user_visible",
+      payload: {
+        schema_version: 1,
+        file_id: created.id,
+        display_name: created.filename,
+        mime_type: created.mimeType,
+        size_bytes: Number(created.sizeBytes),
+      },
+      sse_event_id: `${conversationId}:${eventSequence + 1n}`,
+      created_at: new Date().toISOString(),
+    };
+    await this.redis
+      .publishConversationEvent(conversationId, systemCapabilityEvent)
+      .catch(() => undefined);
+    await this.redis
+      .publishConversationEvent(conversationId, artifactEvent)
+      .catch(() => undefined);
   }
 
   async createDownloadLink(
@@ -1863,6 +2080,48 @@ function resolveArtifactMimeType(
   );
 }
 
+/**
+ * Resolves the verified metadata for artifact bytes whose size and checksum the
+ * caller already checked. Artifact registration and the API upload-confirmation
+ * controller share this policy so neither can persist a name/type combination
+ * the other would reject: the same content parser, MIME normalization, safe
+ * filename rules, and extension reconciliation apply before any object write.
+ *
+ * The declared filename is treated as a display name; only its basename is kept.
+ */
+export async function resolveVerifiedArtifactMetadata(input: {
+  filename: string;
+  displayName?: string;
+  reportedMimeType?: string;
+  signal?: AbortSignal;
+} & ({ data: Buffer; verifiedPath?: never } | { data?: never; verifiedPath: string })): Promise<{ filename: string; mimeType: string }> {
+  const detectedMimeType = normalizeMime(
+    (await (input.data ? detectFileType(input.data) : detectVerifiedArtifactFile(input.verifiedPath, input.signal)))?.mime,
+  );
+  const inferredMimeType = mimeTypeFromFilename(input.filename);
+  const reportedMimeType = normalizeMime(input.reportedMimeType);
+  const mimeType = resolveArtifactMimeType(
+    detectedMimeType,
+    inferredMimeType,
+    reportedMimeType,
+  );
+  return { filename: artifactDisplayName(input.displayName ?? input.filename, mimeType), mimeType };
+}
+
+async function detectVerifiedArtifactFile(filename: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const prefix = Buffer.alloc(MAXIMUM_CFBF_CLSID_PROBE_BYTES);
+  await using handle = await open(filename, "r");
+  const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
+  if (bytesRead < 2) return undefined;
+  const useCfbf = shouldUseCfbfDetector(prefix.subarray(0, bytesRead));
+  return new FileTypeParser({
+    ...(useCfbf && { customDetectors: [detectCfbf] }),
+    maxBufferSize: 16 * 1024 * 1024,
+    ...(signal && { signal }),
+  }).fromFile(filename);
+}
+
 function isStructuredMimeType(value: string | undefined): value is string {
   return value
     ? /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/iu.test(value)
@@ -1944,6 +2203,54 @@ function artifactDisplayName(input: string, mimeType: string): string {
   if (filename.includes(".")) return filename;
   const extension = ARTIFACT_EXTENSION_BY_MIME.get(mimeType);
   return extension ? `${filename}.${extension}` : filename;
+}
+
+/**
+ * A committed desktop receipt may be replayed only while every observable
+ * field still matches the verified upload. Anything else is a conflicting
+ * receipt for the same server-issued artifact id.
+ */
+function assertCommittedDesktopArtifact(
+  file: {
+    conversationId: string;
+    turnId: string | null;
+    kind: string;
+    source: string;
+    status: string;
+    filename: string;
+    mimeType: string | null;
+    sizeBytes: bigint;
+    checksumSha256: string | null;
+    storageBackend: string;
+    minioObjectKey: string | null;
+    downloadable: boolean;
+  },
+  expected: {
+    conversationId: string;
+    turnId: string;
+    displayName: string;
+    mimeType: string;
+    sizeBytes: bigint;
+    checksumSha256: string;
+    objectKey: string;
+  },
+): void {
+  if (
+    file.conversationId !== expected.conversationId ||
+    file.turnId !== expected.turnId ||
+    file.kind !== "artifact" ||
+    file.source !== "agent_generated" ||
+    file.status !== "registered" ||
+    !file.downloadable ||
+    file.storageBackend !== "minio" ||
+    file.minioObjectKey !== expected.objectKey ||
+    file.filename !== expected.displayName ||
+    file.mimeType !== expected.mimeType ||
+    file.sizeBytes !== expected.sizeBytes ||
+    file.checksumSha256?.toLowerCase() !== expected.checksumSha256
+  ) {
+    throw new AppError("CONFLICT");
+  }
 }
 
 const ARTIFACT_MIME_BY_EXTENSION = new Map([

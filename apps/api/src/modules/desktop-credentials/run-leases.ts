@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   desktopModelPurposeSchema,
   desktopModelTokenSchema,
@@ -48,7 +48,7 @@ type StartModels = Pick<RunnerStartInput,
   "ownerId" | "conversationId" | "projectionTurnId" | "expectedRuntimeGeneration" |
   "model" | "modelProvider" | "modelTransitionSource"
 >;
-export type DesktopRunAuthorizationPhase = "issue" | "use" | "transition" | "settle";
+export type DesktopRunAuthorizationPhase = "issue" | "use" | "transition" | "settle" | "artifact";
 type RunAuthorization = (scope: DesktopRunScope, phase: DesktopRunAuthorizationPhase) => Promise<boolean>;
 
 export class DesktopRunLeases {
@@ -192,6 +192,20 @@ export class DesktopRunLeases {
     return await this.redis.set(`linksense:desktop-tool:${turn}:${request}`, "1", "PX", leaseTtlMs, "NX") === "OK";
   }
 
+  async pauseArtifactPublication(turnId: string): Promise<() => Promise<void>> {
+    const pauseKey = artifactPauseKey(turnId);
+    const ticket = randomUUID();
+    await this.redis.eval(`
+      redis.call('HSET', KEYS[1], ARGV[1], '1')
+      return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+    `, 1, pauseKey, ticket, String(leaseTtlMs));
+    return async () => { await this.redis.eval("return redis.call('HDEL', KEYS[1], ARGV[1])", 1, pauseKey, ticket); };
+  }
+
+  async isArtifactPublicationPaused(turnId: string): Promise<boolean> {
+    return await this.redis.eval("return redis.call('EXISTS', KEYS[1])", 1, artifactPauseKey(turnId)) === 1;
+  }
+
   async renew(scope: DesktopRunScope): Promise<number> {
     scope = desktopRunScopeSchema.parse(scope);
     const leaseKey = key(scope.turnId);
@@ -249,6 +263,10 @@ export class DesktopRunLeases {
 
 function key(turnId: string): string {
   return `linksense:desktop-run:${turnId}`;
+}
+
+function artifactPauseKey(turnId: string): string {
+  return `${key(runIdSchema.parse(turnId))}:artifact-stop`;
 }
 
 function matchesScope(a: DesktopRunScope, b: DesktopRunScope): boolean {

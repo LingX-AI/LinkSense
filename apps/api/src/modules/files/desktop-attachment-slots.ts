@@ -1,12 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { desktopAttachmentStartLifetimeMs } from "@linksense/shared";
+import { desktopArtifactUploadLifetimeMs, desktopAttachmentStartLifetimeMs } from "@linksense/shared";
 import type { Redis } from "ioredis";
 import { AppError } from "../../lib/errors.js";
 
-const key = "linksense:desktop-attachment-downloads";
-const maximum = 4;
-
 export async function reserveDesktopAttachmentSlot(redis: Pick<Redis, "eval" | "zrem">): Promise<() => Promise<void>> {
+  return reserveTransferSlot(redis, "linksense:desktop-attachment-downloads", desktopAttachmentStartLifetimeMs);
+}
+
+export async function reserveDesktopArtifactSlot(redis: Pick<Redis, "eval" | "zrem">): Promise<() => Promise<void>> {
+  return reserveTransferSlot(redis, "linksense:desktop-artifact-transfers", desktopArtifactUploadLifetimeMs);
+}
+
+async function reserveTransferSlot(
+  redis: Pick<Redis, "eval" | "zrem">, key: string, lifetimeMs: number,
+): Promise<() => Promise<void>> {
   const ticket = randomUUID();
   const admitted = await redis.eval(`
     local time = redis.call('TIME')
@@ -16,7 +23,7 @@ export async function reserveDesktopAttachmentSlot(redis: Pick<Redis, "eval" | "
     redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[3])
     redis.call('PEXPIRE', KEYS[1], ARGV[2])
     return 1
-  `, 1, key, maximum, desktopAttachmentStartLifetimeMs, ticket);
+  `, 1, key, 4, lifetimeMs, ticket);
   if (admitted !== 1) throw new AppError("RUNNER_UNAVAILABLE", undefined, 429);
   return async () => { await redis.zrem(key, ticket); };
 }

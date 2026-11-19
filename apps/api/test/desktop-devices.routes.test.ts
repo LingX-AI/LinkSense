@@ -9,7 +9,7 @@ import {
   desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionAck,
   type DesktopExecutionCallback, type DesktopExecutionCommand,
 } from "@linksense/shared";
-import { DesktopCommandUncertainError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
+import { DesktopCommandUncertainError, DesktopCommandUndeliveredError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { RedisDesktopDeviceCoordinator, type DesktopExecutionBinding } from "../src/modules/desktop-devices/coordinator.js";
@@ -330,7 +330,7 @@ describe("desktop execution transport", () => {
       expect(await issue(inspection({ expires_at }))).toMatchObject(unavailable);
       const stop = { ...inspection({ expires_at }), operation: "turn.interrupt" } as const;
       if (attachments) expect(await issue(stop)).toEqual(stop);
-      expect(await issue({ ...stop, id: randomUUID() })).toMatchObject(unavailable);
+      await expect(issue({ ...stop, id: randomUUID() })).rejects.toBeInstanceOf(DesktopCommandUndeliveredError);
     } finally {
       socket.terminate();
       await Promise.allSettled(pending);

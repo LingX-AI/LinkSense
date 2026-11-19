@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { Readable } from "node:stream";
+import { buffer } from "node:stream/consumers";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -16,11 +17,13 @@ import {
   connectionResultSchema,
   conversationStartFailurePayloadSchema,
   conversationUserInputQuestionSchema,
+  desktopArtifactReceiptSchema,
   desktopAttachmentDownloadPath,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
   RUNNER_TURN_INTERRUPT_REQUESTED,
+  type DesktopArtifactReceipt,
 } from "@linksense/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -50,7 +53,7 @@ export async function verifyPackagedDesktopGateway(input: {
   coordinator: RedisDesktopDeviceCoordinator;
   conversations: ConversationService;
   events: ConversationEventService;
-  files: Pick<FileService, "uploadAttachment">;
+  files: Pick<FileService, "uploadAttachment" | "readArtifactDownload" | "listTaskArtifacts">;
   modelProviderSettings: ModelProviderSettingsService;
   ownerId: string;
   deviceId: string;
@@ -63,7 +66,7 @@ export async function verifyPackagedDesktopGateway(input: {
   connector: { driveName: string; documentName: string; documentText: string };
   browser: { title: string; tabId: number; image: Buffer; ref: string; observed: readonly string[] };
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
-}): Promise<void> {
+}): Promise<{ id: string; turnId: string; sizeBytes: number }> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
     "the package regression requires a local Mac arm64 app runtime");
   z.object({ target: z.literal("darwin/arm64") }).parse(
@@ -89,8 +92,13 @@ export async function verifyPackagedDesktopGateway(input: {
   const attachmentData = Buffer.alloc(100 * 1024 * 1024, "a");
   attachmentData.write(`${marker}\n`);
   const attachmentChecksum = createHash("sha256").update(attachmentData).digest("hex");
+  const artifactDisplayName = "packaged-artifact.txt";
+  const artifactRelativePath = `artifacts/${artifactDisplayName}`;
+  const artifactContent = `packaged artifact ${randomUUID()}\n`;
+  let artifactWorkspace: string | undefined;
+  let artifactReceipt: DesktopArtifactReceipt | undefined;
   const model = Fastify();
-  const modelRequests = { read: 0, interrupt: 0, interruptApproval: 0, aborted: false };
+  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
   let citation: string | undefined;
@@ -248,6 +256,38 @@ export async function verifyPackagedDesktopGateway(input: {
         .find(item => item.type === "input_image");
       assert(image?.image_url === `data:image/jpeg;base64,${input.browser.image.toString("base64")}`,
         "Codex did not receive the binary screenshot through the scoped result channel");
+      browserStep++;
+      return reply.type("text/event-stream").send(responseStream({
+        id: `fixture-tool-${call}`, type: "function_call", call_id: `fixture-call-${call}`,
+        name: "exec_command", arguments: JSON.stringify({ cmd: `cp artifact-seed.txt ${artifactRelativePath}`, yield_time_ms: 1000 }),
+        status: "completed",
+      }));
+    }
+    if (browserStep === 6) {
+      assert(artifactWorkspace);
+      const written = await readFile(join(artifactWorkspace, artifactRelativePath), "utf8").catch(() => null);
+      assert.equal(written, artifactContent, "native cp did not create the workspace artifact");
+      modelRequests.artifact++;
+      assert.equal(modelRequests.artifact, 1, "native artifact registration was replayed");
+      const artifactTool = body.tools?.find(tool => tool.type === "namespace" &&
+        tool.tools?.some(member => member.type === "function" && member.name === "register_artifact"));
+      browserStep++;
+      return callTool("register_artifact", {
+        workspace_relative_path: artifactRelativePath,
+        display_name: artifactDisplayName,
+      }, artifactTool);
+    }
+    if (browserStep === 7) {
+      const result = toolOutput(body.input, `fixture-call-${call - 1}`);
+      const failure = z.object({
+        code: z.string().regex(/^[A-Z_]{1,80}$/u),
+      }).safeParse(result);
+      assert(!failure.success, `native artifact registration failed: ${failure.data?.code}`);
+      const receipt = desktopArtifactReceiptSchema.parse(result);
+      assert.equal(receipt.artifact_id, receipt.file_id, "the artifact result must identify one file");
+      assert.equal(receipt.display_name, artifactDisplayName,
+        "the artifact result did not retain the simple basename");
+      artifactReceipt = receipt;
       assert(citation, "native knowledge search did not return a citation");
       return reply.type("text/event-stream").send(responseStream({
         id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
@@ -295,7 +335,10 @@ export async function verifyPackagedDesktopGateway(input: {
       const rules = join(home, ".codex", "rules");
       await mkdir(workspace, { recursive: true, mode: 0o700 });
       await mkdir(rules, { recursive: true, mode: 0o700 });
-      await writeFile(join(rules, "default.rules"), 'prefix_rule(pattern=["head"], decision="allow")\n', { mode: 0o600 });
+      await writeFile(join(rules, "default.rules"),
+        'prefix_rule(pattern=["head"], decision="allow")\n' +
+        'prefix_rule(pattern=["cp"], decision="allow")\n',
+        { mode: 0o600 });
       await mkdir(join(scratch, ownerId, "services", id, "home", "workspace", "attachments"), { recursive: true, mode: 0o700 });
       return prisma.conversation.create({
         data: {
@@ -305,6 +348,8 @@ export async function verifyPackagedDesktopGateway(input: {
       });
     };
     const read = await task("Packaged Mac workspace read");
+    artifactWorkspace = join(dataRoot, ownerId, "services", read.id, "home", "workspace");
+    await writeFile(join(artifactWorkspace, "artifact-seed.txt"), artifactContent, { mode: 0o600 });
     const uploaded = await input.files.uploadAttachment(ownerId, read.id, {
       filename: attachmentName, reportedMimeType: "text/plain", data: attachmentData,
     }, {});
@@ -356,8 +401,8 @@ export async function verifyPackagedDesktopGateway(input: {
     const connectionId = await waitForConnection(input.previousConnectionId);
     const submission = (inputText: string, idempotencyKey: string) =>
       ({ inputText, idempotencyKey, submitMode: "normal" as const, priorityCapabilityIds: [] });
-    const waitForBrowserApproval = async (conversationId: string, turnId: string, action: z.infer<typeof browserUseApprovalSchema>["action"]) => {
-      const request = await waitFor(`the pending native browser approval for ${action}`, () =>
+    const waitForMcpApproval = async (conversationId: string, turnId: string, tool: string) => {
+      const request = await waitFor(`the pending native approval for ${tool}`, () =>
         prisma.conversationUserInputRequest.findFirst({
           where: { ownerId, conversationId, turnId, requestKind: "questions", status: "pending" },
           select: { id: true, codexItemId: true, questionsJson: true },
@@ -367,6 +412,11 @@ export async function verifyPackagedDesktopGateway(input: {
       const { options } = question;
       assert(options && options.some(option => option.label === "Allow") && options.some(option => option.label === "Cancel"),
         "native approval must offer Allow and Cancel");
+      return { id: request.id, itemId: request.codexItemId, questionId: question.id, options };
+    };
+    const waitForBrowserApproval = async (conversationId: string, turnId: string, action: z.infer<typeof browserUseApprovalSchema>["action"]) => {
+      const request = await waitForMcpApproval(conversationId, turnId, action);
+      const { options } = request;
       assert(!options.some(option => option.label === "Allow for this session" || option.label === "Always allow"),
         "native browser approval must apply only to the current action");
       const events = await prisma.conversationEvent.findMany({
@@ -374,12 +424,12 @@ export async function verifyPackagedDesktopGateway(input: {
         select: { payloadJson: true },
       });
       const approvalItem = z.object({ params: z.object({
-        item: z.object({ id: z.literal(request.codexItemId), browserApproval: browserUseApprovalSchema }),
+        item: z.object({ id: z.literal(request.itemId), browserApproval: browserUseApprovalSchema }),
       }) });
       assert(events.some(({ payloadJson }) =>
         approvalItem.safeParse(payloadJson).data?.params.item.browserApproval.action === action),
       "the native call must identify the action before the answer is requested");
-      return { id: request.id, itemId: request.codexItemId, questionId: question.id, options };
+      return request;
     };
     const browserAuditCount = (turnId: string) => prisma.auditLog.count({
       where: { action: "desktop_tool_requested", targetType: "browser_use", metadataJson: { path: ["turn_id"], equals: turnId } },
@@ -538,6 +588,20 @@ export async function verifyPackagedDesktopGateway(input: {
         }, {});
         assert.equal(response.status, "answered");
       }
+      const pendingArtifact = await waitForMcpApproval(read.id, completed.turn_id, "register_artifact");
+      assert.equal(browserStep, 7);
+      assert.equal(pendingArtifact.itemId, `fixture-call-${modelRequests.read}`);
+      assert.equal(await prisma.auditLog.count({
+        where: {
+          action: "desktop_tool_requested",
+          targetType: "conversation_file",
+          metadataJson: { path: ["turn_id"], equals: completed.turn_id },
+        },
+      }), 0, "the Mac requested an artifact grant before native approval");
+      const artifactApproval = await conversations.respondToUserInputRequest(ownerId, read.id, pendingArtifact.id, {
+        action: "accept", content: { [pendingArtifact.questionId]: "Allow" },
+      }, {});
+      assert.equal(artifactApproval.status, "answered");
       await waitFor("completed workspace read and slot release", async () =>
         await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
       );
@@ -560,7 +624,7 @@ export async function verifyPackagedDesktopGateway(input: {
         { cause: error },
       );
     }
-    assert.equal(modelRequests.read, 13 + connectorPages);
+    assert.equal(modelRequests.read, 15 + connectorPages);
     assert.equal(input.attachmentTransfer.requests(stoppedPath), 1);
     for (const downloadPath of abandonedPaths) assert.equal(input.attachmentTransfer.requests(downloadPath), 1);
     assert.equal(input.attachmentTransfer.requests(attachmentPath(completed.turn_id)), 1);
@@ -587,6 +651,72 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.deepEqual(citations, [{
       knowledgeBaseId: input.knowledge.baseId, documentNameSnapshot: input.knowledge.documentName, citationNo: 1,
     }]);
+
+    const artifact = artifactReceipt;
+    assert(artifact, "native Mac did not return an artifact registration receipt");
+    assert.equal(modelRequests.artifact, 1, "native Mac registered the artifact more than once");
+    const artifactFiles = await prisma.conversationFile.findMany({
+      where: { conversationId: read.id, kind: "artifact" },
+      select: {
+        id: true, turnId: true, filename: true, mimeType: true, sizeBytes: true, status: true,
+        storageBackend: true, downloadable: true, minioObjectKey: true,
+        workspaceRelativePath: true, workspaceRootRelPath: true,
+      },
+    });
+    assert.equal(artifactFiles.length, 1, "artifact registration created more than one file row");
+    const artifactFile = artifactFiles[0];
+    assert(artifactFile);
+    const artifactEvents = await prisma.conversationEvent.findMany({
+      where: { conversationId: read.id, eventType: "conversation.artifact.created" },
+      select: { id: true, turnId: true, visibility: true, payloadJson: true },
+    });
+    assert.equal(artifactEvents.length, 1, "artifact registration published more than one download card event");
+    const artifactEvent = artifactEvents[0];
+    assert(artifactEvent);
+    assert.equal(artifact.file_id, artifactFile.id);
+    assert.equal(artifactFile.turnId, completed.turn_id);
+    assert.equal(artifactFile.filename, artifactDisplayName);
+    assert.equal(artifactFile.mimeType, "text/plain");
+    assert.equal(artifactFile.sizeBytes, BigInt(Buffer.byteLength(artifactContent)));
+    assert.equal(artifactFile.status, "registered");
+    assert.equal(artifactFile.downloadable, true);
+    assert.equal(artifactFile.storageBackend, "minio");
+    assert.equal(artifactFile.workspaceRelativePath, null);
+    assert.equal(artifactFile.workspaceRootRelPath, null);
+    assert.equal(artifactEvent.id, artifact.download_card_event_id);
+    assert.equal(artifactEvent.turnId, completed.turn_id);
+    assert.equal(artifactEvent.visibility, "user_visible");
+    assert.deepEqual(artifactEvent.payloadJson, {
+      schema_version: 1,
+      file_id: artifactFile.id,
+      display_name: artifactFile.filename,
+      mime_type: "text/plain",
+      size_bytes: Buffer.byteLength(artifactContent),
+    });
+    const artifactAudits = await prisma.auditLog.findMany({
+      where: { action: "conversation_artifact_registered", targetType: "conversation_file", targetId: artifactFile.id },
+      select: { metadataJson: true },
+    });
+    assert.equal(artifactAudits.length, 1, "artifact registration wrote more than one audit row");
+    const artifactAudit = artifactAudits[0];
+    assert(artifactAudit);
+    const artifactHistory = (await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 100 })).items
+      .filter(event => event.event_type === "conversation.artifact.created");
+    assert.equal(artifactHistory.length, 1, "the projected history published more than one artifact event");
+    assert.equal(artifactHistory[0]?.id, artifact.download_card_event_id);
+    for (const localRoot of [scratch, dataRoot, nativeRoot]) {
+      assert(!artifactFile.minioObjectKey?.includes(localRoot), "the artifact object key leaked a local path");
+      assert(!JSON.stringify(artifactEvent.payloadJson).includes(localRoot), "the artifact event leaked a local path");
+      assert(!JSON.stringify(artifactAudit.metadataJson).includes(localRoot), "the artifact audit leaked a local path");
+    }
+    const listed = await input.files.listTaskArtifacts(ownerId, { limit: 5, search: artifactDisplayName });
+    assert.deepEqual(listed.items.map(({ id }) => id), [artifact.file_id]);
+    const download = await input.files.readArtifactDownload(ownerId, read.id, artifactFile.id, {});
+    assert.equal(download.filename, artifactDisplayName);
+    assert.equal(download.mimeType, "text/plain");
+    assert.equal(download.sizeBytes, Buffer.byteLength(artifactContent));
+    assert.equal((await buffer(download.data)).toString("utf8"), artifactContent,
+      "the authenticated artifact download did not return the native file bytes");
 
     const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
       submission(interruptApprovalPrompt, "desktop-interrupt-approval"), {});
@@ -635,7 +765,8 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled 100 MiB retry read by native Codex, scoped tools, approvals, interruption, and start idempotency.");
+    console.log("Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled 100 MiB retry read by native Codex, scoped tools, approvals, native artifact registration and authenticated download, interruption, and start idempotency.");
+    return { id: artifact.file_id, turnId: completed.turn_id, sizeBytes: download.sizeBytes };
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();

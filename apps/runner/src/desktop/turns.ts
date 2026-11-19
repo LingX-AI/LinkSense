@@ -8,6 +8,7 @@ import {
   desktopExecutionStartReceiptSchema, desktopUserInputReceiptSchema, runnerTurnInterruptResultSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE, RUNNER_TURN_INTERRUPT_REQUESTED,
   RUNNER_EVENT_BATCH_MAX_COUNT, RUNNER_EVENT_BATCH_TARGET_BYTES,
+  supportsDesktopUserInput,
   type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult, type DesktopToolOperation,
 } from "@linksense/shared"
 import { z } from "zod"
@@ -19,7 +20,7 @@ import { isSealedStartOperation, StartOperationStore, type StartOperationState }
 import { RunnerEventOutboxStore } from "../workspace/event-outbox.js"
 import { prepareConversationControl, RuntimeGenerationIntegrityError, WorkspaceManager } from "../workspace/workspace-manager.js"
 import { initializeDesktopCapabilities } from "./capabilities.js"
-import { DesktopAttachmentError, prepareDesktopAttachments } from "./attachments.js"
+import { DesktopAttachmentError, prepareDesktopAttachments, verifyDirectory } from "./attachments.js"
 import { desktopModelProviders } from "./model-providers.js"
 import { recoverDesktopStart, recoverDesktopTerminal } from "./turn-history.js"
 
@@ -35,6 +36,7 @@ type AttachmentReady = (command: StartCommand, signal: AbortSignal) => Promise<v
 export type DesktopRuntimeRun = {
   scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout
   confirmAttachments?: (signal: AbortSignal) => Promise<number>
+  artifacts?: { workspace: string; check: () => Promise<void>; signal: AbortSignal }
 }
 const emptyMcpGeneration = createHash("sha256").update("").digest("hex")
 const healthSchema = z.object({ status: z.literal("available") })
@@ -112,7 +114,7 @@ export class DesktopTurns {
       }
       if (command.operation === "user-input.respond") {
         const run = this.scopedRun(command.conversation_id)
-        if (!this.toolOperations.includes("browser.execute") || !sameTurn?.worker ||
+        if (!supportsDesktopUserInput(this.toolOperations) || !sameTurn?.worker ||
             !run || run !== sameTurn.run || sameTurn.interrupted) throw new DesktopUserInputUnavailableError()
         uncertain = true
         const result = desktopUserInputReceiptSchema.parse(await this.request(sameTurn.worker, command,
@@ -135,6 +137,8 @@ export class DesktopTurns {
             ? RUNNER_TURN_INTERRUPT_REQUESTED : RUNNER_TURN_INTERRUPT_NOT_ACTIVE },
         }
       }
+      // Stop must promptly cancel local transfers that belong to this turn.
+      sameTurn.preparation.abort()
       const result = runnerTurnInterruptResultSchema.parse(await this.request(sameTurn.worker, command,
         `/turns/start/${command.turn_id}/interrupt`, signal, {
           ownerId: command.owner_id, expectedRuntimeGeneration: command.runtime_generation,
@@ -211,6 +215,7 @@ export class DesktopTurns {
 
   private async releaseOnce(session: Session): Promise<void> {
     clearTimeout(session.run?.timer)
+    session.preparation.abort()
     const { owner_id, conversation_id, runtime_generation, turn_id } = session.scope
     if (session.worker) await this.provider.release(session.worker)
     if (session.run) {
@@ -239,7 +244,10 @@ export class DesktopTurns {
 
   async shutdown(): Promise<void> {
     this.closing = true
-    for (const session of this.sessions.values()) clearTimeout(session.run?.timer)
+    for (const session of this.sessions.values()) {
+      clearTimeout(session.run?.timer)
+      session.preparation.abort()
+    }
     await this.provider.stopWorkers()
     await Promise.all([...this.sessions.values()].filter(session => session.materialized).map(session => this.release(session)))
     this.sessions.clear()
@@ -266,6 +274,8 @@ export class DesktopTurns {
       if (session.interrupted) return await this.sealUnstarted(scope)
       if (command.body.native_thread_id && !await this.readGeneration(scope)) throw new RuntimeGenerationIntegrityError()
       const paths = await this.prepareControl(scope)
+      const artifactWorkspace = this.toolOperations.includes("artifact.prepare")
+        ? await verifyDirectory(paths.root, path.join(paths.home, "workspace")) : undefined
       if (session.interrupted) return await this.sealUnstarted(scope)
       const capabilityGeneration = await initializeDesktopCapabilities(this.runtimeRoot, paths)
       if (session.interrupted) return await this.sealUnstarted(scope)
@@ -293,6 +303,9 @@ export class DesktopTurns {
       const run: DesktopRuntimeRun = {
         scope, token: command.body.credentials.run_token, expiresAt,
         timer: setTimeout(() => { void this.finish(run).catch(this.workerLost) }, expiresAt - Date.now()),
+        ...(artifactWorkspace && { artifacts: {
+          workspace: artifactWorkspace.path, check: artifactWorkspace.check, signal: session.preparation.signal,
+        } }),
         ...(materialized && attachmentsReady && {
           confirmAttachments: async (requestSignal: AbortSignal) => {
             const deadline = Math.min(expiresAt, Date.parse(command.expires_at))

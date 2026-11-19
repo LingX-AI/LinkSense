@@ -718,6 +718,7 @@ export async function buildApi(
       knowledgeTools: services.knowledgeSearch !== null,
       connectionTools: true,
       browserTools: config.desktopBrowserUseEnabled,
+      artifactTools: config.desktopArtifactsEnabled,
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

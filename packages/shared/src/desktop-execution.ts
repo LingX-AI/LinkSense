@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenSchema } from "./desktop-device.js";
+import { desktopArtifactPrepareSchema, desktopArtifactUploadGrantSchema } from "./desktop-artifacts.js";
 import { connectionFailureCodeSchema } from "./connections.js";
 import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
 import { conversationUserInputResponseSchema } from "./conversation-forms.js";
@@ -66,9 +67,12 @@ const desktopAttachmentManifestSchema = z.array(desktopAttachmentSchema).min(1).
 );
 export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
-export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute"]);
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
+export const supportsDesktopUserInput = (operations: readonly DesktopToolOperation[]): boolean =>
+  operations.includes("browser.execute") || operations.includes("artifact.prepare");
 export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
+  if (operation === "artifact.prepare") return 10_000;
   if (operation === "connection.execute") return 58_000;
   if (operation === "browser.execute") return 34_000;
   return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
@@ -218,6 +222,7 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("knowledge.markdown"), body: getKnowledgeDocumentMarkdownInputSchema }),
   request.extend({ operation: z.literal("connection.execute"), body: desktopConnectionRequestBodySchema }),
   request.extend({ operation: z.literal("browser.execute"), body: browserUseRequestSchema }),
+  request.extend({ operation: z.literal("artifact.prepare"), body: desktopArtifactPrepareSchema }),
 ]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
@@ -253,7 +258,7 @@ export const desktopToolErrorSchema = z.union([
   webSearchFailureCodeSchema,
   connectionFailureCodeSchema,
   z.enum([
-    "FORBIDDEN", "RUNNER_UNAVAILABLE", "KNOWLEDGE_PROCESSING_UNAVAILABLE",
+    "FORBIDDEN", "RUNNER_UNAVAILABLE", "KNOWLEDGE_PROCESSING_UNAVAILABLE", "ARTIFACT_REGISTRATION_INVALID", "CONFLICT",
     "KNOWLEDGE_SEARCH_UNAVAILABLE", "KNOWLEDGE_NO_AVAILABLE_BASES",
     "KNOWLEDGE_MAINTENANCE_UNAVAILABLE", "KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY", "FILE_LIMIT_EXCEEDED",
     "KNOWLEDGE_BASE_NOT_FOUND", "KNOWLEDGE_BASE_ACCESS_DENIED", "KNOWLEDGE_BASE_DISABLED", "KNOWLEDGE_DOCUMENT_NOT_FOUND",
@@ -266,6 +271,7 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("knowledge.markdown"), data: knowledgeDocumentMarkdownSuccessSchema }),
   toolResult.extend({ operation: z.literal("connection.execute"), data: desktopConnectionResultSchema }),
   toolResult.extend({ operation: z.literal("browser.execute"), data: desktopBrowserUseResultSchema }),
+  toolResult.extend({ operation: z.literal("artifact.prepare"), data: desktopArtifactUploadGrantSchema }),
   toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([

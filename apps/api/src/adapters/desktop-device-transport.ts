@@ -11,6 +11,7 @@ import {
   desktopToolClockSkewAllowanceMs,
   desktopToolMaxInFlight,
   desktopToolLifetimeFor,
+  supportsDesktopUserInput,
   type DesktopExecutionAck,
   type DesktopExecutionCallback,
   type DesktopExecutionCancel,
@@ -381,7 +382,7 @@ export class DesktopDeviceTransport {
         if (waiting && waiting.expiresAt > Date.now() &&
           sameBinding(waiting.binding, envelope.binding) && matchesResult(waiting.command, envelope.frame)) {
           const { frame } = envelope;
-          if (envelope.beforeDelivery && !frame.ok && frame.operation === "turn.start" &&
+          if (envelope.beforeDelivery && !frame.ok && (frame.operation === "turn.start" || frame.operation === "turn.interrupt") &&
               (frame.error_code === "RUNNER_UNAVAILABLE" || frame.error_code === "FORBIDDEN")) {
             waiting.reject(new DesktopCommandUndeliveredError(frame.error_code));
           } else {
@@ -432,8 +433,7 @@ export class DesktopDeviceTransport {
       return;
     }
     if (pending) return;
-    // Browser Use is the first desktop protocol consumer of native questions.
-    if (frame.operation === "user-input.respond" && !socket.toolOperations.includes("browser.execute")) {
+    if (frame.operation === "user-input.respond" && !supportsDesktopUserInput(socket.toolOperations)) {
       await this.reply(request, failure(frame, "USER_INPUT_REQUEST_UNAVAILABLE"), true);
       return;
     }

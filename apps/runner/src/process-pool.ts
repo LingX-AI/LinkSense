@@ -936,6 +936,7 @@ export class AppServerProcessPool {
       codexProcessIdentity?: { uid: number; gid: number };
       desktopWorkspace?: boolean;
       desktopBrowserEnabled?: boolean;
+      desktopArtifactsEnabled?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -1734,7 +1735,7 @@ export class AppServerProcessPool {
             ...input,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact${this.options.desktopWorkspace ? "?desktop=1" : ""}`,
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -3938,7 +3939,7 @@ export class AppServerProcessPool {
             ...recoveryStartInput,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact${this.options.desktopWorkspace ? "?desktop=1" : ""}`,
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -4311,8 +4312,9 @@ export class AppServerProcessPool {
       displayName: string;
       mimeType?: string;
       artifactKind?: string;
-    webRootRelativePath?: string;
+      webRootRelativePath?: string;
     },
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId) {
@@ -4328,6 +4330,28 @@ export class AppServerProcessPool {
     if (managed.activeCollaborationMode === "plan") {
       throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
     }
+    // Mac delivers single local files; there is no website snapshot builder.
+    if (this.options.desktopWorkspace && !this.options.desktopArtifactsEnabled) {
+      throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
+    }
+    if (this.options.desktopWorkspace && input.webRootRelativePath) {
+      throw new FileServiceRequestError(
+        "ARTIFACT_REGISTRATION_INVALID",
+        false,
+        400,
+      );
+    }
+    // Desktop tool frames are scoped to the project turn, not the native turn.
+    const turnId = this.options.desktopWorkspace
+      ? managed.activeProjectionTurnId
+      : managed.activeTurnId;
+    if (!turnId) {
+      throw new FileServiceRequestError(
+        "FILE_SERVICE_TURN_INACTIVE",
+        false,
+        409,
+      );
+    }
     try {
       this.options.workspaceManager.resolveWorkspacePath(
         conversationId,
@@ -4340,15 +4364,16 @@ export class AppServerProcessPool {
         400,
       );
     }
-    return this.options.eventSink.registerArtifact({
+    const artifact = {
       conversationId,
-      turnId: managed.activeTurnId,
+      turnId,
       workspaceRelativePath: input.workspaceRelativePath,
       displayName: input.displayName,
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.artifactKind ? { artifactKind: input.artifactKind } : {}),
       ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
-    });
+    };
+    return this.options.eventSink.registerArtifact(artifact, ...(signal ? [signal] : []));
   }
 
   async generateImage(
@@ -5724,6 +5749,7 @@ export class AppServerProcessPool {
             }),
             ...builtInMcpConfigOverrides({
               disableBrowserUse: this.options.desktopWorkspace === true && !this.options.desktopBrowserEnabled,
+              disableArtifactRegistration: this.options.desktopWorkspace === true && !this.options.desktopArtifactsEnabled,
               promptForBrowserUse: this.options.desktopWorkspace === true && this.options.desktopBrowserEnabled === true,
               command: this.options.mcpCommand,
               args: this.options.mcpArgs,
@@ -6979,7 +7005,7 @@ export class AppServerProcessPool {
           : -32_601,
       );
     }
-    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled) {
+    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled) {
       // Older peers cannot present or answer questions; resolve without granting anything.
       return { response: Promise.resolve({ answers: {} }) };
     }

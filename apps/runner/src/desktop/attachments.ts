@@ -91,19 +91,19 @@ export async function prepareDesktopAttachments(
     const parent = attachmentParent(paths)
     // The supervisor is the sole writer during preparation. Strict Codex
     // permissions deny access to control; the workspace worker is not alive.
-    const controlDirectory = await verifyDirectory(paths.root, paths.control)
+    const { check: controlDirectory } = await verifyDirectory(paths.root, paths.control)
     checkControl = controlDirectory
-    const checkWorkspace = await verifyDirectory(paths.root, path.dirname(parent))
+    const { check: checkWorkspace } = await verifyDirectory(paths.root, path.dirname(parent))
     await checkWorkspace()
     await mkdir(parent, { mode: 0o700 }).catch((error: unknown) => {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
     })
-    const checkParent = await verifyDirectory(paths.root, parent)
+    const { check: checkParent } = await verifyDirectory(paths.root, parent)
     const base = desktopServerOriginSchema.parse(origin)
     await checkControl()
     const temporary = await mkdtemp(path.join(paths.control, `${stagingPrefix}${command.turn_id}-`))
     staged = temporary
-    const checkStage = await verifyDirectory(paths.root, temporary)
+    const { check: checkStage } = await verifyDirectory(paths.root, temporary)
     const directory = path.basename(temporary)
     const destination = path.join(parent, directory)
     const entries: PreparedAttachments["entries"] = []
@@ -159,13 +159,13 @@ function readPublicationJson(text: string): unknown {
 }
 
 async function verifyOptionalDirectory(root: string, directory: string): Promise<(() => Promise<void>) | null> {
-  return verifyDirectory(root, directory).catch((error: unknown) => {
+  return verifyDirectory(root, directory).then(({ check }) => check).catch((error: unknown) => {
     if (isNodeError(error, "ENOENT") || error instanceof DesktopAttachmentError) return null
     throw error
   })
 }
 
-async function verifyDirectory(root: string, directory: string): Promise<() => Promise<void>> {
+export async function verifyDirectory(root: string, directory: string): Promise<{ path: string; check: () => Promise<void> }> {
   const canonicalRoot = await realpath(root)
   const relative = path.relative(root, directory)
   if (!relative || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
@@ -180,10 +180,11 @@ async function verifyDirectory(root: string, directory: string): Promise<() => P
     return info
   }
   const initial = await read()
-  return async () => {
+  const check = async () => {
     const info = await read()
     if (initial.dev !== info.dev || initial.ino !== info.ino) throw new DesktopAttachmentError()
   }
+  return { path: canonical, check }
 }
 
 async function downloadFile(

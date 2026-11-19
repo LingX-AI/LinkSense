@@ -39,6 +39,11 @@ export class DesktopLink {
     private readonly attachments = false,
   ) {}
 
+  /** Aborted when this device link closes; local transfers must not outlive it. */
+  get signal(): AbortSignal {
+    return this.lifetime.signal
+  }
+
   receive(frame: Extract<Input, { type: "link.frame" }>["frame"]): void {
     if (this.lifetime.signal.aborted) return
     switch (frame.type) {

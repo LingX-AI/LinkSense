@@ -421,6 +421,7 @@ export function desktopWorkerEnvironment(
     ...(run ? { LINKSENSE_DESKTOP_TURN_ID: run.turnId, LINKSENSE_DESKTOP_RUNTIME_GENERATION: run.runtimeGeneration } : {}),
     ...(run?.toolOperations?.includes("connection.execute") ? { LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("browser.execute") ? { LINKSENSE_DESKTOP_BROWSER_ENABLED: "true" } : {}),
+    ...(run?.toolOperations?.includes("artifact.prepare") ? { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" } : {}),
   }
 }
 

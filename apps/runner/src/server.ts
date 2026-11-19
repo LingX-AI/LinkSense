@@ -58,7 +58,7 @@ import { AutomationRequestError } from "./automation-error.js";
 import { AUTOMATION_TOOL_BODY_LIMIT, automationToolRequestSchema } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
 import { connectionInputSchema, desktopConnectionRequestBodySchema } from "@linksense/shared";
-import { FileServiceRequestError } from "./file-service-error.js";
+import { FileServiceRequestError, desktopArtifactUncertain } from "./file-service-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
 import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
@@ -1101,19 +1101,26 @@ export function buildRunnerServer(
       if (!token)
         return reply.code(401).send({ code: "FILE_SERVICE_FORBIDDEN" });
       const body = mcpArtifactBodySchema.parse(request.body);
+      const desktop = Boolean(config.LINKSENSE_DESKTOP_TURN_ID);
+      const controller = new AbortController();
+      const abort = () => { if (!reply.raw.writableFinished) controller.abort(); };
+      if (desktop) {
+        reply.raw.once("close", abort);
+        if (reply.raw.destroyed) abort();
+      }
       try {
         return await pool.registerArtifact(conversationId, token, {
           workspaceRelativePath: body.workspaceRelativePath,
           displayName: body.displayName,
           ...(body.mimeType ? { mimeType: body.mimeType } : {}),
           ...(body.artifactKind ? { artifactKind: body.artifactKind } : {}),
-        ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
-        });
+          ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
+        }, desktop ? controller.signal : undefined);
       } catch (error) {
         const failure =
           error instanceof FileServiceRequestError
             ? error
-            : new FileServiceRequestError(
+            : desktop ? desktopArtifactUncertain() : new FileServiceRequestError(
                 "ARTIFACT_REGISTRATION_UNAVAILABLE",
                 true,
                 503,
@@ -1129,7 +1136,10 @@ export function buildRunnerServer(
         return reply.code(failure.statusCode).send({
           code: failure.code,
           retryable: failure.retryable,
+          ...(failure.artifactId && { artifact_id: failure.artifactId }),
         });
+      } finally {
+        if (desktop) reply.raw.off("close", abort);
       }
     },
   );

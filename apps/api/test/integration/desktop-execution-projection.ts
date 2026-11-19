@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import type { Duplex } from "node:stream";
+import { buffer } from "node:stream/consumers";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -10,6 +11,8 @@ import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
+  desktopArtifactPath,
+  desktopArtifactReceiptSchema,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
@@ -21,6 +24,7 @@ import {
   desktopToolProtocolVersion,
   desktopToolRequestLifetimeMs,
   desktopToolResultSchema,
+  RUNNER_TURN_INTERRUPT_REQUESTED,
   type DesktopExecutionCallback,
   type DesktopExecutionCommand,
   type DesktopToolRequest,
@@ -29,10 +33,13 @@ import { Queue } from "bullmq";
 import Fastify from "fastify";
 import { WebSocket } from "ws";
 
+import { BackgroundJobs, type MaintenanceJob } from "../../src/adapters/jobs.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
 import { LocalFilesystemObjectStorage } from "../../src/adapters/object-storage.js";
 import { RunnerClient, type RunnerStartInput } from "../../src/adapters/runner.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
+import { sha256 } from "../../src/lib/crypto.js";
+import { sendAppError } from "../../src/lib/http.js";
 import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
 import { AuditService } from "../../src/modules/audit/service.js";
 import { ConversationService } from "../../src/modules/conversations/service.js";
@@ -51,6 +58,7 @@ import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.
 import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/modules/events/recovery-scheduler.js";
 import { ConversationEventService } from "../../src/modules/events/service.js";
 import { FileService } from "../../src/modules/files/service.js";
+import { desktopArtifactObjectKey, desktopArtifactStagingKey } from "../../src/modules/files/desktop-artifact-storage.js";
 import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking/service.js";
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
@@ -62,6 +70,7 @@ import { installPackagedAttachmentTransferGate, verifyPackagedDesktopGateway } f
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
 import { attachDesktopBrowserFixture } from "./desktop-browser-fixture.js";
+import { createDesktopMinioFixture } from "./desktop-minio-fixture.js";
 
 const capabilityGeneration = "0".repeat(64);
 type RecoveryJobData = Parameters<TaskRecoveryQueueControl["add"]>[1];
@@ -85,6 +94,7 @@ export async function verifyDesktopExecutionProjection(input: {
     LINKSENSE_RUNNER_URL: "http://127.0.0.1:1",
     LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true",
     LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true",
+    LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true",
     LINKSENSE_CREDENTIAL_MASTER_KEY: randomBytes(32).toString("base64"),
     LINKSENSE_RUNNER_SHARED_SECRET: randomUUID(),
   });
@@ -94,8 +104,17 @@ export async function verifyDesktopExecutionProjection(input: {
   const queue = new Queue<RecoveryJobData, void, RecoveryJobName>(
     "desktop-projection-fixture", { connection: { path: socketPath } },
   );
+  const maintenance = new Queue<MaintenanceJob, unknown, MaintenanceJob["type"]>(
+    "desktop-maintenance-fixture", { connection: { path: socketPath } },
+  );
   const app = Fastify();
+  app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   const sockets: WebSocket[] = [];
+  const relayUploads = new Set<string>();
+  app.addHook("onRequest", async request => {
+    if (request.method === "PUT" && request.url.startsWith(`${desktopArtifactPath}/`)) relayUploads.add(request.url);
+  });
+  let minio: Awaited<ReturnType<typeof createDesktopMinioFixture>> = null;
   try {
     const redis = new LinkSenseRedis(config, fixture.client);
     const knowledge = await createDesktopKnowledgeFixture(prisma, redis.client, ownerId, input.otherOwnerId);
@@ -150,11 +169,24 @@ export async function verifyDesktopExecutionProjection(input: {
       knowledge.store, modelProviderSettings, undefined, creditLimits,
     );
     const events = new ConversationEventService(prisma, redis, conversations, undefined, knowledge.sources);
+    minio = await createDesktopMinioFixture(input.workspaceRoot);
+    const storage = minio?.storage ?? new LocalFilesystemObjectStorage({
+      ...config, objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: input.workspaceRoot },
+    });
+    const files = new FileService(prisma, conversations, storage, audit, config, redis, {
+      enqueueObjectDelete: outsideFixture, enqueueWorkspaceDirectoryRemoval: outsideFixture,
+    });
+    const jobs = new BackgroundJobs(config, storage, runner, audit, config.capabilityRoot, maintenance, prisma);
+    let beforeArtifactRegistration: (() => Promise<void>) | undefined;
     const local = await verifyLocalComputerSessions({ ...input, conversations });
     const recovery = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
-      config, prisma, redis, runner, conversations, events,
+      config, prisma, redis, runner, conversations, events, storage, jobs,
+      files: { registerVerifiedDesktopArtifact: async (input, fence) => {
+        await beforeArtifactRegistration?.();
+        return files.registerVerifiedDesktopArtifact(input, fence);
+      } },
       modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
       knowledgeSearch: knowledge.service, connections: connector.service,
       browserUse: new DesktopBrowserUse(prisma, browser, browserStore, config),
@@ -179,6 +211,7 @@ export async function verifyDesktopExecutionProjection(input: {
       knowledgeTools: true,
       connectionTools: true,
       browserTools: true,
+      artifactTools: true,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;
@@ -477,6 +510,148 @@ export async function verifyDesktopExecutionProjection(input: {
     assertAccepted(await sendLive(initial.socket, [unsupportedGoal]), [unsupportedGoal.deliveryId]);
     assert.equal(await prisma.conversationGoal.count({ where: { conversationId } }), 0);
 
+    const artifactContents = Buffer.from("The Mac artifact fence test.\n");
+    for (const action of ["stop", "revoke"] as const) {
+      const nativeThread = randomUUID();
+      const task = await prisma.conversation.create({ data: {
+        ownerId, executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: nativeThread,
+        runtimeGeneration: randomUUID(), workspaceRelPath: projectWorkspaceRelativePath(ownerId, null),
+        title: `Mac artifact ${action}`, titleSource: "manual", archiveStatus: "active",
+      } });
+      const projectionTurnId = randomUUID();
+      await prisma.conversationTurnStartIntent.create({ data: {
+        projectionTurnId, ownerId, conversationId: task.id, runtimeGeneration: task.runtimeGeneration,
+        capabilityGeneration, inputText: "Publish the fixture file", capabilitiesJson: [], attachmentsJson: [],
+        submitMode: "normal", runnerStatus: "prepared",
+      } });
+      const { run_token: runToken } = await leases.issue({ deviceId, connectionId: initial.connectionId }, {
+        ownerId, conversationId: task.id, projectionTurnId, expectedRuntimeGeneration: task.runtimeGeneration,
+        model: "fixture-model",
+        modelProvider: {
+          revision: 1, protocolMode: "native_responses", baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(),
+        },
+      });
+      const artifactRequest = () => ({
+        type: "tool.request", id: randomUUID(), operation: "artifact.prepare",
+        conversation_id: task.id, turn_id: projectionTurnId, runtime_generation: task.runtimeGeneration,
+        run_token: runToken, expires_at: new Date(Date.now() + desktopToolLifetimeFor("artifact.prepare")).toISOString(),
+        body: { filename: "report.txt", display_name: "Report.txt", size_bytes: artifactContents.length, sha256: sha256(artifactContents) },
+      } as const satisfies DesktopToolRequest);
+      const early = await invokeTool(artifactRequest());
+      assert(!early.ok && early.error_code === "FORBIDDEN", "artifact writes require a projected running turn");
+      await prisma.$transaction([
+        prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId } }),
+        prisma.conversationTurn.create({ data: {
+          id: projectionTurnId, conversationId: task.id, submittedBy: ownerId, codexThreadId: nativeThread,
+          codexTurnId: randomUUID(), sequenceNo: 1, status: "running", startedAt: new Date(),
+          submitMode: "normal", capabilityGeneration, capabilitiesJson: [],
+        } }),
+      ]);
+      const prepare = async () => {
+        const result = await invokeTool(artifactRequest());
+        assert(result.ok && result.operation === "artifact.prepare");
+        const id = result.data.artifact_id;
+        const endpoint = `${address}${desktopArtifactPath}/${projectionTurnId}/${id}`;
+        const headers = { authorization: `Bearer ${runToken}` };
+        const upload = await fetch(`${endpoint}/upload`, {
+          method: "PUT", headers: { ...headers, "content-type": "application/octet-stream" },
+          body: artifactContents, signal: AbortSignal.timeout(5_000),
+        });
+        assert.equal(upload.status, 204);
+        return { id, confirm: () => fetch(`${endpoint}/confirm`, {
+          method: "POST", headers, signal: AbortSignal.timeout(5_000),
+        }) };
+      };
+      const committed = action === "stop" ? await prepare() : undefined;
+      if (committed) {
+        const confirm = async () => {
+          const response = await committed.confirm();
+          assert.equal(response.status, 200);
+          return desktopArtifactReceiptSchema.parse(await response.json());
+        };
+        assert.deepEqual(await confirm(), await confirm(), "repeated confirmation must return the same receipt");
+        assert.equal(await prisma.conversationEvent.count({ where: {
+          conversationId: task.id, eventType: "conversation.artifact.created",
+        } }), 1);
+      }
+      const pending = await prepare();
+      let entered = () => {};
+      const arrived = new Promise<void>(resolve => { entered = resolve; });
+      let release = () => {};
+      const readyToCommit = new Promise<void>(resolve => { release = resolve; });
+      beforeArtifactRegistration = async () => {
+        entered();
+        await readyToCommit;
+      };
+      const confirmation = pending.confirm();
+      void confirmation.catch(() => undefined);
+      // Keep the native Stop acknowledgement pending until the confirmation has lost the fence.
+      try {
+        await Promise.race([arrived, confirmation.then(response => {
+          throw new Error(`Artifact confirmation ended before the commit gate: ${response.status}`);
+        })]);
+        if (action === "stop") {
+          const nativeInterrupt = readCommand(initial.socket);
+          const stop = conversations.interrupt(ownerId, task.id, projectionTurnId, {});
+          void stop.catch(() => undefined);
+          const command = await nativeInterrupt;
+          assert.equal(command.operation, "turn.interrupt");
+          assert.equal(command.turn_id, projectionTurnId);
+          release();
+          const response = await confirmation;
+          assert.equal(response.status, 403);
+          await response.body?.cancel();
+          send(initial.socket, {
+            type: "command.result", id: command.id, operation: "turn.interrupt", ok: true,
+            result: { code: RUNNER_TURN_INTERRUPT_REQUESTED },
+          });
+          assert.equal((await stop).code, RUNNER_TURN_INTERRUPT_REQUESTED);
+        } else {
+          await leases.revoke(projectionTurnId);
+          release();
+          const response = await confirmation;
+          assert.equal(response.status, 401);
+          await response.body?.cancel();
+        }
+      } finally {
+        beforeArtifactRegistration = undefined;
+        release();
+        await confirmation.catch(() => undefined);
+      }
+      assert.equal(await prisma.conversationFile.count({ where: { id: pending.id } }), 0);
+      assert.equal(await prisma.conversationEvent.count({ where: {
+        conversationId: task.id, eventType: "conversation.artifact.created",
+      } }), committed ? 1 : 0);
+      const cleanup = async (id: string) => {
+        const job = await maintenance.getJob(`desktop-artifact-${id}`);
+        assert(job && (job.opts.delay ?? 0) > 0, "cleanup must be durable and delayed beyond the grant lifetime");
+        await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
+        await job.remove();
+        await assert.rejects(storage.getObjectSize(desktopArtifactStagingKey(id)));
+      };
+      // Advance the fixtures to the state where the delayed maintenance jobs would run.
+      await leases.revoke(projectionTurnId);
+      const interruptedAt = new Date();
+      await prisma.conversationTurn.update({
+        where: { id: projectionTurnId },
+        data: { status: "interrupted", interruptedAt, interruptRequestedAt: interruptedAt },
+      });
+      await conversations.delete(ownerId, task.id, {});
+      if (minio) {
+        const staleKey = desktopArtifactStagingKey(pending.id);
+        const uploadId = await minio.storage.client.initiateNewMultipartUpload(minio.bucket, staleKey, {});
+        assert(uploadId);
+      }
+      await cleanup(pending.id);
+      await assert.rejects(storage.getObjectSize(desktopArtifactObjectKey(task.id, pending.id)));
+      if (minio) assert.equal(await minio.storage.client.findUploadId(minio.bucket, desktopArtifactStagingKey(pending.id)), undefined);
+      if (committed) {
+        const retained = await prisma.retainedArtifact.findUniqueOrThrow({ where: { originalFileId: committed.id } });
+        await cleanup(committed.id);
+        assert.deepEqual(await buffer(await storage.getObjectStream(retained.minioObjectKey)), artifactContents);
+      }
+    }
+
     await redis.recordRunnerHeartbeat(ownerId);
     const exit = {
       type: "execution.callback", id: randomUUID(), operation: "turn.exited", ...callbackScope,
@@ -688,13 +863,7 @@ export async function verifyDesktopExecutionProjection(input: {
     const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
     if (runtimeRoot) {
       replacement.socket.terminate();
-      const storage = new LocalFilesystemObjectStorage({
-        ...config, objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: input.workspaceRoot },
-      });
-      const files = new FileService(prisma, conversations, storage, audit, config, redis, {
-        enqueueObjectDelete: outsideFixture, enqueueWorkspaceDirectoryRemoval: outsideFixture,
-      });
-      await verifyPackagedDesktopGateway({
+      const artifact = await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
         events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
         revokeAttachmentRun: turnId => leases.revoke(turnId),
@@ -712,6 +881,12 @@ export async function verifyDesktopExecutionProjection(input: {
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,
         },
       });
+      if (minio) {
+        assert(!relayUploads.has(`${desktopArtifactPath}/${artifact.turnId}/${artifact.id}/upload`),
+          "the native artifact used the API fallback instead of the presigned form");
+        assert.equal(await minio.storage.getObjectSize(desktopArtifactStagingKey(artifact.id)), artifact.sizeBytes);
+        console.log("Packaged Mac used the MinIO presigned POST; verified bytes and exact-key multipart cleanup.");
+      }
       assert.deepEqual({
         graph: connector.stats.graph, workspace: connector.stats.workspace,
         started: connector.stats.started, aborted: connector.stats.aborted,
@@ -873,7 +1048,8 @@ export async function verifyDesktopExecutionProjection(input: {
     assert.equal((await prisma.conversationTurn.findUniqueOrThrow({ where: { id: turnId } })).status, "completed");
   } finally {
     for (const socket of sockets) socket.terminate();
-    await app.close().finally(() => queue.close()).finally(() => fixture.close());
+    await app.close().finally(() => Promise.all([queue.close(), maintenance.close()]))
+      .finally(() => fixture.close()).finally(() => minio?.close());
   }
 }
 

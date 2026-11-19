@@ -6143,6 +6143,20 @@ describe("ConversationService turn interruption", () => {
     expect(updateGoal).not.toHaveBeenCalled();
   });
 
+  it.each(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN"] as const)(
+    "keeps a running Mac turn unmarked when native Stop returns %s",
+    async code => {
+      const fixture = await conversationFixture();
+      const turn = turnRow();
+      fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ executionTarget: "local" }));
+      fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(turn);
+      fixture.runner.interruptStartOperation.mockRejectedValueOnce(new AppError(code));
+      await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, turn.id, {}))
+        .rejects.toMatchObject({ code });
+      expect(fixture.prisma.conversationTurn.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
   it("records a durable startup cancellation without waiting for projection", async () => {
     const fixture = await conversationFixture();
     const startIntent = startIntentRow();

@@ -7,6 +7,8 @@ import {
   browserUseFailure,
   browserUseReadOnly,
   browserUseResultSchema,
+  desktopArtifactReceiptSchema,
+  desktopArtifactUploadLifetimeMs,
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
@@ -29,7 +31,7 @@ import type {
   LinkSensePublishedEvent,
   LinkSenseRunnerEvent,
 } from "./codex/event-mapper.js";
-import { fileServiceErrorFromApi } from "./file-service-error.js";
+import { FileServiceRequestError, desktopArtifactUncertain, fileServiceErrorFromApi, type FileServiceErrorCode } from "./file-service-error.js";
 import { ImagePreviewRequestError } from "./image-preview-error.js";
 import { imageGenerationErrorFromApi, imageGenerationErrorFromTransport } from "./image-generation-error.js";
 import { knowledgeSearchErrorFromApi } from "./knowledge-search-error.js";
@@ -83,7 +85,7 @@ export interface RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
-  }): Promise<unknown>;
+  }, signal?: AbortSignal): Promise<unknown>;
   registerImagePreview(input: ImagePreviewRegistration): Promise<unknown>;
   generateImage?(input: {
     conversationId: string;
@@ -154,6 +156,9 @@ export type ProcessExitReport = {
   projectionTurnId: string;
   capabilityGeneration: string;
 };
+
+// The worker and supervisor bound the same full desktop artifact transfer.
+const desktopArtifactTimeoutMs = desktopArtifactUploadLifetimeMs + 10_000;
 
 type HttpRunnerEventSinkOptions = {
   serviceSessionId?: string;
@@ -400,7 +405,12 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
-  }): Promise<unknown> {
+  }, signal?: AbortSignal): Promise<unknown> {
+    // Desktop keeps the file in the local workspace and relays it through the
+    // supervisor; the cloud registration contract is unchanged.
+    if (this.options.desktopOutboxScope) {
+      return this.postDesktopArtifact(input, signal);
+    }
     return this.postArtifact(
       input,
       this.workspaceManager.ownerFor(input.conversationId),
@@ -640,6 +650,41 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       throw fileServiceErrorFromApi(response.status, responseBody);
     }
     return responseBody;
+  }
+
+  /**
+   * Desktop artifacts stay local until the supervisor grants a scoped upload.
+   * Only stable identifiers and display metadata cross the worker bridge.
+   */
+  private async postDesktopArtifact(input: {
+    conversationId: string;
+    turnId: string;
+    workspaceRelativePath: string;
+    displayName: string;
+    mimeType?: string;
+    webRootRelativePath?: string;
+  }, signal?: AbortSignal): Promise<unknown> {
+    const response = await this.request(
+      "/internal/file-service/register-artifact",
+      {
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        workspaceRelativePath: input.workspaceRelativePath,
+        displayName: input.displayName,
+        ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+      },
+      this.workspaceManager.ownerFor(input.conversationId),
+      signal,
+    );
+    const responseBody = await parseResponseBody(response);
+    if (!response.ok) {
+      throw desktopArtifactError(response.status, responseBody);
+    }
+    const receipt = desktopArtifactReceiptSchema.safeParse(responseBody);
+    if (!receipt.success) {
+      throw desktopArtifactUncertain();
+    }
+    return receipt.data;
   }
 
   private async postImageGeneration(
@@ -918,6 +963,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
+      : pathname === "/internal/file-service/register-artifact" && this.options.desktopOutboxScope
+        ? desktopArtifactTimeoutMs
         : (this.options.requestTimeoutMs ?? 15_000);
     const requestSignal = AbortSignal.timeout(timeoutMs);
     const signal = AbortSignal.any([
@@ -958,6 +1005,43 @@ export function acknowledgedEventCount(
     throw new Error("runner event batch acknowledgement is not an ordered prefix");
   }
   return accepted.length;
+}
+
+const desktopArtifactFailureCodes: Record<
+  Exclude<FileServiceErrorCode, "RUNNER_OPERATION_UNCERTAIN">,
+  { retryable: boolean; statusCode: number }
+> = {
+  WEB_SITE_BUNDLE_INVALID: { retryable: false, statusCode: 422 },
+  WEB_SITE_RESOURCES_MISSING: { retryable: false, statusCode: 422 },
+  ARTIFACT_NOT_FOUND: { retryable: false, statusCode: 404 },
+  ARTIFACT_REGISTRATION_BUSY: { retryable: true, statusCode: 409 },
+  ARTIFACT_REGISTRATION_FAILED: { retryable: false, statusCode: 400 },
+  ARTIFACT_REGISTRATION_INVALID: { retryable: false, statusCode: 400 },
+  ARTIFACT_REGISTRATION_UNAVAILABLE: { retryable: true, statusCode: 503 },
+  FILE_LIMIT_EXCEEDED: { retryable: false, statusCode: 413 },
+  FILE_SERVICE_FORBIDDEN: { retryable: false, statusCode: 403 },
+  FILE_SERVICE_TURN_INACTIVE: { retryable: false, statusCode: 409 },
+};
+
+function desktopArtifactError(
+  statusCode: number,
+  responseBody: unknown,
+): FileServiceRequestError {
+  const { code, artifact_id } = asRecord(responseBody);
+  if (code === "RUNNER_OPERATION_UNCERTAIN") {
+    return desktopArtifactUncertain(desktopArtifactReceiptSchema.shape.artifact_id.safeParse(artifact_id).data);
+  }
+  if (typeof code === "string" && Object.hasOwn(desktopArtifactFailureCodes, code)) {
+    const known = code as keyof typeof desktopArtifactFailureCodes;
+    const details = desktopArtifactFailureCodes[known];
+    return new FileServiceRequestError(
+      known,
+      details.retryable,
+      details.statusCode,
+    );
+  }
+  return statusCode >= 500 ? desktopArtifactUncertain()
+    : new FileServiceRequestError("ARTIFACT_REGISTRATION_FAILED", false, 400);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

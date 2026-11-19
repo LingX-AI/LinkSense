@@ -21,6 +21,9 @@ import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.
 import { removeConversationArtifactThumbnails } from "../modules/files/artifact-thumbnail.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
 import {
+  desktopArtifactObjectKey, desktopArtifactScratchPath, desktopArtifactStagingKey,
+} from "../modules/files/desktop-artifact-storage.js"
+import {
   conversationPrewarmInputSchema,
   type ConversationPrewarmInput,
 } from "../modules/conversations/prewarm.js"
@@ -46,6 +49,7 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
     type: z.literal("object-delete"),
     objectKey: z.string().min(1),
   }),
+  z.strictObject({ type: z.literal("desktop-artifact-cleanup"), conversationId: z.uuid(), artifactId: z.uuid() }),
   z.strictObject({
     type: z.literal("runtime-cleanup"),
     ownerId: z.uuid(),
@@ -284,6 +288,11 @@ export class BackgroundJobs {
     )
   }
 
+  async enqueueDesktopArtifactCleanup(conversationId: string, artifactId: string, delay: number): Promise<void> {
+    await this.queue.add("desktop-artifact-cleanup", { type: "desktop-artifact-cleanup", conversationId, artifactId },
+      { jobId: `desktop-artifact-${artifactId}`, delay })
+  }
+
   async enqueueRuntimeCleanup(
     ownerId: string,
     conversationId: string,
@@ -447,6 +456,28 @@ export class BackgroundJobs {
     if (data.type === "object-delete") {
       await this.storage.removeObject(data.objectKey)
       return { deleted: true }
+    }
+    if (data.type === "desktop-artifact-cleanup") {
+      if (!this.prisma) throw new Error("Artifact cleanup database is not configured")
+      const { conversationId, artifactId } = data
+      const finalKey = desktopArtifactObjectKey(conversationId, artifactId)
+      const retained = await this.prisma.$transaction(async tx => {
+        // Wait out a deletion transaction that is moving the artifact to retention.
+        await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${conversationId}::uuid FOR SHARE`
+        const [row] = await tx.$queryRaw<Array<{ referenced: boolean }>>`
+          SELECT EXISTS (SELECT 1 FROM conversation_files WHERE minio_object_key = ${finalKey})
+              OR EXISTS (SELECT 1 FROM retained_artifacts WHERE minio_object_key = ${finalKey}) AS referenced
+        `
+        return row?.referenced !== false
+      })
+      const stage = desktopArtifactStagingKey(artifactId)
+      const signal = AbortSignal.timeout(30_000)
+      for (const key of [stage, finalKey]) {
+        await this.storage.removeIncompleteUpload?.(key, signal)
+        if (key !== finalKey || !retained) await this.storage.removeObject(key, signal)
+      }
+      await rm(desktopArtifactScratchPath(this.capabilityRoot, artifactId), { recursive: true, force: true })
+      return { deleted: !retained }
     }
     if (data.type === "conversation-prewarm") {
       // A speculative warmup must not compete with real work after a queue
@@ -918,7 +949,7 @@ function projectCleanupFailure(
     data.type === "runtime-cleanup" ||
     data.type === "workspace-directory-delete"
       ? "workspace"
-      : data.type === "object-delete"
+      : data.type === "object-delete" || data.type === "desktop-artifact-cleanup"
         ? "object_storage"
         : "capability_directory"
   return {

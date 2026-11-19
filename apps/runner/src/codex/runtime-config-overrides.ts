@@ -155,6 +155,7 @@ export function builtInMcpConfigOverrides(input: {
   managedBrowserArgs?: string[];
   knowledgeSearchTimeoutMs?: number;
   disableBrowserUse?: boolean;
+  disableArtifactRegistration?: boolean;
   promptForBrowserUse?: boolean;
 }): string[] {
   const knowledgeSearchTimeouts = deriveKnowledgeSearchTimeouts(
@@ -165,6 +166,10 @@ export function builtInMcpConfigOverrides(input: {
     knowledgeSearchTimeouts.codexToolSeconds,
   );
   const corePrefix = `mcp_servers.${coreMcpServerKey}`;
+  const disabledTools = [
+    ...(input.disableBrowserUse ? [browserUseToolName] : []),
+    ...(input.disableArtifactRegistration ? ["register_artifact"] : []),
+  ];
   const managedBrowserPrefix = `mcp_servers.${managedBrowserMcpServerKey}`;
 
   return [
@@ -175,7 +180,7 @@ export function builtInMcpConfigOverrides(input: {
     `${corePrefix}.required=false`,
     `${corePrefix}.startup_timeout_sec=10`,
     `${corePrefix}.tool_timeout_sec=${String(coreToolTimeoutSeconds)}`,
-    ...(input.disableBrowserUse ? [`${corePrefix}.disabled_tools=${JSON.stringify([browserUseToolName])}`] : []),
+    ...(disabledTools.length ? [`${corePrefix}.disabled_tools=${JSON.stringify(disabledTools)}`] : []),
     ...(input.promptForBrowserUse ? [`${corePrefix}.tools.${browserUseToolName}.approval_mode="prompt"`] : []),
     ...(input.managedBrowserArgs
       ? [

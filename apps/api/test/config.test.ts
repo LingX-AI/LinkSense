@@ -89,6 +89,14 @@ describe("parseConfig", () => {
     expect(() => parseConfig(testEnvironment(desktopBrowser))).toThrow("desktop_browser_use_requires_local_execution")
   })
 
+  it("does not admit Mac artifact uploads until the artifact rollout is enabled", () => {
+    const execution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
+    const artifacts = { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" }
+    expect(parseConfig(testEnvironment(execution)).desktopArtifactsEnabled).toBe(false)
+    expect(parseConfig(testEnvironment({ ...execution, ...artifacts })).desktopArtifactsEnabled).toBe(true)
+    expect(() => parseConfig(testEnvironment(artifacts))).toThrow("desktop_artifacts_require_local_execution")
+  })
+
   it("keeps local filesystem storage out of production and the Full edition", () => {
     expect(() =>
       parseConfig(

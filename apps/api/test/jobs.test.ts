@@ -1,3 +1,7 @@
+import { mkdir, mkdtempDisposable, stat } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import type { Job } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
@@ -10,7 +14,7 @@ import {
   type MaintenanceJob,
   type MaintenanceQueueControl,
 } from "../src/adapters/jobs.js"
-import type { ObjectStorage } from "../src/adapters/object-storage.js"
+import { LocalFilesystemObjectStorage, type ObjectStorage } from "../src/adapters/object-storage.js"
 import type { RunnerClient } from "../src/adapters/runner.js"
 import { RunnerRuntimeCleanupError } from "../src/adapters/runner.js"
 import type { AuditService } from "../src/modules/audit/service.js"
@@ -685,6 +689,63 @@ function createBackgroundJobs(
     prisma,
   )
 }
+
+describe("desktop artifact cleanup", () => {
+  const conversationId = "01900000-0000-7000-8000-000000000001"
+  const artifactId = "30000000-0000-4000-8000-000000000001"
+  const stageKey = `desktop-artifact-staging/${artifactId}`
+  const finalKey = `conversations/${conversationId}/artifacts/${artifactId}/content`
+  const job = failedJob("desktop-artifact", { type: "desktop-artifact-cleanup", conversationId, artifactId }, "")
+  const auth = { cleanupInvalidTokens: vi.fn() }
+
+  it.each([false, true, undefined])("cleans expired uploads and preserves referenced bytes (reference result %s)", async referenced => {
+    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-artifact-job-"))
+    const directory = join(root.path, ".desktop-artifacts", artifactId)
+    await mkdir(directory, { recursive: true })
+    const { run, removeObject, removeIncompleteUpload } = fixture(root.path, referenced)
+    await expect(run()).resolves.toEqual({ deleted: referenced === false })
+    expect(removeIncompleteUpload.mock.calls).toEqual([
+      [stageKey, expect.any(AbortSignal)], [finalKey, expect.any(AbortSignal)],
+    ])
+    expect(removeObject.mock.calls).toEqual([
+      [stageKey, expect.any(AbortSignal)],
+      ...(referenced === false ? [[finalKey, expect.any(AbortSignal)]] : []),
+    ])
+    await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("fails closed when reference lookup fails and retries an interrupted deletion", async () => {
+    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-artifact-job-"))
+    const { run, transaction, removeObject, removeIncompleteUpload } = fixture(root.path, false)
+    transaction.mockRejectedValueOnce(new Error("retention lookup unavailable"))
+    await expect(run()).rejects.toThrow("retention lookup unavailable")
+    expect(removeObject).not.toHaveBeenCalled()
+    expect(removeIncompleteUpload).not.toHaveBeenCalled()
+    removeObject.mockRejectedValueOnce(new Error("object storage unavailable"))
+    await expect(run()).rejects.toThrow("object storage unavailable")
+    await expect(run()).resolves.toEqual({ deleted: true })
+    expect(removeObject.mock.calls.map(([key]) => key)).toEqual([stageKey, stageKey, finalKey])
+  })
+
+  function fixture(capabilityRoot: string, referenced: boolean | undefined) {
+    const removeObject = vi.fn<ObjectStorage["removeObject"]>().mockResolvedValue(undefined)
+    const removeIncompleteUpload = vi.fn<NonNullable<ObjectStorage["removeIncompleteUpload"]>>().mockResolvedValue(undefined)
+    const $queryRaw = vi.fn().mockResolvedValueOnce([])
+      .mockResolvedValue(referenced === undefined ? [] : [{ referenced }])
+    const transaction = vi.fn(async (run: (tx: { $queryRaw: typeof $queryRaw }) => Promise<unknown>) =>
+      run({ $queryRaw }))
+    const config = testConfig()
+    const storage = new LocalFilesystemObjectStorage({
+      ...config, objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: capabilityRoot },
+    })
+    const jobs = new BackgroundJobs(
+      config, Object.assign(storage, { removeObject, removeIncompleteUpload }),
+      {} as RunnerClient, {} as AuditService, capabilityRoot, queueControl({ failedJobs: [] }),
+      { $transaction: transaction } as unknown as PrismaClient,
+    )
+    return { run: () => jobs["process"](job, auth), transaction, removeObject, removeIncompleteUpload }
+  }
+})
 
 function queueControl(input: {
   failedJobs: Job<MaintenanceJob>[]

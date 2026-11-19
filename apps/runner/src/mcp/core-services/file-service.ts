@@ -2,7 +2,7 @@ import type { Stats } from "node:fs"
 import { chmod, chown, lstat, realpath, readdir } from "node:fs/promises"
 import path from "node:path"
 
-import { workspacePermissionPolicy } from "@linksense/shared"
+import { desktopArtifactUploadLifetimeMs, workspacePermissionPolicy } from "@linksense/shared"
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 
@@ -43,8 +43,10 @@ const artifactFailureSchema = z.object({
     "FILE_LIMIT_EXCEEDED",
     "FILE_SERVICE_FORBIDDEN",
     "FILE_SERVICE_TURN_INACTIVE",
+    "RUNNER_OPERATION_UNCERTAIN",
   ]),
   retryable: z.boolean(),
+  artifact_id: z.uuid().optional(),
 })
 
 type ArtifactFailure = z.infer<typeof artifactFailureSchema>
@@ -62,6 +64,12 @@ export const fileServiceCoreMcpModule = {
   toolNames: ["register_artifact"],
   create({ environment, workspaceRoot }): CoreMcpToolModule {
     const endpoint = z.url().parse(environment.LINKSENSE_FILE_SERVICE_ENDPOINT)
+    // The desktop worker marks its own loopback endpoint. This trusted marker
+    // never comes from tool arguments, so a model cannot request Mac behavior.
+    const desktop = new URL(endpoint).searchParams.get("desktop") === "1"
+    const requestTimeoutMs = desktop
+      ? desktopArtifactUploadLifetimeMs + 10_000
+      : 30_000
     const token = z
       .string()
       .min(32)
@@ -72,7 +80,7 @@ export const fileServiceCoreMcpModule = {
 
     return {
       key: "file_service",
-      tools: [artifactTool],
+      tools: [desktop ? desktopArtifactTool : artifactTool],
       async callTool(input) {
         try {
           const arguments_ = artifactArgumentsSchema.parse(
@@ -87,11 +95,23 @@ export const fileServiceCoreMcpModule = {
               retryable: false,
             })
           }
-          await prepareArtifactForSharedRead(
-            workspaceRoot,
-            arguments_.workspace_relative_path,
-          )
-          if (arguments_.web_root_relative_path) await prepareWebDirectory(workspaceRoot, arguments_.web_root_relative_path)
+          if (desktop) {
+            // The task user owns these files, so no shared-permission
+            // normalization runs. Reject website snapshots before any file
+            // access; the Mac runtime has no snapshot builder.
+            if (arguments_.web_root_relative_path) {
+              throw new FileServiceMcpError({
+                code: "ARTIFACT_REGISTRATION_INVALID",
+                retryable: false,
+              })
+            }
+          } else {
+            await prepareArtifactForSharedRead(
+              workspaceRoot,
+              arguments_.workspace_relative_path,
+            )
+            if (arguments_.web_root_relative_path) await prepareWebDirectory(workspaceRoot, arguments_.web_root_relative_path)
+          }
           const response = await fetch(endpoint, {
             method: "POST",
             headers: {
@@ -109,31 +129,31 @@ export const fileServiceCoreMcpModule = {
                 : {}),
               ...(arguments_.web_root_relative_path ? { webRootRelativePath: arguments_.web_root_relative_path } : {}),
             }),
-            signal: withRequestTimeout(input.signal, 30_000),
+            signal: withRequestTimeout(input.signal, requestTimeoutMs),
           })
-          const result = await parseResponse(response)
+          const result = await parseResponse(response, desktop)
           if (!response.ok) {
             const failure = artifactFailureSchema.safeParse(result)
             return failureToolResult(
               failure.success
                 ? failure.data
                 : {
-                    code: "ARTIFACT_REGISTRATION_UNAVAILABLE",
-                    retryable: true,
+                    code: desktop ? "RUNNER_OPERATION_UNCERTAIN" : "ARTIFACT_REGISTRATION_UNAVAILABLE",
+                    retryable: !desktop,
                   },
             )
           }
           const artifact = artifactResultSchema.safeParse(result)
           if (!artifact.success) {
             throw new FileServiceMcpError({
-              code: "ARTIFACT_REGISTRATION_UNAVAILABLE",
-              retryable: true,
+              code: desktop ? "RUNNER_OPERATION_UNCERTAIN" : "ARTIFACT_REGISTRATION_UNAVAILABLE",
+              retryable: !desktop,
             })
           }
           return successToolResult(artifact.data)
         } catch (error) {
           if (input.signal.aborted) throw error
-          return failureToolResult(classifyFailure(error))
+          return failureToolResult(classifyFailure(error, desktop))
         }
       },
     }
@@ -238,18 +258,18 @@ function invalidArtifactRegistration(): FileServiceMcpError {
   })
 }
 
-async function parseResponse(response: Response): Promise<unknown> {
+async function parseResponse(response: Response, desktop: boolean): Promise<unknown> {
   try {
     return await response.json()
   } catch {
     throw new FileServiceMcpError({
-      code: "ARTIFACT_REGISTRATION_UNAVAILABLE",
-      retryable: true,
+      code: desktop ? "RUNNER_OPERATION_UNCERTAIN" : "ARTIFACT_REGISTRATION_UNAVAILABLE",
+      retryable: !desktop,
     })
   }
 }
 
-function classifyFailure(error: unknown): ArtifactFailure {
+function classifyFailure(error: unknown, desktop: boolean): ArtifactFailure {
   if (error instanceof FileServiceMcpError) return error.failure
   if (error instanceof z.ZodError) {
     return {
@@ -258,8 +278,8 @@ function classifyFailure(error: unknown): ArtifactFailure {
     }
   }
   return {
-    code: "ARTIFACT_REGISTRATION_UNAVAILABLE",
-    retryable: true,
+    code: desktop ? "RUNNER_OPERATION_UNCERTAIN" : "ARTIFACT_REGISTRATION_UNAVAILABLE",
+    retryable: !desktop,
   }
 }
 
@@ -288,6 +308,15 @@ const artifactTool = {
     additionalProperties: false,
   },
 } satisfies Tool
+
+const singleFileProperties = Object.fromEntries(
+  Object.entries(artifactTool.inputSchema.properties).filter(([name]) => name !== "web_root_relative_path"),
+)
+const desktopArtifactTool: Tool = {
+  ...artifactTool,
+  description: "Register one existing workspace file as a downloadable artifact. In the final answer, link to the returned display_name. If confirmation is uncertain, check the conversation's artifact list for the returned artifact_id; do not upload the file again.",
+  inputSchema: { ...artifactTool.inputSchema, properties: singleFileProperties },
+}
 
 async function prepareWebDirectory(workspaceRoot: string, directory: string): Promise<void> {
   const root = path.resolve(workspaceRoot, directory)

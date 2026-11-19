@@ -3,6 +3,7 @@ import {
   desktopExecutionCommandSchema, desktopExecutionResultSchema,
   desktopRuntimeOutputSchema, desktopToolCancelSchema, desktopToolRequestSchema, desktopToolResultSchema,
 } from "../src/desktop-execution.js";
+import { desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema } from "../src/desktop-artifacts.js";
 
 const id = "10000000-0000-4000-8000-000000000001";
 const turnId = "10000000-0000-4000-8000-000000000002";
@@ -94,5 +95,35 @@ describe("desktop execution wire contract", () => {
     expect(desktopToolResultSchema.parse(response)).toEqual(response);
     expect(desktopToolResultSchema.safeParse({ ...response, data: { ...data, headers: {} } }).success).toBe(false);
     expect(desktopToolResultSchema.safeParse({ ...response, ok: false, error_code: "UNKNOWN_PROVIDER_FAILURE", data: undefined }).success).toBe(false);
+  });
+
+  it("negotiates only file metadata and a scoped upload grant, without paths or file bytes", () => {
+    const request = {
+      type: "tool.request", id, operation: "artifact.prepare", conversation_id: id, runtime_generation: id,
+      turn_id: turnId, expires_at: expiresAt, run_token: start.body.credentials.run_token,
+      body: { filename: "notes.md", display_name: "Notes.md", size_bytes: 12, sha256: "a".repeat(64) },
+    };
+    expect(desktopToolRequestSchema.parse(request)).toEqual(request);
+    for (const body of [
+      { ...request.body, filename: "../notes.md" }, { ...request.body, display_name: "reports\\notes.md" },
+      { ...request.body, data: "sample" }, { ...request.body, size_bytes: 0 },
+      { ...request.body, workspace_relative_path: "notes.md" },
+    ]) expect(desktopToolRequestSchema.safeParse({ ...request, body }).success).toBe(false);
+    const grant = {
+      artifact_id: id, expires_at: expiresAt,
+      destination: { kind: "presigned_post", url: "https://storage.example.test/bucket", fields: { key: "fixture" } },
+    };
+    expect(desktopToolResultSchema.parse({
+      type: "tool.result", id, operation: "artifact.prepare", ok: true, data: grant,
+    })).toMatchObject({ data: grant });
+    for (const destination of [
+      { kind: "presigned_post", url: "https://storage.example.test/bucket#redirect", fields: { key: "fixture" } },
+      { kind: "presigned_post", url: "https://storage.example.test/bucket", fields: { "bad\r\nname": "fixture" } },
+      { kind: "api", url: "https://storage.example.test/bucket" },
+    ]) expect(desktopArtifactUploadGrantSchema.safeParse({ ...grant, destination }).success).toBe(false);
+    expect(desktopArtifactReceiptSchema.safeParse({
+      success: true, artifact_id: id, file_id: id, display_name: "Notes.md", download_card_event_id: id,
+      workspace_path: "/fixture/notes.md",
+    }).success).toBe(false);
   });
 });
