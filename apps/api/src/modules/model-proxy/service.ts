@@ -44,8 +44,9 @@ export async function forwardDesktopModel(
   endpoint: ModelProxyEndpoint,
   input: unknown,
   clientSignal: AbortSignal,
+  turnMetadata?: string,
 ): Promise<DesktopModelResult> {
-  const projected = projectModelProxyRequest(endpoint, input, auth.purpose);
+  const projected = projectModelProxyRequest(endpoint, input, auth.purpose, turnMetadata);
   const controller = new AbortController();
   const signal = AbortSignal.any([clientSignal, controller.signal]);
   const recheck = () => withinModelDeadline(

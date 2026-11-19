@@ -42,8 +42,10 @@ import {
   modelProviderFallbackUrl,
   modelGatewayErrorMessages,
   modelGatewayFailureCode,
+  modelTransitionCompactionFromTurnMetadata,
   nativeProviderFailureCode,
   omitUnsupportedModelImages,
+  type ModelTransitionCompactionAuthorization,
 } from "@linksense/shared";
 
 import {
@@ -77,7 +79,6 @@ import {
 } from "../privacy-masking/index.js";
 
 const DEFAULT_REQUEST_BODY_LIMIT = 128 * 1024 * 1024;
-const MODEL_TRANSITION_NONCE_METADATA_KEY = "linksense_transition_nonce";
 const DEFAULT_UPSTREAM_HEADER_TIMEOUT_MS = 30_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 120_000;
 const DEFAULT_UPSTREAM_WEBSOCKET_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -2776,71 +2777,21 @@ function leaseForTransitionSource(
   return Object.freeze({ ...lease, ...source });
 }
 
-type ModelTransitionCompactionAuthorization =
-  | { kind: "manual" }
-  | { kind: "auto"; nonce: string };
-
 function modelTransitionCompactionFromHttpRequest(
   headers: IncomingMessage["headers"],
   body: JsonObject,
 ): ModelTransitionCompactionAuthorization | null {
-  const bodyMetadata = turnMetadataFromClientMetadata(body.client_metadata);
-  if (!bodyMetadata) return null;
-  const headerMetadata = singleHeaderValue(
-    headers["x-codex-turn-metadata"],
+  return modelTransitionCompactionFromTurnMetadata(
+    body.client_metadata,
+    singleHeaderValue(headers["x-codex-turn-metadata"]),
+    { requireBodyMetadata: true },
   );
-  if (headerMetadata !== null && headerMetadata !== bodyMetadata) return null;
-  return modelTransitionCompactionFromMetadata(bodyMetadata);
 }
 
 function modelTransitionCompactionFromClientMetadata(
   value: unknown,
 ): ModelTransitionCompactionAuthorization | null {
-  return modelTransitionCompactionFromMetadata(
-    turnMetadataFromClientMetadata(value),
-  );
-}
-
-function turnMetadataFromClientMetadata(value: unknown): string | null {
-  if (!isRecord(value)) return null;
-  return stringValue(value["x-codex-turn-metadata"]);
-}
-
-function modelTransitionCompactionFromMetadata(
-  value: string | null,
-): ModelTransitionCompactionAuthorization | null {
-  if (!value) return null;
-  try {
-    const metadata: unknown = JSON.parse(value);
-    if (
-      !isRecord(metadata) ||
-      metadata.request_kind !== "compaction" ||
-      !isRecord(metadata.compaction) ||
-      metadata.compaction.implementation !== "responses" ||
-      metadata.compaction.strategy !== "memento"
-    ) {
-      return null;
-    }
-    if (
-      metadata.compaction.trigger === "manual" &&
-      metadata.compaction.reason === "user_requested" &&
-      metadata.compaction.phase === "standalone_turn"
-    ) {
-      return { kind: "manual" };
-    }
-    if (
-      metadata.compaction.trigger === "auto" &&
-      (metadata.compaction.reason === "comp_hash_changed" ||
-        metadata.compaction.reason === "model_downshift") &&
-      metadata.compaction.phase === "pre_turn"
-    ) {
-      const nonce = stringValue(metadata[MODEL_TRANSITION_NONCE_METADATA_KEY]);
-      return nonce ? { kind: "auto", nonce } : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return modelTransitionCompactionFromTurnMetadata(value, null);
 }
 
 function memoryOperationFromHeaders(

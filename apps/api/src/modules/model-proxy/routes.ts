@@ -29,6 +29,11 @@ function matchesRevocation(scope: DesktopRunScope, notice: DesktopNotice): boole
   return (notice.type === "replaced" ? notice.supersededConnectionId : notice.connectionId) === scope.connectionId;
 }
 
+function turnMetadata(request: FastifyRequest): string | undefined {
+  const value = request.headers["x-codex-turn-metadata"];
+  return typeof value === "string" ? value : undefined;
+}
+
 function authorization(request: FastifyRequest) {
   if (request.url.includes("?")) throw new AppError("VALIDATION_ERROR");
   const path = modelPath.parse(request.params);
@@ -128,7 +133,7 @@ export const desktopModelProxyRoutes: FastifyPluginAsync<ProxyOptions> = async (
         reserveSlot: turnId => reserveDesktopModelSlot(options.redis, turnId),
         watchRevocation,
         onSlotReleaseFailure: () => request.log.warn("desktop model concurrency slot will expire"),
-      }, authorization(request), endpoint, request.body, requestState(request).signal);
+      }, authorization(request), endpoint, request.body, requestState(request).signal, turnMetadata(request));
       if (!result.ok) return reply.code(result.status).send({
         error: {
           code: result.code,

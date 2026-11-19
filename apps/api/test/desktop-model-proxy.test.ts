@@ -14,6 +14,7 @@ import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { DesktopRunLeases } from "../src/modules/desktop-credentials/run-leases.js";
 import { RedisDesktopDeviceCoordinator } from "../src/modules/desktop-devices/coordinator.js";
+import { projectModelProxyRequest } from "../src/modules/model-proxy/request.js";
 import { reserveDesktopModelSlot } from "../src/modules/model-proxy/request-slots.js";
 import { desktopModelProxyRoutes } from "../src/modules/model-proxy/routes.js";
 import { createRedisFixture } from "./fixtures/redis.js";
@@ -21,6 +22,28 @@ import { createRedisFixture } from "./fixtures/redis.js";
 const upstreamKey = "synthetic-provider-key";
 const nativeInput = { model: "native-fixture", input: "fixture prompt", stream: true };
 const chatInput = { model: "memory-fixture", messages: [{ role: "user", content: "fixture history" }] };
+const nativeCompactionMetadata = JSON.stringify({
+  request_kind: "compaction",
+  compaction: {
+    implementation: "responses",
+    strategy: "memento",
+    trigger: "manual",
+    reason: "user_requested",
+    phase: "standalone_turn",
+  },
+});
+const nativeCompactionPrompt = [
+  "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.",
+  "",
+  "Include:",
+  "- Current progress and key decisions made",
+  "- Important context, constraints, or user preferences",
+  "- What remains to be done (clear next steps)",
+  "- Any critical data, examples, or references needed to continue",
+  "",
+  "Be concise, structured, and focused on helping the next LLM seamlessly continue the work.",
+  "",
+].join("\n");
 const endpoint = DESKTOP_MODEL_PROXY_PATH;
 let redis: Awaited<ReturnType<typeof createRedisFixture>>;
 const applications: ReturnType<typeof Fastify>[] = [];
@@ -93,9 +116,19 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
   });
   return {
     app, binding, credentials, turnId, ownerId, leases, fetcher, resolveDesktopProxyProvider, assertCanStartTask,
-    request: (route: string, token: string, payload: Record<string, unknown>, purpose = route.split("/")[0]) => app.inject({
+    request: (
+      route: string,
+      token: string,
+      payload: Record<string, unknown>,
+      purpose = route.split("/")[0],
+      headers: Record<string, string> = {},
+    ) => app.inject({
       method: "POST", url: `${endpoint}/${turnId}/${route}`, payload,
-      headers: { authorization: `Bearer ${token}`, [DESKTOP_MODEL_PURPOSE_HEADER]: purpose },
+      headers: {
+        authorization: `Bearer ${token}`,
+        [DESKTOP_MODEL_PURPOSE_HEADER]: purpose,
+        ...headers,
+      },
     }),
   };
 }
@@ -211,6 +244,97 @@ describe("desktop model proxy", () => {
     });
     expect(result.statusCode).toBe(403);
     expect(test.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts transition-source compaction marked by native turn metadata", async () => {
+    const test = await fixture();
+    const source = test.credentials.transition_source;
+    if (!source) throw new Error("Missing fixture transition grant");
+    const result = await test.request("transition_source/responses", source.token, {
+      model: source.model,
+      stream: true,
+      input: [{
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: "native compaction prompt" }],
+      }],
+      client_metadata: { "x-codex-turn-metadata": nativeCompactionMetadata },
+    }, "transition_source");
+    expect(result.statusCode).toBe(200);
+    expect(test.fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("rejects transition-source compaction marked only by the turn metadata header", async () => {
+    const test = await fixture();
+    const source = test.credentials.transition_source;
+    if (!source) throw new Error("Missing fixture transition grant");
+    const result = await test.request("transition_source/responses", source.token, {
+      model: source.model,
+      stream: true,
+      input: [{
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: "native compaction prompt" }],
+      }],
+    }, "transition_source", { "x-codex-turn-metadata": nativeCompactionMetadata });
+    expect(result.statusCode).toBe(403);
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps accepting the pinned native compaction prompt", async () => {
+    const test = await fixture();
+    const source = test.credentials.transition_source;
+    if (!source) throw new Error("Missing fixture transition grant");
+    const result = await test.request("transition_source/responses", source.token, {
+      model: source.model,
+      stream: true,
+      input: [{
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: nativeCompactionPrompt }],
+      }],
+    }, "transition_source");
+    expect(result.statusCode).toBe(200);
+    expect(test.fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("rejects transition-source metadata for a non-manual compaction phase", async () => {
+    const test = await fixture();
+    const source = test.credentials.transition_source;
+    if (!source) throw new Error("Missing fixture transition grant");
+    const result = await test.request("transition_source/responses", source.token, {
+      model: source.model,
+      stream: true,
+      input: [{
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: "native compaction prompt" }],
+      }],
+      client_metadata: {
+        "x-codex-turn-metadata": JSON.stringify({
+          request_kind: "compaction",
+          compaction: {
+            implementation: "responses",
+            strategy: "memento",
+            trigger: "auto",
+            reason: "model_downshift",
+            phase: "pre_turn",
+          },
+        }),
+      },
+    }, "transition_source");
+    expect(result.statusCode).toBe(403);
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts chat-completions transition compaction from turn metadata", () => {
+    const result = projectModelProxyRequest(
+      "chat/completions",
+      {
+        model: "previous-fixture",
+        stream: true,
+        messages: [{ role: "user", content: "native compaction prompt" }],
+      },
+      "transition_source",
+      nativeCompactionMetadata,
+    );
+    expect(result.stream).toBe(true);
   });
 
   it.each([

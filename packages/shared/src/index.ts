@@ -36,6 +36,7 @@ export * from "./model-provider.js";
 export * from "./model-provider-fetch.js";
 export * from "./model-image-policy.js";
 export * from "./model-gateway-errors.js";
+export * from "./model-gateway-metadata.js";
 export * from "./model-pricing.js";
 export * from "./pricing-currency.js";
 export * from "./password.js";
