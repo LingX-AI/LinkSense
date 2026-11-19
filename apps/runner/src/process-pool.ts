@@ -98,6 +98,7 @@ import {
   linkSenseSkillConfigOverrides,
   desktopPermissionConfigOverrides,
   desktopPermissionProfiles,
+  desktopConnectionMcpConfigOverrides,
   linkSenseModelProviderId,
 } from "./codex/runtime-config-overrides.js";
 import {
@@ -895,6 +896,7 @@ export class AppServerProcessPool {
       mcpCommand: string;
       mcpArgs: string[];
       managedBrowserMcpArgs?: string[];
+      desktopConnectionMcpArgs?: string[];
       personalStdioLauncherCommand?: string;
       personalStdioLauncherArgs?: string[];
       mcpEndpointBase: string;
@@ -4624,6 +4626,7 @@ export class AppServerProcessPool {
     token: string,
     input: ConnectionInput,
     signal?: AbortSignal,
+    page?: import("@linksense/shared").DesktopConnectionRequestBody["page"],
   ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (
@@ -4642,6 +4645,7 @@ export class AppServerProcessPool {
       turnId,
       input,
       ...(signal ? { signal } : {}),
+      ...(page ? { page } : {}),
     });
     if (managed.activeProjectionTurnId !== turnId || !managed.activeTurnId)
       throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
@@ -5614,6 +5618,10 @@ export class AppServerProcessPool {
                 : {}),
               knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
             }),
+            ...(this.options.desktopConnectionMcpArgs ? desktopConnectionMcpConfigOverrides({
+              command: this.options.mcpCommand,
+              args: this.options.desktopConnectionMcpArgs,
+            }) : []),
             ...planRuntimeConfigOverrides(
               input.collaborationMode,
               this.options.managedBrowserMcpArgs !== undefined,

@@ -22,6 +22,11 @@ const other = "00000000-0000-4000-8000-000000000002";
 const conversation = "00000000-0000-4000-8000-000000000003";
 const turn = "00000000-0000-4000-8000-000000000004";
 const clock = Date.parse("2026-09-23T00:00:00Z");
+function deferred() {
+  let resolve = () => {};
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 function fixture() {
   let now = clock;
   let authVersion = "version-one";
@@ -294,6 +299,71 @@ describe("personal Microsoft connections", () => {
       "rotated-refresh",
     );
   });
+  it("does not refresh or execute if the desktop lease expires while waiting for the account lock", async () => {
+    const f = fixture();
+    await f.connect();
+    f.advance();
+    const locked = deferred();
+    const release = deferred();
+    const blocker = f.repository.mutate(owner, "onedrive", async (row) => {
+      if (!row) throw new Error("missing fixture account");
+      locked.resolve();
+      await release.promise;
+      return row;
+    });
+    await locked.promise;
+    const waiting = deferred();
+    let active = true;
+    const attempt = f.service.executeScoped(owner, conversation, turn,
+      { operation: "list_drives", provider: "onedrive" }, new AbortController().signal,
+      async () => {
+        if (!active) throw new AppError("AUTH_REQUIRED");
+        waiting.resolve();
+      });
+    const rejected = expect(attempt).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    await waiting.promise;
+    active = false;
+    release.resolve();
+    await Promise.all([blocker, rejected]);
+    expect(f.protocol.refresh).not.toHaveBeenCalled();
+    expect(f.graph.execute).not.toHaveBeenCalled();
+  });
+  it("does not persist a late refresh or mark the grant revoked when a Mac read is cancelled", async () => {
+    const f = fixture();
+    await f.connect();
+    f.advance();
+    const key = `${owner}:onedrive`;
+    const stored = f.rows.get(key)?.encryptedPayload;
+    const controller = new AbortController();
+    const cancellation = new DOMException("Fixture cancelled", "AbortError");
+    f.protocol.refresh.mockImplementationOnce(async (_provider, _config, token) => {
+      controller.abort(cancellation);
+      return { ...token, accessToken: "rotated-access" };
+    });
+    await expect(f.service.executeScoped(owner, conversation, turn,
+      { operation: "list_drives", provider: "onedrive" }, controller.signal, async () => {},
+    )).rejects.toBe(cancellation);
+    expect(f.rows.get(key)).toMatchObject({ status: "connected", encryptedPayload: stored });
+    expect(f.graph.execute).not.toHaveBeenCalled();
+  });
+  it("returns a cloud write already committed by the provider when the administrator changes client settings", async () => {
+    const f = fixture();
+    f.protocol.complete.mockResolvedValue({
+      token: { ...f.token, scopes: ["Files.ReadWrite"] },
+      accountName: "member@example.test",
+    });
+    await f.connect();
+    f.graph.execute.mockImplementationOnce(async () => {
+      f.settings.resolve.mockResolvedValue({
+        revision: 2, client_id: "replacement-client", client_secret: "fixture-secret",
+      });
+      return { result: { kind: "page", items: [], next_cursor: null }, nextLink: null };
+    });
+    await expect(f.service.execute(owner, conversation, turn, {
+      operation: "create_folder", provider: "onedrive", drive_id: "drive", name: "Reports",
+    })).resolves.toMatchObject({ kind: "page" });
+    expect(f.graph.execute).toHaveBeenCalledOnce();
+  });
   it("marks revoked grants for reconnect but preserves a connection after transient refresh failure", async () => {
     const f = fixture();
     await f.connect();
@@ -560,7 +630,8 @@ describe("connector-specific application credentials", () => {
     } else {
       await f.service.execute(owner, conversation, turn, { operation: "search_mail", provider, query: "report" });
     }
-    expect(f.protocol.refresh).toHaveBeenCalledWith(provider, configuration, expect.objectContaining({ clientId: configuration.client_id }));
+    expect(f.protocol.refresh).toHaveBeenCalledWith(provider, configuration,
+      expect.objectContaining({ clientId: configuration.client_id }), undefined);
   });
   it("marks only the connector whose application changed as requiring reauthorization", async () => {
     const f = fixture();

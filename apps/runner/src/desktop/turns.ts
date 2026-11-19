@@ -44,6 +44,7 @@ export class DesktopTurns {
     private readonly origin: string,
     private readonly workerLost: () => void,
     private readonly logger: Logger,
+    private readonly connectionsEnabled = false,
   ) {}
 
   scopedRun(conversationId: string) {
@@ -259,7 +260,8 @@ export class DesktopTurns {
   private async startWorker(scope: Scope, signal: AbortSignal): Promise<WorkerInstance> {
     const { owner_id: ownerId, conversation_id: id, runtime_generation: runtimeGeneration, turn_id: turnId } = scope
     const worker = await this.provider.acquire({
-      ownerId, serviceSessionId: id, storageKey: id, name: "desktop", probe: false, run: { turnId, runtimeGeneration },
+      ownerId, serviceSessionId: id, storageKey: id, name: "desktop", probe: false,
+      run: { turnId, runtimeGeneration, ...(this.connectionsEnabled ? { connectionsEnabled: true } : {}) },
     })
     try {
       while (!signal.aborted) {

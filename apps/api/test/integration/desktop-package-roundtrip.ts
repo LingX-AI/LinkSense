@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
+  connectionResultSchema,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
@@ -45,6 +46,7 @@ export async function verifyPackagedDesktopGateway(input: {
   previousConnectionId: string;
   serverSecrets: string[];
   searchMarker: string;
+  connector: { driveName: string; documentName: string; documentText: string };
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
 }): Promise<void> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
@@ -74,6 +76,8 @@ export async function verifyPackagedDesktopGateway(input: {
   let modelFailure: string | undefined;
   let citation: string | undefined;
   let documentRef: string | undefined;
+  let connectorText = "";
+  let connectorPages = 0;
   model.setErrorHandler((error, _request, reply) => {
     modelFailure = error instanceof assert.AssertionError
       ? `Synthetic provider: ${error.message}`
@@ -107,12 +111,12 @@ export async function verifyPackagedDesktopGateway(input: {
     const call = ++modelRequests.read;
     const functions = body.tools?.find(tool => tool.type === "namespace" &&
       tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
-    const callTool = (name: string, args: object) => {
-      assert(functions?.name && functions.tools?.some(member => member.type === "function" && member.name === name),
+    const callTool = (name: string, args: object, group = functions) => {
+      assert(group?.name && group.tools?.some(member => member.type === "function" && member.name === name),
         `Fixture tool unavailable: ${name}`);
       return reply.type("text/event-stream").send(responseStream({
         id: `fixture-tool-${call}`, type: "function_call", call_id: `fixture-call-${call}`, name,
-        namespace: functions.name, arguments: JSON.stringify(args), status: "completed",
+        namespace: group.name, arguments: JSON.stringify(args), status: "completed",
       }));
     };
     if (call === 1) {
@@ -153,13 +157,48 @@ export async function verifyPackagedDesktopGateway(input: {
       documentRef = listed.document_ref;
       return callTool("get_knowledge_document_markdown", { document_ref: documentRef });
     }
-    assert.equal(call, 6, "unexpected number of native knowledge calls");
-    const markdown = knowledgeDocumentMarkdownSuccessSchema.parse(toolOutput(body.input, "fixture-call-5"));
-    assert(
-      markdown.document_ref === documentRef && markdown.markdown === input.knowledge.content &&
-      markdown.complete && markdown.next_cursor === null,
-      "native knowledge reader did not return the complete document",
-    );
+    if (call === 6) {
+      const markdown = knowledgeDocumentMarkdownSuccessSchema.parse(toolOutput(body.input, "fixture-call-5"));
+      assert(
+        markdown.document_ref === documentRef && markdown.markdown === input.knowledge.content &&
+        markdown.complete && markdown.next_cursor === null,
+        "native knowledge reader did not return the complete document",
+      );
+      const microsoft = body.tools?.find(tool => tool.name?.endsWith("linksense_microsoft_files"));
+      assert(microsoft?.type === "namespace" && microsoft.tools?.map(tool => tool.name).join() === "read_files",
+        "native Mac turn did not load the read-only Microsoft connector");
+      return callTool("read_files", { operation: "list_drives", provider: "onedrive" }, microsoft);
+    }
+    if (call === 7) {
+      const page = connectionResultSchema.parse(toolOutput(body.input, "fixture-call-6"));
+      assert(page.kind === "page" && page.items.length === 1 && page.items[0]?.name === input.connector.driveName,
+        "native Microsoft connector did not return the owner's drive");
+      const docs = body.tools?.find(tool => tool.name?.endsWith("linksense_google_docs"));
+      assert(docs?.type === "namespace" && docs.tools?.map(tool => tool.name).join() === "read",
+        "native Mac turn did not load the read-only Google Docs connector");
+      return callTool("read", { request: { provider: "google_docs", operation: "search_documents", query: "fixture" } }, docs);
+    }
+    const docs = body.tools?.find(tool => tool.name?.endsWith("linksense_google_docs"));
+    const documentRequest = { provider: "google_docs", operation: "read_document", document_id: "fixture-doc" };
+    if (call === 8) {
+      const search = z.object({ data: z.string(), complete: z.literal(true) }).parse(toolOutput(body.input, "fixture-call-7"));
+      assert.deepEqual(JSON.parse(search.data), [{ name: input.connector.documentName }]);
+      return callTool("read", { request: documentRequest }, docs);
+    }
+    assert(call <= 14, "the connector issued too many pages for the fixture");
+    const page = z.object({
+      data: z.string(), complete: z.boolean(), sha256: z.string(), next_byte_offset: z.number().nullable(),
+    }).parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+    connectorPages++;
+    connectorText += page.data;
+    if (!page.complete) {
+      assert.equal(page.next_byte_offset, Buffer.byteLength(connectorText), "native output was truncated before the byte offset");
+      return callTool("read", { request: documentRequest, byte_offset: page.next_byte_offset, expected_sha256: page.sha256 }, docs);
+    }
+    assert(connectorPages > 1, "fixture must exercise connector continuation through Codex");
+    assert.deepEqual(JSON.parse(connectorText), {
+      documentId: "fixture-doc", title: input.connector.documentName, text: input.connector.documentText,
+    });
     assert(citation, "native knowledge search did not return a citation");
     return reply.type("text/event-stream").send(responseStream({
       id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
@@ -271,7 +310,7 @@ export async function verifyPackagedDesktopGateway(input: {
         { cause: error },
       );
     }
-    assert.equal(modelRequests.read, 6);
+    assert.equal(modelRequests.read, 8 + connectorPages);
     const readHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
     assert(readHistory.items.some(event => event.event_type === "item/completed" &&
       JSON.stringify(event.payload).includes("commandExecution") && event.turn_id === completed.turn_id));
@@ -314,7 +353,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: local Shell, scoped web and knowledge tools, citations, interrupt, and start idempotency.");
+    console.log("Packaged Mac gateway passed: local Shell, scoped web, knowledge, and connector tools, citations, interrupt, and start idempotency.");
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();

@@ -43,6 +43,7 @@ export async function registerDesktopDeviceRoutes(
     rateLimitHmacSecret: string;
     execution?: DesktopDeviceTransport;
     knowledgeTools?: boolean;
+    connectionTools?: boolean;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -166,7 +167,8 @@ export async function registerDesktopDeviceRoutes(
     const offered = typeof toolOffer === "string" ? new Set(toolOffer.split(",")) : undefined;
     const tools = !supportsTools ? [] : !offered ? ["web.search"] as const
       : desktopToolOperationSchema.options.filter(operation => offered.has(operation) &&
-        (operation === "web.search" || options.knowledgeTools));
+        (operation === "web.search" ||
+          (operation === "connection.execute" ? options.connectionTools : options.knowledgeTools)));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);

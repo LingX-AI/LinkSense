@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto"
 import Fastify from "fastify"
 import {
-  desktopExecutionMaxFrameBytes, errorCatalog, internalKnowledgeDocumentListRequestSchema,
+  desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, errorCatalog, internalKnowledgeDocumentListRequestSchema,
   internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
   runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
 } from "@linksense/shared"
@@ -130,5 +130,7 @@ export function desktopWorkerCallbacks(
     ({ cursor }) => ({ operation: "knowledge.documents", body: { cursor } }))
   registerTool("/internal/knowledge/document-markdown", internalKnowledgeDocumentMarkdownRequestSchema,
     ({ cursor, documentRef }) => ({ operation: "knowledge.markdown", body: { cursor, document_ref: documentRef } }))
+  registerTool("/internal/connections/execute", toolScope.extend({ request: desktopConnectionRequestBodySchema }),
+    ({ request }) => ({ operation: "connection.execute", body: request }), 40_000)
   return app
 }

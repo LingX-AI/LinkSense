@@ -37,7 +37,7 @@ type ManagedDesktopWorker = {
   lifetime: AbortController
   run: DesktopWorkerRun | undefined
 }
-type DesktopWorkerRun = { turnId: string; runtimeGeneration: string }
+type DesktopWorkerRun = { turnId: string; runtimeGeneration: string; connectionsEnabled?: boolean }
 type DesktopListener = { address: () => net.AddressInfo; fd: () => number; close: () => void }
 export const desktopWorkerListenerFd = 4
 
@@ -412,6 +412,7 @@ export function desktopWorkerEnvironment(
     LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: "1",
     ...(configuration.serverOrigin ? { LINKSENSE_DESKTOP_PROXY_ORIGIN: configuration.serverOrigin } : {}),
     ...(run ? { LINKSENSE_DESKTOP_TURN_ID: run.turnId, LINKSENSE_DESKTOP_RUNTIME_GENERATION: run.runtimeGeneration } : {}),
+    ...(run?.connectionsEnabled ? { LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: "true" } : {}),
   }
 }
 

@@ -57,7 +57,7 @@ import { CurrentUserInfoRequestError } from "./current-user-error.js";
 import { AutomationRequestError } from "./automation-error.js";
 import { AUTOMATION_TOOL_BODY_LIMIT, automationToolRequestSchema } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
-import { connectionInputSchema } from "@linksense/shared";
+import { connectionInputSchema, desktopConnectionRequestBodySchema } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
@@ -1509,7 +1509,10 @@ export function buildRunnerServer(
       if (!token)
         return reply.code(401).send({ code: "CONNECTION_ACCESS_DENIED", retryable: false });
       const conversationId = uuid.safeParse(request.params.conversationId);
-      const input = connectionInputSchema.safeParse(request.body);
+      const input = (config.LINKSENSE_DESKTOP_TURN_ID
+        ? desktopConnectionRequestBodySchema
+        : connectionInputSchema.transform(input => ({ input, page: undefined }))
+      ).safeParse(request.body);
       if (!conversationId.success || !input.success)
         return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
       const controller = new AbortController();
@@ -1521,8 +1524,9 @@ export function buildRunnerServer(
         return await pool.accessConnection(
           conversationId.data,
           token,
-          input.data,
+          input.data.input,
           controller.signal,
+          input.data.page,
         );
       } catch (error) {
         const failure =

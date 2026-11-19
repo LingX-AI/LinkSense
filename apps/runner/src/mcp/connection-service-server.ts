@@ -8,7 +8,11 @@ import { createMicrosoftFilesModule } from "./connection-services/microsoft-file
 
 import { createWorkspaceModule } from "./connection-services/workspace.js";
 const provider = process.argv.at(-1) ?? "";
-const context = { environment: process.env, workspaceRoot: process.cwd() };
+const context = {
+  environment: process.env,
+  workspaceRoot: process.cwd(),
+  desktopReadOnly: process.argv.at(-2) === "--desktop-read-only",
+};
 const module =
   provider === "microsoft-files"
     ? createMicrosoftFilesModule(context)

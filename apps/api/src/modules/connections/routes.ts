@@ -2,8 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import {
   connectionProviderSchema,
-  connectionInputSchema,
   connectionResultSchema,
+  internalConnectionRequestSchema,
   MICROSOFT_CONNECTION_BODY_LIMIT,
 } from "@linksense/shared";
 import { z } from "zod";
@@ -101,13 +101,7 @@ export const internalConnectionRoutes: FastifyPluginAsync<{
   });
   app.post("/connections/execute", { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT }, async (request, reply) => {
     const ownerId = z.uuid().parse(request.headers["x-linksense-owner-id"]);
-    const body = z
-      .strictObject({
-        conversationId: z.uuid(),
-        turnId: z.uuid(),
-        input: connectionInputSchema,
-      })
-      .parse(request.body);
+    const body = internalConnectionRequestSchema.parse(request.body);
     const controller = new AbortController();
     const abort = () => {
       if (!reply.raw.writableEnded) controller.abort();

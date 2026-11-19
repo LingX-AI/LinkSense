@@ -92,12 +92,12 @@ try {
     const origin = config.server_origin
     if (message.type === "link.open") {
       if (current || !origin) throw new Error("desktop link is not available")
-      const turns = new DesktopTurns(runtime, config.runtime_root, origin, fail, logger)
+      const operations = message.tool_operations ?? (message.tools_version !== undefined ? ["web.search" as const] : [])
+      const turns = new DesktopTurns(runtime, config.runtime_root, origin, fail, logger, operations.includes("connection.execute"))
       current = {
         turns,
         link: new DesktopLink(message.link_id, message.owner_id, turns, frame =>
-          writeLine(desktopRuntimeOutputSchema.parse(frame)), fail,
-        message.tool_operations ?? (message.tools_version !== undefined ? ["web.search"] : [])),
+          writeLine(desktopRuntimeOutputSchema.parse(frame)), fail, operations),
       }
     } else if (current?.link.id === message.link_id) {
       if (message.type === "link.close") {

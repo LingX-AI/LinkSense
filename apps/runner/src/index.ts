@@ -342,6 +342,12 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     logger,
     mcpCommand: process.execPath,
     mcpArgs: [...process.execArgv, mcpScript],
+    ...(isDesktopWorker && config.LINKSENSE_DESKTOP_CONNECTIONS_ENABLED ? {
+      desktopConnectionMcpArgs: [
+        ...process.execArgv,
+        fileURLToPath(new URL("./mcp/connection-service-server.js", import.meta.url)),
+      ],
+    } : {}),
     ...(managedBrowserEnabled
       ? {
           managedBrowserMcpArgs: [

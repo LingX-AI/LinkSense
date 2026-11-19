@@ -142,6 +142,8 @@ describe("HttpRunnerEventSink", () => {
       expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
       fetchMock.mockResolvedValueOnce(Response.json({ error_code: "CONNECTION_REQUIRED", message: "private-token-detail" }, { status: 409 }));
       await expect(sink.accessConnection(body)).rejects.toMatchObject({ code: "CONNECTION_REQUIRED", message: "CONNECTION_REQUIRED", retryable: false });
+      fetchMock.mockResolvedValueOnce(Response.json({ error_code: "VALIDATION_ERROR" }, { status: 400 }));
+      await expect(sink.accessConnection(body)).rejects.toMatchObject({ code: "VALIDATION_ERROR", retryable: false });
     } finally { await sink.close(); }
   });
   it("projects a settled start outside the blocked event queue and wakes delivery immediately", async () => {

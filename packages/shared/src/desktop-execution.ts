@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenSchema } from "./desktop-device.js";
+import { connectionFailureCodeSchema } from "./connections.js";
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
@@ -12,6 +13,7 @@ import {
   knowledgeSearchSuccessSchema, listKnowledgeDocumentsInputSchema, searchKnowledgeBaseInputSchema,
 } from "./knowledge.js";
 import { WEB_SEARCH_MAX_TIMEOUT_MS, webSearchFailureCodeSchema, webSearchRequestSchema, webSearchSuccessSchema } from "./web-search.js";
+import { desktopConnectionRequestBodySchema, desktopConnectionResultSchema } from "./workspace-connections.js";
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
@@ -27,9 +29,10 @@ export const desktopExecutionMaxInFlight = 8;
 export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain"]);
-export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown"]);
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
 export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
+  if (operation === "connection.execute") return 58_000;
   return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
 }
 const toolOperations = z.array(desktopToolOperationSchema).max(desktopToolOperationSchema.options.length);
@@ -157,6 +160,7 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("knowledge.search"), body: searchKnowledgeBaseInputSchema }),
   request.extend({ operation: z.literal("knowledge.documents"), body: listKnowledgeDocumentsInputSchema }),
   request.extend({ operation: z.literal("knowledge.markdown"), body: getKnowledgeDocumentMarkdownInputSchema }),
+  request.extend({ operation: z.literal("connection.execute"), body: desktopConnectionRequestBodySchema }),
 ]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
@@ -188,8 +192,9 @@ const callbackResult = z.strictObject({ type: z.literal("execution.ack"), id: uu
 const toolResult = callbackResult.extend({ type: z.literal("tool.result"), ok: z.literal(true) });
 export const desktopToolErrorSchema = z.union([
   webSearchFailureCodeSchema,
+  connectionFailureCodeSchema,
   z.enum([
-    "FORBIDDEN", "RUNNER_UNAVAILABLE", "VALIDATION_ERROR", "KNOWLEDGE_PROCESSING_UNAVAILABLE",
+    "FORBIDDEN", "RUNNER_UNAVAILABLE", "KNOWLEDGE_PROCESSING_UNAVAILABLE",
     "KNOWLEDGE_SEARCH_UNAVAILABLE", "KNOWLEDGE_NO_AVAILABLE_BASES",
     "KNOWLEDGE_MAINTENANCE_UNAVAILABLE", "KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY", "FILE_LIMIT_EXCEEDED",
     "KNOWLEDGE_BASE_NOT_FOUND", "KNOWLEDGE_BASE_ACCESS_DENIED", "KNOWLEDGE_BASE_DISABLED", "KNOWLEDGE_DOCUMENT_NOT_FOUND",
@@ -200,6 +205,7 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("knowledge.search"), data: knowledgeSearchSuccessSchema }),
   toolResult.extend({ operation: z.literal("knowledge.documents"), data: knowledgeDocumentListSuccessSchema }),
   toolResult.extend({ operation: z.literal("knowledge.markdown"), data: knowledgeDocumentMarkdownSuccessSchema }),
+  toolResult.extend({ operation: z.literal("connection.execute"), data: desktopConnectionResultSchema }),
   toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([

@@ -681,7 +681,7 @@ export async function buildApi(
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
   });
   const desktopCoordinator = new RedisDesktopDeviceCoordinator(services.redis.client);
-  const desktopExecution = await registerDesktopExecution(app, services, desktopCoordinator);
+  const desktopExecution = await registerDesktopExecution(app, { ...services, connections }, desktopCoordinator);
   if (desktopExecution) await app.register(localComputerRoutes, {
     prefix: "/api/v1/conversations",
     service: new LocalComputerService(services.prisma),
@@ -696,6 +696,7 @@ export async function buildApi(
     ...(desktopExecution ? {
       execution: desktopExecution,
       knowledgeTools: services.knowledgeSearch !== null,
+      connectionTools: true,
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

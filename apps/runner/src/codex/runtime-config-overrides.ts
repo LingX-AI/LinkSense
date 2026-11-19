@@ -3,6 +3,7 @@ import {
   coreMcpServerKey,
   managedBrowserMcpServerKey,
   modelAutoCompactTokenLimitFor,
+  workspaceProviderSchema,
   type ModelProviderProtocolMode,
 } from "@linksense/shared";
 
@@ -177,4 +178,18 @@ export function builtInMcpConfigOverrides(input: {
         ]
       : []),
   ];
+}
+
+/** Reuse the shipped connector handlers without loading cloud capability snapshots on the Mac. */
+export function desktopConnectionMcpConfigOverrides(input: { command: string; args: string[] }): string[] {
+  return ["microsoft-files", ...workspaceProviderSchema.options].flatMap(provider => {
+    const prefix = `mcp_servers.linksense_${provider.replaceAll("-", "_")}`;
+    return [
+      `${prefix}.command=${JSON.stringify(input.command)}`,
+      `${prefix}.args=${JSON.stringify([...input.args, "--desktop-read-only", provider])}`,
+      `${prefix}.env_vars=${JSON.stringify(["LINKSENSE_CONNECTION_ENDPOINT", "LINKSENSE_CONNECTION_TOKEN", "LINKSENSE_COLLABORATION_MODE"])}`,
+      `${prefix}.startup_timeout_sec=10`,
+      `${prefix}.tool_timeout_sec=120`,
+    ];
+  });
 }

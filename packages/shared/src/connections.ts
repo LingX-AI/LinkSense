@@ -119,6 +119,8 @@ export const microsoftFilesResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type MicrosoftFilesResult = z.infer<typeof microsoftFilesResultSchema>;
 export const connectionFailureCodeSchema = z.enum([
+  "VALIDATION_ERROR",
+  "RUNNER_OPERATION_UNCERTAIN",
   "CONNECTION_NOT_CONFIGURED",
   "CONNECTION_AUTH_FAILED",
   "CONNECTION_REQUIRED",

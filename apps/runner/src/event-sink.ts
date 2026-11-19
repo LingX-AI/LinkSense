@@ -40,7 +40,7 @@ import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import { automationErrorFromApi } from "./automation-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
-import type { ConnectionInput } from "@linksense/shared";
+import type { ConnectionInput, DesktopConnectionRequestBody } from "@linksense/shared";
 import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   deriveKnowledgeSearchTimeouts,
@@ -63,6 +63,7 @@ export interface RunnerEventSink {
     turnId: string;
     input: ConnectionInput;
     signal?: AbortSignal;
+    page?: DesktopConnectionRequestBody["page"];
   }): Promise<unknown>;
   reportStartSettled?(input: RunnerStartSettled): Promise<void>;
   /** Atomically persists the event before returning. */
@@ -556,12 +557,15 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     turnId: string;
     input: ConnectionInput;
     signal?: AbortSignal;
+    page?: DesktopConnectionRequestBody["page"];
   }): Promise<unknown> {
-    const { signal, ...body } = input;
+    const { signal, page, conversationId, turnId, input: operation } = input;
     const response = await this.request(
       "/internal/connections/execute",
-      body,
-      this.workspaceManager.ownerFor(input.conversationId),
+      this.options.desktopOutboxScope
+        ? { conversationId, turnId, request: { input: operation, page } }
+        : { conversationId, turnId, input: operation },
+      this.workspaceManager.ownerFor(conversationId),
       signal,
     );
     const value = await parseResponseBody(response);

@@ -47,6 +47,7 @@ import { WebSearchSettingsService } from "../../src/modules/system/web-search-se
 import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
+import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js";
 import { verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
@@ -99,6 +100,7 @@ export async function verifyDesktopExecutionProjection(input: {
     const creditLimits = new CreditLimitService(prisma, { timeZone: config.billingTimeZone });
     const privacyMaskingSettings = new PrivacyMaskingSettingsService(prisma, config);
     const audit = new AuditService(prisma);
+    const connector = await createDesktopConnectionFixture(prisma, config, audit, ownerId, input.otherOwnerId);
     const searchKey = randomUUID();
     const searchCalls: string[] = [];
     const searchMarker = `desktop-search-result-${randomUUID()}`;
@@ -136,7 +138,8 @@ export async function verifyDesktopExecutionProjection(input: {
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
       config, prisma, redis, runner, conversations, events,
-      modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit, knowledgeSearch: knowledge.service,
+      modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
+      knowledgeSearch: knowledge.service, connections: connector.service,
     }, coordinator);
     assert(execution, "Mac execution must be enabled in this fixture");
     let rejectNextRecovery = false;
@@ -150,6 +153,7 @@ export async function verifyDesktopExecutionProjection(input: {
       service: new DesktopDeviceService(new PrismaDesktopDeviceRepository(prisma), coordinator),
       redis: redis.client, rateLimitHmacSecret: config.loginRateLimitHmacSecret, execution,
       knowledgeTools: true,
+      connectionTools: true,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;
@@ -246,6 +250,16 @@ export async function verifyDesktopExecutionProjection(input: {
         return command;
       }),
     ]);
+    // Deliver a tool request before the device starts the settlement handshake.
+    const earlyConnector = {
+      type: "tool.request", id: randomUUID(), operation: "connection.execute", ...callbackScope,
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor("connection.execute")).toISOString(),
+      run_token: start.body.credentials.run_token,
+      body: { input: { operation: "list_connections" } },
+    } as const satisfies DesktopToolRequest;
+    const earlyResult = desktopToolResultSchema.parse(await exchange(initial.socket, earlyConnector));
+    assert(earlyResult.ok && earlyResult.operation === "connection.execute" && earlyResult.data.kind === "connections",
+      "a valid Mac connector read failed while the turn was still prepared");
     const inspect = desktopExecutionCommandSchema.parse(await exchange(initial.socket, {
       type: "execution.callback", id: randomUUID(), operation: "start.settled", ...callbackScope,
       run_token: start.body.credentials.run_token,
@@ -310,6 +324,36 @@ export async function verifyDesktopExecutionProjection(input: {
     await verifyDesktopKnowledgePublication(prisma, {
       ownerId, deviceId, connectionId: initial.connectionId, conversationId, turnId, runtimeGeneration,
     }, knowledge.foreign);
+    const connectorRequest = {
+      ...tool, operation: "connection.execute", id: randomUUID(),
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor("connection.execute")).toISOString(),
+      body: { input: { operation: "list_connections" } },
+    } as const satisfies DesktopToolRequest;
+    const accounts = await invokeTool(connectorRequest);
+    assert(accounts.ok && accounts.operation === "connection.execute" && accounts.data.kind === "connections");
+    assert.deepEqual(accounts.data.items.filter(account => account.status === "connected").map(account => account.provider), ["onedrive", "google_docs"]);
+    assert(!JSON.stringify(accounts).includes(connector.foreignAccount));
+    const foreignConnector = await invokeTool({
+      ...connectorRequest, id: randomUUID(), turn_id: randomUUID(),
+      body: { input: { operation: "list_drives", provider: "onedrive" } },
+    });
+    assert(!foreignConnector.ok && foreignConnector.error_code === "FORBIDDEN");
+    assert.equal(connector.stats.graph, 0);
+    const pendingConnector = {
+      ...connectorRequest, id: randomUUID(),
+      body: { input: { operation: "search_documents", provider: "google_docs", query: "fixture pending connector" } },
+    } as const satisfies DesktopToolRequest;
+    send(initial.socket, pendingConnector);
+    for (let retry = 0; connector.stats.started !== 1 && retry < 100; retry++) await delay(10);
+    assert.equal(connector.stats.started, 1);
+    send(initial.socket, {
+      type: "tool.cancel", ...callbackScope, id: pendingConnector.id, operation: pendingConnector.operation,
+    });
+    for (let retry = 0; connector.stats.aborted !== 1 && retry < 100; retry++) await delay(10);
+    assert.equal(connector.stats.aborted, 1);
+    const duplicateConnector = await invokeTool({ ...pendingConnector, id: pendingConnector.id.toUpperCase() });
+    assert(!duplicateConnector.ok && duplicateConnector.error_code === "RUNNER_OPERATION_UNCERTAIN");
+    assert.equal(connector.stats.workspace, 1);
     const pendingTool = { ...tool, id: randomUUID(), body: { query: "fixture pending search" } };
     const searches = [pendingTool, ...Array.from({ length: desktopToolMaxInFlight - 1 }, () =>
       ({ ...pendingTool, id: randomUUID() }))];
@@ -584,13 +628,19 @@ export async function verifyDesktopExecutionProjection(input: {
       await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, prisma, redis, coordinator, conversations,
         events, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
-        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey],
+        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey, ...connector.secrets],
         searchMarker,
+        connector,
         knowledge: {
           baseId: knowledge.owned.base.id, baseName: knowledge.owned.base.name,
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,
         },
       });
+      assert.deepEqual({
+        graph: connector.stats.graph, workspace: connector.stats.workspace,
+        started: connector.stats.started, aborted: connector.stats.aborted,
+      }, { graph: 1, workspace: 2, started: 1, aborted: 1 });
+      assert(connector.stats.documentPages > 1);
     }
     const revokedThread = randomUUID();
     const running = await prisma.conversation.create({ data: {

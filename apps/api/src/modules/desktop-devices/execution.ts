@@ -4,6 +4,7 @@ import { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.
 import { DesktopRunner } from "../../adapters/desktop-runner.js";
 import { AppError } from "../../lib/errors.js";
 import type { AppServices } from "../../services.js";
+import type { ConnectionService } from "../connections/service.js";
 import { isDesktopRunActive } from "../desktop-credentials/run-authority.js";
 import { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
@@ -18,7 +19,7 @@ type ExecutionServices = Pick<AppServices,
 
 export async function registerDesktopExecution(
   app: FastifyInstance,
-  services: ExecutionServices,
+  services: ExecutionServices & { connections?: Pick<ConnectionService, "executeScoped"> },
   coordinator: RedisDesktopDeviceCoordinator,
 ): Promise<DesktopDeviceTransport | undefined> {
   const { config, prisma, redis } = services;
@@ -39,6 +40,7 @@ export async function registerDesktopExecution(
       if (frame.type === "tool.request") {
         return executeDesktopTool({
           leases, audit: services.audit, webSearchSettings: services.webSearchSettings, knowledgeSearch: services.knowledgeSearch,
+          ...(services.connections ? { connections: services.connections } : {}),
           checkPublication: async (tx, source) => {
             signal.throwIfAborted();
             await assertDesktopKnowledgeAssetCurrent(prisma, tx, scope, source);

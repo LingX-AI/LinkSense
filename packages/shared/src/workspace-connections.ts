@@ -242,3 +242,49 @@ export const connectionResultSchema = z.union([
   workspaceResultSchema,
 ]);
 export type ConnectionResult = z.infer<typeof connectionResultSchema>;
+
+export const internalConnectionRequestSchema = z.strictObject({
+  conversationId: z.uuid(),
+  turnId: z.uuid(),
+  input: connectionInputSchema,
+});
+
+// The device relay carries metadata and text. File bytes use the artifact channel.
+export const desktopConnectionOperations = [
+  "list_connections", "get_file", "list_drives", "search_sites", "list_files", "search_files",
+  "search_documents", "read_document", "search_mail", "read_mail", "list_labels", "list_drafts", "read_draft", "read_thread",
+] as const satisfies readonly ConnectionInput["operation"][];
+const desktopConnectionOperationSet: ReadonlySet<string> = new Set(desktopConnectionOperations);
+export const isDesktopConnectionOperation = (operation: string): boolean =>
+  desktopConnectionOperationSet.has(operation);
+export const desktopConnectionInputSchema = connectionInputSchema.refine(
+  ({ operation }) => isDesktopConnectionOperation(operation),
+);
+const contentHash = z.string().regex(/^[0-9a-f]{64}$/u);
+const positiveByteOffset = z.number().int().positive();
+export const desktopConnectionRequestBodySchema = z.strictObject({
+  input: desktopConnectionInputSchema,
+  page: z.strictObject({
+    byte_offset: positiveByteOffset,
+    expected_sha256: contentHash,
+  }).optional(),
+}).refine(({ input, page }) => !page || isWorkspaceInput(input));
+export type DesktopConnectionRequestBody = z.infer<typeof desktopConnectionRequestBodySchema>;
+
+// Leave room for the native MCP wrapper under Codex 0.170's 10,000-byte fallback budget.
+export const desktopConnectionTextPageBytes = 8 * 1024;
+export const desktopConnectionTextSchema = z.strictObject({
+  kind: z.literal("workspace_text"),
+  data: z.string().max(desktopConnectionTextPageBytes),
+  complete: z.boolean(),
+  sha256: contentHash,
+  next_byte_offset: positiveByteOffset.nullable(),
+  next_cursor: cursor.nullable(),
+}).refine(({ complete, next_byte_offset, next_cursor }) =>
+  complete === (next_byte_offset === null) && (complete || next_cursor === null));
+export const desktopConnectionResultSchema = z.union([
+  microsoftFilesResultSchema.refine(
+    ({ kind }) => kind === "connections" || kind === "item" || kind === "page",
+  ),
+  desktopConnectionTextSchema,
+]);

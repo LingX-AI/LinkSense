@@ -18,7 +18,7 @@ export function connectionErrorFromApi(status: number, value: unknown): Connecti
   if (known.success)
     return new ConnectionRequestError(
       known.data,
-      status >= 500 && known.data !== "CONNECTION_NOT_CONFIGURED",
+      status >= 500 && !["CONNECTION_NOT_CONFIGURED", "RUNNER_OPERATION_UNCERTAIN", "VALIDATION_ERROR"].includes(known.data),
       status,
     );
   const forbidden: readonly ErrorCode[] = ["AUTH_REQUIRED", "FORBIDDEN", "ACCESS_DENIED"];
