@@ -406,7 +406,7 @@ function translateInputItem(
     return {
       ...copyItemMetadata(source),
       type: "function_call_output",
-      output: asText(source.output),
+      output: Array.isArray(source.output) ? source.output : asText(source.output),
     };
   }
   return source;

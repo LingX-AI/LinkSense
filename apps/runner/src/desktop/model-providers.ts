@@ -22,6 +22,7 @@ export function desktopModelProviders(
       apiKey: primary.token,
       ...(primary.context_window === undefined ? {} : { modelContextWindow: primary.context_window }),
       ...(primary.auto_compact_token_limit === undefined ? {} : { modelAutoCompactTokenLimit: primary.auto_compact_token_limit }),
+      ...(primary.supports_image_input === undefined ? {} : { supportsImageInput: primary.supports_image_input }),
       ...(memory_extraction && {
         memoryExtraction: {
           model: memory_extraction.model,
@@ -43,6 +44,7 @@ export function desktopModelProviders(
           apiKey: transition_source.token,
           ...(transition_source.context_window === undefined ? {} : { modelContextWindow: transition_source.context_window }),
           ...(transition_source.auto_compact_token_limit === undefined ? {} : { modelAutoCompactTokenLimit: transition_source.auto_compact_token_limit }),
+          ...(transition_source.supports_image_input === undefined ? {} : { supportsImageInput: transition_source.supports_image_input }),
         },
       },
     }),

@@ -2,11 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
   builtInMcpConfigOverrides,
+  linkSenseImageCapabilityConfigOverrides,
   linkSenseModelProviderConfigOverrides,
   linkSenseSkillConfigOverrides,
 } from "../src/codex/runtime-config-overrides.js";
 
 describe("Codex process-level runtime config", () => {
+  it("disables the native view_image tool unless the model declares image support", () => {
+    expect(linkSenseImageCapabilityConfigOverrides(undefined)).toEqual([
+      "features.view_image=false",
+    ]);
+    expect(linkSenseImageCapabilityConfigOverrides(false)).toEqual([
+      "features.view_image=false",
+    ]);
+    expect(linkSenseImageCapabilityConfigOverrides(true)).toEqual([]);
+  });
+
   it("exposes authorized native Skill instructions for execution and keeps Plan reference-only", () => {
     expect(linkSenseSkillConfigOverrides("default")).toEqual([
       "skills.include_instructions=true",

@@ -43,6 +43,7 @@ import {
   modelGatewayErrorMessages,
   modelGatewayFailureCode,
   nativeProviderFailureCode,
+  omitUnsupportedModelImages,
 } from "@linksense/shared";
 
 import {
@@ -109,6 +110,8 @@ export type ModelGatewayLeaseInput = {
   protocolMode: ModelProviderProtocolMode;
   model: string;
   pricing: ModelTokenPricing;
+  /** Provider model settings; when absent the model is treated as text only. */
+  supportsImageInput?: boolean;
   memoryExtraction?: MemoryExtractionRuntime;
   /** Present only while the owner's privacy masking is enabled. */
   privacyMasking?: PrivacyMaskingRuntime;
@@ -1125,7 +1128,11 @@ export class ModelGateway implements ModelGatewayRuntime {
     const abortPreparation = () => preparationAbort.abort();
     downstream.once("close", abortPreparation);
     try {
-      await this.prepareRequestImages(source, preparationAbort.signal);
+      await this.prepareRequestImages(
+        source,
+        preparationAbort.signal,
+        authorizedLease.supportsImageInput === true,
+      );
     } catch (error) {
       if (!(error instanceof GatewayHttpError)) throw error;
       await sendWebSocketError(
@@ -1369,7 +1376,11 @@ export class ModelGateway implements ModelGatewayRuntime {
         body.tool_choice = "none";
         delete body.parallel_tool_calls;
       }
-      await this.prepareRequestImages(body, upstreamAbort.controller.signal);
+      await this.prepareRequestImages(
+        body,
+        upstreamAbort.controller.signal,
+        authorizedLease.supportsImageInput === true,
+      );
       const masker = this.privacyMaskers.get(token) ?? null;
       if (authorizedLease.privacyMasking && !masker) {
         throw new GatewayHttpError(503, "privacy_masking_unavailable");
@@ -1903,7 +1914,17 @@ export class ModelGateway implements ModelGatewayRuntime {
     }
   }
 
-  private async prepareRequestImages(body: JsonObject, signal: AbortSignal): Promise<void> {
+  private async prepareRequestImages(
+    body: JsonObject,
+    signal: AbortSignal,
+    supportsImageInput: boolean,
+  ): Promise<void> {
+    // Never serialize images into text for a text-only model: upstreams count
+    // base64 as ordinary tokens, which can consume the whole context window.
+    if (!supportsImageInput) {
+      omitUnsupportedModelImages(body);
+      return;
+    }
     try {
       await prepareModelRequestImages(
         body, this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT, signal,

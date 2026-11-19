@@ -375,6 +375,9 @@ export class PublicKnowledgeRuntime {
         model: input.model,
         pricing: input.provider.pricing ?? zeroPricing,
         toolPolicy: "none",
+        ...(input.provider.supportsImageInput === undefined
+          ? {}
+          : { supportsImageInput: input.provider.supportsImageInput }),
       });
       client = new CodexJsonRpcClient({
         command: this.options.command,

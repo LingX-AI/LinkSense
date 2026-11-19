@@ -55,6 +55,16 @@ export function linkSenseSkillConfigOverrides(
   ];
 }
 
+/**
+ * Text-only provider models must not receive the native `view_image` tool:
+ * screenshot tool results become base64 image parts in the model context.
+ */
+export function linkSenseImageCapabilityConfigOverrides(
+  supportsImageInput: boolean | undefined,
+): string[] {
+  return supportsImageInput === true ? [] : ["features.view_image=false"];
+}
+
 export const coreMcpEnvironmentVariables = [
   "LINKSENSE_COLLABORATION_MODE",
   "LINKSENSE_CONVERSATION_ID",

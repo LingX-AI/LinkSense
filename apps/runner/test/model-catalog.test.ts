@@ -116,6 +116,8 @@ describe("Codex model catalog", () => {
       max_context_window: 1_000_000,
       effective_context_window_percent: 100,
       auto_compact_token_limit: null,
+      input_modalities: ["text"],
+      supports_image_detail_original: false,
       model_messages: {
         instructions_template: "linksense instructions",
       },
@@ -130,6 +132,29 @@ describe("Codex model catalog", () => {
         }),
       })
     );
+  });
+
+  it("declares image input only for models whose provider settings allow it", async () => {
+    const { codexHome } = await fixture();
+    await writeSession(codexHome, "link-sense", "instructions", "a");
+    const writer = createCodexModelCatalogWriter({
+      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+    });
+
+    const catalogPath = await writer.ensure({
+      command: "codex",
+      codexHome,
+      model: "vision-model",
+      modelContextWindow: 128_000,
+      supportsImageInput: true,
+    });
+    if (!catalogPath) throw new Error("expected a catalog path");
+    const catalog = await readCatalog(catalogPath);
+    expect(
+      catalog.models.find((model) => model.slug === "vision-model")
+    ).toMatchObject({
+      input_modalities: ["text", "image"],
+    });
   });
 
   it("makes the temporary catalog probe accessible to the task identity", async () => {

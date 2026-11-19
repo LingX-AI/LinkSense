@@ -284,4 +284,30 @@ describe("model gateway tool compatibility", () => {
       ),
     ).toBe(false);
   });
+
+  it("preserves custom tool output content parts and call association when translating to a function result", () => {
+    const image = {
+      type: "input_image",
+      image_url: "data:image/png;base64,AAAA",
+    };
+    const output = [{ type: "input_text", text: "Script completed" }, image];
+    const translated = translateResponsesRequest({
+      input: [
+        {
+          type: "custom_tool_call_output",
+          call_id: "call-1",
+          name: "exec",
+          output,
+        },
+      ],
+    });
+
+    expect(translated.body.input).toEqual([
+      {
+        type: "function_call_output",
+        call_id: "call-1",
+        output,
+      },
+    ]);
+  });
 });

@@ -96,6 +96,7 @@ import {
 import {
   builtInMcpConfigOverrides,
   linkSenseModelProviderConfigOverrides,
+  linkSenseImageCapabilityConfigOverrides,
   linkSenseSkillConfigOverrides,
   desktopPermissionConfigOverrides,
   desktopPermissionProfiles,
@@ -263,6 +264,7 @@ export type StartTurnInput = {
       pricing?: ModelTokenPricing;
       modelContextWindow?: number;
       modelAutoCompactTokenLimit?: number;
+      supportsImageInput?: boolean;
     };
   };
   reasoningEffort: ReasoningEffort;
@@ -274,6 +276,7 @@ export type StartTurnInput = {
     pricing?: ModelTokenPricing;
     modelContextWindow?: number;
     modelAutoCompactTokenLimit?: number;
+    supportsImageInput?: boolean;
     memoryExtraction?: MemoryExtractionRuntime;
     privacyMasking?: PrivacyMaskingRuntime;
   };
@@ -969,6 +972,11 @@ export class AppServerProcessPool {
           ? {}
           : {
               modelContextWindow: input.modelProvider.modelContextWindow,
+            }),
+        ...(input.modelProvider.supportsImageInput === undefined
+          ? {}
+          : {
+              supportsImageInput: input.modelProvider.supportsImageInput,
             }),
         ...(this.options.codexProcessIdentity
           ? { processIdentity: this.options.codexProcessIdentity }
@@ -5613,6 +5621,9 @@ export class AppServerProcessPool {
         protocolMode: input.modelProvider.protocolMode,
         model: input.model,
         pricing: input.modelProvider.pricing ?? zeroModelTokenPricing,
+        ...(input.modelProvider.supportsImageInput === undefined
+          ? {}
+          : { supportsImageInput: input.modelProvider.supportsImageInput }),
         ...(input.modelProvider.memoryExtraction
           ? { memoryExtraction: input.modelProvider.memoryExtraction }
           : {}),
@@ -5665,6 +5676,9 @@ export class AppServerProcessPool {
               control: paths.ownerControl, codex: this.options.command,
             }) : []),
             ...linkSenseSkillConfigOverrides(input.collaborationMode),
+            ...linkSenseImageCapabilityConfigOverrides(
+              input.modelProvider.supportsImageInput,
+            ),
             ...linkSenseModelProviderConfigOverrides({
               baseUrl: this.options.modelGateway.baseUrl,
               protocolMode: input.modelProvider.protocolMode,
@@ -8040,6 +8054,9 @@ function modelGatewayTransitionSourceFor(
     protocolMode: source.provider.protocolMode,
     model: sourceModel,
     pricing: source.provider.pricing ?? zeroModelTokenPricing,
+    ...(source.provider.supportsImageInput === undefined
+      ? {}
+      : { supportsImageInput: source.provider.supportsImageInput }),
   };
 }
 

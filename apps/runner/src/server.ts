@@ -168,6 +168,7 @@ const modelProviderRuntimeSchema = z.strictObject({
   pricing: modelTokenPricingSchema.optional(),
   modelContextWindow: modelContextWindowSchema.optional(),
   modelAutoCompactTokenLimit: modelContextWindowSchema.optional(),
+  supportsImageInput: z.boolean().optional(),
   privacyMasking: privacyMaskingRuntimeSchema.optional(),
 });
 
@@ -534,6 +535,9 @@ function prewarmInput(
               body.modelProvider.modelAutoCompactTokenLimit,
           }
         : {}),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
     ...(body.codexThreadId !== undefined
       ? { codexThreadId: body.codexThreadId }
@@ -565,6 +569,13 @@ function prewarmInput(
                         .modelAutoCompactTokenLimit,
                   }
                 : {}),
+              ...(body.modelTransitionSource.provider.supportsImageInput ===
+              undefined
+                ? {}
+                : {
+                    supportsImageInput:
+                      body.modelTransitionSource.provider.supportsImageInput,
+                  }),
             },
           },
         }
@@ -1879,6 +1890,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
           ...(body.codexThreadId !== undefined
             ? { codexThreadId: body.codexThreadId }
@@ -2254,6 +2268,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
         });
       } catch (error) {
@@ -2376,6 +2393,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
         });
       } catch (error) {
@@ -2482,6 +2502,9 @@ export function buildRunnerServer(
                     modelAutoCompactTokenLimit:
                       body.modelProvider.modelAutoCompactTokenLimit,
                   }),
+              ...(body.modelProvider.supportsImageInput === undefined
+                ? {}
+                : { supportsImageInput: body.modelProvider.supportsImageInput }),
             },
           }),
         };
@@ -2879,6 +2902,9 @@ function goalRuntimeInput(
             modelAutoCompactTokenLimit:
               body.modelProvider.modelAutoCompactTokenLimit,
           }),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
   };
 }
@@ -2927,6 +2953,9 @@ function subAgentReadInput(
             modelAutoCompactTokenLimit:
               body.modelProvider.modelAutoCompactTokenLimit,
           }),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
     ...("agentKey" in body ? { agentKey: body.agentKey } : {}),
   };

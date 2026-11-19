@@ -34,6 +34,7 @@ export type CodexModelCatalogInput = {
   codexHome: string;
   model: string;
   modelContextWindow?: number;
+  supportsImageInput?: boolean;
   processIdentity?: ProcessIdentity;
 };
 
@@ -107,6 +108,7 @@ export function createCodexModelCatalogWriter(
       const entry = buildModelEntry(template, {
         model: input.model,
         contextWindow: input.modelContextWindow,
+        supportsImageInput: input.supportsImageInput === true,
         instructions,
       });
       // Other conversations can start with a different model before Codex loads this file.
@@ -254,7 +256,12 @@ async function collectSessionFiles(
 
 function buildModelEntry(
   template: JsonObject,
-  input: { model: string; contextWindow: number; instructions: string }
+  input: {
+    model: string;
+    contextWindow: number;
+    supportsImageInput: boolean;
+    instructions: string;
+  }
 ): JsonObject {
   const base = baseTemplateModel(
     Array.isArray(template.models) ? template.models : []
@@ -271,6 +278,12 @@ function buildModelEntry(
     max_context_window: input.contextWindow,
     effective_context_window_percent: 100,
     auto_compact_token_limit: null,
+    // Never inherit the template's modalities: a text-only provider model must
+    // not receive view_image results (base64 images are counted as tokens).
+    input_modalities: input.supportsImageInput ? ["text", "image"] : ["text"],
+    supports_image_detail_original: input.supportsImageInput
+      ? base?.supports_image_detail_original === true
+      : false,
     model_messages: {
       ...messages,
       instructions_template: input.instructions,

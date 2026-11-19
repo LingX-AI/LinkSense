@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { nativeProviderFailureCode } from "@linksense/shared";
+import {
+  nativeProviderFailureCode,
+  splitModelContentParts,
+} from "@linksense/shared";
 
 import { parseSseStream } from "./sse.js";
 
@@ -477,7 +480,15 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
   }
   let pendingToolCalls: JsonObject[] = [];
   let pendingAssistantMessages: JsonObject[] = [];
+  let pendingToolImageParts: JsonObject[] = [];
+  const flushToolImages = () => {
+    if (pendingToolImageParts.length === 0) return;
+    messages.push({ role: "user", content: pendingToolImageParts });
+    pendingToolImageParts = [];
+  };
   const flushAssistant = () => {
+    if (pendingToolCalls.length === 0 && pendingAssistantMessages.length === 0) return;
+    flushToolImages();
     if (pendingToolCalls.length > 0) {
       // Responses emits text and calls as separate items in either order.
       // Chat Completions needs one assistant message before its tool results.
@@ -527,21 +538,29 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
     }
     flushAssistant();
     if (item.type === "function_call_output") {
+      const toolOutput = splitModelContentParts(item.output);
+      const callId = typeof item.call_id === "string"
+        ? item.call_id
+        : typeof item.id === "string" ? item.id : itemId("call");
+      const imageParts = userContentForChat(toolOutput.images);
       messages.push({
         role: "tool",
-        tool_call_id:
-          typeof item.call_id === "string"
-            ? item.call_id
-            : typeof item.id === "string"
-              ? item.id
-              : itemId("call"),
-        content: contentText(item.output),
+        tool_call_id: callId,
+        content: toolOutput.text || (Array.isArray(imageParts) ? "(see attached image)" : ""),
       });
+      if (Array.isArray(imageParts)) {
+        pendingToolImageParts.push(
+          { type: "text", text: `Images returned by tool call ${JSON.stringify(callId)}:` },
+          ...imageParts,
+        );
+      }
       continue;
     }
     if (role === "developer" || role === "system") {
+      flushToolImages();
       messages.push({ role: "system", content: contentText(item.content) });
     } else if (role === "user") {
+      flushToolImages();
       messages.push({
         role,
         content: userContentForChat(item.content),
@@ -549,12 +568,13 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
     }
   }
   flushAssistant();
+  flushToolImages();
   return messages.length > 0
     ? messages
     : [{ role: "user", content: "" }];
 }
 
-function userContentForChat(value: unknown): unknown {
+function userContentForChat(value: unknown): string | JsonObject[] {
   if (!Array.isArray(value)) return contentText(value);
   const parts: JsonObject[] = [];
   for (const part of value) {
