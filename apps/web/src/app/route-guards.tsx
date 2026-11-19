@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
+import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
 import { hasMaintenanceAdminEntry } from "@/app/maintenance-admin-entry"
 import { useProductName } from "@/app/product-branding"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
@@ -13,6 +14,7 @@ import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-d
 import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
+import { browserExtensionSettingsPath } from "@/features/browser-use/settings-path"
 import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const maintenanceAdminAuthPaths = new Set([
@@ -89,11 +91,15 @@ export function ProtectedRoute() {
   if (status === "loading") return <LoadingState fullScreen />
   if (status === "error") return <SessionRestoreError />
   if (status === "anonymous") {
+    const from =
+      `${location.pathname}${location.hash}` === browserExtensionSettingsPath
+        ? browserExtensionSettingsPath
+        : location.pathname
     return (
       <Navigate
         to="/login"
         replace
-        state={{ from: location.pathname, fromUserId: destinationUserId }}
+        state={{ from, fromUserId: destinationUserId }}
       />
     )
   }
@@ -111,6 +117,15 @@ export function ProtectedRoute() {
 export function PublicAuthRoute() {
   const { status } = useAuth()
   const location = useLocation()
+
+  useEffect(() => {
+    if (
+      location.pathname !== "/login" ||
+      (status !== "anonymous" && status !== "authenticated")
+    )
+      return
+    rememberBrowserUseLoginReturn(status === "anonymous" ? location.state : null)
+  }, [location.pathname, location.state, status])
 
   if (status === "loading") return <LoadingState fullScreen />
   if (status === "error") return <SessionRestoreError />
@@ -179,7 +194,6 @@ function resolveAuthenticatedDestination(
   ) {
     return fallback
   }
-
   const source = new URL(window.location.href)
   const destination = new URL(state.from, source)
   if (

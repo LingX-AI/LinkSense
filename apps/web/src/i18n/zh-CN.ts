@@ -2199,6 +2199,7 @@ export const zhCN = {
       submit: "提交回答",
       submitting: "正在提交",
       cancel: "取消",
+      dismissRequest: "关闭请求",
       selectPlaceholder: "请选择",
       datePlaceholder: "选择日期",
       clearDate: "清除日期",

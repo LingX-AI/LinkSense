@@ -468,6 +468,49 @@ describe("LinkSense application", () => {
     }
   )
 
+  it("focuses Browser Use setup after password sign-in from its deep link", async () => {
+    installApiMock({ refreshFails: true })
+    const interaction = userEvent.setup()
+    renderApp("/settings/general#browser-extension")
+
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "邮箱" }),
+      "person@example.com"
+    )
+    await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "Password1!")
+    await interaction.click(screen.getByRole("button", { name: "登录" }))
+
+    expect(
+      await screen.findByRole("region", { name: "Browser Use" })
+    ).toHaveFocus()
+  })
+
+  it.each(["oidc", "saml", "social"])(
+    "restores Browser Use setup once after %s sign-in returns in the same tab",
+    async (protocol) => {
+      installApiMock({ refreshFails: true })
+      const login = renderApp("/settings/general#browser-extension")
+      await screen.findByRole("textbox", { name: "邮箱" })
+      login.unmount()
+
+      installApiMock()
+      const callbackPath = `/auth/${protocol}/callback?result=success`
+      window.history.replaceState({}, "", callbackPath)
+      const callback = renderApp(callbackPath)
+      expect(
+        await screen.findByRole("region", { name: "Browser Use" })
+      ).toHaveFocus()
+      expect(window.location.search).toBe("")
+      callback.unmount()
+
+      window.history.replaceState({}, "", callbackPath)
+      renderApp(callbackPath)
+      expect(
+        await screen.findByRole("form", { name: "任务输入框" })
+      ).toBeVisible()
+    }
+  )
+
   it("does not reuse an API callback path as the post-password-login destination", async () => {
     installApiMock({ refreshFails: true })
     const interaction = userEvent.setup()

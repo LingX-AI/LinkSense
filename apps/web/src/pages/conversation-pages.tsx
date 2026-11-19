@@ -5708,6 +5708,28 @@ export function ConversationPage({
         visibleRunningTurn?.id,
         Boolean(activePlanReview)
       )
+  const awaitingDesktopQuestion =
+    displayConversation.execution_target === "local" &&
+    activeUserInputRequest?.kind === "questions"
+  // The app-server question and the started MCP item share the native item ID.
+  const browserApprovalEvent = awaitingDesktopQuestion
+    ? visibleEvents.findLast((event) => {
+        if (
+          event.type !== "item/started" ||
+          event.turn_id !== activeUserInputRequest.turn_id
+        )
+          return false
+        const native = getNativeCodexPayload(event)
+        return (
+          native?.method === "item/started" &&
+          native.params.item.id === activeUserInputRequest.item_id &&
+          native.params.item.type === "mcpToolCall" &&
+          native.params.item.browserApproval !== undefined
+        )
+      })
+    : undefined
+  const browserApproval =
+    browserApprovalEvent && getNativeCodexPayload(browserApprovalEvent)
   const blockingPanelKey = activeUserInputRequest
     ? `user-input:${activeUserInputRequest.id}`
     : activePlanReview
@@ -5724,6 +5746,12 @@ export function ConversationPage({
     <ConversationUserInputRequestCard
       key={activeUserInputRequest.id}
       request={activeUserInputRequest}
+      browserApproval={
+        browserApproval?.method === "item/started" &&
+        browserApproval.params.item.type === "mcpToolCall"
+          ? browserApproval.params.item.browserApproval
+          : undefined
+      }
       submitting={respondUserInputMutation.isPending}
       onInteractionStart={preserveScrollPositionForInteraction}
       onSubmit={(response) => {
@@ -6151,19 +6179,23 @@ export function ConversationPage({
               <MessagesSquareIcon aria-hidden="true" />
             </ConversationHeaderButton>
           )}
-          {!showComposer && !executionBlocked && visuallyRunning && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={interrupting}
-              onClick={handleInterrupt}
-            >
-              {t(
-                interrupting ? "conversation.interrupting" : "conversation.stop"
-              )}
-            </Button>
-          )}
+          {(!showComposer || awaitingDesktopQuestion) &&
+            !executionBlocked &&
+            visuallyRunning && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={interrupting}
+                onClick={handleInterrupt}
+              >
+                {t(
+                  interrupting
+                    ? "conversation.interrupting"
+                    : "conversation.stop"
+                )}
+              </Button>
+            )}
         </div>
       </header>
 

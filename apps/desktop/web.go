@@ -114,7 +114,14 @@ func (d *Desktop) OpenExternal(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
-	return mygo.Shell.OpenExternal(u.String())
+	return d.openInSystemBrowser(u.String())
+}
+
+func (d *Desktop) openInSystemBrowser(raw string) error {
+	if d.openBrowser != nil {
+		return d.openBrowser(raw)
+	}
+	return mygo.Shell.OpenExternal(raw)
 }
 
 func frontendNavigation(raw string) bool {

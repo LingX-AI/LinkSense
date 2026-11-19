@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { supportedLocales } from "@linksense/shared"
+import { browserUseActionSchema, supportedLocales } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
@@ -171,6 +171,82 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
+  it.each([...supportedLocales, "de-DE"])(
+    "shows a localized approval action and target matching the native request in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      render(
+        <ConversationUserInputRequestCard
+          request={request}
+          browserApproval={{ action: "navigate", tab_id: 9, destination_host: "example.test" }}
+          submitting={false}
+        />
+      )
+      const summary = i18n.t("browserUse.approval.title", {
+        action: i18n.t("browserUse.approval.actions.navigate"),
+      })
+      expect(screen.getByText(summary)).toBeVisible()
+      expect(screen.getByText(i18n.t("browserUse.approval.targetTab", { tab: 9 }))).toBeVisible()
+      expect(screen.getByText(i18n.t("browserUse.approval.destination", { host: "example.test" }))).toBeVisible()
+      if (locale !== "de-DE") {
+        for (const action of browserUseActionSchema.options) {
+          expect(i18n.exists(`browserUse.approval.actions.${action}`, { lng: locale, fallbackLng: false })).toBe(true)
+        }
+      } else {
+        expect(summary).toBe(i18n.t("browserUse.approval.title", { action: i18n.t("browserUse.approval.actions.navigate", { lng: "zh-CN" }), lng: "zh-CN" }))
+      }
+    }
+  )
+
+  it.each(["Allow", "Cancel", "dismiss"] as const)(
+    "distinguishes a native browser choice from closing the request: %s",
+    async (choice) => {
+      await i18n.changeLanguage("en-US")
+      const onSubmit = vi.fn()
+      const interaction = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...request,
+            questions: [
+              {
+                id: "browser_action",
+                header: "Browser Use",
+                question: "Allow the browser action?",
+                is_other: false,
+                is_secret: false,
+                options: [
+                  { label: "Allow", description: "" },
+                  { label: "Cancel", description: "" },
+                ],
+              },
+            ],
+          }}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+      expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull()
+      expect(onSubmit).not.toHaveBeenCalled()
+      if (choice === "dismiss") {
+        await interaction.click(
+          screen.getByRole("button", { name: "Dismiss request" })
+        )
+        expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ action: "cancel" })
+      } else {
+        await interaction.click(screen.getByRole("radio", { name: choice }))
+        expect(onSubmit).not.toHaveBeenCalled()
+        await interaction.click(
+          screen.getByRole("button", { name: "Submit answers" })
+        )
+        expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+          action: "accept",
+          content: { browser_action: choice },
+        })
+      }
+    }
+  )
+
   const optionalRequest: typeof formRequest = {
     ...formRequest,
     requested_schema: {
@@ -477,6 +553,7 @@ describe("ConversationUserInputRequestCard", () => {
         "recommendedAnswer",
         "useRecommendation",
         "cancel",
+        "dismissRequest",
         "status.recommended",
       ]) {
         expect(

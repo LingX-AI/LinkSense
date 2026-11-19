@@ -1,4 +1,11 @@
-import type { Locale } from "@linksense/shared"
+import type { BrowserUseApproval, Locale } from "@linksense/shared"
+
+type BrowserApprovalMessages = {
+  title: string
+  targetTab: string
+  destination: string
+  actions: Record<BrowserUseApproval["action"], string>
+}
 
 export const browserUseMessages = {
   "zh-CN": {
@@ -9,6 +16,33 @@ export const browserUseMessages = {
     getChrome: "下载 Chrome",
     getEdge: "下载 Edge",
     copyAppAddress: "复制 LinkSense 地址",
+    desktopSetup: "在系统浏览器中打开设置",
+    desktopSetupDescription:
+      "此处显示当前账号的扩展连接状态。请在 Chrome 或 Edge 登录同一 LinkSense 账号，完成扩展设置并授权要共享的网页。",
+    desktopConnected: "Browser Use 已连接",
+    desktopRevoke: "撤销浏览器授权",
+    desktopRevoked: "已撤销浏览器授权。",
+    desktopStatusFailed: "暂时无法确认扩展连接状态，请检查网络连接。",
+    approval: {
+      title: "允许浏览器执行此操作：{{action}}？",
+      targetTab: "标签页编号：{{tab}}",
+      destination: "目标域名：{{host}}",
+      actions: {
+        status: "检查连接状态",
+        tabs: "列出共享标签页",
+        open: "打开网页",
+        open_site: "打开已发布的 LinkSense 站点",
+        navigate: "前往其他网页",
+        snapshot: "读取页面结构",
+        screenshot: "截取页面画面",
+        click: "点击页面元素",
+        click_at: "点击页面上的位置",
+        type: "在页面中输入文字",
+        scroll: "滚动页面",
+        key: "向页面发送按键",
+        release: "结束对标签页的控制",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "让助手操作你的本机浏览器",
     setupMissing:
@@ -65,6 +99,34 @@ export const browserUseMessages = {
     getChrome: "Get Chrome",
     getEdge: "Get Edge",
     copyAppAddress: "Copy LinkSense address",
+    desktopSetup: "Open setup in system browser",
+    desktopSetupDescription:
+      "This shows the extension connection for your account. Sign in to the same LinkSense account in Chrome or Edge, finish setting up the extension, and authorize the pages you want to share.",
+    desktopConnected: "Browser Use connected",
+    desktopRevoke: "Revoke browser access",
+    desktopRevoked: "Browser access revoked.",
+    desktopStatusFailed:
+      "Could not check the extension connection. Check your network connection.",
+    approval: {
+      title: "Allow this browser action: {{action}}?",
+      targetTab: "Tab ID: {{tab}}",
+      destination: "Destination host: {{host}}",
+      actions: {
+        status: "Check connection status",
+        tabs: "List shared tabs",
+        open: "Open a page",
+        open_site: "Open a published LinkSense site",
+        navigate: "Navigate to another page",
+        snapshot: "Read the page structure",
+        screenshot: "Capture a page screenshot",
+        click: "Click a page element",
+        click_at: "Click a location on the page",
+        type: "Enter text on the page",
+        scroll: "Scroll the page",
+        key: "Send a keystroke to the page",
+        release: "Release control of the tab",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Let the assistant use your browser",
     setupMissing:
@@ -125,6 +187,34 @@ export const browserUseMessages = {
     getChrome: "Descargar Chrome",
     getEdge: "Descargar Edge",
     copyAppAddress: "Copiar dirección de LinkSense",
+    desktopSetup: "Abrir la configuración en el navegador del sistema",
+    desktopSetupDescription:
+      "Aquí se muestra la conexión de la extensión de tu cuenta. Inicia sesión con la misma cuenta de LinkSense en Chrome o Edge, configura la extensión y autoriza las páginas que quieras compartir.",
+    desktopConnected: "Browser Use conectado",
+    desktopRevoke: "Revocar acceso al navegador",
+    desktopRevoked: "Se revocó el acceso al navegador.",
+    desktopStatusFailed:
+      "No se pudo comprobar la conexión de la extensión. Comprueba la conexión de red.",
+    approval: {
+      title: "¿Permitir esta acción en el navegador: {{action}}?",
+      targetTab: "ID de pestaña: {{tab}}",
+      destination: "Dominio de destino: {{host}}",
+      actions: {
+        status: "Comprobar la conexión",
+        tabs: "Listar las pestañas compartidas",
+        open: "Abrir una página",
+        open_site: "Abrir un sitio publicado de LinkSense",
+        navigate: "Ir a otra página",
+        snapshot: "Leer la estructura de la página",
+        screenshot: "Capturar una imagen de la página",
+        click: "Hacer clic en un elemento de la página",
+        click_at: "Hacer clic en un punto de la página",
+        type: "Escribir texto en la página",
+        scroll: "Desplazar la página",
+        key: "Pulsar una tecla en la página",
+        release: "Devolver el control de la pestaña",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Permite al asistente usar tu navegador",
     setupMissing:
@@ -186,6 +276,34 @@ export const browserUseMessages = {
     getChrome: "Baixar Chrome",
     getEdge: "Baixar Edge",
     copyAppAddress: "Copiar endereço do LinkSense",
+    desktopSetup: "Abrir a configuração no navegador do sistema",
+    desktopSetupDescription:
+      "Aqui você vê a conexão da extensão da sua conta. Entre na mesma conta do LinkSense no Chrome ou Edge, configure a extensão e autorize as páginas que deseja compartilhar.",
+    desktopConnected: "Browser Use conectado",
+    desktopRevoke: "Revogar acesso ao navegador",
+    desktopRevoked: "O acesso ao navegador foi revogado.",
+    desktopStatusFailed:
+      "Não foi possível verificar a conexão da extensão. Confira sua conexão de rede.",
+    approval: {
+      title: "Permitir esta ação no navegador: {{action}}?",
+      targetTab: "ID da aba: {{tab}}",
+      destination: "Domínio de destino: {{host}}",
+      actions: {
+        status: "Verificar a conexão",
+        tabs: "Listar as abas compartilhadas",
+        open: "Abrir uma página",
+        open_site: "Abrir um site publicado no LinkSense",
+        navigate: "Navegar para outra página",
+        snapshot: "Ler a estrutura da página",
+        screenshot: "Capturar uma imagem da página",
+        click: "Clicar em um elemento da página",
+        click_at: "Clicar em um ponto da página",
+        type: "Digitar texto na página",
+        scroll: "Rolar a página",
+        key: "Enviar uma tecla à página",
+        release: "Devolver o controle da aba",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Deixe o assistente usar seu navegador",
     setupMissing:
@@ -248,6 +366,34 @@ export const browserUseMessages = {
     getChrome: "Télécharger Chrome",
     getEdge: "Télécharger Edge",
     copyAppAddress: "Copier l’adresse de LinkSense",
+    desktopSetup: "Ouvrir la configuration dans le navigateur du système",
+    desktopSetupDescription:
+      "Cet état correspond à la connexion de l’extension de votre compte. Connectez-vous au même compte LinkSense dans Chrome ou Edge, configurez l’extension et autorisez les pages que vous souhaitez partager.",
+    desktopConnected: "Browser Use connecté",
+    desktopRevoke: "Révoquer l’accès au navigateur",
+    desktopRevoked: "L’accès au navigateur a été révoqué.",
+    desktopStatusFailed:
+      "Impossible de vérifier la connexion de l’extension. Vérifiez votre connexion réseau.",
+    approval: {
+      title: "Autoriser cette action dans le navigateur : {{action}} ?",
+      targetTab: "ID de l’onglet : {{tab}}",
+      destination: "Domaine de destination : {{host}}",
+      actions: {
+        status: "Vérifier la connexion",
+        tabs: "Lister les onglets partagés",
+        open: "Ouvrir une page",
+        open_site: "Ouvrir un site LinkSense publié",
+        navigate: "Accéder à une autre page",
+        snapshot: "Lire la structure de la page",
+        screenshot: "Prendre une capture de la page",
+        click: "Cliquer sur un élément de la page",
+        click_at: "Cliquer à un endroit de la page",
+        type: "Saisir du texte sur la page",
+        scroll: "Faire défiler la page",
+        key: "Envoyer une frappe clavier à la page",
+        release: "Rendre le contrôle de l’onglet",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Laissez l’assistant utiliser votre navigateur",
     setupMissing:
@@ -310,6 +456,34 @@ export const browserUseMessages = {
     getChrome: "Chrome をダウンロード",
     getEdge: "Edge をダウンロード",
     copyAppAddress: "LinkSense のアドレスをコピー",
+    desktopSetup: "既定のブラウザーで設定を開く",
+    desktopSetupDescription:
+      "現在のアカウントに接続されている拡張機能の状態です。Chrome または Edge で同じ LinkSense アカウントにログインし、拡張機能を設定して、共有するページを許可してください。",
+    desktopConnected: "Browser Use 接続済み",
+    desktopRevoke: "ブラウザーへのアクセス許可を取り消す",
+    desktopRevoked: "ブラウザーへのアクセス許可を取り消しました。",
+    desktopStatusFailed:
+      "拡張機能の接続状態を確認できません。ネットワーク接続を確認してください。",
+    approval: {
+      title: "ブラウザーで「{{action}}」を許可しますか？",
+      targetTab: "タブ ID：{{tab}}",
+      destination: "移動先のホスト：{{host}}",
+      actions: {
+        status: "接続状態を確認",
+        tabs: "共有タブを一覧表示",
+        open: "ページを開く",
+        open_site: "公開済みの LinkSense サイトを開く",
+        navigate: "別のページに移動",
+        snapshot: "ページの構造を読み取る",
+        screenshot: "ページのスクリーンショットを撮る",
+        click: "ページ上の要素をクリック",
+        click_at: "ページ上の指定位置をクリック",
+        type: "ページに文字を入力",
+        scroll: "ページをスクロール",
+        key: "ページにキー入力を送る",
+        release: "タブの操作を終了",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "アシスタントにブラウザーの操作を任せる",
     setupMissing:
@@ -374,6 +548,12 @@ export const browserUseMessages = {
     | "getChrome"
     | "getEdge"
     | "copyAppAddress"
+    | "desktopSetup"
+    | "desktopSetupDescription"
+    | "desktopConnected"
+    | "desktopRevoke"
+    | "desktopRevoked"
+    | "desktopStatusFailed"
     | "setupTitle"
     | "setupMissing"
     | "setupDisconnected"
@@ -413,5 +593,5 @@ export const browserUseMessages = {
     | "activityRunning"
     | "activityFinished",
     string
-  >
+  > & { approval: BrowserApprovalMessages }
 >

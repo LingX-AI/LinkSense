@@ -2697,6 +2697,7 @@ export const ptBR = {
       submit: "Enviar respostas",
       submitting: "Enviando",
       cancel: "Cancelar",
+      dismissRequest: "Fechar solicitação",
       selectPlaceholder: "Selecione uma opção",
       datePlaceholder: "Selecionar data",
       clearDate: "Limpar data",

@@ -2,16 +2,26 @@ import {
   render,
   screen,
   cleanup,
+  fireEvent,
   waitFor,
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 import { I18nextProvider } from "react-i18next"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import i18n, { supportedLanguages } from "@/i18n"
 import { apiRequest, downloadApiFile } from "@/api/client"
 import { notify } from "@/components/feedback/notification"
+import {
+  getDesktopPlatform,
+  getPublicAppOrigin,
+  openDesktopExternal,
+} from "@/adapters/desktop/desktop-adapter"
 import { browserExtensionRequest } from "./bridge"
 import { BrowserExtensionSettings } from "./browser-extension-settings"
 import { browserUseMessages } from "./messages"
@@ -25,11 +35,18 @@ vi.mock("./bridge", () => ({ browserExtensionRequest: vi.fn() }))
 vi.mock("./browser-support", () => ({
   browserUseBrowser: vi.fn(() => "chrome"),
 }))
+vi.mock("@/adapters/desktop/desktop-adapter", () => ({
+  getDesktopPlatform: vi.fn(),
+  getPublicAppOrigin: vi.fn(() => "https://example.test:9443"),
+  openDesktopExternal: vi.fn(),
+}))
 vi.mock("@/components/feedback/notification", () => ({
   notify: { success: vi.fn(), error: vi.fn() },
 }))
 beforeEach(async () => {
   vi.clearAllMocks()
+  vi.mocked(getDesktopPlatform).mockReturnValue(null)
+  vi.mocked(openDesktopExternal).mockResolvedValue(undefined)
   vi.mocked(browserUseBrowser).mockReturnValue("chrome")
   await i18n.changeLanguage("zh-CN")
   vi.mocked(apiRequest).mockResolvedValue({ connected: false })
@@ -37,21 +54,133 @@ beforeEach(async () => {
 })
 afterEach(() => {
   cleanup()
+  onlineManager.setOnline(true)
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
-function show() {
+function show(userId = "user") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={client}>
-        <BrowserExtensionSettings userId="user" />
+        <BrowserExtensionSettings userId={userId} />
       </QueryClientProvider>
     </I18nextProvider>
   )
 }
+it.each([...supportedLanguages, "de-DE"])(
+  "opens the configured settings URL without credentials or an embedded pairing in %s",
+  async (language) => {
+    vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+    await i18n.changeLanguage(language)
+    const messages =
+      browserUseMessages[
+        supportedLanguages.find((locale) => locale === language) ?? "zh-CN"
+      ]
+    show()
+    expect(screen.getByText(messages.desktopSetupDescription)).toBeVisible()
+    expect(await screen.findByText(messages.disconnected)).toBeVisible()
+    expect(screen.queryByRole("button", { name: messages.connect })).toBeNull()
+    expect(screen.queryByText(messages.unsupportedDescription)).toBeNull()
+    expect(openDesktopExternal).not.toHaveBeenCalled()
+
+    await userEvent.click(
+      screen.getByRole("button", { name: messages.desktopSetup })
+    )
+    expect(openDesktopExternal).toHaveBeenCalledExactlyOnceWith(
+      "https://example.test:9443/settings/general#browser-extension"
+    )
+    expect(getPublicAppOrigin).toHaveBeenCalled()
+    expect(apiRequest).not.toHaveBeenCalledWith(
+      "/browser-use/pairing",
+      expect.anything()
+    )
+    expect(browserExtensionRequest).not.toHaveBeenCalled()
+  }
+)
+
+it("refreshes when the Mac window regains focus and shows browser-side revocation", async () => {
+  vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+  show()
+  const status = await screen.findByText("Browser Use 未连接")
+  expect(status).toHaveTextContent("Browser Use 未连接")
+
+  vi.mocked(apiRequest).mockResolvedValue({ connected: true, browser: "edge" })
+  fireEvent(window, new Event("focus"))
+  await waitFor(() => expect(status).toHaveTextContent("已连接 · Edge"))
+
+  vi.mocked(apiRequest).mockResolvedValue({ connected: false })
+  fireEvent(window, new Event("focus"))
+  await waitFor(() => expect(status).toHaveTextContent("Browser Use 未连接"))
+})
+
+it.each([true, false])(
+  "allows revoking an existing account pairing when the extension is connected=%s",
+  async (initiallyConnected) => {
+    vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+    let connected = initiallyConnected
+    vi.mocked(apiRequest).mockImplementation(async (_path, options) => {
+      if (options?.method === "DELETE") connected = false
+      return connected ? { connected, browser: "chrome" } : { connected }
+    })
+    show()
+    const revoke = screen.getByRole("button", {
+      name: "撤销浏览器授权",
+    })
+    revoke.focus()
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Browser Use 未连接")
+    )
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/browser-use",
+      expect.objectContaining({ method: "DELETE" })
+    )
+    expect(revoke).toHaveFocus()
+    expect(notify.success).toHaveBeenCalledWith("已撤销浏览器授权。")
+  }
+)
+
+it("opens system settings immediately when the WebView is offline", async () => {
+  vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+  onlineManager.setOnline(false)
+  show()
+  expect(screen.getByRole("status")).toHaveTextContent(
+    i18n.t("browserUse.desktopStatusFailed")
+  )
+  await userEvent.click(
+    screen.getByRole("button", { name: i18n.t("browserUse.desktopSetup") })
+  )
+  expect(openDesktopExternal).toHaveBeenCalledOnce()
+  expect(apiRequest).not.toHaveBeenCalled()
+})
+
+it("keeps setup available when status or the system browser fails", async () => {
+  vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+  vi.mocked(apiRequest).mockRejectedValue(new Error("offline"))
+  vi.mocked(openDesktopExternal).mockRejectedValue(new Error("unavailable"))
+  show()
+  expect(
+    await screen.findByText(i18n.t("browserUse.desktopStatusFailed"))
+  ).toBeVisible()
+  const setup = screen.getByRole("button", {
+    name: i18n.t("browserUse.desktopSetup"),
+  })
+  await userEvent.click(setup)
+  expect(await screen.findByText(i18n.t("browserUse.failed"))).toBeVisible()
+  expect(setup).toBeEnabled()
+})
+
+it("skips account status without a signed-in user", () => {
+  vi.mocked(getDesktopPlatform).mockReturnValue("darwin")
+  show("")
+  fireEvent(window, new Event("focus"))
+  expect(apiRequest).not.toHaveBeenCalled()
+  expect(screen.queryByRole("status")).toBeNull()
+})
+
 it.each([...supportedLanguages, "de-DE"])(
   "guides unsupported browsers to desktop Chrome or Edge in %s without probing or pairing",
   async (language) => {
@@ -128,7 +257,7 @@ it("authors all six translations with matching keys and interpolation", () => {
   for (const messages of Object.values(browserUseMessages)) {
     expect(Object.keys(messages).sort()).toEqual(keys)
     for (const value of Object.values(messages))
-      expect(value.trim().length).toBeGreaterThan(0)
+      if (typeof value === "string") expect(value.trim().length).toBeGreaterThan(0)
     expect(messages.connected.match(/{{\w+}}/g)).toEqual(["{{browser}}"])
     expect(messages.cloudName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])
     expect(messages.localName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])

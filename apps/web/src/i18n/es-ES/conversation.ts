@@ -428,6 +428,7 @@ export const conversationMessages = {
       submit: "Enviar respuestas",
       submitting: "Enviando",
       cancel: "Cancelar",
+      dismissRequest: "Cerrar solicitud",
       selectPlaceholder: "Selecciona una opción",
       datePlaceholder: "Seleccionar fecha",
       clearDate: "Borrar fecha",

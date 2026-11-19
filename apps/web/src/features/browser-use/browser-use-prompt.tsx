@@ -22,6 +22,7 @@ import {
 } from "./extension-state"
 import { browserExtensionRequest } from "./bridge"
 import { browserUseBrowser } from "./browser-support"
+import { browserExtensionSettingsPath } from "./settings-path"
 
 export function BrowserUsePrompt({
   userId,
@@ -149,16 +150,14 @@ export function BrowserUsePrompt({
               size="sm"
               render={
                 <Link
-                  to="/settings/general#browser-extension"
+                  to={browserExtensionSettingsPath}
                   state={conversationSettingsReturnState(location)}
                 />
               }
               onClick={dismiss}
             >
               {t(
-                detected
-                  ? "browserUse.setupConnect"
-                  : "browserUse.setupInstall"
+                detected ? "browserUse.setupConnect" : "browserUse.setupInstall"
               )}
               <ArrowUpRightIcon aria-hidden="true" />
             </Button>

@@ -15,6 +15,11 @@ import {
   browserUseStatusSchema,
 } from "@linksense/shared"
 import { apiRequest, downloadApiFile } from "@/api/client"
+import {
+  getDesktopPlatform,
+  getPublicAppOrigin,
+  openDesktopExternal,
+} from "@/adapters/desktop/desktop-adapter"
 import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { StatusBanner } from "@/components/feedback/status-banner"
@@ -23,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { browserExtensionRequest } from "./bridge"
 import { browserUseBrowser } from "./browser-support"
 import { Badge } from "@/components/ui/badge"
+import { browserExtensionSettingsPath } from "./settings-path"
 
 const instructionActionClassName =
   "inline-flex h-auto gap-1 p-0 align-baseline font-semibold whitespace-normal underline select-text"
@@ -43,20 +49,29 @@ function InstructionAction({
 export function BrowserExtensionSettings({ userId }: { userId?: string }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const browser = browserUseBrowser()
+  const desktopMac = getDesktopPlatform() === "darwin"
+  const browser = desktopMac ? null : browserUseBrowser()
   const supportedBrowser = browser !== null
   const extensionAddress =
     browser === "edge" ? "edge://extensions" : "chrome://extensions"
   const [detected, setDetected] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
   const queryKey = ["browser-use", userId] as const
-  const status = useQuery({
+  const { data, fetchStatus, isError, refetch } = useQuery({
     queryKey,
-    queryFn: () =>
-      apiRequest("/browser-use", { schema: browserUseStatusSchema }),
-    enabled: Boolean(userId) && supportedBrowser,
+    queryFn: ({ signal }) =>
+      apiRequest("/browser-use", { schema: browserUseStatusSchema, signal }),
+    enabled: Boolean(userId) && (desktopMac || supportedBrowser),
+    ...(desktopMac && { refetchOnWindowFocus: "always" }),
     refetchInterval: 5000,
   })
+  useEffect(() => {
+    if (!desktopMac || !userId) return
+    // Switching apps can refocus the WebView without changing its visibility.
+    const refresh = () => void refetch({ cancelRefetch: false })
+    window.addEventListener("focus", refresh)
+    return () => window.removeEventListener("focus", refresh)
+  }, [desktopMac, userId, refetch])
   useEffect(() => {
     if (!supportedBrowser) return
     let active = true
@@ -67,7 +82,16 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
       active = false
     }
   }, [supportedBrowser])
+  const setup = useMutation({
+    networkMode: "always",
+    mutationFn: () =>
+      openDesktopExternal(
+        new URL(browserExtensionSettingsPath, getPublicAppOrigin()).href
+      ),
+  })
   const action = useMutation({
+    // A revoke is for this signed-in account now, not the next session online.
+    ...(desktopMac && { networkMode: "always" }),
     mutationFn: async (
       operation: "connect" | "disconnect" | "download" | "extensions"
     ) => {
@@ -86,10 +110,15 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             })
           )
       } else if (operation === "disconnect") {
-        await apiRequest("/browser-use", {
+        const disconnected = await apiRequest("/browser-use", {
           method: "DELETE",
           schema: browserUseStatusSchema,
         })
+        if (desktopMac) {
+          await queryClient.cancelQueries({ queryKey, exact: true })
+          queryClient.setQueryData(queryKey, disconnected)
+          notify.success(t("browserUse.desktopRevoked"))
+        }
       } else if (operation === "connect") {
         const pairing = await apiRequest("/browser-use/pairing", {
           method: "POST",
@@ -113,7 +142,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey, exact: true }),
   })
   const copyAddress = async (address: string, message = t("common.copied")) => {
     try {
@@ -123,6 +152,15 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
       notify.error(t("browserUse.addressCopyFailed"))
     }
   }
+  const connectionLabel = !data?.connected
+    ? t("browserUse.disconnected")
+    : data.browser || !desktopMac
+      ? t("browserUse.connected", {
+          browser: data.browser === "edge" ? "Edge" : "Chrome",
+        })
+      : t("browserUse.desktopConnected")
+  const desktopStatusUnavailable =
+    desktopMac && (isError || fetchStatus === "paused")
   return (
     <SettingsCard
       id="browser-extension"
@@ -135,7 +173,9 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         <SettingsSectionHeader
           id="browser-extension-heading"
           title={t("browserUse.title")}
-          description={t("browserUse.description")}
+          description={t(
+            desktopMac ? "browserUse.setupOptional" : "browserUse.description"
+          )}
         />
       }
     >
@@ -143,7 +183,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         <Badge variant="secondary" className="w-fit whitespace-normal">
           {t("browserUse.supportedBrowsers")}
         </Badge>
-        {!supportedBrowser && (
+        {!supportedBrowser && !desktopMac && (
           <StatusBanner title={t("browserUse.unsupportedTitle")}>
             <p>{t("browserUse.unsupportedDescription")}</p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -190,13 +230,27 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             </div>
           </StatusBanner>
         )}
-        {supportedBrowser && (
-          <p role="status" aria-live="polite" className="text-sm font-medium">
-            {status.data?.connected
-              ? t("browserUse.connected", {
-                  browser: status.data.browser === "edge" ? "Edge" : "Chrome",
-                })
-              : t("browserUse.disconnected")}
+        {(supportedBrowser || (desktopMac && userId)) && (
+          <p className="text-sm font-medium">
+            <span role="status" aria-atomic="true">
+              {desktopStatusUnavailable
+                ? t("browserUse.desktopStatusFailed")
+                : desktopMac && !data
+                  ? ""
+                  : connectionLabel}
+            </span>
+            {desktopMac &&
+              !data &&
+              !desktopStatusUnavailable &&
+              t("common.loading")}
+          </p>
+        )}
+        {desktopMac && (
+          <p
+            id="browser-extension-desktop-help"
+            className="text-sm text-muted-foreground"
+          >
+            {t("browserUse.desktopSetupDescription")}
           </p>
         )}
         <p className="text-sm text-muted-foreground">
@@ -207,9 +261,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         </p>
         {supportedBrowser && (
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold">
-              {t("browserUse.install")}
-            </h3>
+            <h3 className="text-sm font-semibold">{t("browserUse.install")}</h3>
             <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
               <Trans
                 i18nKey="browserUse.steps"
@@ -257,36 +309,56 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             )}
           </p>
         )}
-        {pending && !status.data?.connected && (
+        {pending && !data?.connected && (
           <StatusBanner>{t("browserUse.pending")}</StatusBanner>
         )}
-        {(action.isError || status.isError) && (
-          <StatusBanner variant="error">
-            {t("browserUse.failed")}
-          </StatusBanner>
+        {(action.isError || setup.isError || (!desktopMac && isError)) && (
+          <StatusBanner variant="error">{t("browserUse.failed")}</StatusBanner>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={action.isPending || !supportedBrowser}
-            onClick={() => action.mutate("download")}
-          >
-            <DownloadIcon aria-hidden="true" />
-            {t("browserUse.download")}
-          </Button>
-          <Button
-            disabled={!supportedBrowser || !detected || action.isPending}
-            onClick={() => action.mutate("connect")}
-          >
-            {t("browserUse.connect")}
-          </Button>
-          {status.data?.connected && (
+          {desktopMac ? (
+            <Button
+              className="h-auto min-h-9 max-w-full whitespace-normal"
+              aria-describedby="browser-extension-desktop-help"
+              disabled={setup.isPending}
+              focusableWhenDisabled
+              onClick={() => setup.mutate()}
+            >
+              <ExternalLinkIcon aria-hidden="true" />
+              {t("browserUse.desktopSetup")}
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                disabled={action.isPending || !supportedBrowser}
+                onClick={() => action.mutate("download")}
+              >
+                <DownloadIcon aria-hidden="true" />
+                {t("browserUse.download")}
+              </Button>
+              <Button
+                disabled={!supportedBrowser || !detected || action.isPending}
+                onClick={() => action.mutate("connect")}
+              >
+                {t("browserUse.connect")}
+              </Button>
+            </>
+          )}
+          {(desktopMac ? Boolean(userId) : data?.connected) && (
             <Button
               variant="outline"
-              disabled={action.isPending}
+              disabled={
+                action.isPending || (desktopMac && fetchStatus === "paused")
+              }
+              focusableWhenDisabled={desktopMac}
               onClick={() => action.mutate("disconnect")}
             >
-              {t("browserUse.disconnect")}
+              {t(
+                desktopMac
+                  ? "browserUse.desktopRevoke"
+                  : "browserUse.disconnect"
+              )}
             </Button>
           )}
         </div>

@@ -14,7 +14,7 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import { useTranslation } from "react-i18next"
 import remarkGfm from "remark-gfm"
 
-import type { ConversationUserInputResponse } from "@linksense/shared"
+import type { BrowserUseApproval, ConversationUserInputResponse } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
 import { RequiredIndicator } from "@/components/forms/required-indicator"
@@ -63,6 +63,7 @@ const optionChoice = (index: number) => `option:${index}`
 
 type ConversationUserInputRequestCardProps = Readonly<{
   request: ConversationUserInputRequest
+  browserApproval?: BrowserUseApproval
   submitting: boolean
   onSubmit?: (response: ConversationUserInputResponse) => void
   onInteractionStart?: () => void
@@ -70,6 +71,7 @@ type ConversationUserInputRequestCardProps = Readonly<{
 
 export function ConversationUserInputRequestCard({
   request,
+  browserApproval,
   submitting,
   onSubmit,
   onInteractionStart,
@@ -126,7 +128,25 @@ export function ConversationUserInputRequestCard({
           <UserInputStatusBadge status={displayStatus} />
         </div>
         <CardDescription className="min-w-0 text-xs leading-4">
-          {request.kind === "form" ? (
+          {browserApproval && request.kind === "questions" ? (
+            <>
+              <span className="block font-medium text-foreground">
+                {t("browserUse.approval.title", {
+                  action: t(`browserUse.approval.actions.${browserApproval.action}`),
+                })}
+              </span>
+              {browserApproval.tab_id !== undefined && (
+                <span className="block">
+                  {t("browserUse.approval.targetTab", { tab: browserApproval.tab_id })}
+                </span>
+              )}
+              {browserApproval.destination_host && (
+                <span className="block wrap-anywhere">
+                  {t("browserUse.approval.destination", { host: browserApproval.destination_host })}
+                </span>
+              )}
+            </>
+          ) : request.kind === "form" ? (
             <UserInputRequestMarkdownDescription content={request.message} />
           ) : (
             t(
@@ -502,6 +522,11 @@ function QuestionUserInputForm({
       <ConversationUserInputRequestFooter
         disabled={disabled}
         cancelDisabled={fieldsDisabled}
+        cancelLabel={
+          request.kind === "questions"
+            ? t("conversation.userInput.dismissRequest")
+            : undefined
+        }
         complete={complete}
         submitting={submitting}
         onCancel={() => onSubmit({ action: "cancel" })}

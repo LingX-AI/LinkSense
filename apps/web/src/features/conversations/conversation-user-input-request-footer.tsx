@@ -8,6 +8,7 @@ import { CardFooter } from "@/components/ui/card"
 export function ConversationUserInputRequestFooter({
   disabled,
   cancelDisabled = disabled,
+  cancelLabel,
   complete,
   submitting,
   onCancel,
@@ -16,6 +17,7 @@ export function ConversationUserInputRequestFooter({
 }: {
   disabled: boolean
   cancelDisabled?: boolean
+  cancelLabel?: string
   complete: boolean
   submitting: boolean
   onCancel: () => void
@@ -34,7 +36,7 @@ export function ConversationUserInputRequestFooter({
           disabled={cancelDisabled}
           onClick={onCancel}
         >
-          {t("conversation.userInput.cancel")}
+          {cancelLabel ?? t("conversation.userInput.cancel")}
         </Button>
         {children}
         <Button type="submit" size="sm" disabled={disabled || !complete}>

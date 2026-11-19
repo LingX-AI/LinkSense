@@ -2373,6 +2373,7 @@ export const enUS = {
       submit: "Submit answers",
       submitting: "Submitting",
       cancel: "Cancel",
+      dismissRequest: "Dismiss request",
       selectPlaceholder: "Select an option",
       datePlaceholder: "Select date",
       clearDate: "Clear date",

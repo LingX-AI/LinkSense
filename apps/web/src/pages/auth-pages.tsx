@@ -22,6 +22,7 @@ import {
 } from "@/adapters/teams/teams-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
+import { externalLoginDestination } from "@/app/external-login-destination"
 import { useProductName } from "@/app/product-branding"
 import {
   AccountAccessHeading,
@@ -43,7 +44,6 @@ import {
 import { passwordSchema } from "@/lib/password"
 import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { DesktopSignInPage } from "@/features/desktop-login/desktop-login-page"
-import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const emailSchema = z.email()
 
@@ -912,15 +912,21 @@ export function EnterpriseCallbackPage() {
   const navigate = useNavigate()
   const [callbackResult] = useState(readEnterpriseCallbackResult)
   const { status } = useAuth()
+  const redirected = useRef(false)
 
   useLayoutEffect(() => {
     clearEnterpriseCallbackParameters()
   }, [])
 
   useEffect(() => {
-    if (callbackResult === "success" && status === "authenticated") {
-      navigate(desktopLoginReturn() ?? "/conversations/new", { replace: true })
-    }
+    if (
+      callbackResult !== "success" ||
+      status !== "authenticated" ||
+      redirected.current
+    )
+      return
+    redirected.current = true
+    navigate(externalLoginDestination(), { replace: true })
   }, [callbackResult, navigate, status])
 
   const error =

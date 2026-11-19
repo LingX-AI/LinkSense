@@ -14,8 +14,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/egoist/mygo"
 )
 
 const desktopLoginRedirectURI = "linksense-desktop://auth/callback"
@@ -52,11 +50,7 @@ func (d *Desktop) SignIn(ctx context.Context) error {
 		d.login = nil
 		d.mu.Unlock()
 	}()
-	open := d.openBrowser
-	if open == nil {
-		open = mygo.Shell.OpenExternal
-	}
-	err := browserSignIn(loginContext, d.server, d.session, open, attempt.state, callback)
+	err := browserSignIn(loginContext, d.server, d.session, d.openInSystemBrowser, attempt.state, callback)
 	if err == nil {
 		if win := d.mainWindow(); win != nil {
 			win.Show()

@@ -30,6 +30,7 @@ var nativeWhitebox struct {
 	refresh  atomic.Int32
 	protocol atomic.Int32
 	cloud    atomic.Pointer[cloudWhitebox]
+	browser  atomic.Pointer[browserUseWhitebox]
 }
 
 // The real platform WebView runs on the main thread; fixtures never use an account or a GUI automation permission.
@@ -155,6 +156,9 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 		return
 	}
 	if cloud := nativeWhitebox.cloud.Load(); cloud != nil && cloud.serve(w, r) {
+		return
+	}
+	if browser := nativeWhitebox.browser.Load(); browser != nil && browser.serve(w, r) {
 		return
 	}
 	data := any(map[string]any{"items": []any{}, "next_cursor": nil})

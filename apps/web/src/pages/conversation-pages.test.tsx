@@ -3,7 +3,9 @@ import {
   APPLICATION_BUILDER_SKILL_NAME,
   RUNNER_TURN_INTERRUPT_REQUESTED,
   applicationDevelopmentSchema,
+  browserUseToolName,
   builtInCapabilityId,
+  coreMcpServerKey,
   type ApplicationAnnotationInput,
 } from "@linksense/shared"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
@@ -873,6 +875,188 @@ describe("conversation knowledge base snapshots", () => {
         ).toBe(false)
       }
       client.clear()
+    }
+  )
+
+  it.each([
+    { submitting: false, matchingItem: true },
+    { submitting: true, matchingItem: true },
+    { submitting: false, matchingItem: false },
+  ])(
+    "can stop a Mac browser approval (submitting: $submitting, matching item: $matchingItem)",
+    async ({ submitting, matchingItem }) => {
+      const id = "20000000-0000-4000-8000-000000000001"
+      const turnId = "20000000-0000-4000-8000-000000000002"
+      const previousTurnId = "20000000-0000-4000-8000-000000000003"
+      const requestId = "20000000-0000-4000-8000-000000000004"
+      const createdAt = "2026-11-19T00:00:00.000Z"
+      const itemId = "browser-approval"
+      const approval = {
+        id: requestId,
+        conversation_id: id,
+        turn_id: turnId,
+        item_id: itemId,
+        kind: "questions",
+        status: "pending",
+        auto_resolve_at: null,
+        resolved_at: null,
+        resolved_action: null,
+        created_at: createdAt,
+        updated_at: createdAt,
+        questions: [
+          {
+            id: "browser_action",
+            header: "Browser Use",
+            question: "Allow this browser action?",
+            is_other: false,
+            is_secret: false,
+            options: [
+              { label: "Allow", description: "" },
+              { label: "Cancel", description: "" },
+            ],
+          },
+        ],
+      }
+      const started = (
+        sequence: number,
+        eventTurnId: string,
+        eventItemId: string,
+        host: string
+      ) => ({
+        id: `30000000-0000-4000-8000-00000000000${sequence}`,
+        conversation_id: id,
+        turn_id: eventTurnId,
+        sequence_no: sequence,
+        visibility: "user_collapsed",
+        sse_event_id: `${id}:${sequence}`,
+        created_at: createdAt,
+        event_type: "item/started",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/started",
+          params: {
+            threadId: "native-thread",
+            turnId: eventTurnId === turnId ? "native-turn" : "previous-turn",
+            item: {
+              id: eventItemId,
+              type: "mcpToolCall",
+              server: coreMcpServerKey,
+              tool: browserUseToolName,
+              status: "inProgress",
+              browserApproval: {
+                action: "navigate",
+                tab_id: 9,
+                destination_host: host,
+              },
+            },
+          },
+        },
+      })
+      const events = [
+        ...(matchingItem ? [started(1, turnId, itemId, "matching.test")] : []),
+        started(2, turnId, "other-item", "wrong-item.test"),
+        started(3, previousTurnId, itemId, "wrong-turn.test"),
+      ]
+      const answer = createDeferred<Response>()
+      const respond = vi.fn(() => answer.promise)
+      const stop = vi.fn(() => envelope({ code: RUNNER_TURN_INTERRUPT_REQUESTED }))
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (init?.method === "POST") {
+            if (path.endsWith(`/turns/${turnId}/interrupt`)) return stop()
+            if (path.endsWith(`/user-input-requests/${requestId}/respond`))
+              return respond()
+          }
+          if (path.endsWith(`/conversations/${id}`)) {
+            const stopping = stop.mock.calls.length > 0
+            return envelope({
+              id,
+              title: "Mac browser task",
+              project_id: null,
+              execution_target: "local",
+              execution_status: stopping ? "interrupted" : "running",
+              running_turn: stopping ? null : { id: turnId, status: "running" },
+              updated_at: createdAt,
+              user_input_requests: stopping ? [] : [approval],
+              events,
+            })
+          }
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events"))
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })
+      const interaction = userEvent.setup()
+      const { unmount } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <ConversationPage conversationId={id} />
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      try {
+        const card = within(
+          await screen.findByTestId("conversation-user-input-request")
+        )
+        expect(
+          screen.queryByRole("textbox", { name: "任务输入框" })
+        ).not.toBeInTheDocument()
+        const destination = (host: string) =>
+          i18n.t("browserUse.approval.destination", { host })
+        if (matchingItem) {
+          expect(card.getByText(destination("matching.test"))).toBeVisible()
+          expect(
+            card.getByText(i18n.t("browserUse.approval.targetTab", { tab: 9 }))
+          ).toBeVisible()
+        } else {
+          expect(
+            card.getByText(i18n.t("conversation.userInput.description"))
+          ).toBeVisible()
+        }
+        expect(card.queryByText(destination("wrong-item.test"))).toBeNull()
+        expect(card.queryByText(destination("wrong-turn.test"))).toBeNull()
+        if (submitting) {
+          await interaction.click(card.getByRole("radio", { name: "Allow" }))
+          await interaction.click(
+            card.getByRole("button", {
+              name: i18n.t("conversation.userInput.submit"),
+            })
+          )
+          expect(
+            await card.findByRole("button", {
+              name: i18n.t("conversation.userInput.submitting"),
+            })
+          ).toBeDisabled()
+          expect(respond).toHaveBeenCalledOnce()
+        }
+        const stopButton = screen.getByRole("button", {
+          name: i18n.t("conversation.stop"),
+        })
+        expect(stopButton).toBeEnabled()
+        stopButton.focus()
+        await interaction.keyboard("{Enter}")
+        await waitFor(() => expect(stop).toHaveBeenCalledOnce())
+        if (!submitting) expect(respond).not.toHaveBeenCalled()
+        await waitFor(() =>
+          expect(
+            screen.queryByTestId("conversation-user-input-request")
+          ).not.toBeInTheDocument()
+        )
+      } finally {
+        unmount()
+        answer.resolve(envelope({}))
+        client.clear()
+      }
     }
   )
 

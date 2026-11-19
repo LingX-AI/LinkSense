@@ -13,6 +13,7 @@ vi.mock("./mygo", () => ({
 }))
 
 import {
+  getDesktopPlatform,
   getDesktopServerUrl,
   hostFetch,
   initializeDesktopHost,
@@ -32,6 +33,7 @@ describe("desktop host boundary", () => {
     vi.stubGlobal("fetch", browserFetch)
     await initializeDesktopHost()
     expect(getDesktopServerUrl()).toBeNull()
+    expect(getDesktopPlatform()).toBeNull()
     await hostFetch("/api/v1/me")
     expect(browserFetch).toHaveBeenCalledWith("/api/v1/me", undefined)
     expect(native.info).not.toHaveBeenCalled()
@@ -48,6 +50,7 @@ describe("desktop host boundary", () => {
     })
     await initializeDesktopHost()
     expect(getDesktopServerUrl()).toBe("https://example.com")
+    expect(getDesktopPlatform()).toBe("darwin")
     expect(document.documentElement.dataset.desktopPlatform).toBe("darwin")
     const controller = new AbortController()
     native.request.mockResolvedValue(new Response("{}"))

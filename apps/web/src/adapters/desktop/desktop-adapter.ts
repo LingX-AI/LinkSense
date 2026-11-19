@@ -60,6 +60,10 @@ export function getDesktopServerUrl(): string | null {
   return hostInfo.serverUrl
 }
 
+export function getDesktopPlatform(): "darwin" | "windows" | null {
+  return isDesktopHost() ? (hostInfo?.platform ?? null) : null
+}
+
 export function getPublicAppOrigin(): string {
   return getDesktopServerUrl() ?? window.location.origin
 }

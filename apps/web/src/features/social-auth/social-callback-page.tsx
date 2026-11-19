@@ -11,13 +11,13 @@ import { z } from "zod"
 import { apiRequest, refreshSession } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import { externalLoginDestination } from "@/app/external-login-destination"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { AccountAccessLayout } from "@/components/auth/account-access-layout"
-import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 export function SocialCallbackPage() {
   const { t } = useTranslation()
@@ -39,7 +39,7 @@ export function SocialCallbackPage() {
   const attempted = useRef(false)
   const finish = useCallback(async () => {
     await acceptSession(await refreshSession())
-    navigate(desktopLoginReturn() ?? "/conversations/new", { replace: true })
+    navigate(externalLoginDestination(), { replace: true })
   }, [acceptSession, navigate])
   useEffect(() => {
     window.history.replaceState(

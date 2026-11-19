@@ -415,6 +415,7 @@ export const conversation = {
     submit: "Envoyer les réponses",
     submitting: "Envoi",
     cancel: "Annuler",
+    dismissRequest: "Fermer la demande",
     selectPlaceholder: "Sélectionner une option",
     datePlaceholder: "Sélectionner une date",
     clearDate: "Effacer la date",

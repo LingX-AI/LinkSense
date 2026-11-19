@@ -2651,6 +2651,7 @@ export const jaJP = {
       submit: "回答を送信",
       submitting: "送信中",
       cancel: "キャンセル",
+      dismissRequest: "リクエストを閉じる",
       selectPlaceholder: "選択肢を選ぶ",
       datePlaceholder: "日付を選択",
       clearDate: "日付を解除",
