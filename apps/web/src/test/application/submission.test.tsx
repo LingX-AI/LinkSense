@@ -1,7 +1,19 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 import {
+  DESKTOP_PROTOCOL_HEADER,
+  desktopProtocolVersion,
+} from "@linksense/shared"
+import * as desktopAdapter from "@/adapters/desktop/desktop-adapter"
+import {
+  conversationInterruptPollIntervalMs,
+  conversationInterruptTimeoutMs,
+} from "@/features/conversations/conversation-interrupt"
+import { desktopUpdateMessages } from "@/features/desktop-update/messages"
+import {
+  localConversationDraftStorageKey,
   readLocalConversationDraft,
   writeLocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
@@ -514,6 +526,383 @@ describe("LinkSense application", () => {
         idempotency_key: expect.any(String),
       })
     )
+  })
+
+  it.each([
+    "receipt",
+    "lost-then-admitted",
+    "lost-before-admission",
+    "reload-before-admission",
+    "detail-unavailable",
+    "storage-unavailable",
+  ] as const)(
+    "retains a Mac attachment draft until the exact submission is stopped (%s)",
+    async (admission) => {
+      const turnId = "30000000-0000-4000-8000-000000000091"
+      const retryTurnId = "30000000-0000-4000-8000-000000000092"
+      const inputText = "请分析本机附件"
+      const stagedFile = {
+        id: "30000000-0000-4000-8000-000000000093",
+        name: "本机附件.txt",
+        kind: "attachment",
+        status: "staged",
+        size: 64,
+      }
+      let phase: "draft" | "preparing" | "sealed" | "confirmed" = "draft"
+      let originalKey: string | undefined
+      let retryKey: string | undefined
+      let failedDetailReads = 0
+      const stopByKey =
+        admission === "lost-before-admission" ||
+        admission === "reload-before-admission" ||
+        admission === "detail-unavailable"
+      const { requests } = installApiMock({
+        conversationGetResponse: async () => {
+          if (
+            admission === "detail-unavailable" &&
+            originalKey &&
+            phase === "draft"
+          ) {
+            failedDetailReads += 1
+            return json(
+              { success: false, error_code: "SERVICE_TEMPORARILY_UNAVAILABLE" },
+              503
+            )
+          }
+          return json({
+            success: true,
+            data: {
+              ...conversation,
+              execution_target: "local",
+              execution_status: phase === "preparing" ? "running" : "idle",
+              running_turn: null,
+              turns:
+                phase === "confirmed"
+                  ? [
+                      {
+                        id: retryTurnId,
+                        status: "completed",
+                        idempotency_key: retryKey,
+                      },
+                    ]
+                  : [],
+              messages: [],
+              attachments: phase === "confirmed" ? [] : [stagedFile],
+              starting_turn:
+                phase === "preparing"
+                  ? {
+                      turn_id: turnId,
+                      task_kind: "turn",
+                      idempotency_key: originalKey,
+                      input_text: inputText,
+                      created_at: "2026-11-19T00:00:00Z",
+                      message_display: null,
+                      attachments: [
+                        {
+                          ...stagedFile,
+                          mime_type: "text/plain",
+                          kind: undefined,
+                          status: undefined,
+                        },
+                      ],
+                    }
+                  : null,
+              events:
+                phase === "sealed"
+                  ? [
+                      {
+                        id: "30000000-0000-4000-8000-000000000094",
+                        conversation_id: "20000000-0000-4000-8000-000000000001",
+                        turn_id: null,
+                        sequence_no: 19,
+                        event_type: "conversation.error",
+                        visibility: "user_visible",
+                        sse_event_id: "c1:19",
+                        created_at: "2026-11-19T00:00:01Z",
+                        payload: {
+                          schema_version: 1,
+                          error_code: "TURN_START_CLOSED",
+                          message_key: "errors.turnStartClosed",
+                          retryable: true,
+                          start_failure: {
+                            turn_id: turnId,
+                            idempotency_key: originalKey,
+                          },
+                        },
+                      },
+                    ]
+                  : [],
+            },
+          })
+        },
+        turnStartResponse: async () => {
+          const currentKey = z
+            .object({ idempotency_key: z.string() })
+            .parse(submissions().at(-1)?.body).idempotency_key
+          if (!originalKey) {
+            originalKey = currentKey
+            if (admission === "receipt" || admission === "storage-unavailable")
+              phase = "preparing"
+            else throw new TypeError("Connection closed before the receipt")
+          } else {
+            retryKey = currentKey
+          }
+          return json(
+            {
+              success: true,
+              data: {
+                turn_id: retryKey ? retryTurnId : turnId,
+                accepted: true,
+                status: "starting",
+              },
+            },
+            202
+          )
+        },
+      })
+      const submissions = () =>
+        requests.filter(
+          ({ method, path }) =>
+            method === "POST" && path === "/api/v1/conversations/c1/turns"
+        )
+      const interaction = userEvent.setup()
+      const app = renderApp()
+      let input = await screen.findByRole("textbox", { name: "任务输入框" })
+      await screen.findByRole("button", { name: "移除附件 本机附件.txt" })
+      await interaction.type(input, inputText)
+      if (admission === "lost-before-admission")
+        vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      await waitFor(() => expect(submissions()).toHaveLength(1))
+      if (admission === "detail-unavailable") {
+        await waitFor(() => expect(failedDetailReads).toBeGreaterThanOrEqual(2))
+      }
+      if (
+        admission === "lost-then-admitted" ||
+        admission === "lost-before-admission"
+      ) {
+        // The first recovery read still sees no start. A later poll, not a replay
+        // of the POST, must bind the original operation if admission wins.
+        const details = () =>
+          requests.filter(
+            ({ path, method }) =>
+              path === "/api/v1/conversations/c1" && method === "GET"
+          )
+        await waitFor(() => expect(details().length).toBeGreaterThanOrEqual(2))
+        if (admission === "lost-then-admitted") {
+          phase = "preparing"
+          const previousReads = details().length
+          await waitFor(
+            () => expect(details().length).toBeGreaterThan(previousReads),
+            { timeout: 2_500 }
+          )
+        } else {
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(
+              conversationInterruptTimeoutMs +
+                conversationInterruptPollIntervalMs
+            )
+          })
+          const previousReads = details().length
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(
+              conversationInterruptPollIntervalMs * 3
+            )
+          })
+          expect(details()).toHaveLength(previousReads)
+          expect(submissions()).toHaveLength(1)
+          expect(
+            screen.queryByRole("button", { name: "发送" })
+          ).not.toBeInTheDocument()
+        }
+      }
+      expect(
+        readLocalConversationDraft(window.localStorage, "user-1", "c1")
+      ).toMatchObject({ input: inputText, idempotencyKey: originalKey })
+      if (admission === "reload-before-admission") {
+        app.unmount()
+        renderApp()
+        input = await screen.findByRole("textbox", { name: "任务输入框" })
+        expect(input).toHaveTextContent(inputText)
+        expect(
+          screen.queryByRole("button", { name: "发送" })
+        ).not.toBeInTheDocument()
+      }
+      expect(
+        screen.getByRole("button", { name: "移除附件 本机附件.txt" })
+      ).toBeVisible()
+      await interaction.click(
+        await screen.findByRole("button", { name: "停止" })
+      )
+      await waitFor(() =>
+        expect(requests).toContainEqual(
+          expect.objectContaining({
+            method: "POST",
+            path: stopByKey
+              ? "/api/v1/conversations/c1/turn-start/interrupt"
+              : `/api/v1/conversations/c1/turns/${turnId}/interrupt`,
+            ...(stopByKey && {
+              body: { idempotency_key: originalKey },
+            }),
+          })
+        )
+      )
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "正在中断…" })).toBeDisabled()
+      )
+      if (admission === "storage-unavailable") {
+        const draftKey = localConversationDraftStorageKey("user-1", "c1")
+        const getItem = Storage.prototype.getItem
+        const storage = window.localStorage
+        vi.stubGlobal("localStorage", {
+          getItem(key: string) {
+            if (key === draftKey)
+              throw new DOMException("Unavailable", "SecurityError")
+            return getItem.call(storage, key)
+          },
+          setItem: storage.setItem.bind(storage),
+          removeItem: storage.removeItem.bind(storage),
+        })
+        expect(
+          readLocalConversationDraft(window.localStorage, "user-1", "c1").input
+        ).toBe("")
+      }
+      phase = "sealed"
+      if (admission === "lost-before-admission") {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(
+            conversationInterruptPollIntervalMs * 2
+          )
+        })
+      }
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
+      )
+      expect(input).toHaveTextContent(inputText)
+      expect(
+        screen.getByRole("button", { name: "移除附件 本机附件.txt" })
+      ).toBeEnabled()
+      expect(submissions()).toHaveLength(1)
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      await waitFor(() => expect(retryKey).toBeTruthy())
+      if (admission === "lost-then-admitted") {
+        // Another tab can update storage while this instance retains the
+        // original draft in the composer. Projection must not erase that edit.
+        writeLocalConversationDraft(window.localStorage, "user-1", "c1", {
+          input: "另一标签页的新草稿",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+        })
+      }
+      phase = "confirmed"
+      if (admission === "lost-before-admission") {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(
+            conversationInterruptPollIntervalMs * 2
+          )
+        })
+      }
+      await waitFor(
+        () => {
+          expect(submissions()).toHaveLength(2)
+          expect(retryKey).toBeTruthy()
+          expect(retryKey).not.toBe(originalKey)
+          expect(input.textContent).toBe(
+            admission === "lost-then-admitted" ? "另一标签页的新草稿" : ""
+          )
+        },
+        { timeout: 2_500 }
+      )
+    },
+    8_000
+  )
+
+  it("offers a desktop update for an old attachment device and still sends text-only turns", async () => {
+    let hasAttachment = true
+    const { fetchMock, requests } = installApiMock({
+      conversationGetResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            execution_target: "local",
+            execution_status: "idle",
+            running_turn: null,
+            turns: [],
+            messages: [],
+            attachments: hasAttachment
+              ? [
+                  {
+                    id: "old-device-file",
+                    name: "附件.txt",
+                    kind: "attachment",
+                    status: "staged",
+                    size: 32,
+                  },
+                ]
+              : [],
+          },
+        }),
+      turnStartResponse: async () =>
+        hasAttachment
+          ? json({ success: false, error_code: "DESKTOP_UPDATE_REQUIRED" }, 409)
+          : json(
+              {
+                success: true,
+                data: {
+                  accepted: true,
+                  status: "starting",
+                  turn_id: "30000000-0000-4000-8000-000000000091",
+                },
+              },
+              202
+            ),
+    })
+    vi.spyOn(desktopAdapter, "isDesktopHost").mockReturnValue(true)
+    vi.spyOn(desktopAdapter, "getDesktopServerUrl").mockReturnValue(null)
+    vi.spyOn(desktopAdapter, "hostFetch").mockImplementation(
+      async (...args) => {
+        const response = await fetchMock(...args)
+        response.headers.set(
+          DESKTOP_PROTOCOL_HEADER,
+          String(desktopProtocolVersion)
+        )
+        return response
+      }
+    )
+    const check = vi
+      .spyOn(desktopAdapter, "checkDesktopUpdate")
+      .mockResolvedValue({
+        state: "available",
+        version: "0.2.0",
+      })
+    renderApp()
+    const interaction = userEvent.setup()
+    const input = await screen.findByRole("textbox", { name: "任务输入框" })
+    await interaction.type(input, "仍可发送这条消息")
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    const update = await screen.findByRole("button", {
+      name: desktopUpdateMessages["zh-CN"].check,
+    })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(input).toHaveTextContent("仍可发送这条消息")
+    await interaction.click(update)
+    expect(check).toHaveBeenCalledOnce()
+    hasAttachment = false
+    await interaction.click(
+      screen.getByRole("button", { name: "移除附件 附件.txt" })
+    )
+    await waitFor(() => expect(update).not.toBeInTheDocument())
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          ({ path, method }) =>
+            path === "/api/v1/conversations/c1/turns" && method === "POST"
+        )
+      ).toHaveLength(2)
+    )
+    await waitFor(() => expect(input.textContent).toBe(""))
   })
 
   it("keeps submitted files and images out of the composer while stale detail refreshes", async () => {

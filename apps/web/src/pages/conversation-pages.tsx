@@ -14,6 +14,7 @@ import type { ApplicationAnnotationSubmit } from "@/features/applications/applic
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { listConversationWebSites, webSiteKeys } from "@/features/web-sites/api"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
+import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 
 import { responseLatency } from "@/features/conversations/response-latency"
 import {
@@ -69,6 +70,7 @@ import {
 } from "@linksense/shared"
 import { z } from "zod"
 import { toast } from "sonner"
+import dayjs from "dayjs"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
@@ -76,6 +78,7 @@ import {
   conversationInterruptPollIntervalMs,
   conversationInterruptTimeoutMs,
   interruptConversationTurn,
+  interruptDesktopTurnSubmission,
   type ConversationInterruptTarget,
 } from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
@@ -188,6 +191,7 @@ import {
   isTerminalConversationExecutionStatus,
 } from "@/features/conversations/conversation-execution-lifecycle"
 import { matchingConversationStartFailure } from "@/features/conversations/conversation-start-failure"
+import { reconcileStartingConversationTurn } from "@/features/conversations/conversation-starting-turn"
 import {
   bindPendingConversationTurn,
   clearPendingConversationExecution,
@@ -199,6 +203,7 @@ import {
 import {
   clearPendingConversationTurnSubmission,
   getPendingConversationTurnSubmission,
+  hasDesktopAttachmentSubmission,
   movePendingConversationTurnSubmission,
   setPendingConversationTurnSubmission,
   updatePendingConversationTurnSubmission,
@@ -206,9 +211,13 @@ import {
   type PendingConversationTurnSubmission,
 } from "@/features/conversations/conversation-pending-turn-submission"
 import {
+  clearDesktopAttachmentStart,
   clearLocalConversationDraft,
   consumeAcceptedLocalConversationDraft,
+  EMPTY_LOCAL_CONVERSATION_DRAFT,
+  readDesktopAttachmentStart,
   readLocalConversationDraft,
+  writeDesktopAttachmentStart,
   writeLocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
@@ -407,6 +416,7 @@ type ComposerSubmission = Readonly<{
   optimisticId?: string
   referenceId?: string
   taskReferences?: { id: string; title: string }[]
+  waitForDesktopAttachmentStart?: boolean
 }>
 
 type PlanReviewActionSubmission =
@@ -653,6 +663,8 @@ export function ConversationPage({
     setComposerAttachmentOperationPending,
   ] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [attachmentUpdateConversationId, setAttachmentUpdateConversationId] =
+    useState<string | null>(null)
   const dismissError = useCallback((message: string) => {
     setError((current) => (current === message ? null : current))
   }, [])
@@ -949,6 +961,25 @@ export function ConversationPage({
   const conversationQuery = useQuery({
     ...conversationDetailQueryOptions(conversationId),
     enabled: !isNew,
+    refetchInterval: (query) => {
+      const detail = query.state.data
+      if (
+        !detail ||
+        detail.execution_target !== "local" ||
+        isDefinitiveConversationUnavailableError(query.state.error)
+      )
+        return false
+      const pending = getPendingConversationTurnSubmission(
+        queryClient,
+        detail.id
+      )
+      return hasDesktopAttachmentSubmission(pending) &&
+        pending.status !== "running" &&
+        dayjs().diff(dayjs(pending.message.created_at)) <
+          conversationInterruptTimeoutMs
+        ? conversationInterruptPollIntervalMs
+        : false
+    },
   })
   const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([])
   const handleVisibleMessageChange = useCallback((ids: string[]) => {
@@ -1331,9 +1362,29 @@ export function ConversationPage({
       (isNewTaskPromotion &&
         pendingTurnSubmission.conversationId === newConversationPlaceholderId))
   )
-  const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
+  const unreconciledSubmission = pendingSubmissionBelongsToConversation
     ? pendingTurnSubmission
     : cachedPendingTurnSubmission
+  const currentPendingTurnSubmission = useMemo(
+    () =>
+      unreconciledSubmission
+        ? reconcileStartingConversationTurn(
+            conversation,
+            unreconciledSubmission
+          )
+        : unreconciledSubmission,
+    [conversation, unreconciledSubmission]
+  )
+  const waitingForDesktopAttachmentStart = Boolean(
+    conversation?.execution_target === "local" &&
+    hasDesktopAttachmentSubmission(currentPendingTurnSubmission) &&
+    currentPendingTurnSubmission.status !== "running" &&
+    !conversation.turns?.some(
+      (turn) =>
+        turn.id === currentPendingTurnSubmission.turnId ||
+        turn.idempotency_key === currentPendingTurnSubmission.idempotencyKey
+    )
+  )
   const applicationSubmissionScrollId =
     currentPendingTurnSubmission?.message.display?.kind ===
     "interactive_application"
@@ -1439,6 +1490,7 @@ export function ConversationPage({
   const turnExecutionActive =
     running ||
     applicationSubmissionSending ||
+    waitingForDesktopAttachmentStart ||
     acceptedTurnAwaitingProjection ||
     acceptedCompactionAwaitingProjection
   const latestConversationTurn = conversation?.turns?.at(-1)
@@ -1557,20 +1609,64 @@ export function ConversationPage({
 
   useLayoutEffect(() => {
     if (!user) return
+    const keys = [
+      conversation?.execution_target === "local" &&
+      conversation.starting_turn?.attachments.length
+        ? undefined
+        : conversation?.starting_turn?.idempotency_key,
+      ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
+      ...(conversation?.pending_requests ?? []).map(
+        (request) => request.idempotency_key
+      ),
+    ]
     const acceptedDraft = consumeAcceptedLocalConversationDraft(
       window.localStorage,
       user.id,
       localDraftScope,
-      [
-        conversation?.starting_turn?.idempotency_key,
-        ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
-        ...(conversation?.pending_requests ?? []).map(
-          (request) => request.idempotency_key
-        ),
-      ]
+      keys
     )
+    const confirmsLocalAttachmentDraft = Boolean(
+      conversation?.execution_target === "local" &&
+      hasDesktopAttachmentSubmission(currentPendingTurnSubmission) &&
+      keys.includes(currentPendingTurnSubmission.idempotencyKey) &&
+      composerValue.getSnapshot() ===
+        currentPendingTurnSubmission.message.content
+    )
+    if (conversationId && conversation?.execution_target === "local") {
+      const start = readDesktopAttachmentStart(user.id, conversationId)
+      if (start && keys.includes(start.idempotencyKey)) {
+        clearDesktopAttachmentStart(
+          user.id,
+          conversationId,
+          start.idempotencyKey
+        )
+      } else if (
+        start &&
+        !currentPendingTurnSubmission &&
+        !getPendingConversationTurnSubmission(queryClient, conversationId)
+      ) {
+        const draft = readLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          localDraftScope
+        )
+        setPendingConversationTurnSubmission(queryClient, conversationId, {
+          conversationId,
+          idempotencyKey: start.idempotencyKey,
+          restoredDesktopAttachmentStart: true,
+          message: {
+            id: `starting-${start.idempotencyKey}`,
+            role: "user",
+            content:
+              draft.idempotencyKey === start.idempotencyKey ? draft.input : "",
+            created_at: start.createdAt,
+          },
+        })
+      }
+    }
     if (
       hydratedDraftScopeRef.current === localDraftScope &&
+      !confirmsLocalAttachmentDraft &&
       (!acceptedDraft || composerValue.getSnapshot() !== acceptedDraft.input)
     )
       return
@@ -1589,9 +1685,11 @@ export function ConversationPage({
     })
   }, [
     conversation,
+    currentPendingTurnSubmission,
     conversationId,
     localDraftScope,
     newTaskResetVersion,
+    queryClient,
     user,
     composerValue,
     setValue,
@@ -1601,7 +1699,11 @@ export function ConversationPage({
     if (!user) return
     const persistDraft = () => {
       if (hydratedDraftScopeRef.current !== localDraftScope) return
-      if (composerSubmissionInFlightRef.current) return
+      if (
+        composerSubmissionInFlightRef.current ||
+        waitingForDesktopAttachmentStart
+      )
+        return
       writeLocalConversationDraft(
         window.localStorage,
         user.id,
@@ -1623,6 +1725,7 @@ export function ConversationPage({
     taskReferences,
     user,
     composerValue,
+    waitingForDesktopAttachmentStart,
   ])
 
   const scheduleConversationRefresh = useCallback(
@@ -1885,7 +1988,10 @@ export function ConversationPage({
     selectFreshConversationEventSubscriptionId({
       conversationId,
       isNew,
-      isSuccess: conversationQuery.isSuccess,
+      isSuccess:
+        conversationQuery.isSuccess ||
+        (waitingForDesktopAttachmentStart &&
+          !isDefinitiveConversationUnavailableError(conversationQuery.error)),
       isFetchedAfterMount: conversationQuery.isFetchedAfterMount,
       hasReusableReplayBoundary:
         isNewTaskPromotion || hasConversationLiveState(conversationId),
@@ -1895,14 +2001,16 @@ export function ConversationPage({
     (event: ConversationEvent) => {
       if (!conversationId) return
       const pending =
+        getPendingConversationTurnSubmission(queryClient, conversationId) ??
         (pendingTurnSubmission?.conversationId === conversationId
           ? pendingTurnSubmission
-          : null) ??
-        getPendingConversationTurnSubmission(queryClient, conversationId)
+          : null)
       const failure = matchingConversationStartFailure(event, pending)
       if (!failure) return
       if (pending?.replacesTurnId) {
         retireOperationId(regenerateOperationRef, pending.idempotencyKey)
+      } else if (pending) {
+        retireOperationId(turnSubmitOperationRef, pending.idempotencyKey)
       }
       clearPendingConversationTurnSubmission(queryClient, conversationId)
       clearPendingConversationExecution(queryClient, conversationId)
@@ -1916,6 +2024,41 @@ export function ConversationPage({
         conversationId,
         failure.start_failure.turn_id
       )
+      dispatchedInterruptTurnIdsRef.current.delete(
+        failure.start_failure.turn_id
+      )
+      if (pending) {
+        dispatchedInterruptTurnIdsRef.current.delete(
+          `submission:${pending.idempotencyKey}`
+        )
+        if (
+          user &&
+          conversation?.execution_target === "local" &&
+          hasDesktopAttachmentSubmission(pending)
+        ) {
+          clearDesktopAttachmentStart(
+            user.id,
+            conversationId,
+            pending.idempotencyKey
+          )
+          if (composerValue.getSnapshot() === pending.message.content) {
+            const draft = readLocalConversationDraft(
+              window.localStorage,
+              user.id,
+              conversationId
+            )
+            if (draft !== EMPTY_LOCAL_CONVERSATION_DRAFT) {
+              setValue(draft.input)
+              setSelectedCapabilityIds([...draft.capabilityIds])
+              setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
+              setTaskReferenceSelection({
+                scope: conversationId,
+                items: [...(draft.taskReferences ?? [])],
+              })
+            }
+          }
+        }
+      }
       clearNativeReconnect()
       setPendingFirstMessageConversationId(null)
       setError(t(failure.message_key))
@@ -1925,6 +2068,10 @@ export function ConversationPage({
       conversationId,
       queryClient,
       pendingTurnSubmission,
+      conversation?.execution_target,
+      composerValue,
+      setValue,
+      user,
       clearInterruptingConversation,
       clearNativeReconnect,
       t,
@@ -2046,6 +2193,8 @@ export function ConversationPage({
           }
           if (terminal && matchesCurrentTurn) {
             const terminalTurnId = executionTransition.turnId
+            if (terminalTurnId)
+              dispatchedInterruptTurnIdsRef.current.delete(terminalTurnId)
             const terminalStatus = executionTransition.status
             if (
               terminalTurnId &&
@@ -2074,8 +2223,17 @@ export function ConversationPage({
               { queryKey: conversationSourcesQueryKey(conversationId) },
               { cancelRefetch: false }
             )
-            clearPendingConversationTurnSubmission(queryClient, conversationId)
+            const awaitsDesktopAttachmentProjection =
+              currentConversation?.execution_target === "local" &&
+              hasDesktopAttachmentSubmission(pendingSubmission)
+            if (!awaitsDesktopAttachmentProjection) {
+              clearPendingConversationTurnSubmission(
+                queryClient,
+                conversationId
+              )
+            }
             setPendingTurnSubmission((current) =>
+              !awaitsDesktopAttachmentProjection &&
               current?.conversationId === conversationId &&
               (!event.turn_id ||
                 !current.turnId ||
@@ -2159,6 +2317,10 @@ export function ConversationPage({
             event.turn_id &&
             pendingTurnSubmission &&
             pendingSubmissionBelongsToConversation &&
+            !(
+              conversation?.execution_target === "local" &&
+              hasDesktopAttachmentSubmission(pendingTurnSubmission)
+            ) &&
             !pendingTurnSubmission.turnId
           ) {
             setPendingTurnSubmission((current) =>
@@ -2510,6 +2672,7 @@ export function ConversationPage({
         clearInterruptingConversation,
         clearNativeReconnect,
         conversation?.title_source,
+        conversation?.execution_target,
         conversation?.running_turn?.id,
         conversation?.turns,
         conversationId,
@@ -2590,6 +2753,7 @@ export function ConversationPage({
       isNew ||
       !conversationId ||
       connectionState !== "reconnecting" ||
+      waitingForDesktopAttachmentStart ||
       !turnExecutionActive
     ) {
       return
@@ -2609,6 +2773,7 @@ export function ConversationPage({
     isNew,
     refetchConversation,
     turnExecutionActive,
+    waitingForDesktopAttachmentStart,
   ])
 
   useEffect(() => {
@@ -2718,13 +2883,19 @@ export function ConversationPage({
       return
     }
     const timer = window.setTimeout(() => {
-      clearPendingConversationTurnSubmission(
-        queryClient,
-        pending.conversationId
+      if (
+        getPendingConversationTurnSubmission(
+          queryClient,
+          pending.conversationId
+        )?.idempotencyKey === pending.idempotencyKey
       )
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          pending.conversationId
+        )
       setPendingTurnSubmission((current) =>
         current?.conversationId === pending.conversationId &&
-        current.turnId === pending.turnId
+        current.idempotencyKey === pending.idempotencyKey
           ? null
           : current
       )
@@ -3131,8 +3302,9 @@ export function ConversationPage({
       }
       await sidebarCancellation
       try {
-        const attachmentConsumption =
-          await optimisticallyConsumeSubmissionAttachments(submission)
+        const attachmentConsumption = submission.waitForDesktopAttachmentStart
+          ? undefined
+          : await optimisticallyConsumeSubmissionAttachments(submission)
         return {
           attachmentConsumption,
           sidebarExecutionStatus,
@@ -3178,7 +3350,7 @@ export function ConversationPage({
           return { ...current, conversationId: id }
         })
       }
-      const idempotencyKey = await stableOperationId(turnSubmitOperationRef, {
+      const operation = {
         operation: "turn_start",
         conversation_id: id,
         preceding_turn_id:
@@ -3194,7 +3366,23 @@ export function ConversationPage({
         knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
         collaboration_mode: submission.collaborationMode,
-      })
+      }
+      let idempotencyKey = await stableOperationId(
+        turnSubmitOperationRef,
+        operation
+      )
+      if (
+        submission.waitForDesktopAttachmentStart &&
+        conversation?.events?.some((event) =>
+          matchingConversationStartFailure(event, { idempotencyKey })
+        )
+      ) {
+        retireOperationId(turnSubmitOperationRef, idempotencyKey)
+        idempotencyKey = await stableOperationId(
+          turnSubmitOperationRef,
+          operation
+        )
+      }
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -3249,11 +3437,17 @@ export function ConversationPage({
         optimisticId: submission.optimisticId,
         idempotencyKey,
       }))
-      if (user)
+      if (user) {
         writeLocalConversationDraft(window.localStorage, user.id, id, {
           ...submission,
           idempotencyKey,
         })
+        if (submission.waitForDesktopAttachmentStart)
+          writeDesktopAttachmentStart(user.id, id, {
+            idempotencyKey,
+            createdAt: dayjs().toISOString(),
+          })
+      }
       const receipt = await requestTurnStart(
         turnSubmitOperationRef,
         `/conversations/${id}/turns`,
@@ -3289,12 +3483,19 @@ export function ConversationPage({
         message: { ...current.message, turn_id: receipt.turn_id },
       }))
       bindPendingConversationTurn(queryClient, id, receipt.turn_id)
-      return { id, idempotencyKey }
+      return { id, idempotencyKey, status: receipt.status }
     },
-    onSuccess: (result, _submission, optimisticTurnStart) => {
+    onSuccess: (result, submission, optimisticTurnStart) => {
       const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
+      if (submission.waitForDesktopAttachmentStart) {
+        sendSubmissionConversationIdRef.current = null
+        // Admission is not confirmation. The detail projection consumes the
+        // keyed draft (and the server binds its staged files) on native start.
+        void refreshSubmittedConversation(result.id).catch(() => undefined)
+        return
+      }
       if (routeConversationIdRef.current !== result.id) {
         commitOptimisticallyConsumedAttachments(attachmentConsumption)
         setPendingTurnSubmission((current) =>
@@ -3304,6 +3505,7 @@ export function ConversationPage({
           turnSubmitOperationRef.current = null
         }
         sendSubmissionConversationIdRef.current = null
+        setPendingFirstMessageConversationId(null)
         if (user)
           consumeAcceptedLocalConversationDraft(
             window.localStorage,
@@ -3341,6 +3543,32 @@ export function ConversationPage({
     onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
+      if (
+        targetConversationId &&
+        submission.waitForDesktopAttachmentStart &&
+        nextError instanceof ApiError &&
+        [
+          "NETWORK_UNAVAILABLE",
+          "API_RESPONSE_INVALID",
+          "RUNNER_OPERATION_UNCERTAIN",
+        ].includes(nextError.errorCode)
+      ) {
+        // A lost receipt may still have admitted the original start. Observe
+        // only its detail/events; do not post the user's input again.
+        if (routeConversationIdRef.current === targetConversationId)
+          setTurnAdmissionError(nextError)
+        sendSubmissionConversationIdRef.current = null
+        void refreshSubmittedConversation(targetConversationId).catch(
+          () => undefined
+        )
+        return
+      }
+      if (
+        user &&
+        targetConversationId &&
+        submission.waitForDesktopAttachmentStart
+      )
+        clearDesktopAttachmentStart(user.id, targetConversationId)
       clearInterruptingConversation(targetConversationId)
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
@@ -3400,7 +3628,15 @@ export function ConversationPage({
               items: [...(submission.taskReferences ?? [])],
             }
       )
-      setTurnAdmissionError(nextError)
+      if (
+        submission.waitForDesktopAttachmentStart &&
+        nextError instanceof ApiError &&
+        nextError.errorCode === "DESKTOP_UPDATE_REQUIRED"
+      ) {
+        setAttachmentUpdateConversationId(targetConversationId)
+      } else {
+        setTurnAdmissionError(nextError)
+      }
       sendSubmissionConversationIdRef.current = null
     },
   })
@@ -4342,26 +4578,83 @@ export function ConversationPage({
     }
   }
 
+  const clearPendingInterruptRequest = useCallback(
+    ({
+      conversationId: targetConversationId,
+      turnId,
+      submissionKey,
+    }: ConversationInterruptTarget) => {
+      if (turnId) dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      if (submissionKey)
+        dispatchedInterruptTurnIdsRef.current.delete(
+          `submission:${submissionKey}`
+        )
+      const reset = (pending: PendingTurnSubmission) =>
+        pending.conversationId === targetConversationId &&
+        (submissionKey
+          ? pending.idempotencyKey === submissionKey
+          : turnId && pending.turnId === turnId) &&
+        pending.interruptRequested
+          ? { ...pending, interruptRequested: false }
+          : pending
+      updatePendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId,
+        reset
+      )
+      setPendingTurnSubmission((current) =>
+        current ? reset(current) : current
+      )
+    },
+    [queryClient]
+  )
+
   const interruptMutation = useMutation({
     mutationFn: ({
       targetConversationId,
       turnId,
+      submissionKey,
     }: {
       targetConversationId: string
-      turnId: string
-    }) => interruptConversationTurn(targetConversationId, turnId),
-    onMutate: ({ targetConversationId, turnId }) => {
-      setInterruptTarget({ conversationId: targetConversationId, turnId })
+    } & (
+      | { turnId: string; submissionKey?: never }
+      | { turnId?: never; submissionKey: string }
+    )) =>
+      turnId !== undefined
+        ? interruptConversationTurn(targetConversationId, turnId)
+        : interruptDesktopTurnSubmission(targetConversationId, submissionKey),
+    onMutate: ({ targetConversationId, turnId, submissionKey }) => {
+      setInterruptTarget({
+        conversationId: targetConversationId,
+        turnId,
+        submissionKey,
+      })
       if (routeConversationIdRef.current === targetConversationId)
         setError(null)
     },
-    onSuccess: (_result, { targetConversationId, turnId }) => {
-      dispatchedInterruptTurnIdsRef.current.delete(turnId)
-      clearPendingConversationExecution(queryClient, targetConversationId)
+    onSuccess: (_result, { targetConversationId, turnId, submissionKey }) => {
       const pending = getPendingConversationTurnSubmission(
         queryClient,
         targetConversationId
       )
+      const detail = queryClient.getQueryData<Conversation>([
+        "conversation",
+        targetConversationId,
+      ])
+      if (
+        submissionKey ||
+        (detail?.execution_target === "local" &&
+          pending?.turnId === turnId &&
+          hasDesktopAttachmentSubmission(pending))
+      ) {
+        // The Stop receipt does not say whether native submission raced it.
+        // Retain the operation until the original failure or turn is visible.
+        void refreshAfterMutation(targetConversationId).catch(() => undefined)
+        return
+      }
+      if (!turnId) return
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      clearPendingConversationExecution(queryClient, targetConversationId)
       if (pending?.turnId === turnId && pending.interruptRequested) {
         clearPendingConversationTurnSubmission(
           queryClient,
@@ -4376,23 +4669,15 @@ export function ConversationPage({
       // Receipt handling must not be held open by a slow detail/list refresh.
       void refreshAfterMutation(targetConversationId).catch(() => undefined)
     },
-    onError: (nextError, { targetConversationId, turnId }) => {
-      dispatchedInterruptTurnIdsRef.current.delete(turnId)
-      clearPendingConversationExecution(queryClient, targetConversationId)
+    onError: (nextError, { targetConversationId, turnId, submissionKey }) => {
+      if (turnId)
+        clearPendingConversationExecution(queryClient, targetConversationId)
       clearInterruptingConversation(targetConversationId, turnId)
-      updatePendingConversationTurnSubmission(
-        queryClient,
-        targetConversationId,
-        (current) =>
-          current.turnId === turnId
-            ? { ...current, interruptRequested: false }
-            : current
-      )
-      setPendingTurnSubmission((current) =>
-        current?.turnId === turnId
-          ? { ...current, interruptRequested: false }
-          : current
-      )
+      clearPendingInterruptRequest({
+        conversationId: targetConversationId,
+        turnId,
+        submissionKey,
+      })
       if (routeConversationIdRef.current === targetConversationId) {
         setError(getErrorMessage(nextError, t))
       }
@@ -4402,9 +4687,14 @@ export function ConversationPage({
 
   useEffect(() => {
     if (!interruptTarget) return
-    const { conversationId: targetConversationId, turnId } = interruptTarget
+    const {
+      conversationId: targetConversationId,
+      turnId,
+      submissionKey,
+    } = interruptTarget
     const poll =
-      turnId && targetConversationId !== newConversationPlaceholderId
+      (turnId || submissionKey) &&
+      targetConversationId !== newConversationPlaceholderId
         ? window.setInterval(() => {
             void queryClient
               .invalidateQueries(
@@ -4419,6 +4709,7 @@ export function ConversationPage({
         : undefined
     const timeout = window.setTimeout(() => {
       clearInterruptingConversation(targetConversationId, turnId)
+      clearPendingInterruptRequest(interruptTarget)
       if (
         (routeConversationIdRef.current ?? newConversationPlaceholderId) ===
         targetConversationId
@@ -4430,24 +4721,49 @@ export function ConversationPage({
       window.clearInterval(poll)
       window.clearTimeout(timeout)
     }
-  }, [interruptTarget, clearInterruptingConversation, queryClient, t])
+  }, [
+    interruptTarget,
+    clearInterruptingConversation,
+    clearPendingInterruptRequest,
+    queryClient,
+    t,
+  ])
 
   useEffect(() => {
     const pending = currentPendingTurnSubmission
     if (
       !pending?.interruptRequested ||
-      !pending.turnId ||
-      pending.conversationId === newConversationPlaceholderId ||
-      dispatchedInterruptTurnIdsRef.current.has(pending.turnId)
+      pending.conversationId === newConversationPlaceholderId
     ) {
       return
     }
-    dispatchedInterruptTurnIdsRef.current.add(pending.turnId)
-    requestTurnInterrupt({
-      targetConversationId: pending.conversationId,
-      turnId: pending.turnId,
-    })
-  }, [currentPendingTurnSubmission, requestTurnInterrupt])
+    const submissionId = `submission:${pending.idempotencyKey}`
+    const dispatched = dispatchedInterruptTurnIdsRef.current
+    if (
+      dispatched.has(submissionId) ||
+      (pending.turnId && dispatched.has(pending.turnId))
+    )
+      return
+    const targetConversationId = pending.conversationId
+    if (pending.turnId) {
+      dispatched.add(pending.turnId)
+      requestTurnInterrupt({ targetConversationId, turnId: pending.turnId })
+    } else if (
+      conversation?.execution_target === "local" &&
+      hasDesktopAttachmentSubmission(pending) &&
+      pending.idempotencyKey !== pending.optimisticId
+    ) {
+      dispatched.add(submissionId)
+      requestTurnInterrupt({
+        targetConversationId,
+        submissionKey: pending.idempotencyKey,
+      })
+    }
+  }, [
+    conversation?.execution_target,
+    currentPendingTurnSubmission,
+    requestTurnInterrupt,
+  ])
 
   useEffect(() => {
     const turnId = conversation?.running_turn?.id
@@ -4974,7 +5290,12 @@ export function ConversationPage({
   }
 
   const submitComposer = (input: string) => {
-    if (applicationSubmissionSending || applicationInteractionBlocked) return
+    if (
+      applicationSubmissionSending ||
+      applicationInteractionBlocked ||
+      waitingForDesktopAttachmentStart
+    )
+      return
     if (isConversationContextCompactionCommand(input)) {
       startContextCompaction()
       return
@@ -5000,7 +5321,10 @@ export function ConversationPage({
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
       attachments: [...attachments],
       collaborationMode,
+      waitForDesktopAttachmentStart:
+        conversation?.execution_target === "local" && attachments.length > 0,
     }
+    setAttachmentUpdateConversationId(null)
     setError(null)
     setCreditQuotaNotice(null)
     setValue(input)
@@ -5082,9 +5406,11 @@ export function ConversationPage({
       )
       scrollToBottom("auto")
       composerSubmissionInFlightRef.current = true
-      setValue("")
-      setSelectedCapabilityIds([])
-      setTaskReferenceSelection({ scope: conversationId, items: [] })
+      if (!submission.waitForDesktopAttachmentStart) {
+        setValue("")
+        setSelectedCapabilityIds([])
+        setTaskReferenceSelection({ scope: conversationId, items: [] })
+      }
       sendMutation.mutate({ ...submission, optimisticId })
       return
     }
@@ -5426,7 +5752,11 @@ export function ConversationPage({
   if (shouldRecoverUnavailableConversation && !embedded) {
     return <Navigate to="/conversations/new" replace />
   }
-  if (!isNew && conversationQuery.isError) {
+  if (
+    !isNew &&
+    conversationQuery.isError &&
+    (!waitingForDesktopAttachmentStart || shouldRecoverUnavailableConversation)
+  ) {
     return (
       <div className="conversation-workspace">
         <ErrorState
@@ -5555,6 +5885,7 @@ export function ConversationPage({
       : persistedMessages
   const optimisticMessage =
     activePendingTurnSubmission &&
+    !activePendingTurnSubmission.restoredDesktopAttachmentStart &&
     !reconciledPendingUserMessageId &&
     !projectedMessages.some(
       (message) =>
@@ -5822,20 +6153,24 @@ export function ConversationPage({
   const handleInterrupt = () => {
     const pending = activePendingTurnSubmission
     if (pending) {
+      const { turnId } = pending
       setInterruptTarget({
         conversationId: pending.conversationId,
-        turnId: pending.turnId,
+        turnId,
       })
       updatePendingConversationTurnSubmission(
         queryClient,
         pending.conversationId,
         (current) =>
           current.idempotencyKey === pending.idempotencyKey
-            ? { ...current, interruptRequested: true }
+            ? { ...current, turnId, interruptRequested: true }
             : current
       )
       setPendingTurnSubmission((current) =>
-        current === pending ? { ...current, interruptRequested: true } : current
+        current?.conversationId === pending.conversationId &&
+        current.idempotencyKey === pending.idempotencyKey
+          ? { ...current, turnId, interruptRequested: true }
+          : current
       )
       return
     }
@@ -6501,6 +6836,16 @@ export function ConversationPage({
           </Alert>
         )}
         {showConversationComposer &&
+          attachmentUpdateConversationId === conversationId &&
+          attachments.length > 0 && (
+            <div className="mx-auto grid w-full max-w-(--app-composer-width) gap-2 rounded-2xl border bg-card p-3 sm:flex sm:items-start sm:justify-between">
+              <p className="text-sm text-muted-foreground" role="alert">
+                {t("desktopUpdate.attachmentRequired")}
+              </p>
+              <DesktopUpdateControl />
+            </div>
+          )}
+        {showConversationComposer &&
           user &&
           surfaceActive &&
           !embedded &&
@@ -6585,6 +6930,7 @@ export function ConversationPage({
             attachments={attachments}
             pendingAttachmentUploads={pendingAttachmentUploads}
             isRunning={visuallyRunning}
+            waitingForAttachmentStart={waitingForDesktopAttachmentStart}
             interrupting={interrupting}
             goalMode={goalMode}
             goalModeAvailable={!sideChatReference}
@@ -6600,6 +6946,7 @@ export function ConversationPage({
             onPlanModeChange={handlePlanModeChange}
             submitting={
               applicationSubmissionSending ||
+              waitingForDesktopAttachmentStart ||
               sendMutation.isPending ||
               goalStartMutation.isPending ||
               contextCompactionMutation.isPending ||

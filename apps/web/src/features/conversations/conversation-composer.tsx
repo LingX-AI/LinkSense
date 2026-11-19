@@ -481,6 +481,7 @@ type ConversationComposerProps = Readonly<{
   pendingAttachmentUploads?: readonly PendingAttachmentUpload[]
   attachmentPreviewEnabled?: boolean
   isRunning: boolean
+  waitingForAttachmentStart?: boolean
   interrupting: boolean
   submitting: boolean
   uploading: boolean
@@ -565,6 +566,7 @@ export const ConversationComposer = forwardRef<
     pendingAttachmentUploads = [],
     attachmentPreviewEnabled = true,
     isRunning,
+    waitingForAttachmentStart = false,
     interrupting,
     submitting,
     uploading,
@@ -1007,7 +1009,8 @@ export const ConversationComposer = forwardRef<
     modelReady &&
     !knowledgeBaseSelectionPending
   const canSend = canSendValue(value)
-  const showSendButton = hasTextContent || !isRunning
+  const showSendButton =
+    !isRunning || (hasTextContent && !waitingForAttachmentStart)
   const sendButtonDisabled =
     voiceBusy ||
     submitting ||

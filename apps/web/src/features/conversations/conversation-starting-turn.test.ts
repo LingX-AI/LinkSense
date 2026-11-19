@@ -97,6 +97,50 @@ describe("restoring accepted submissions", () => {
     ).toBeUndefined()
   })
 
+  it.each(["preparing", "projected"] as const)(
+    "matches a lost receipt to the %s turn without discarding the requested stop",
+    (phase) => {
+      const client = new QueryClient()
+      const pending = {
+        conversationId: conversation.id,
+        idempotencyKey: "interactive:accepted",
+        interruptRequested: true,
+        message: { id: "optimistic", role: "user" as const, content: "Draft" },
+      }
+      setPendingConversationTurnSubmission(client, conversation.id, pending)
+      const turnId = conversation.starting_turn?.turn_id
+      restoreStartingConversationTurn(
+        client,
+        conversationSchema.parse({
+          ...conversation,
+          starting_turn:
+            phase === "preparing" ? conversation.starting_turn : null,
+          turns:
+            phase === "projected"
+              ? [
+                  {
+                    id: turnId,
+                    status: "running",
+                    idempotency_key: pending.idempotencyKey,
+                  },
+                ]
+              : [],
+        })
+      )
+      expect(
+        getPendingConversationTurnSubmission(client, conversation.id)
+      ).toMatchObject({
+        ...pending,
+        turnId,
+        status: phase === "preparing" ? "starting" : "running",
+        message: { ...pending.message, turn_id: turnId },
+      })
+      expect(getPendingConversationExecution(client, conversation.id)).toEqual({
+        turnId,
+      })
+    }
+  )
+
   it("does not fabricate a submission for historical tasks without a pending start", () => {
     const client = new QueryClient()
     restoreStartingConversationTurn(client, {

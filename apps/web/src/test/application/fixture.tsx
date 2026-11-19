@@ -870,7 +870,7 @@ function installApiMock(options?: {
         )
       }
       if (
-        /^\/api\/v1\/conversations\/[^/]+\/turns\/[^/]+\/interrupt$/u.test(
+        /^\/api\/v1\/conversations\/[^/]+\/(?:turns\/[^/]+|turn-start)\/interrupt$/u.test(
           path
         ) &&
         method === "POST"
