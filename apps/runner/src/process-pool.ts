@@ -2718,7 +2718,7 @@ export class AppServerProcessPool {
       const confirmation = this.options.desktopWorkspace
         ? this.confirmNativeUserInputResponse(managed, input.requestId, pending,
             pending.browserApproval
-              ? Object.values(answers).some(answer => answer.answers[0] === "Allow") ? "allow" : "cancel"
+              ? browserApprovalDecision(pending.questions, answers)
               : null)
         : null;
       pending.resolve({ answers });
@@ -3541,7 +3541,7 @@ export class AppServerProcessPool {
       }
     }
 
-    // app-server 0.150.1 owns parent/child discovery. Direct references belong
+    // The pinned app-server owns parent/child discovery. Direct references belong
     // to this exact parent turn, so never union them with children from another
     // turn. The native parent filter is a restart fallback only when every
     // durable direct reference is absent.
@@ -5858,8 +5858,10 @@ export class AppServerProcessPool {
             rememberBounded(managed.browserApprovalItems, item.id, params.turnId, 128);
           } else if (notification.method === "item/completed") {
             managed.browserApprovalItems.delete(item.id);
-            // Codex 0.170.0 emits this error for an explicit Cancel or empty answer.
-            if (item.status === "failed" && objectRecord(item.error).message === "user cancelled MCP tool call" &&
+            // An explicit Cancel or an empty answer records a local cancel
+            // decision. The browser item's failed terminal state confirms it;
+            // do not depend on Codex's version-specific error text.
+            if (item.status === "failed" &&
                 !managed.interruptRequest && !managed.nativeTerminalTurnIds.has(params.turnId)) {
               for (const confirmation of managed.userInputConfirmations.values()) {
                 if (confirmation.browserDecision === "cancel" && confirmation.turnId === params.turnId &&
@@ -6788,7 +6790,7 @@ export class AppServerProcessPool {
 
   /**
    * A resumed Runner may not have observed the child's thread/started event,
-   * and Codex 0.150.1 can represent creation only as subAgentActivity. Read the
+   * and the pinned app-server can represent creation only as subAgentActivity. Read the
    * small thread header before projection so the durable chip receives the
    * semantic AgentPath label on both native shapes.
    */
@@ -7982,6 +7984,26 @@ function validateUserInputAnswers(
   );
 }
 
+/**
+ * Codex's native browser approval question lists Allow first and Cancel
+ * second. Use the first option's label instead of matching the English word
+ * "Allow", so localized or renamed labels keep working.
+ */
+function browserApprovalDecision(
+  questions: ToolRequestUserInputQuestion[],
+  answers: ToolRequestUserInputResponse["answers"],
+): "allow" | "cancel" {
+  for (const [questionId, answer] of Object.entries(answers)) {
+    const selected = answer.answers[0];
+    if (selected === undefined) continue;
+    const question = questions.find(
+      (candidate) => candidate.id === questionId,
+    );
+    if (question?.options?.[0]?.label === selected) return "allow";
+  }
+  return "cancel";
+}
+
 function startRequestFingerprint(input: StartTurnInput): string {
   return hashCanonicalValue({
     ownerId: input.ownerId,
@@ -8085,9 +8107,10 @@ export function planRuntimeConfigOverrides(
   managedBrowserEnabled = true,
 ): string[] {
   if (collaborationMode !== "plan") return [];
+  // Plan mode needs the native Stop hook, but not the deprecated legacy
+  // landlock flag: Codex 0.170 rejects it for the read-only Plan sandbox.
   return [
     "features.hooks=true",
-    "features.use_legacy_landlock=true",
     ...(managedBrowserEnabled
       ? [
           "mcp_servers.linksense_managed_browser.enabled=true",

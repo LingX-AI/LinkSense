@@ -2,11 +2,16 @@ import { createHash } from "node:crypto";
 
 import type { CodexAdditionalContext } from "./protocol.js";
 
-// Codex 0.150.1 truncates individual additionalContext values before sending
-// them to the model. Leave room for native wrappers and fragment metadata.
-// The real-binary smoke checks every part, not just the preserved head/tail.
-const MAX_VALUE_BYTES = 3_000;
-const PART_CONTENT_BYTES = 2_400;
+// Codex 0.170 bounds each additionalContext value to 1,000 approximate tokens
+// (4 bytes per token, so at most 4,000 bytes) and middle-truncates longer
+// values before they reach the model. Keep headroom below that native budget
+// for the part metadata line and for future tokenizer changes. The real-binary
+// smoke checks every part, not just the preserved head/tail.
+const CODEX_ADDITIONAL_CONTEXT_VALUE_BYTES = 4_000;
+const VALUE_HEADROOM_BYTES = 800;
+const PART_METADATA_HEADROOM_BYTES = 400;
+const MAX_VALUE_BYTES = CODEX_ADDITIONAL_CONTEXT_VALUE_BYTES - VALUE_HEADROOM_BYTES;
+const PART_CONTENT_BYTES = MAX_VALUE_BYTES - PART_METADATA_HEADROOM_BYTES;
 
 export function prepareCodexAdditionalContext(
   context: CodexAdditionalContext,

@@ -282,7 +282,8 @@ describe("AppServerProcessPool", () => {
     expect(parts.map(([, part]) => part.value.split("\n").slice(1).join("\n")).join("")).toContain(instructions);
     for (const [, part] of parts) {
       expect(part.kind).toBe("application");
-      expect(Buffer.byteLength(part.value)).toBeLessThanOrEqual(3_000);
+      // Codex truncates each value at 1,000 approximate tokens (4,000 bytes).
+      expect(Buffer.byteLength(part.value)).toBeLessThanOrEqual(4_000);
     }
     await pool.closeAll();
   });
@@ -2219,7 +2220,6 @@ trust_level = "trusted"
     ).toContain("LINKSENSE_COLLABORATION_MODE");
     for (const override of [
       "features.hooks=true",
-      "features.use_legacy_landlock=true",
       "mcp_servers.linksense_managed_browser.enabled=true",
       "mcp_servers.linksense_managed_browser.required=false",
     ]) {
@@ -2232,11 +2232,8 @@ trust_level = "trusted"
     expect(
       controlled.args?.indexOf("features.hooks=false"),
     ).toBeLessThan(controlled.args?.indexOf("features.hooks=true") ?? -1);
-    expect(
-      controlled.args?.indexOf("features.use_legacy_landlock=false"),
-    ).toBeLessThan(
-      controlled.args?.indexOf("features.use_legacy_landlock=true") ?? -1,
-    );
+    expect(controlled.args).toContain("features.use_legacy_landlock=false");
+    expect(controlled.args).not.toContain("features.use_legacy_landlock=true");
     expect(
       controlled.args?.filter((argument) =>
         argument.startsWith("memories.generate_memories="),
@@ -2419,6 +2416,116 @@ trust_level = "trusted"
     }
   });
 
+  it("settles a Mac browser cancel from the local decision when Codex changes its error text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-cancel-"));
+    roots.push(root);
+    let finishWrite: ((error?: Error) => void) | undefined;
+    const controlled = createControlledAppServer({
+      turnStartNotification: "before-response",
+      holdUserInputWrite: finish => { finishWrite = finish; },
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      const nativeItem = {
+        type: "mcpToolCall", id: "approval-item", server: "linksense_core",
+        tool: "browser_use", status: "inProgress", arguments: { action: "status" },
+      };
+      controlled.notify({
+        method: "item/started",
+        params: { threadId: "thread-native-1", turnId: "turn-native-1", item: nativeItem },
+      });
+      controlled.notify({
+        id: 77, method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1", itemId: "approval-item",
+          questions: [{ id: "approval", header: "Approval", question: "Continue?", isOther: false, isSecret: false,
+            options: [{ label: "Allow", description: "" }, { label: "Cancel", description: "" }] }],
+          isBlocking: true, autoResolutionMs: null,
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/tool/requestUserInput" }),
+      ));
+      const response = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1", itemId: "approval-item",
+        response: { action: "cancel" },
+      });
+      await waitForFast(() => expect(finishWrite).toBeDefined());
+      controlled.notify({
+        method: "item/completed",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1",
+          item: { ...nativeItem, status: "failed", error: { message: "browser action cancelled by user" } },
+        },
+      });
+      const finish = finishWrite;
+      finishWrite = undefined;
+      if (!finish) throw new Error("Native write did not start");
+      finish();
+      await expect(response).resolves.toEqual({ accepted: true });
+    } finally {
+      finishWrite?.();
+      await pool.closeAll();
+    }
+  });
+
+  it("keys a Mac browser approval from the first native option instead of its English label", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-approval-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      turnStartNotification: "before-response",
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      const nativeItem = {
+        type: "mcpToolCall", id: "approval-item", server: "linksense_core",
+        tool: "browser_use", status: "inProgress", arguments: { action: "status" },
+      };
+      controlled.notify({
+        method: "item/started",
+        params: { threadId: "thread-native-1", turnId: "turn-native-1", item: nativeItem },
+      });
+      controlled.notify({
+        id: 77, method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1", itemId: "approval-item",
+          questions: [{ id: "approval", header: "Approval", question: "Continue?", isOther: false, isSecret: false,
+            options: [{ label: "Erlauben", description: "" }, { label: "Abbrechen", description: "" }] }],
+          isBlocking: true, autoResolutionMs: null,
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/tool/requestUserInput" }),
+      ));
+      const response = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1", itemId: "approval-item",
+        response: { action: "accept", content: { approval: "Erlauben" } },
+      });
+      await waitForFast(() => expect(controlled.requests.some(
+        request => request.id === 77 && "result" in request,
+      )).toBe(true));
+      const token = controlled.environment?.LINKSENSE_CURRENT_USER_TOKEN;
+      if (!token) throw new Error("Missing fixture token");
+      await pool.browserUse(
+        input.conversationId, token, { action: "status" },
+        new AbortController().signal, "approval-item",
+      );
+      await expect(response).resolves.toEqual({ accepted: true });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("keeps Plan mode available without exposing a disabled managed browser runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-plan-no-browser-"));
     roots.push(root);
@@ -2436,11 +2543,9 @@ trust_level = "trusted"
     });
 
     expect(controlled.args).toEqual(
-      expect.arrayContaining([
-        "features.hooks=true",
-        "features.use_legacy_landlock=true",
-      ]),
+      expect.arrayContaining(["features.hooks=true"]),
     );
+    expect(controlled.args).not.toContain("features.use_legacy_landlock=true");
     expect(controlled.args?.join("\n")).not.toContain(
       "mcp_servers.linksense_managed_browser",
     );
