@@ -107,7 +107,7 @@ The fixture uses a local synthetic provider. Separate acceptance is required
 for orphaned Shell processes after a force quit, installed upgrades and
 production signing/notarization.
 
-Mac single-file artifact registration is separately disabled by default. To
+Mac artifact registration is separately disabled by default. To
 enable it in development/test, upgrade all serving API replicas and
 `linksense-maintenance` consumers first, then set
 `LINKSENSE_DESKTOP_ARTIFACTS_ENABLED=true` uniformly and reconnect the Mac.
@@ -115,17 +115,31 @@ Older clients keep their existing negotiated tools. The API confirms the size,
 MIME type and checksum before publishing the existing download card. If the
 confirmation response is lost, check the task's artifacts for the original ID.
 
-Before rolling back to a consumer that cannot read `desktop-artifact-cleanup`,
-disable artifact registration on every API replica. Keep updated consumers
-running until in-flight grants have expired and their delayed cleanup jobs have
-drained. Retry failed cleanup in the existing system-maintenance view before
-rolling back. Older consumers can discard the new payload, so do not run mixed
-consumer versions while these jobs are pending.
+Mac builds that negotiate `artifact.multipart` send files above the
+configured single-upload limit as 32 MiB signed parts, up to 5 GiB per file.
+To allow signed uploads, add enabled MinIO bucket lifecycle rules for
+`desktop-artifact-staging/` and `desktop-artifact-parts/`. Use exact prefix
+filters with no tags, one day for current object expiration and one day for
+noncurrent version expiration. Merge these rules with the bucket's existing
+configuration; never apply them to the whole bucket. The API storage identity
+needs permission to read the lifecycle configuration. The rules catch uploads
+that finish after delayed cleanup, and must stay in place even after disabling
+artifact registration. Without the rules, single-file uploads use the API
+fallback and files above its limit are rejected.
+
+Before running mixed API versions or rolling back, stop starting new artifact
+work and let active confirmations finish. Then disable artifact registration
+uniformly: the flag also disables confirmation routes, and older replicas
+cannot confirm a multipart grant. Keep updated consumers running until
+remaining grants have expired and delayed cleanup jobs have drained. Retry
+failed cleanup in system maintenance before rolling back. Existing registered
+artifacts and downloads require no migration.
 
 By default the packaged fixture uses the local filesystem to verify API
 streaming. Set `LINKSENSE_TEST_MINIO_BIN` to an absolute path to a local MinIO
-executable to verify direct upload instead. The fixture starts a private server
-on loopback and checks that the packaged Mac did not use the API fallback.
+executable to verify signed multipart upload instead. The fixture starts a
+private server on loopback, installs the lifecycle rules, and checks that the
+packaged Mac did not use the API fallback.
 
 `desktop:whitebox` uses an in-memory credential store. On macOS,
 `desktop:whitebox:os` additionally opens the real system browser twice, verifies
