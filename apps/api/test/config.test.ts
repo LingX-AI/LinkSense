@@ -97,6 +97,17 @@ describe("parseConfig", () => {
     expect(() => parseConfig(testEnvironment(artifacts))).toThrow("desktop_artifacts_require_local_execution")
   })
 
+  it("keeps Mac website artifact negotiation behind its own opt-in", () => {
+    const execution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
+    const artifacts = { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" }
+    const website = { LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED: "true" }
+    expect(parseConfig(testEnvironment(execution)).desktopWebsiteArtifactsEnabled).toBe(false)
+    expect(parseConfig(testEnvironment({ ...execution, ...artifacts })).desktopWebsiteArtifactsEnabled).toBe(false)
+    expect(parseConfig(testEnvironment({ ...execution, ...artifacts, ...website })).desktopWebsiteArtifactsEnabled).toBe(true)
+    expect(() => parseConfig(testEnvironment({ ...execution, ...website })))
+      .toThrow("desktop_website_artifacts_require_artifacts")
+  })
+
   it("keeps local filesystem storage out of production and the Full edition", () => {
     expect(() =>
       parseConfig(

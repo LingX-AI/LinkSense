@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { timestampSchema, uuidSchema } from "./common.js";
+import { webBundleLimits, webBundlePathSchema } from "./web-sites.js";
 
 export const desktopArtifactPath = "/api/v1/desktop/artifacts";
 export const desktopArtifactUploadLifetimeMs = 4 * 60_000;
 export const desktopArtifactMaxBytes = 5 * 1024 ** 3;
 export const desktopArtifactPartBytes = 32 * 1024 ** 2;
 export const desktopArtifactMaxParts = desktopArtifactMaxBytes / desktopArtifactPartBytes;
+// The additional space covers ZIP headers for the bounded website entry list.
+export const webBundleArchiveMaxBytes = webBundleLimits.totalBytes + 8 * 1024 ** 2;
 
 const artifactName = z.string().min(1).max(260)
   .refine(value => value.trim() !== "" && value !== "." && value !== ".." && !/[\p{Cc}/\\]/u.test(value));
@@ -15,6 +18,10 @@ export const desktopArtifactPrepareSchema = z.strictObject({
   size_bytes: z.number().int().positive().max(desktopArtifactMaxBytes),
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   mime_type: z.string().min(1).max(160).regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/iu).optional(),
+});
+export const desktopWebsiteArtifactPrepareSchema = desktopArtifactPrepareSchema.extend({
+  size_bytes: desktopArtifactPrepareSchema.shape.size_bytes.max(webBundleArchiveMaxBytes),
+  entry_path: webBundlePathSchema.refine(path => /\.html?$/iu.test(path)),
 });
 const presignedPost = z.strictObject({
   url: z.url().max(2_048).refine(value => {
@@ -54,5 +61,6 @@ export const desktopArtifactReceiptSchema = z.strictObject({
 });
 
 export type DesktopArtifactPrepare = z.infer<typeof desktopArtifactPrepareSchema>;
+export type DesktopWebsiteArtifactPrepare = z.infer<typeof desktopWebsiteArtifactPrepareSchema>;
 export type DesktopArtifactUploadGrant = z.infer<typeof desktopArtifactUploadGrantSchema>;
 export type DesktopArtifactReceipt = z.infer<typeof desktopArtifactReceiptSchema>;

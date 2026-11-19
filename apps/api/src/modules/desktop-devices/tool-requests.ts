@@ -42,7 +42,7 @@ export async function executeDesktopTool(
   }
   let recheckResource: (() => Promise<void>) | undefined;
   let browserMutationMayHaveRun = false;
-  const artifact = frame.operation === "artifact.prepare" || frame.operation === "artifact.multipart";
+  const artifact = frame.operation === "artifact.prepare" || frame.operation === "artifact.multipart" || frame.operation === "artifact.website";
   let result: DesktopToolResult;
   try {
     await authorize();
@@ -65,7 +65,7 @@ export async function executeDesktopTool(
       data = browser.data;
     } else if (artifact) {
       if (!services.artifacts) throw new AppError("RUNNER_UNAVAILABLE");
-      data = await services.artifacts.prepare(scope, frame.body, signal, authorize, frame.operation === "artifact.multipart");
+      data = await services.artifacts.prepare(scope, frame.body, signal, authorize, frame.operation !== "artifact.prepare");
     } else {
       data = await dispatchTool(services, scope, frame, signal, authorize);
     }
@@ -185,7 +185,7 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" }>,
+  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" | "artifact.website" }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {

@@ -1396,6 +1396,65 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("keeps desktop website registration behind the negotiated website operation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-site-gate-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopArtifactsEnabled: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    try {
+      await pool.startTurn(input);
+      const token = controlled.environment?.LINKSENSE_FILE_SERVICE_TOKEN;
+      if (!token) throw new Error("test app-server did not receive a file token");
+      expect(controlled.environment?.LINKSENSE_FILE_SERVICE_ENDPOINT).not.toContain("website=1");
+      await expect(pool.registerArtifact(input.conversationId, token, {
+        workspaceRelativePath: "artifacts/site/index.html",
+        displayName: "index.html",
+        webRootRelativePath: "artifacts/site",
+      })).rejects.toMatchObject({
+        code: "ARTIFACT_REGISTRATION_INVALID", retryable: false, statusCode: 400,
+      });
+      expect(eventSink.registerArtifact).not.toHaveBeenCalled();
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("forwards desktop website registration when artifact.website was negotiated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-site-forward-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopArtifactsEnabled: true, desktopArtifactsWebsiteEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    try {
+      await pool.startTurn(input);
+      const token = controlled.environment?.LINKSENSE_FILE_SERVICE_TOKEN;
+      if (!token) throw new Error("test app-server did not receive a file token");
+      expect(controlled.environment?.LINKSENSE_FILE_SERVICE_ENDPOINT).toContain("desktop=1&website=1");
+      await expect(pool.registerArtifact(input.conversationId, token, {
+        workspaceRelativePath: "artifacts/site/index.html",
+        displayName: "index.html",
+        mimeType: "text/html",
+        webRootRelativePath: "artifacts/site",
+      })).resolves.toEqual({});
+      expect(eventSink.registerArtifact).toHaveBeenCalledWith({
+        conversationId: input.conversationId,
+        turnId: input.projectionTurnId,
+        workspaceRelativePath: "artifacts/site/index.html",
+        displayName: "index.html",
+        mimeType: "text/html",
+        webRootRelativePath: "artifacts/site",
+      });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("rejects artifact registration while the active native turn is in Plan mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-plan-artifact-"));
     roots.push(root);
@@ -12386,6 +12445,8 @@ function createStartOperationPool(
     managedBrowserEnabled?: boolean;
     desktopWorkspace?: boolean;
     desktopBrowserEnabled?: boolean;
+    desktopArtifactsEnabled?: boolean;
+    desktopArtifactsWebsiteEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
@@ -12435,6 +12496,8 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
     ...(overrides.desktopBrowserEnabled ? { desktopBrowserEnabled: true } : {}),
+    ...(overrides.desktopArtifactsEnabled ? { desktopArtifactsEnabled: true } : {}),
+    ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),
     command: "codex",
     model: "test-model",
     ...(overrides.modelCatalog

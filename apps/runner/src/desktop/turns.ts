@@ -36,7 +36,10 @@ type AttachmentReady = (command: StartCommand, signal: AbortSignal) => Promise<v
 export type DesktopRuntimeRun = {
   scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout
   confirmAttachments?: (signal: AbortSignal) => Promise<number>
-  artifacts?: { workspace: string; check: () => Promise<void>; signal: AbortSignal; multipart?: boolean }
+  artifacts?: {
+    workspace: string; check: () => Promise<void>; signal: AbortSignal
+    multipart?: boolean; website?: boolean
+  }
 }
 const emptyMcpGeneration = createHash("sha256").update("").digest("hex")
 const healthSchema = z.object({ status: z.literal("available") })
@@ -274,7 +277,8 @@ export class DesktopTurns {
       if (session.interrupted) return await this.sealUnstarted(scope)
       if (command.body.native_thread_id && !await this.readGeneration(scope)) throw new RuntimeGenerationIntegrityError()
       const paths = await this.prepareControl(scope)
-      const artifactWorkspace = this.toolOperations.includes("artifact.prepare")
+      const artifactWorkspace = this.toolOperations.includes("artifact.prepare") ||
+        this.toolOperations.includes("artifact.website")
         ? await verifyDirectory(paths.root, path.join(paths.home, "workspace")) : undefined
       if (session.interrupted) return await this.sealUnstarted(scope)
       const capabilityGeneration = await initializeDesktopCapabilities(this.runtimeRoot, paths)
@@ -306,6 +310,7 @@ export class DesktopTurns {
         ...(artifactWorkspace && { artifacts: {
           workspace: artifactWorkspace.path, check: artifactWorkspace.check, signal: session.preparation.signal,
           multipart: this.toolOperations.includes("artifact.multipart"),
+          website: this.toolOperations.includes("artifact.website"),
         } }),
         ...(materialized && attachmentsReady && {
           confirmAttachments: async (requestSignal: AbortSignal) => {

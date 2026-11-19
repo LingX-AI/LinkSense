@@ -64,9 +64,12 @@ export const fileServiceCoreMcpModule = {
   toolNames: ["register_artifact"],
   create({ environment, workspaceRoot }): CoreMcpToolModule {
     const endpoint = z.url().parse(environment.LINKSENSE_FILE_SERVICE_ENDPOINT)
-    // The desktop worker marks its own loopback endpoint. This trusted marker
-    // never comes from tool arguments, so a model cannot request Mac behavior.
-    const desktop = new URL(endpoint).searchParams.get("desktop") === "1"
+    // The desktop worker marks its own loopback endpoint. These trusted markers
+    // never come from tool arguments, so a model cannot request Mac behavior.
+    const endpointUrl = new URL(endpoint)
+    const desktop = endpointUrl.searchParams.get("desktop") === "1"
+    // Only a run that negotiated artifact.website may offer the full tool.
+    const website = desktop && endpointUrl.searchParams.get("website") === "1"
     const requestTimeoutMs = desktop
       ? desktopArtifactUploadLifetimeMs + 10_000
       : 30_000
@@ -80,7 +83,7 @@ export const fileServiceCoreMcpModule = {
 
     return {
       key: "file_service",
-      tools: [desktop ? desktopArtifactTool : artifactTool],
+      tools: [desktop && !website ? desktopArtifactTool : artifactTool],
       async callTool(input) {
         try {
           const arguments_ = artifactArgumentsSchema.parse(
@@ -97,9 +100,8 @@ export const fileServiceCoreMcpModule = {
           }
           if (desktop) {
             // The task user owns these files, so no shared-permission
-            // normalization runs. Reject website snapshots before any file
-            // access; the Mac runtime has no snapshot builder.
-            if (arguments_.web_root_relative_path) {
+            // normalization runs. Older links keep the single-file contract.
+            if (arguments_.web_root_relative_path && !website) {
               throw new FileServiceMcpError({
                 code: "ARTIFACT_REGISTRATION_INVALID",
                 retryable: false,

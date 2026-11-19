@@ -127,6 +127,22 @@ that finish after delayed cleanup, and must stay in place even after disabling
 artifact registration. Without the rules, single-file uploads use the API
 fallback and files above its limit are rejected.
 
+Website artifact grants (`artifact.website`) negotiate separately and stay off
+until `LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED=true`, which requires
+`LINKSENSE_DESKTOP_ARTIFACTS_ENABLED=true`. Upgrade every serving API replica
+and `linksense-maintenance` consumer before enabling it uniformly, then
+reconnect the Mac. Replicas from before this rollout can neither consume a
+website grant nor run its delayed cleanup, so do not route traffic to them
+while grants exist. Older clients, and Macs that do not offer
+`artifact.website`, keep their existing negotiated tools. Disabling the switch
+stops new negotiation only; upload and confirmation remain available under
+`LINKSENSE_DESKTOP_ARTIFACTS_ENABLED`, so issued grants can drain. Before
+disabling or rolling back, stop starting website artifacts, disable the switch
+uniformly and reconnect the Mac so new sockets omit `artifact.website`, then
+keep the updated API replicas and maintenance workers running until
+outstanding grants expire and delayed cleanup jobs drain. Retry failed cleanup
+in system maintenance before running pre-rollout replicas.
+
 Before running mixed API versions or rolling back, stop starting new artifact
 work and let active confirmations finish. Then disable artifact registration
 uniformly: the flag also disables confirmation routes, and older replicas

@@ -33,7 +33,9 @@ import type { ConversationService } from "../../src/modules/conversations/servic
 import type { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
 import type { ConversationEventService } from "../../src/modules/events/service.js";
 import type { FileService } from "../../src/modules/files/service.js";
+import type { HtmlPreviewService } from "../../src/modules/html-preview/service.js";
 import type { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
+import type { WebSiteService } from "../../src/modules/web-sites/service.js";
 
 const fixtureModel = "desktop-fixture";
 const readPrompt = "Read the local fixture file";
@@ -53,20 +55,25 @@ export async function verifyPackagedDesktopGateway(input: {
   conversations: ConversationService;
   events: ConversationEventService;
   files: Pick<FileService, "uploadAttachment" | "readArtifactDownload" | "listTaskArtifacts">;
+  websites: Pick<WebSiteService, "create" | "resource">;
+  htmlPreviews: Pick<HtmlPreviewService, "open" | "resource">;
   modelProviderSettings: ModelProviderSettingsService;
   ownerId: string;
+  otherOwnerId: string;
   deviceId: string;
   token: string;
   previousConnectionId: string;
   revokeAttachmentRun: (turnId: string) => Promise<void>;
   disconnectAttachmentSocket: (connectionId: string) => Promise<void>;
+  attachmentSizeBytes: number;
   artifactSizeBytes?: number;
+  multipartWebsite: boolean;
   serverSecrets: string[];
   searchMarker: string;
   connector: { driveName: string; documentName: string; documentText: string };
   browser: { title: string; tabId: number; image: Buffer; ref: string; observed: readonly string[] };
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
-}): Promise<{ id: string; turnId: string; sizeBytes: number }> {
+}): Promise<{ id: string; turnId: string; sizeBytes: number; websiteArtifactId: string; websiteAssets: string[] }> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
     "the package regression requires a local Mac arm64 app runtime");
   z.object({ target: z.literal("darwin/arm64") }).parse(
@@ -89,7 +96,7 @@ export async function verifyPackagedDesktopGateway(input: {
   const secrets = [...input.serverSecrets, providerKey];
   const marker = `workspace-marker-${randomUUID()}`;
   const attachmentName = "fixture.txt";
-  const attachmentData = Buffer.alloc(100 * 1024 * 1024, "a");
+  const attachmentData = Buffer.alloc(input.attachmentSizeBytes, "a");
   attachmentData.write(`${marker}\n`);
   const attachmentChecksum = createHash("sha256").update(attachmentData).digest("hex");
   const artifactDisplayName = "packaged-artifact.txt";
@@ -99,6 +106,11 @@ export async function verifyPackagedDesktopGateway(input: {
   let artifactChecksum: string | undefined;
   let artifactWorkspace: string | undefined;
   let artifactReceipt: DesktopArtifactReceipt | undefined;
+  let websiteReceipt: DesktopArtifactReceipt | undefined;
+  const websiteRoot = "artifacts/site";
+  const websiteHtml = '<!doctype html><link rel="stylesheet" href="/assets/theme.css"><h1>Packaged Mac site</h1>';
+  const websiteCss = "h1{color:rebeccapurple}";
+  const websiteAssets = ["assets/theme.css", "index.html"];
   const model = Fastify();
   const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
@@ -291,6 +303,20 @@ export async function verifyPackagedDesktopGateway(input: {
       assert.equal(receipt.display_name, artifactDisplayName,
         "the artifact result did not retain the simple basename");
       artifactReceipt = receipt;
+      const artifactTool = body.tools?.find(tool => tool.type === "namespace" &&
+        tool.tools?.some(member => member.type === "function" && member.name === "register_artifact"));
+      browserStep++;
+      return callTool("register_artifact", {
+        workspace_relative_path: `${websiteRoot}/index.html`,
+        display_name: "packaged-website.html",
+        web_root_relative_path: websiteRoot,
+      }, artifactTool);
+    }
+    if (browserStep === 8) {
+      const result = toolOutput(body.input, `fixture-call-${call - 1}`);
+      const failure = z.object({ code: z.string().regex(/^[A-Z_]{1,80}$/u) }).safeParse(result);
+      assert(!failure.success, `native website artifact registration failed: ${failure.data?.code}`);
+      websiteReceipt = desktopArtifactReceiptSchema.parse(result);
       assert(citation, "native knowledge search did not return a citation");
       return reply.type("text/event-stream").send(responseStream({
         id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
@@ -352,6 +378,16 @@ export async function verifyPackagedDesktopGateway(input: {
     };
     const read = await task("Packaged Mac workspace read");
     artifactWorkspace = join(dataRoot, ownerId, "services", read.id, "home", "workspace");
+    await mkdir(join(artifactWorkspace, websiteRoot, "assets"), { recursive: true, mode: 0o700 });
+    await writeFile(join(artifactWorkspace, websiteRoot, "index.html"), websiteHtml, { mode: 0o600 });
+    await writeFile(join(artifactWorkspace, websiteRoot, "assets/theme.css"), websiteCss, { mode: 0o600 });
+    if (input.multipartWebsite) {
+      const data = Buffer.alloc(17 * 1024 * 1024, "x");
+      for (const asset of ["assets/extra-1.txt", "assets/extra-2.txt"]) {
+        await writeFile(join(artifactWorkspace, websiteRoot, asset), data, { mode: 0o600 });
+        websiteAssets.push(asset);
+      }
+    }
     const seed = join(artifactWorkspace, "artifact-seed.txt");
     {
       await using file = await open(seed, "wx", 0o600);
@@ -557,7 +593,7 @@ export async function verifyPackagedDesktopGateway(input: {
     }
 
     const retrySubmission = { ...submission(readPrompt, "desktop-read-retry"), knowledgeBaseIds: [input.knowledge.baseId] };
-    const retryTransfer = input.attachmentTransfer.hold(uploaded.id, 700);
+    const retryTransfer = input.attachmentTransfer.hold(uploaded.id, 70_000 * 1024 ** 2 / attachmentData.length);
     const completed = await conversations.acceptTurn(ownerId, read.id, retrySubmission, {});
     assert.notEqual(completed.turn_id, stopped.turn_id);
     await waitFor("the retry staged partial attachment bytes", async () =>
@@ -569,7 +605,8 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.deepEqual(await listDirectory(published), []);
     const transferStartedAt = Date.now();
     retryTransfer.release();
-    await waitFor("the throttled 100 MiB response to finish", async () => retryTransfer.finished, 95_000);
+    const attachmentMiB = attachmentData.length / 1024 ** 2;
+    await waitFor(`the throttled ${attachmentMiB} MiB response to finish`, async () => retryTransfer.finished, 95_000);
     assert(Date.now() - transferStartedAt >= 65_000, "download did not exercise the former command deadline");
     const [materialized] = await waitFor("the complete attachment to be published", async () => {
       const directories = await listDirectory(published);
@@ -617,6 +654,13 @@ export async function verifyPackagedDesktopGateway(input: {
         action: "accept", content: { [pendingArtifact.questionId]: "Allow" },
       }, {});
       assert.equal(artifactApproval.status, "answered");
+      const pendingWebsite = await waitForMcpApproval(read.id, completed.turn_id, "register_artifact");
+      assert.equal(browserStep, 8);
+      assert.equal(pendingWebsite.itemId, `fixture-call-${modelRequests.read}`);
+      assert.equal(await prisma.webArtifactBundle.count({ where: { conversationId: read.id } }), 0);
+      assert.equal((await conversations.respondToUserInputRequest(ownerId, read.id, pendingWebsite.id, {
+        action: "accept", content: { [pendingWebsite.questionId]: "Allow" },
+      }, {})).status, "answered");
       await waitFor("completed workspace read and slot release", async () =>
         await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
       );
@@ -639,7 +683,7 @@ export async function verifyPackagedDesktopGateway(input: {
         { cause: error },
       );
     }
-    assert.equal(modelRequests.read, 15 + connectorPages);
+    assert.equal(modelRequests.read, 16 + connectorPages);
     assert.equal(input.attachmentTransfer.requests(stoppedPath), 1);
     for (const downloadPath of abandonedPaths) assert.equal(input.attachmentTransfer.requests(downloadPath), 1);
     assert.equal(input.attachmentTransfer.requests(attachmentPath(completed.turn_id)), 1);
@@ -669,6 +713,8 @@ export async function verifyPackagedDesktopGateway(input: {
 
     const artifact = artifactReceipt;
     assert(artifact, "native Mac did not return an artifact registration receipt");
+    const website = websiteReceipt;
+    assert(website, "native Mac did not return a website artifact registration receipt");
     assert.equal(modelRequests.artifact, 1, "native Mac registered the artifact more than once");
     const artifactFiles = await prisma.conversationFile.findMany({
       where: { conversationId: read.id, kind: "artifact" },
@@ -678,15 +724,15 @@ export async function verifyPackagedDesktopGateway(input: {
         workspaceRelativePath: true, workspaceRootRelPath: true,
       },
     });
-    assert.equal(artifactFiles.length, 1, "artifact registration created more than one file row");
-    const artifactFile = artifactFiles[0];
+    assert.equal(artifactFiles.length, 2, "each approval should create exactly one file row");
+    const artifactFile = artifactFiles.find(file => file.id === artifact.file_id);
     assert(artifactFile);
     const artifactEvents = await prisma.conversationEvent.findMany({
       where: { conversationId: read.id, eventType: "conversation.artifact.created" },
       select: { id: true, turnId: true, visibility: true, payloadJson: true },
     });
-    assert.equal(artifactEvents.length, 1, "artifact registration published more than one download card event");
-    const artifactEvent = artifactEvents[0];
+    assert.equal(artifactEvents.length, 2, "each approval should publish exactly one download card");
+    const artifactEvent = artifactEvents.find(event => event.id === artifact.download_card_event_id);
     assert(artifactEvent);
     assert.equal(artifact.file_id, artifactFile.id);
     assert.equal(artifactFile.turnId, completed.turn_id);
@@ -717,8 +763,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(artifactAudit);
     const artifactHistory = (await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 100 })).items
       .filter(event => event.event_type === "conversation.artifact.created");
-    assert.equal(artifactHistory.length, 1, "the projected history published more than one artifact event");
-    assert.equal(artifactHistory[0]?.id, artifact.download_card_event_id);
+    assert.deepEqual(artifactHistory.map(event => event.id), [artifact.download_card_event_id, website.download_card_event_id]);
     for (const localRoot of [scratch, dataRoot, nativeRoot]) {
       assert(!artifactFile.minioObjectKey?.includes(localRoot), "the artifact object key leaked a local path");
       assert(!JSON.stringify(artifactEvent.payloadJson).includes(localRoot), "the artifact event leaked a local path");
@@ -732,6 +777,23 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.equal(download.sizeBytes, artifactSizeBytes);
     assert.equal(await checksum(download.data), artifactChecksum,
       "the authenticated artifact download did not return the native file bytes");
+    const websiteEntry = await input.files.readArtifactDownload(ownerId, read.id, website.file_id, {});
+    assert.equal(websiteEntry.mimeType, "text/html");
+    assert.equal(await checksum(websiteEntry.data), createHash("sha256").update(websiteHtml).digest("hex"));
+    await assert.rejects(input.htmlPreviews.open(input.otherOwnerId, read.id, website.file_id),
+      { code: "WEB_SITE_SOURCE_UNAVAILABLE" });
+    const preview = await input.htmlPreviews.open(ownerId, read.id, website.file_id);
+    assert.deepEqual(preview.missing_resources, []);
+    assert.match(preview.html, /href="\.\/assets\/theme\.css"/u);
+    assert.equal((await input.htmlPreviews.resource(preview.session_id, "assets/theme.css")).data.toString(), websiteCss);
+    const publishedWebsite = await input.websites.create(ownerId, {
+      conversation_id: read.id, file_id: website.file_id, name: "Packaged Mac site",
+      description: "", slug: `mac-${randomUUID()}`,
+    });
+    assert.equal(publishedWebsite.file_count, websiteAssets.length);
+    assert.match((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "index.html")).data.toString(),
+      /href="\.\/assets\/theme\.css"/u);
+    assert.equal((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "assets/theme.css")).data.toString(), websiteCss);
 
     const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
       submission(interruptApprovalPrompt, "desktop-interrupt-approval"), {});
@@ -780,8 +842,11 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled 100 MiB retry read by native Codex, scoped tools, approvals, native artifact registration and authenticated download, interruption, and start idempotency.");
-    return { id: artifact.file_id, turnId: completed.turn_id, sizeBytes: download.sizeBytes };
+    console.log(`Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled ${attachmentMiB} MiB retry read by native Codex, scoped tools, approvals, native artifact registration and authenticated download, interruption, and start idempotency.`);
+    return {
+      id: artifact.file_id, turnId: completed.turn_id, sizeBytes: download.sizeBytes,
+      websiteArtifactId: website.file_id, websiteAssets,
+    };
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();

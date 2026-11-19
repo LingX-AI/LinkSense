@@ -12,6 +12,7 @@ const minio = vi.hoisted(() => ({
   putObject: vi.fn(),
   presignedGetObject: vi.fn(),
   getObject: vi.fn(),
+  removeObjects: vi.fn(),
   newPostPolicy: vi.fn(),
   presignedPostPolicy: vi.fn(),
   constructorOptions: [] as unknown[],
@@ -28,6 +29,7 @@ vi.mock("minio", () => ({
     putObject = minio.putObject
     presignedGetObject = minio.presignedGetObject
     getObject = minio.getObject
+    removeObjects = minio.removeObjects
     newPostPolicy = minio.newPostPolicy
     presignedPostPolicy = minio.presignedPostPolicy
   },
@@ -74,6 +76,7 @@ describe("MinioObjectStorage deployment boundary", () => {
     minio.putObject.mockReset()
     minio.presignedGetObject.mockReset()
     minio.getObject.mockReset()
+    minio.removeObjects.mockReset()
     minio.newPostPolicy.mockReset()
     minio.presignedPostPolicy.mockReset()
     minio.constructorOptions.length = 0
@@ -326,6 +329,21 @@ describe("MinioObjectStorage deployment boundary", () => {
       storage.getObjectStream("desktop-artifacts/example.zip", AbortSignal.abort()),
     ).rejects.toMatchObject({ name: "AbortError" })
     expect(minio.getObject).not.toHaveBeenCalled()
+  })
+
+  it("surfaces a partial batch delete failure and permits a retry of the exact keys", async () => {
+    const keys = ["artifacts/report/index.html", "artifacts/report/style.css"]
+    minio.removeObjects
+      .mockResolvedValueOnce([{ Code: "AccessDenied", Key: keys[1] }])
+      .mockResolvedValueOnce([])
+    const storage = new MinioObjectStorage(testConfig())
+
+    await expect(storage.removeObjects(keys, AbortSignal.timeout(1_000)))
+      .rejects.toThrow("OBJECT_STORAGE_BATCH_DELETE_FAILED")
+    await expect(storage.removeObjects(keys, AbortSignal.timeout(1_000))).resolves.toBeUndefined()
+    expect(minio.removeObjects.mock.calls).toEqual([
+      ["linksense-files", keys], ["linksense-files", keys],
+    ])
   })
 
   it("binds POST policies to the exact key, size, type, and expiry", async () => {

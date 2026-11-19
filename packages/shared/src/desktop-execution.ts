@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenSchema } from "./desktop-device.js";
-import { desktopArtifactPrepareSchema, desktopArtifactSingleGrantSchema, desktopArtifactUploadGrantSchema } from "./desktop-artifacts.js";
+import { desktopArtifactPrepareSchema, desktopArtifactSingleGrantSchema, desktopArtifactUploadGrantSchema, desktopWebsiteArtifactPrepareSchema } from "./desktop-artifacts.js";
 import { connectionFailureCodeSchema } from "./connections.js";
 import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
 import { conversationUserInputResponseSchema } from "./conversation-forms.js";
@@ -67,12 +67,12 @@ const desktopAttachmentManifestSchema = z.array(desktopAttachmentSchema).min(1).
 );
 export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
-export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart"]);
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
 export const supportsDesktopUserInput = (operations: readonly DesktopToolOperation[]): boolean =>
   operations.includes("browser.execute") || operations.includes("artifact.prepare");
 export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
-  if (operation === "artifact.prepare" || operation === "artifact.multipart") return 10_000;
+  if (operation === "artifact.prepare" || operation === "artifact.multipart" || operation === "artifact.website") return 10_000;
   if (operation === "connection.execute") return 58_000;
   if (operation === "browser.execute") return 34_000;
   return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
@@ -224,6 +224,7 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("browser.execute"), body: browserUseRequestSchema }),
   request.extend({ operation: z.literal("artifact.prepare"), body: desktopArtifactPrepareSchema }),
   request.extend({ operation: z.literal("artifact.multipart"), body: desktopArtifactPrepareSchema }),
+  request.extend({ operation: z.literal("artifact.website"), body: desktopWebsiteArtifactPrepareSchema }),
 ]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
@@ -274,6 +275,7 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("browser.execute"), data: desktopBrowserUseResultSchema }),
   toolResult.extend({ operation: z.literal("artifact.prepare"), data: desktopArtifactSingleGrantSchema }),
   toolResult.extend({ operation: z.literal("artifact.multipart"), data: desktopArtifactUploadGrantSchema }),
+  toolResult.extend({ operation: z.literal("artifact.website"), data: desktopArtifactUploadGrantSchema }),
   toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([

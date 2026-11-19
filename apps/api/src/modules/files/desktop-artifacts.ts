@@ -1,19 +1,24 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtempDisposable } from "node:fs/promises";
+import { mkdir, mkdtempDisposable, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { addAbortSignal, Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   desktopArtifactMaxParts, desktopArtifactPartBytes, desktopArtifactPrepareSchema,
   desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema,
+  desktopWebsiteArtifactPrepareSchema, webBundleArchiveMaxBytes, webBundleLimits, webBundlePathSchema, webBundleResourcePathSchema,
   desktopArtifactUploadLifetimeMs, type DesktopArtifactPrepare, type DesktopArtifactReceipt, type DesktopArtifactUploadGrant,
+  type DesktopWebsiteArtifactPrepare, type WebBundleManifest,
 } from "@linksense/shared";
 import { z } from "zod";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import type { Prisma } from "../../generated/prisma/client.js";
+import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
+import { DEFAULT_CAPABILITY_PACKAGE_LIMITS, extractZipSecurely } from "../capabilities/importer.js";
 import { desktopRunScopeSchema, type DesktopRunScope } from "../desktop-credentials/run-leases.js";
+import { captureWebBundle } from "../web-sites/bundle.js";
 import {
   resolveVerifiedArtifactMetadata, type FileService,
 } from "./service.js";
@@ -23,11 +28,12 @@ import {
 } from "./desktop-artifact-storage.js";
 
 const storedGrantSchema = z.strictObject({
-  scope: desktopRunScopeSchema, metadata: desktopArtifactPrepareSchema,
+  scope: desktopRunScopeSchema, metadata: z.union([desktopArtifactPrepareSchema, desktopWebsiteArtifactPrepareSchema]),
   artifactId: z.uuid(), expiresAt: z.number().int().positive(),
   partCount: z.number().int().min(1).max(desktopArtifactMaxParts).optional(),
 });
 type StoredGrant = z.infer<typeof storedGrantSchema>;
+type ArtifactIntegrity = Pick<DesktopArtifactPrepare, "size_bytes" | "sha256">;
 type Check = () => Promise<void>;
 type Fence = (tx: Prisma.TransactionClient) => Promise<void>;
 type DesktopArtifactOptions = {
@@ -37,13 +43,15 @@ type DesktopArtifactOptions = {
     set(key: string, value: string, mode: "PX", ttl: number, when: "NX"): Promise<"OK" | null>;
     eval(script: string, count: 1, key: string, value: string): Promise<unknown>;
   };
-  storage: Pick<ObjectStorage, "getObjectStream" | "putObjectStream" | "hasPrefixExpiry" | "presignedPostObject" | "composeObject">;
+  storage: Pick<ObjectStorage, "getObjectStream" | "putObject" | "putObjectStream" | "hasPrefixExpiry" | "presignedPostObject" | "composeObject">;
   maximumBytes: number;
   scratchRoot: string;
   scheduleCleanup: (conversationId: string, artifactId: string, expiresAt: number, partCount?: number) => Promise<void>;
+  scheduleWebsiteCleanup: (conversationId: string, artifactId: string, paths: string[], expiresAt: number) => Promise<void>;
   reserveTransfer?: () => Promise<() => Promise<void>>;
   running: (scope: DesktopRunScope) => Promise<boolean>;
-  exists: (conversationId: string, artifactId: string) => Promise<boolean>;
+  committed: (scope: DesktopRunScope, artifactId: string, website: boolean) =>
+    Promise<(ArtifactIntegrity & { webBundle?: WebBundleManifest }) | null>;
   register: FileService["registerVerifiedDesktopArtifact"];
 };
 
@@ -55,8 +63,8 @@ const unavailable = () => new AppError("RUNNER_UNAVAILABLE");
 export class DesktopArtifacts {
   constructor(private readonly options: DesktopArtifactOptions) {}
 
-  async prepare(scope: DesktopRunScope, input: DesktopArtifactPrepare, signal: AbortSignal, check: Check, allowParts = false): Promise<DesktopArtifactUploadGrant> {
-    const metadata = desktopArtifactPrepareSchema.parse(input);
+  async prepare(scope: DesktopRunScope, input: DesktopArtifactPrepare | DesktopWebsiteArtifactPrepare, signal: AbortSignal, check: Check, allowParts = false): Promise<DesktopArtifactUploadGrant> {
+    const metadata = "entry_path" in input ? desktopWebsiteArtifactPrepareSchema.parse(input) : desktopArtifactPrepareSchema.parse(input);
     const multipart = metadata.size_bytes > this.options.maximumBytes;
     if (multipart && (!allowParts || !this.options.storage.presignedPostObject || !this.options.storage.composeObject)) {
       throw new AppError("FILE_LIMIT_EXCEEDED");
@@ -116,7 +124,7 @@ export class DesktopArtifacts {
     await this.withGrant(scope, artifactId, signal, check, async (stored, lifetime, authorize) => {
       if (stored.partCount) throw new AppError("FORBIDDEN");
       if (contentLength !== stored.metadata.size_bytes) throw invalid();
-      if (await this.options.exists(scope.conversationId, artifactId)) throw new AppError("CONFLICT");
+      if (await this.options.committed(scope, artifactId, false)) throw new AppError("CONFLICT");
       await authorize();
       await this.writeObject(desktopArtifactStagingKey(artifactId), stream, contentLength, "application/octet-stream", lifetime);
       await authorize();
@@ -124,9 +132,11 @@ export class DesktopArtifacts {
   }
 
   async confirm(scope: DesktopRunScope, artifactId: string, signal: AbortSignal, check: Check, fence: Fence): Promise<DesktopArtifactReceipt> {
-    return this.withGrant(scope, artifactId, signal, check, async ({ metadata, partCount }, lifetime, authorize) => {
+    return this.withGrant(scope, artifactId, signal, check, async ({ metadata, partCount, expiresAt }, lifetime, authorize) => {
       const objectKey = desktopArtifactObjectKey(scope.conversationId, artifactId);
-      const committed = await this.options.exists(scope.conversationId, artifactId);
+      const entryPath = "entry_path" in metadata ? metadata.entry_path : undefined;
+      const committed = await this.options.committed(scope, artifactId, entryPath !== undefined);
+      if (entryPath && committed && committed.webBundle?.entry_path !== entryPath) throw new AppError("CONFLICT");
       // Verify the immutable final object on replay; a presigned form can still replace staging before it expires.
       const sourceKey = committed ? objectKey : desktopArtifactStagingKey(artifactId);
       if (partCount && !committed) {
@@ -139,21 +149,63 @@ export class DesktopArtifacts {
       const scratch = desktopArtifactScratchPath(this.options.scratchRoot, artifactId);
       await mkdir(scratch, { recursive: true, mode: 0o700 });
       await using directory = await mkdtempDisposable(join(scratch, "verify-"));
-      const filename = join(directory.path, "content");
-      await this.verifyObject(sourceKey, filename, metadata, lifetime);
+      const workDir = await realpath(directory.path);
+      const archive = join(workDir, "content");
+      const integrity = entryPath && committed ? committed : metadata;
+      await this.verifyObject(sourceKey, archive, integrity, lifetime);
+      let filename = archive;
+      let { size_bytes: sizeBytes, sha256: checksum } = integrity;
+      let webBundle = committed?.webBundle;
+      let entryData: Buffer | undefined;
+      if (entryPath && !committed) {
+        const bundleDir = join(workDir, "website");
+        filename = join(bundleDir, entryPath);
+        try {
+          await extractZipSecurely(await readFile(archive, { signal: lifetime }), bundleDir, {
+            ...DEFAULT_CAPABILITY_PACKAGE_LIMITS,
+            archiveBytes: webBundleArchiveMaxBytes, entryCount: webBundleLimits.files,
+            entryBytes: webBundleLimits.fileBytes, totalExpandedBytes: webBundleLimits.totalBytes,
+          }, {
+            signal: lifetime,
+            allowPath: (path, directory) =>
+              path.split("/").length <= webBundleLimits.depth + (directory ? 0 : 1) &&
+              (directory ? webBundlePathSchema : webBundleResourcePathSchema).safeParse(path).success,
+          });
+          entryData = await readFile(filename, { signal: lifetime });
+        } catch {
+          lifetime.throwIfAborted();
+          throw new AppError("WEB_SITE_BUNDLE_INVALID");
+        }
+        sizeBytes = entryData.byteLength;
+        checksum = sha256(entryData);
+      }
       const media = await resolveVerifiedArtifactMetadata({
-        verifiedPath: filename, filename: metadata.filename, displayName: metadata.display_name,
-        ...(metadata.mime_type && { reportedMimeType: metadata.mime_type }), signal: lifetime,
+        verifiedPath: filename, filename: entryPath ?? metadata.filename, displayName: metadata.display_name,
+        ...(!entryPath && metadata.mime_type && { reportedMimeType: metadata.mime_type }), signal: lifetime,
       }).catch(() => { throw invalid(); });
+      if (entryPath && (media.mimeType !== "text/html" || !/\.html?$/iu.test(media.filename) || sizeBytes < 1)) {
+        throw new AppError("WEB_SITE_BUNDLE_INVALID");
+      }
+      if (entryData) {
+        webBundle = await captureWebBundle({
+          workspaceRoot: workDir, directory: "website", entry: filename, entryData,
+          fileId: artifactId, storage: this.options.storage, signal: lifetime,
+          beforeWrite: async manifest => {
+            await this.options.scheduleWebsiteCleanup(scope.conversationId, artifactId, manifest.files.map(file => file.path), expiresAt);
+            await authorize();
+          },
+        });
+      }
       await authorize();
       if (!committed) {
-        await this.writeObject(objectKey, createReadStream(filename), metadata.size_bytes, media.mimeType, lifetime);
+        await this.writeObject(objectKey, createReadStream(filename), sizeBytes, media.mimeType, lifetime);
       }
       await authorize();
       const receipt = desktopArtifactReceiptSchema.parse(await this.options.register({
         ownerId: scope.ownerId, conversationId: scope.conversationId, projectionTurnId: scope.turnId,
-        artifactId, displayName: media.filename, mimeType: media.mimeType, sizeBytes: metadata.size_bytes, sha256: metadata.sha256,
+        artifactId, displayName: media.filename, mimeType: media.mimeType, sizeBytes, sha256: checksum,
         ...(partCount && { multipart: true }),
+        ...(webBundle && { webBundle }),
       }, async tx => {
         await fence(tx);
         lifetime.throwIfAborted();
@@ -203,7 +255,8 @@ export class DesktopArtifacts {
       await authorize();
       return await work(parsed.data, lifetime, authorize);
     } catch (error) {
-      if (error instanceof AppError && error.code === "ARTIFACT_REGISTRATION_INVALID" && await this.unlock(key, raw)) {
+      if (error instanceof AppError && ["ARTIFACT_REGISTRATION_INVALID", "WEB_SITE_BUNDLE_INVALID", "WEB_SITE_RESOURCES_MISSING"].includes(error.code) &&
+          await this.unlock(key, raw)) {
         await this.unlock(pendingKey(scope.turnId), artifactId);
       }
       throw error instanceof AppError ? error : unavailable();
@@ -222,7 +275,7 @@ export class DesktopArtifacts {
     signal.throwIfAborted();
   }
 
-  private async verifyObject(key: string, filename: string, metadata: DesktopArtifactPrepare, signal: AbortSignal): Promise<void> {
+  private async verifyObject(key: string, filename: string, metadata: ArtifactIntegrity, signal: AbortSignal): Promise<void> {
     const hash = createHash("sha256");
     let size = 0;
     const verify = new Transform({

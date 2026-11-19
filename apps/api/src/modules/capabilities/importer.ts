@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { promises as dns } from "node:dns";
+import { createWriteStream } from "node:fs";
 import {
   copyFile,
   lstat,
@@ -20,6 +21,8 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import {
   capabilityPackageNameSchema,
@@ -27,7 +30,7 @@ import {
   type SkillEditInput,
 } from "@linksense/shared";
 import { stringify } from "yaml";
-import { Open } from "unzipper";
+import { fromBufferPromise, type Entry, type ZipFile } from "yauzl";
 
 import { AppError } from "../../lib/errors.js";
 import { readSkillDisplayName } from "./skill-interface.js";
@@ -414,87 +417,122 @@ export async function extractZipSecurely(
   archive: Buffer,
   destination: string,
   limits: CapabilityPackageLimits = DEFAULT_CAPABILITY_PACKAGE_LIMITS,
+  options: {
+    signal?: AbortSignal;
+    allowPath?: (path: string, directory: boolean) => boolean;
+  } = {},
 ): Promise<void> {
+  options.signal?.throwIfAborted();
   if (archive.byteLength === 0 || archive.byteLength > limits.archiveBytes) {
     throw invalidPackage("archiveSizeInvalid", {
       size_bytes: archive.byteLength,
       limit_bytes: limits.archiveBytes,
     });
   }
-  let opened: Awaited<ReturnType<typeof Open.buffer>>;
+  let opened: ZipFile;
   try {
-    opened = await Open.buffer(archive);
+    // Keep the importer's UTF-8 path normalization and size error codes.
+    opened = await fromBufferPromise(archive, { decodeStrings: false, validateEntrySizes: false });
   } catch {
+    options.signal?.throwIfAborted();
     throw invalidPackage("archiveUnreadable");
   }
-  if (opened.files.length === 0 || opened.files.length > limits.entryCount) {
-    throw invalidPackage("archiveEntryCountInvalid", {
-      entry_count: opened.files.length,
-      limit_count: limits.entryCount,
-    });
-  }
-
-  let expandedBytes = 0;
-  const root = resolve(destination);
-  const normalizedPaths = new Set<string>();
-  for (const entry of opened.files) {
-    const safeRelativePath = validateArchivePath(entry.path, {
-      allowBackslash: true,
-    });
-    const portablePath = safeRelativePath.replaceAll(sep, "/");
-    if (normalizedPaths.has(portablePath)) {
-      throw invalidPackage("archivePathInvalid", { path: entry.path });
-    }
-    normalizedPaths.add(portablePath);
-    if (
-      (entry.flags & 0x1) !== 0 ||
-      isZipSymlink(entry.externalFileAttributes)
-    ) {
-      throw invalidPackage("archiveEntrySymlink", { path: entry.path });
-    }
-    if (entry.uncompressedSize > limits.entryBytes) {
-      throw invalidPackage("archiveEntryTooLarge", {
-        path: entry.path,
-        size_bytes: entry.uncompressedSize,
-        limit_bytes: limits.entryBytes,
-      });
-    }
-    if (
-      entry.uncompressedSize > 0 &&
-      (entry.compressedSize === 0 ||
-        entry.uncompressedSize / entry.compressedSize > limits.compressionRatio)
-    ) {
-      throw invalidPackage("archiveCompressionRatioExceeded", {
-        path: entry.path,
-      });
-    }
-    expandedBytes += entry.uncompressedSize;
-    if (expandedBytes > limits.totalExpandedBytes) {
-      throw invalidPackage("archiveExpandedSizeExceeded", {
-        size_bytes: expandedBytes,
-        limit_bytes: limits.totalExpandedBytes,
+  try {
+    options.signal?.throwIfAborted();
+    if (opened.entryCount === 0 || opened.entryCount > limits.entryCount) {
+      throw invalidPackage("archiveEntryCountInvalid", {
+        entry_count: opened.entryCount,
+        limit_count: limits.entryCount,
       });
     }
 
-    const target = resolve(root, safeRelativePath);
-    assertPathWithin(root, target);
-    if (
-      entry.type === "Directory" ||
-      isArchiveDirectoryPath(entry.path, { allowBackslash: true })
-    ) {
-      if (entry.uncompressedSize !== 0) {
-        throw invalidPackage("archivePathInvalid", { path: entry.path });
+    let expandedBytes = 0;
+    const root = resolve(destination);
+    const normalizedPaths = new Set<string>();
+    const entries: Array<{ entry: Entry; path: string; target: string; directory: boolean }> = [];
+    try {
+      for await (const entry of opened.eachEntry()) {
+        options.signal?.throwIfAborted();
+        const path = entry.fileNameRaw.toString("utf8");
+        const safeRelativePath = validateArchivePath(path, { allowBackslash: true });
+        const portablePath = safeRelativePath.replaceAll(sep, "/");
+        const directory = isArchiveDirectoryPath(path, { allowBackslash: true });
+        const policyPath = directory && path.endsWith("/") ? path.slice(0, -1) : path;
+        if (normalizedPaths.has(portablePath) || options.allowPath?.(policyPath, directory) === false) {
+          throw invalidPackage("archivePathInvalid", { path });
+        }
+        normalizedPaths.add(portablePath);
+        if ((entry.generalPurposeBitFlag & 0x1) !== 0 || isZipSymlink(entry.externalFileAttributes)) {
+          throw invalidPackage("archiveEntrySymlink", { path });
+        }
+        if (entry.uncompressedSize > limits.entryBytes) {
+          throw invalidPackage("archiveEntryTooLarge", {
+            path, size_bytes: entry.uncompressedSize, limit_bytes: limits.entryBytes,
+          });
+        }
+        if (entry.uncompressedSize > 0 &&
+            (entry.compressedSize === 0 || entry.uncompressedSize / entry.compressedSize > limits.compressionRatio)) {
+          throw invalidPackage("archiveCompressionRatioExceeded", { path });
+        }
+        expandedBytes += entry.uncompressedSize;
+        if (expandedBytes > limits.totalExpandedBytes) {
+          throw invalidPackage("archiveExpandedSizeExceeded", {
+            size_bytes: expandedBytes, limit_bytes: limits.totalExpandedBytes,
+          });
+        }
+        if (directory && entry.uncompressedSize !== 0) {
+          throw invalidPackage("archivePathInvalid", { path });
+        }
+        const target = resolve(root, safeRelativePath);
+        assertPathWithin(root, target);
+        entries.push({ entry, path, target, directory });
       }
-      await mkdir(target, { recursive: true, mode: 0o700 });
-      continue;
+    } catch (error) {
+      options.signal?.throwIfAborted();
+      if (error instanceof AppError) throw error;
+      throw invalidPackage("archiveUnreadable");
     }
+    for (const { entry, path, target, directory } of entries) {
+      options.signal?.throwIfAborted();
+      await mkdir(directory ? target : resolve(target, ".."), { recursive: true, mode: 0o700 });
+      if (!directory) await extractZipEntryToFile(opened, entry, path, target, options.signal);
+    }
+  } finally {
+    opened.close();
+  }
+}
 
-    const bytes = await entry.buffer();
-    if (bytes.byteLength !== entry.uncompressedSize) {
-      throw invalidPackage("archiveEntryReadFailed", { path: entry.path });
-    }
-    await mkdir(resolve(target, ".."), { recursive: true, mode: 0o700 });
-    await writeFile(target, bytes, { mode: 0o600, flag: "wx" });
+async function extractZipEntryToFile(
+  opened: ZipFile,
+  entry: Entry,
+  path: string,
+  target: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const declaredBytes = entry.uncompressedSize;
+  let writtenBytes = 0;
+  // Reject the crossing chunk before any byte beyond the declared size reaches disk.
+  const enforceDeclaredBytes = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      writtenBytes += chunk.byteLength;
+      if (writtenBytes > declaredBytes) {
+        callback(
+          invalidPackage("archiveEntryReadFailed", { path }),
+        );
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  await pipeline(
+    await opened.openReadStreamPromise(entry),
+    enforceDeclaredBytes,
+    createWriteStream(target, { mode: 0o600, flags: "wx" }),
+    { signal },
+  );
+  if (writtenBytes !== declaredBytes) {
+    throw invalidPackage("archiveEntryReadFailed", { path });
   }
 }
 

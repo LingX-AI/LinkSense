@@ -122,10 +122,20 @@ export type WebSiteToolRequest = z.infer<typeof webSiteToolRequestSchema>;
 export type WebSiteWithUrl = z.infer<typeof webSiteWithUrlSchema>;
 export type WebSiteToolPage = z.infer<typeof webSiteToolPageSchema>;
 
-export const webBundleLimits = { files: 500, fileBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024 } as const;
+export const webBundleLimits = {
+  files: 500, entries: 1_000, depth: 20, fileBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024,
+} as const;
 export const webBundlePathSchema = z.string().min(1).max(1_000).refine(value =>
   !value.startsWith("/") && !value.includes("\\") && !/[\u0000-\u001f\u007f?#%]/u.test(value) &&
   value.split("/").every(part => part.length > 0 && !part.startsWith(".") && part !== "node_modules"),
+);
+const webBundleResourceExtensions = new Set([
+  ".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg", ".png", ".jpg", ".jpeg", ".gif",
+  ".webp", ".avif", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".webm",
+  ".ogg", ".wav", ".wasm", ".txt", ".csv", ".pdf",
+]);
+export const webBundleResourcePathSchema = webBundlePathSchema.refine(path =>
+  webBundleResourceExtensions.has(path.slice(path.lastIndexOf(".")).toLowerCase()),
 );
 export const webBundleManifestSchema = z.strictObject({
   entry_path: webBundlePathSchema,

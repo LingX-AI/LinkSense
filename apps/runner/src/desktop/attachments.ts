@@ -165,7 +165,9 @@ async function verifyOptionalDirectory(root: string, directory: string): Promise
   })
 }
 
-export async function verifyDirectory(root: string, directory: string): Promise<{ path: string; check: () => Promise<void> }> {
+export async function verifyDirectory(
+  root: string, directory: string, { requirePrivate = true }: { requirePrivate?: boolean } = {},
+): Promise<{ path: string; check: () => Promise<void> }> {
   const canonicalRoot = await realpath(root)
   const relative = path.relative(root, directory)
   if (!relative || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
@@ -174,7 +176,7 @@ export async function verifyDirectory(root: string, directory: string): Promise<
   const canonical = path.resolve(canonicalRoot, relative)
   const read = async () => {
     const info = await lstat(directory)
-    if (!info.isDirectory() || await realpath(directory) !== canonical || (info.mode & 0o007) !== 0) {
+    if (!info.isDirectory() || await realpath(directory) !== canonical || (requirePrivate && (info.mode & 0o007) !== 0)) {
       throw new DesktopAttachmentError()
     }
     return info

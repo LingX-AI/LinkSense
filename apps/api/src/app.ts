@@ -719,6 +719,7 @@ export async function buildApi(
       connectionTools: true,
       browserTools: config.desktopBrowserUseEnabled,
       artifactTools: config.desktopArtifactsEnabled,
+      websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

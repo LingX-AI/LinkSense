@@ -1,4 +1,4 @@
-import { DESKTOP_MODEL_PROXY_PATH, desktopArtifactMaxBytes, supportsDesktopUserInput, type DesktopExecutionCommand } from "@linksense/shared";
+import { DESKTOP_MODEL_PROXY_PATH, desktopArtifactMaxBytes, supportsDesktopUserInput, webBundleManifestSchema, type DesktopExecutionCommand } from "@linksense/shared";
 import type { FastifyInstance } from "fastify";
 import { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { DesktopRunner } from "../../adapters/desktop-runner.js";
@@ -22,7 +22,7 @@ type ExecutionServices = Pick<AppServices,
   "config" | "redis" | "prisma" | "runner" | "conversations" | "events" |
   "modelProviderSettings" | "creditLimits" | "privacyMaskingSettings" | "webSearchSettings" | "audit" | "knowledgeSearch"
   | "storage"
-> & { files: Pick<AppServices["files"], "registerVerifiedDesktopArtifact">; jobs: Pick<AppServices["jobs"], "enqueueDesktopArtifactCleanup"> };
+> & { files: Pick<AppServices["files"], "registerVerifiedDesktopArtifact">; jobs: Pick<AppServices["jobs"], "enqueueDesktopArtifactCleanup" | "enqueueDesktopWebsiteCleanup"> };
 
 export async function registerDesktopExecution(
   app: FastifyInstance,
@@ -44,9 +44,22 @@ export async function registerDesktopExecution(
     maximumBytes: Math.min(config.upload.maxFileSizeBytes, desktopArtifactMaxBytes),
     scratchRoot: config.capabilityRoot,
     running: scope => canPublishArtifact(prisma, scope),
-    exists: async (conversationId, artifactId) => Boolean(await prisma.conversationFile.count({
-      where: { id: artifactId, conversationId, kind: "artifact", status: "registered" },
-    })),
+    committed: async ({ ownerId, conversationId, turnId }, artifactId, website) => {
+      const file = await prisma.conversationFile.findFirst({
+        where: { id: artifactId, conversationId, turnId, kind: "artifact", status: "registered" },
+        select: { sizeBytes: true, checksumSha256: true },
+      });
+      if (!file) return null;
+      const snapshot = website ? await prisma.webArtifactBundle.findFirst({
+        where: { fileId: artifactId, ownerId, conversationId },
+        select: { manifestJson: true },
+      }) : null;
+      const manifest = webBundleManifestSchema.safeParse(snapshot?.manifestJson);
+      return {
+        size_bytes: Number(file.sizeBytes), sha256: file.checksumSha256 ?? "",
+        ...(manifest.success && { webBundle: manifest.data }),
+      };
+    },
     register: (input, fence) => services.files.registerVerifiedDesktopArtifact(input, fence),
     reserveTransfer: () => reserveDesktopArtifactSlot(redis.client),
     scheduleCleanup: async (conversationId, artifactId, expiresAt, partCount) => {
@@ -54,6 +67,8 @@ export async function registerDesktopExecution(
       const delay = Math.max(0, expiresAt - Date.now()) + 5 * 60_000;
       await services.jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, delay, partCount);
     },
+    scheduleWebsiteCleanup: (conversationId, artifactId, paths, expiresAt) =>
+      services.jobs.enqueueDesktopWebsiteCleanup(conversationId, artifactId, paths, Math.max(0, expiresAt - Date.now()) + 5 * 60_000),
   }) : undefined;
   const turnScope = (frame: Pick<DesktopExecutionCommand, "conversation_id" | "turn_id" | "runtime_generation">) => ({
     conversationId: frame.conversation_id,

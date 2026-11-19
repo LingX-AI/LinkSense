@@ -4,9 +4,11 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import {
   desktopExecutionAckSchema,
+  webBundleLimits,
   type DesktopArtifactUploadGrant,
   type DesktopToolOperation,
 } from "@linksense/shared"
+import JSZip from "jszip"
 import pino from "pino"
 import { afterEach, expect, it, onTestFinished, vi } from "vitest"
 
@@ -73,13 +75,17 @@ async function artifactFixture(operations: readonly DesktopToolOperation[] = ["a
   await writeFile(file, bytes)
 
   const stop = new AbortController()
-  const pinned = operations.includes("artifact.prepare") ? await verifyDirectory(root, workspace) : undefined
+  const pinned = operations.includes("artifact.prepare") || operations.includes("artifact.website")
+    ? await verifyDirectory(root, workspace) : undefined
   const timer = setTimeout(() => {}, 60_000)
   timer.unref()
   const run: DesktopRuntimeRun = {
     scope, token: `lsdr_${"a".repeat(43)}`, expiresAt: Date.now() + 60_000, timer,
     ...(pinned && {
-      artifacts: { workspace: pinned.path, check: pinned.check, signal: stop.signal },
+      artifacts: {
+        workspace: pinned.path, check: pinned.check, signal: stop.signal,
+        website: operations.includes("artifact.website"),
+      },
     }),
   }
   vi.spyOn(turns, "scopedRun").mockReturnValue(run)
@@ -103,9 +109,11 @@ async function artifactFixture(operations: readonly DesktopToolOperation[] = ["a
     const frame = output.frame as SeenFrame | undefined
     if (!frame) return
     frames.push(frame)
-    if (frame.type === "tool.request" && frame.operation === "artifact.prepare" && typeof frame.id === "string") {
+    const operation = frame.operation
+    if (frame.type === "tool.request" && typeof frame.id === "string" &&
+        (operation === "artifact.prepare" || operation === "artifact.multipart" || operation === "artifact.website")) {
       link.receive(desktopExecutionAckSchema.parse({
-        type: "tool.result", id: frame.id, operation: "artifact.prepare", ok: true, data: grant,
+        type: "tool.result", id: frame.id, operation, ok: true, data: grant,
       }))
     }
   }
@@ -147,15 +155,45 @@ async function artifactFixture(operations: readonly DesktopToolOperation[] = ["a
 }
 
 async function drainBody(init?: RequestInit): Promise<number> {
+  return (await readBodyBytes(init)).byteLength
+}
+
+async function readBodyBytes(init?: RequestInit): Promise<Buffer> {
   const body = init?.body
-  if (!body || typeof body !== "object" || !("getReader" in body)) return 0
+  if (!body || typeof body !== "object" || !("getReader" in body)) return Buffer.alloc(0)
   const reader = (body as ReadableStream<Uint8Array>).getReader()
+  const chunks: Uint8Array[] = []
   let bytes = 0
   for (;;) {
     const { done, value } = await reader.read()
-    if (done) return bytes
+    if (done) return Buffer.concat(chunks, bytes)
+    chunks.push(value)
     bytes += value.byteLength
   }
+}
+
+/** Compression methods from the ZIP central directory; 0 is STORE. */
+function zipCentralMethods(archive: Buffer): number[] {
+  const eocd = archive.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  expect(eocd).toBeGreaterThanOrEqual(0)
+  const count = archive.readUInt16LE(eocd + 10)
+  let offset = archive.readUInt32LE(eocd + 16)
+  const methods: number[] = []
+  for (let index = 0; index < count; index++) {
+    expect(archive.readUInt32LE(offset)).toBe(0x02014b50)
+    methods.push(archive.readUInt16LE(offset + 10))
+    offset += 46 + archive.readUInt16LE(offset + 28) + archive.readUInt16LE(offset + 30) +
+      archive.readUInt16LE(offset + 32)
+  }
+  return methods
+}
+
+async function writeWebsite(workspace: string): Promise<void> {
+  const site = path.join(workspace, "artifacts", "site")
+  await mkdir(path.join(site, "assets"), { recursive: true, mode: 0o700 })
+  await chmod(site, 0o755)
+  await writeFile(path.join(site, "index.html"), '<script src="assets/main.js"></script>')
+  await writeFile(path.join(site, "assets", "main.js"), "document.title = 'ready'")
 }
 
 it("refuses a workspace alias substituted after the run was admitted", async () => {
@@ -214,6 +252,166 @@ it("rejects a website root before any file access or tool request", async () => 
   expect(fetchMock).not.toHaveBeenCalled()
 })
 
+it("uploads a negotiated website as a STORE-only archive of relative files", async () => {
+  const fixture = await artifactFixture(["artifact.prepare", "artifact.website"])
+  await writeWebsite(fixture.workspace)
+  const archives: Buffer[] = []
+  const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
+    const href = String(url)
+    if (href.endsWith("/upload")) {
+      archives.push(await readBodyBytes(init))
+      return new Response(null, { status: 200 })
+    }
+    if (href.endsWith("/confirm")) return Response.json(fixture.receipt)
+    throw new Error(`unexpected artifact request ${href}`)
+  })
+  vi.stubGlobal("fetch", fetchMock)
+
+  const response = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/site/index.html",
+    displayName: "index.html",
+    mimeType: "text/html",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual(fixture.receipt)
+
+  const archive = archives[0]
+  if (!archive) throw new Error("website upload was not captured")
+  const zip = await JSZip.loadAsync(archive)
+  expect(Object.keys(zip.files).sort()).toEqual(["assets/main.js", "index.html"])
+  expect(Object.values(zip.files).some(entry => entry.dir)).toBe(false)
+  expect(zipCentralMethods(archive)).toEqual([0, 0])
+  expect((await zip.file("index.html")?.async("nodebuffer"))?.toString("utf8"))
+    .toBe('<script src="assets/main.js"></script>')
+  expect((await zip.file("assets/main.js")?.async("nodebuffer"))?.toString("utf8"))
+    .toBe("document.title = 'ready'")
+
+  expect(fixture.frames.filter(frame => frame.type === "tool.request").map(frame => frame.operation))
+    .toEqual(["artifact.website"])
+  const prepare = fixture.frames.find(frame => frame.type === "tool.request" && frame.operation === "artifact.website")
+  expect(prepare?.body).toEqual({
+    filename: "website.zip",
+    display_name: "index.html",
+    mime_type: "application/zip",
+    size_bytes: archive.byteLength,
+    sha256: createHash("sha256").update(archive).digest("hex"),
+    entry_path: "index.html",
+  })
+  expect(JSON.stringify(fixture.frames)).not.toContain(fixture.workspace)
+  expect(Object.keys(zip.files).every(name => !name.includes("artifacts/site"))).toBe(true)
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    `${origin}/api/v1/desktop/artifacts/${fixture.scope.turn_id}/${fixture.artifactId}/upload`,
+    `${origin}/api/v1/desktop/artifacts/${fixture.scope.turn_id}/${fixture.artifactId}/confirm`,
+  ])
+})
+
+it.each([
+  { kind: "a hidden file", plant: (site: string) => writeFile(path.join(site, ".DS_Store"), "hidden") },
+  { kind: "a source file", plant: (site: string) => writeFile(path.join(site, "app.ts"), "source") },
+  { kind: "a source map", plant: (site: string) => writeFile(path.join(site, "main.js.map"), "{}") },
+  {
+    kind: "an excluded directory",
+    plant: async (site: string) => {
+      await mkdir(path.join(site, "node_modules", "pkg"), { recursive: true, mode: 0o700 })
+      await writeFile(path.join(site, "node_modules", "pkg", "index.js"), "ignored")
+    },
+  },
+])("rejects a website root containing $kind before any upload or grant", async ({ plant }) => {
+  const fixture = await artifactFixture(["artifact.prepare", "artifact.website"])
+  await writeWebsite(fixture.workspace)
+  await plant(path.join(fixture.workspace, "artifacts", "site"))
+  const fetchMock = vi.fn<typeof fetch>()
+  vi.stubGlobal("fetch", fetchMock)
+
+  const response = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/site/index.html",
+    displayName: "index.html",
+    mimeType: "text/html",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toEqual({ code: "ARTIFACT_REGISTRATION_INVALID", retryable: false })
+  expect(fixture.frames).toEqual([])
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it("refuses a symlinked website resource before any tool request", async () => {
+  const fixture = await artifactFixture(["artifact.prepare", "artifact.website"])
+  await writeWebsite(fixture.workspace)
+  await symlink(path.join(fixture.workspace, "artifacts", "report.txt"),
+    path.join(fixture.workspace, "artifacts", "site", "assets", "leak.txt"))
+  const fetchMock = vi.fn<typeof fetch>()
+  vi.stubGlobal("fetch", fetchMock)
+
+  const response = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/site/index.html",
+    displayName: "index.html",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(response.status).toBe(403)
+  expect(await response.json()).toEqual({ code: "FILE_SERVICE_FORBIDDEN", retryable: false })
+  expect(fixture.frames).toEqual([])
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it("bounds the website walk by directory depth", async () => {
+  const fixture = await artifactFixture(["artifact.prepare", "artifact.website"])
+  await writeWebsite(fixture.workspace)
+  let directory = path.join(fixture.workspace, "artifacts", "site")
+  for (let depth = 0; depth <= webBundleLimits.depth; depth++) {
+    directory = path.join(directory, `d${depth}`)
+    await mkdir(directory, { mode: 0o700 })
+  }
+  const fetchMock = vi.fn<typeof fetch>()
+  vi.stubGlobal("fetch", fetchMock)
+
+  const response = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/site/index.html",
+    displayName: "index.html",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(response.status).toBe(413)
+  expect(await response.json()).toEqual({ code: "FILE_LIMIT_EXCEEDED", retryable: false })
+  expect(fixture.frames).toEqual([])
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it("rejects a website entry outside its dedicated root or without an HTML extension", async () => {
+  const fixture = await artifactFixture(["artifact.prepare", "artifact.website"])
+  await writeWebsite(fixture.workspace)
+  await writeFile(path.join(fixture.workspace, "artifacts", "other.html"), "<p>outside</p>")
+  const fetchMock = vi.fn<typeof fetch>()
+  vi.stubGlobal("fetch", fetchMock)
+
+  const outside = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/other.html",
+    displayName: "other.html",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(outside.status).toBe(400)
+  const notHtml = await fixture.request({
+    conversationId: fixture.scope.conversation_id,
+    turnId: fixture.scope.turn_id,
+    workspaceRelativePath: "artifacts/site/assets/main.js",
+    displayName: "main.js",
+    webRootRelativePath: "artifacts/site",
+  })
+  expect(notHtml.status).toBe(400)
+  expect(fixture.frames).toEqual([])
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
 it("refuses artifact registration when the link did not negotiate artifact.prepare", async () => {
   const fixture = await artifactFixture([])
   const fetchMock = vi.fn<typeof fetch>()
@@ -241,8 +439,12 @@ it("binds the callback to the exact conversation, turn and worker bearer", async
   expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it.each(["link close", "stop"] as const)("aborts an in-flight upload on %s without replaying it", async reason => {
-  const fixture = await artifactFixture()
+it.each([
+  { reason: "link close", website: false }, { reason: "stop", website: false },
+  { reason: "link close", website: true }, { reason: "stop", website: true },
+] as const)("aborts an in-flight upload on $reason without replaying it (website: $website)", async ({ reason, website }) => {
+  const fixture = await artifactFixture(website ? ["artifact.prepare", "artifact.website"] : undefined)
+  if (website) await writeWebsite(fixture.workspace)
   const started = deferred<void>()
   const fetchMock = vi.fn<typeof fetch>((_url, init) => {
     started.resolve()
@@ -255,7 +457,12 @@ it.each(["link close", "stop"] as const)("aborts an in-flight upload on %s witho
   })
   vi.stubGlobal("fetch", fetchMock)
 
-  const pending = fixture.request(fixture.body)
+  const pending = fixture.request({
+    ...fixture.body,
+    ...(website && {
+      workspaceRelativePath: "artifacts/site/index.html", webRootRelativePath: "artifacts/site", displayName: "index.html",
+    }),
+  })
   await started.promise
   if (reason === "link close") await fixture.link.close()
   else fixture.stop.abort()

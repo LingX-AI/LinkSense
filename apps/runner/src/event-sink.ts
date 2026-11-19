@@ -672,6 +672,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         workspaceRelativePath: input.workspaceRelativePath,
         displayName: input.displayName,
         ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+        ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
       },
       this.workspaceManager.ownerFor(input.conversationId),
       signal,

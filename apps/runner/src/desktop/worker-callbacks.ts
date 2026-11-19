@@ -4,7 +4,8 @@ import Fastify from "fastify"
 import {
   browserUseFailure, browserUseRequestSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
   desktopArtifactUploadLifetimeMs, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
-  desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, errorCatalog, internalKnowledgeDocumentListRequestSchema,
+  desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, desktopWebsiteArtifactPrepareSchema,
+  errorCatalog, internalKnowledgeDocumentListRequestSchema,
   internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
   runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
   type DesktopToolResult,
@@ -17,6 +18,7 @@ import { openDesktopArtifactSource, type DesktopArtifactSource } from "./artifac
 import { uploadDesktopArtifact } from "./artifact-upload.js"
 import type { DesktopLink, DesktopToolInvocation } from "./link.js"
 import type { DesktopTurns } from "./turns.js"
+import { openDesktopWebsiteArtifactSource } from "./website-artifact.js"
 
 // Bound the whole local transfer even when a worker stops responding.
 const desktopArtifactTimeoutMs = desktopArtifactUploadLifetimeMs + 10_000
@@ -161,7 +163,7 @@ export function desktopWorkerCallbacks(
     workspaceRelativePath: z.string().min(1).max(2_000),
     displayName: z.string().min(1).max(260),
     mimeType: z.string().max(160).optional(),
-    // Accepted only so the rejection is explicit; Mac has no website snapshot.
+    // The site root is accepted only when the run negotiated artifact.website.
     webRootRelativePath: z.string().min(1).max(2_000).optional(),
   })
   app.post("/internal/file-service/register-artifact", { bodyLimit: 16_384 }, async (request, reply) => {
@@ -172,8 +174,10 @@ export function desktopWorkerCallbacks(
     if (body.conversationId !== run.scope.conversation_id || body.turnId !== run.scope.turn_id) {
       return reply.code(403).send({ code: "FILE_SERVICE_FORBIDDEN", retryable: false })
     }
-    // Reject before touching the filesystem: desktop artifacts are single files.
-    if (body.webRootRelativePath) return reply.code(400).send({ code: "ARTIFACT_REGISTRATION_INVALID", retryable: false })
+    // Keep single-file behavior for older links; a site root needs artifact.website.
+    if (body.webRootRelativePath && !run.artifacts?.website) {
+      return reply.code(400).send({ code: "ARTIFACT_REGISTRATION_INVALID", retryable: false })
+    }
     const artifacts = run.artifacts
     if (!artifacts) return reply.code(403).send({ code: "FILE_SERVICE_FORBIDDEN", retryable: false })
     try {
@@ -183,19 +187,45 @@ export function desktopWorkerCallbacks(
         ])
         let source: DesktopArtifactSource | undefined
         try {
-          source = await openDesktopArtifactSource(artifacts.workspace, body.workspaceRelativePath, desktopArtifactMaxBytes, lifetime, artifacts.check)
-          const prepared = desktopArtifactPrepareSchema.safeParse({
-            filename: path.posix.basename(body.workspaceRelativePath),
-            display_name: body.displayName,
-            ...(body.mimeType ? { mime_type: body.mimeType } : {}),
-            size_bytes: source.sizeBytes,
-            sha256: source.sha256,
-          })
-          if (!prepared.success) throw invalidArtifact()
-          const operation = artifacts.multipart ? "artifact.multipart" : "artifact.prepare"
-          const grant = await link.requestTool(run, { operation, body: prepared.data }, lifetime)
+          let invocation: DesktopToolInvocation
+          if (body.webRootRelativePath) {
+            const snapshot = await openDesktopWebsiteArtifactSource({
+              workspaceRoot: artifacts.workspace,
+              workspaceRelativePath: body.workspaceRelativePath,
+              webRootRelativePath: body.webRootRelativePath,
+              signal: lifetime,
+              checkWorkspace: artifacts.check,
+            })
+            source = snapshot.source
+            const prepared = desktopWebsiteArtifactPrepareSchema.safeParse({
+              filename: "website.zip",
+              display_name: body.displayName,
+              mime_type: "application/zip",
+              size_bytes: source.sizeBytes,
+              sha256: source.sha256,
+              entry_path: snapshot.entryPath,
+            })
+            if (!prepared.success) throw invalidArtifact()
+            invocation = { operation: "artifact.website", body: prepared.data }
+          } else {
+            source = await openDesktopArtifactSource(artifacts.workspace, body.workspaceRelativePath, desktopArtifactMaxBytes, lifetime, artifacts.check)
+            const prepared = desktopArtifactPrepareSchema.safeParse({
+              filename: path.posix.basename(body.workspaceRelativePath),
+              display_name: body.displayName,
+              ...(body.mimeType ? { mime_type: body.mimeType } : {}),
+              size_bytes: source.sizeBytes,
+              sha256: source.sha256,
+            })
+            if (!prepared.success) throw invalidArtifact()
+            invocation = {
+              operation: artifacts.multipart ? "artifact.multipart" : "artifact.prepare",
+              body: prepared.data,
+            }
+          }
+          const grant = await link.requestTool(run, invocation, lifetime)
           if (!grant.ok) throw artifactToolFailure(grant)
-          if (grant.operation !== operation) {
+          if ((grant.operation !== "artifact.prepare" && grant.operation !== "artifact.multipart" &&
+              grant.operation !== "artifact.website") || grant.operation !== invocation.operation) {
             throw new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
           }
           return await uploadDesktopArtifact({

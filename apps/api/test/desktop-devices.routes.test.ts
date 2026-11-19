@@ -4,9 +4,10 @@ import { EventEmitter, once } from "node:events";
 import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, desktopAttachmentProtocolVersion,
+  DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, DESKTOP_TOOL_OPERATIONS_HEADER,
+  DESKTOP_TOOL_PROTOCOL_HEADER, desktopAttachmentProtocolVersion,
   desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
-  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionAck,
+  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, desktopToolProtocolVersion, type DesktopExecutionAck,
   type DesktopExecutionCallback, type DesktopExecutionCommand,
 } from "@linksense/shared";
 import { DesktopCommandUncertainError, DesktopCommandUndeliveredError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
@@ -38,7 +39,10 @@ afterEach(async () => {
 });
 afterAll(async () => { await redis.close(); });
 
-async function fixture(repository = new MemoryDesktopDeviceRepository()) {
+async function fixture(
+  repository = new MemoryDesktopDeviceRepository(),
+  tools: { artifactTools?: boolean; websiteArtifacts?: boolean } = {},
+) {
   for (const id of [owner, other]) repository.owners.set(id, { status: "active", authValidAfter: new Date(0) });
   const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
   const service = new DesktopDeviceService(repository, coordinator);
@@ -64,7 +68,7 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   });
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   await registerDesktopDeviceRoutes(app, {
-    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution,
+    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution, ...tools,
   });
   await app.ready();
   return { app, service, coordinator, repository, execution, authority, recover };
@@ -95,7 +99,9 @@ function barrier() {
   return { promise, resolve: () => release() };
 }
 
-async function connect(app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false) {
+async function connect(
+  app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false, toolOffer?: string,
+) {
   const address = app.server.listening
     ? `http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`
     : await app.listen({ host: "127.0.0.1", port: 0 });
@@ -103,6 +109,10 @@ async function connect(app: ReturnType<typeof Fastify>, token: string, execution
     headers: {
       ...(executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) }),
       ...(attachments ? { [DESKTOP_ATTACHMENT_PROTOCOL_HEADER]: String(desktopAttachmentProtocolVersion) } : {}),
+      ...(toolOffer === undefined ? {} : {
+        [DESKTOP_TOOL_PROTOCOL_HEADER]: String(desktopToolProtocolVersion),
+        [DESKTOP_TOOL_OPERATIONS_HEADER]: toolOffer,
+      }),
     },
   });
   sockets.push(socket);
@@ -572,6 +582,27 @@ describe("desktop execution transport", () => {
     await connect(app, token, desktopExecutionProtocolVersion);
     expect((await closed)[0]).toBe(4409);
     await expect(coordinator.publishExecution(binding, recipient, "old receipt", { expiresAt })).resolves.toBe("unavailable");
+  });
+});
+
+describe("desktop tool negotiation", () => {
+  const offer = "web.search,artifact.prepare,artifact.multipart,artifact.website";
+
+  it.each([
+    { name: "artifact rollout off", gates: { artifactTools: false, websiteArtifacts: false }, toolOffer: offer,
+      expected: ["web.search"] },
+    { name: "website rollout off", gates: { artifactTools: true, websiteArtifacts: false }, toolOffer: offer,
+      expected: ["web.search", "artifact.prepare", "artifact.multipart"] },
+    { name: "website rollout on", gates: { artifactTools: true, websiteArtifacts: true }, toolOffer: offer,
+      expected: ["web.search", "artifact.prepare", "artifact.multipart", "artifact.website"] },
+    { name: "legacy offer", gates: { artifactTools: true, websiteArtifacts: true }, toolOffer: "artifact.prepare",
+      expected: ["artifact.prepare"] },
+  ])("negotiates $name without changing other tools", async ({ gates, toolOffer, expected }) => {
+    const { app } = await fixture(undefined, gates);
+    const { token } = await paired(app);
+    const { ready } = await connect(app, token, desktopExecutionProtocolVersion, false, toolOffer);
+    const negotiated = desktopExecutionDeviceReadySchema.parse(ready).tool_operations ?? [];
+    expect([...negotiated].sort()).toEqual([...expected].sort());
   });
 });
 

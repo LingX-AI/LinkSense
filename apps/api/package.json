@@ -103,6 +103,7 @@
     "uuid": "^14.0.3",
     "ws": "8.23.0",
     "yaml": "^2.9.1",
+    "yauzl": "3.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -116,6 +117,7 @@
     "@types/semver": "7.8.0",
     "@types/unzipper": "^0.10.11",
     "@types/ws": "8.18.2",
+    "@types/yauzl": "3.4.0",
     "esbuild": "0.28.2",
     "eslint": "^10.15.0",
     "lucide": "1.73.0",

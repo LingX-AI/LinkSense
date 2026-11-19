@@ -937,6 +937,7 @@ export class AppServerProcessPool {
       desktopWorkspace?: boolean;
       desktopBrowserEnabled?: boolean;
       desktopArtifactsEnabled?: boolean;
+      desktopArtifactsWebsiteEnabled?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -1735,7 +1736,7 @@ export class AppServerProcessPool {
             ...input,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact${this.options.desktopWorkspace ? "?desktop=1" : ""}`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: this.artifactRegistrationEndpoint(input.conversationId),
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -3939,7 +3940,7 @@ export class AppServerProcessPool {
             ...recoveryStartInput,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact${this.options.desktopWorkspace ? "?desktop=1" : ""}`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: this.artifactRegistrationEndpoint(input.conversationId),
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -4330,11 +4331,12 @@ export class AppServerProcessPool {
     if (managed.activeCollaborationMode === "plan") {
       throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
     }
-    // Mac delivers single local files; there is no website snapshot builder.
     if (this.options.desktopWorkspace && !this.options.desktopArtifactsEnabled) {
       throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
     }
-    if (this.options.desktopWorkspace && input.webRootRelativePath) {
+    // The supervisor builds the website archive only when the run negotiated it.
+    if (this.options.desktopWorkspace && input.webRootRelativePath &&
+        !this.options.desktopArtifactsWebsiteEnabled) {
       throw new FileServiceRequestError(
         "ARTIFACT_REGISTRATION_INVALID",
         false,
@@ -4781,6 +4783,12 @@ export class AppServerProcessPool {
     if (managed.activeProjectionTurnId !== turnId || !managed.activeTurnId)
       throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
     return result;
+  }
+
+  private artifactRegistrationEndpoint(conversationId: string): string {
+    const endpoint = `${this.options.mcpEndpointBase}/${conversationId}/register-artifact`;
+    if (!this.options.desktopWorkspace) return endpoint;
+    return `${endpoint}?desktop=1${this.options.desktopArtifactsWebsiteEnabled ? "&website=1" : ""}`;
   }
 
   private get knowledgeMcpEndpointBase(): string {

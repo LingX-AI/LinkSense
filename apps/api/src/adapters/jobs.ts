@@ -4,9 +4,10 @@ import { rm } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
 
 import { Queue, Worker, type ConnectionOptions, type RedisOptions, type Job } from "bullmq"
+import pLimit from "p-limit"
 import { z } from "zod"
 
-import { desktopArtifactMaxParts } from "@linksense/shared"
+import { desktopArtifactMaxParts, webBundleLimits, webBundlePathSchema } from "@linksense/shared"
 
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
@@ -22,6 +23,7 @@ import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
 import { removeConversationArtifactThumbnails } from "../modules/files/artifact-thumbnail.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
+import { webBundleObjectKey } from "../modules/web-sites/bundle.js"
 import {
   desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactScratchPath, desktopArtifactStagingKey,
 } from "../modules/files/desktop-artifact-storage.js"
@@ -52,6 +54,10 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
     objectKey: z.string().min(1),
   }),
   z.strictObject({ type: z.literal("desktop-artifact-cleanup"), conversationId: z.uuid(), artifactId: z.uuid() }),
+  z.strictObject({
+    type: z.literal("desktop-website-cleanup"), conversationId: z.uuid(), artifactId: z.uuid(),
+    paths: z.array(webBundlePathSchema).min(1).max(webBundleLimits.files),
+  }),
   z.strictObject({
     type: z.literal("runtime-cleanup"),
     ownerId: z.uuid(),
@@ -317,6 +323,11 @@ export class BackgroundJobs {
     await this.queue.addBulk([cleanup, ...parts])
   }
 
+  async enqueueDesktopWebsiteCleanup(conversationId: string, artifactId: string, paths: string[], delay: number): Promise<void> {
+    await this.queue.add("desktop-website-cleanup", { type: "desktop-website-cleanup", conversationId, artifactId, paths },
+      { jobId: `desktop-website-${artifactId}`, delay })
+  }
+
   async enqueueRuntimeCleanup(
     ownerId: string,
     conversationId: string,
@@ -481,7 +492,7 @@ export class BackgroundJobs {
       await this.storage.removeObject(data.objectKey, AbortSignal.timeout(30_000))
       return { deleted: true }
     }
-    if (data.type === "desktop-artifact-cleanup") {
+    if (data.type === "desktop-artifact-cleanup" || data.type === "desktop-website-cleanup") {
       if (!this.prisma) throw new Error("Artifact cleanup database is not configured")
       const { conversationId, artifactId } = data
       const finalKey = desktopArtifactObjectKey(conversationId, artifactId)
@@ -494,8 +505,23 @@ export class BackgroundJobs {
         `
         return row?.referenced !== false
       })
-      const stage = desktopArtifactStagingKey(artifactId)
+      if (data.type === "desktop-website-cleanup") {
+        if (!retained) {
+          const keys = data.paths.map(path => webBundleObjectKey(artifactId, path))
+          if (this.storage.removeObjects) {
+            await this.storage.removeObjects(keys, AbortSignal.timeout(30_000))
+          } else {
+            const limit = pLimit(8)
+            const results = await Promise.allSettled(keys.map(key => limit(() =>
+              this.storage.removeObject(key, AbortSignal.timeout(30_000)))))
+            const failure = results.find(result => result.status === "rejected")
+            if (failure) throw failure.reason
+          }
+        }
+        return { deleted: !retained }
+      }
       const signal = AbortSignal.timeout(30_000)
+      const stage = desktopArtifactStagingKey(artifactId)
       for (const key of [stage, finalKey]) {
         await this.storage.removeIncompleteUpload?.(key, signal)
         if (key !== finalKey || !retained) await this.storage.removeObject(key, signal)
@@ -973,7 +999,7 @@ function projectCleanupFailure(
     data.type === "runtime-cleanup" ||
     data.type === "workspace-directory-delete"
       ? "workspace"
-      : data.type === "object-delete" || data.type === "desktop-artifact-cleanup"
+      : data.type === "object-delete" || data.type === "desktop-artifact-cleanup" || data.type === "desktop-website-cleanup"
         ? "object_storage"
         : "capability_directory"
   return {

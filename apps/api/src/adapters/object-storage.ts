@@ -49,6 +49,7 @@ export interface ObjectStorage {
     length: number,
   ): Promise<Readable>;
   removeObject(key: string, signal?: AbortSignal): Promise<void>;
+  removeObjects?(keys: string[], signal: AbortSignal): Promise<void>;
   removeIncompleteUpload?(key: string, signal: AbortSignal): Promise<void>;
   presignedGetObject(key: string, expiresSeconds: number): Promise<string>;
   hasPrefixExpiry?(prefixes: readonly string[], signal: AbortSignal): Promise<boolean>;
@@ -161,6 +162,11 @@ export class MinioObjectStorage implements ObjectStorage {
 
   async removeObject(key: string, signal?: AbortSignal): Promise<void> {
     await this.transport.run(signal, () => this.client.removeObject(this.config.minio.bucket, key));
+  }
+
+  async removeObjects(keys: string[], signal: AbortSignal): Promise<void> {
+    const errors = await this.transport.run(signal, () => this.client.removeObjects(this.config.minio.bucket, keys));
+    if (errors.length > 0) throw new Error("OBJECT_STORAGE_BATCH_DELETE_FAILED");
   }
 
   async removeIncompleteUpload(key: string, signal: AbortSignal): Promise<void> {

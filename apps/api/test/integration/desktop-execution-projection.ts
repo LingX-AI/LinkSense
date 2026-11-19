@@ -33,6 +33,7 @@ import {
 } from "@linksense/shared";
 import { Queue } from "bullmq";
 import Fastify from "fastify";
+import JSZip from "jszip";
 import { WebSocket } from "ws";
 
 import { BackgroundJobs, type MaintenanceJob } from "../../src/adapters/jobs.js";
@@ -61,10 +62,15 @@ import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/
 import { ConversationEventService } from "../../src/modules/events/service.js";
 import { FileService } from "../../src/modules/files/service.js";
 import { desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactStagingKey } from "../../src/modules/files/desktop-artifact-storage.js";
+import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "../../src/modules/html-preview/service.js";
 import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking/service.js";
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
 import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
+import { webBundleObjectKey } from "../../src/modules/web-sites/bundle.js";
+import { WebArtifactResources } from "../../src/modules/web-sites/artifact-resources.js";
+import { WebSiteRepository } from "../../src/modules/web-sites/repository.js";
+import { WebSiteService } from "../../src/modules/web-sites/service.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
 import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js";
@@ -90,6 +96,7 @@ export async function verifyDesktopExecutionProjection(input: {
   cloudConversationId: string;
 }): Promise<void> {
   const { prisma, ownerId, deviceId, token } = input;
+  const useMinio = Boolean(process.env.LINKSENSE_TEST_MINIO_BIN);
   const config = testConfig({
     DATABASE_URL: input.databaseUrl,
     LINKSENSE_USER_DATA_ROOT: input.workspaceRoot,
@@ -97,6 +104,9 @@ export async function verifyDesktopExecutionProjection(input: {
     LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true",
     LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true",
     LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true",
+    LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED: "true",
+    // Let a website archive within the bundle limit exercise multipart upload.
+    ...(useMinio && { LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: String(desktopArtifactPartBytes / 1024 ** 2) }),
     LINKSENSE_CREDENTIAL_MASTER_KEY: randomBytes(32).toString("base64"),
     LINKSENSE_RUNNER_SHARED_SECRET: randomUUID(),
   });
@@ -214,6 +224,7 @@ export async function verifyDesktopExecutionProjection(input: {
       connectionTools: true,
       browserTools: true,
       artifactTools: true,
+      websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;
@@ -512,8 +523,15 @@ export async function verifyDesktopExecutionProjection(input: {
     assertAccepted(await sendLive(initial.socket, [unsupportedGoal]), [unsupportedGoal.deliveryId]);
     assert.equal(await prisma.conversationGoal.count({ where: { conversationId } }), 0);
 
-    const artifactContents = Buffer.from("The Mac artifact fence test.\n");
-    for (const action of ["stop", "revoke"] as const) {
+    const websiteEntry = Buffer.from('<!doctype html><link rel="stylesheet" href="./style.css"><h1>Report</h1>');
+    const websiteArchive = await new JSZip()
+      .file("index.html", websiteEntry).file("style.css", "h1{color:blue}").generateAsync({ type: "nodebuffer" });
+    for (const { action, website } of [
+      { action: "stop", website: false }, { action: "revoke", website: false },
+      { action: "stop", website: true }, { action: "revoke", website: true },
+    ] as const) {
+      const artifactContents = website ? websiteArchive : Buffer.from("The Mac artifact fence test.\n");
+      const operation = website ? "artifact.website" : "artifact.prepare";
       const nativeThread = randomUUID();
       const task = await prisma.conversation.create({ data: {
         ownerId, executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: nativeThread,
@@ -533,12 +551,17 @@ export async function verifyDesktopExecutionProjection(input: {
           revision: 1, protocolMode: "native_responses", baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(),
         },
       });
-      const artifactRequest = () => ({
-        type: "tool.request", id: randomUUID(), operation: "artifact.prepare",
-        conversation_id: task.id, turn_id: projectionTurnId, runtime_generation: task.runtimeGeneration,
-        run_token: runToken, expires_at: new Date(Date.now() + desktopToolLifetimeFor("artifact.prepare")).toISOString(),
-        body: { filename: "report.txt", display_name: "Report.txt", size_bytes: artifactContents.length, sha256: sha256(artifactContents) },
-      } as const satisfies DesktopToolRequest);
+      const artifactRequest = (): DesktopToolRequest => {
+        const base = {
+          type: "tool.request", id: randomUUID(), conversation_id: task.id, turn_id: projectionTurnId,
+          runtime_generation: task.runtimeGeneration, run_token: runToken,
+          expires_at: new Date(Date.now() + desktopToolLifetimeFor(operation)).toISOString(),
+        } as const;
+        const integrity = { size_bytes: artifactContents.length, sha256: sha256(artifactContents) };
+        return website
+          ? { ...base, operation: "artifact.website", body: { ...integrity, filename: "website.zip", display_name: "Report.html", entry_path: "index.html" } }
+          : { ...base, operation: "artifact.prepare", body: { ...integrity, filename: "report.txt", display_name: "Report.txt" } };
+      };
       const early = await invokeTool(artifactRequest());
       assert(!early.ok && early.error_code === "FORBIDDEN", "artifact writes require a projected running turn");
       await prisma.$transaction([
@@ -551,13 +574,13 @@ export async function verifyDesktopExecutionProjection(input: {
       ]);
       const prepare = async () => {
         const result = await invokeTool(artifactRequest());
-        assert(result.ok && result.operation === "artifact.prepare");
+        assert(result.ok && result.operation === operation);
         const id = result.data.artifact_id;
         const endpoint = `${address}${desktopArtifactPath}/${projectionTurnId}/${id}`;
         const headers = { authorization: `Bearer ${runToken}` };
         const upload = await fetch(`${endpoint}/upload`, {
           method: "PUT", headers: { ...headers, "content-type": "application/octet-stream" },
-          body: artifactContents, signal: AbortSignal.timeout(5_000),
+          body: new Uint8Array(artifactContents), signal: AbortSignal.timeout(5_000),
         });
         assert.equal(upload.status, 204);
         return { id, confirm: () => fetch(`${endpoint}/confirm`, {
@@ -621,6 +644,7 @@ export async function verifyDesktopExecutionProjection(input: {
         await confirmation.catch(() => undefined);
       }
       assert.equal(await prisma.conversationFile.count({ where: { id: pending.id } }), 0);
+      assert.equal(await prisma.webArtifactBundle.count({ where: { fileId: pending.id } }), 0);
       assert.equal(await prisma.conversationEvent.count({ where: {
         conversationId: task.id, eventType: "conversation.artifact.created",
       } }), committed ? 1 : 0);
@@ -654,10 +678,25 @@ export async function verifyDesktopExecutionProjection(input: {
         await cleanup(pending.id);
       }
       await assert.rejects(storage.getObjectSize(desktopArtifactObjectKey(task.id, pending.id)));
+      if (website) {
+        const job = await maintenance.getJob(`desktop-website-${pending.id}`);
+        assert(job?.data.type === "desktop-website-cleanup");
+        for (const path of job.data.paths) assert((await storage.getObjectSize(webBundleObjectKey(pending.id, path))) > 0);
+        await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
+        await job.remove();
+        for (const path of job.data.paths) await assert.rejects(storage.getObjectSize(webBundleObjectKey(pending.id, path)));
+      }
       if (committed) {
         const retained = await prisma.retainedArtifact.findUniqueOrThrow({ where: { originalFileId: committed.id } });
         await cleanup(committed.id);
-        assert.deepEqual(await buffer(await storage.getObjectStream(retained.minioObjectKey)), artifactContents);
+        assert.deepEqual(await buffer(await storage.getObjectStream(retained.minioObjectKey)), website ? websiteEntry : artifactContents);
+        if (website) {
+          const job = await maintenance.getJob(`desktop-website-${committed.id}`);
+          assert(job?.data.type === "desktop-website-cleanup");
+          await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
+          await job.remove();
+          for (const path of job.data.paths) assert((await storage.getObjectSize(webBundleObjectKey(committed.id, path))) > 0);
+        }
       }
     }
 
@@ -872,10 +911,17 @@ export async function verifyDesktopExecutionProjection(input: {
     const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
     if (runtimeRoot) {
       replacement.socket.terminate();
+      const websiteStore = new WebSiteRepository(prisma);
       const artifact = await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
         events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
-        ...(minio && { artifactSizeBytes: config.upload.maxFileSizeBytes + 11 }),
+        websites: new WebSiteService(websiteStore, storage),
+        htmlPreviews: new HtmlPreviewService(new WebArtifactResources(websiteStore, storage),
+          new RedisHtmlPreviewSessionStore(redis), async id => Boolean(await prisma.user.count({ where: { id, status: "active" } }))),
+        otherOwnerId: input.otherOwnerId,
+        attachmentSizeBytes: config.upload.maxFileSizeBytes,
+        multipartWebsite: minio !== null,
+        ...(minio && { artifactSizeBytes: 100 * 1024 ** 2 + 11 }),
         revokeAttachmentRun: turnId => leases.revoke(turnId),
         disconnectAttachmentSocket: async connectionId => {
           assert.equal((await coordinator.executionConnection(deviceId))?.connectionId, connectionId);
@@ -891,6 +937,16 @@ export async function verifyDesktopExecutionProjection(input: {
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,
         },
       });
+      const websiteCleanup = await maintenance.getJob(`desktop-website-${artifact.websiteArtifactId}`);
+      assert(websiteCleanup?.data.type === "desktop-website-cleanup");
+      assert.deepEqual([...websiteCleanup.data.paths].sort(), [...artifact.websiteAssets].sort());
+      await jobs["process"](websiteCleanup, { cleanupInvalidTokens: outsideFixture });
+      await websiteCleanup.remove();
+      for (const path of websiteCleanup.data.paths) {
+        assert((await storage.getObjectSize(webBundleObjectKey(artifact.websiteArtifactId, path))) > 0,
+          "cleanup must leave published assets intact");
+      }
+      console.log("Packaged Mac website passed: native approval, HTML download, owner-only preview, CSS publication, and retention by the cleanup worker.");
       if (minio) {
         const one = desktopArtifactPartKey(artifact.id, desktopArtifactMaxParts - 1);
         const copy = `${desktopArtifactStagingKey(artifact.id)}/single-part-test`;
@@ -904,25 +960,29 @@ export async function verifyDesktopExecutionProjection(input: {
           await minio.storage.removeObject(one, AbortSignal.timeout(3_000));
           await minio.storage.removeObject(copy, AbortSignal.timeout(3_000));
         }
-        assert(!relayUploads.has(`${desktopArtifactPath}/${artifact.turnId}/${artifact.id}/upload`),
-          "the native artifact used the API fallback instead of the presigned form");
-        const partKeys = Array.from({ length: Math.ceil(artifact.sizeBytes / desktopArtifactPartBytes) },
-          (_, index) => desktopArtifactPartKey(artifact.id, index));
-        assert(partKeys.length > 1, "the native artifact must cross a part boundary");
-        for (const [index, key] of partKeys.entries()) {
-          assert.equal(await minio.storage.getObjectSize(key),
-            Math.min(desktopArtifactPartBytes, artifact.sizeBytes - index * desktopArtifactPartBytes));
+        const websiteArchiveBytes = await minio.storage.getObjectSize(desktopArtifactStagingKey(artifact.websiteArtifactId));
+        assert(websiteArchiveBytes > 34 * 1024 * 1024, "the ZIP must include both large web resources");
+        for (const [id, sizeBytes] of [[artifact.id, artifact.sizeBytes], [artifact.websiteArtifactId, websiteArchiveBytes]] as const) {
+          assert(!relayUploads.has(`${desktopArtifactPath}/${artifact.turnId}/${id}/upload`),
+            "the native artifact used the API fallback instead of the presigned form");
+          const partKeys = Array.from({ length: Math.ceil(sizeBytes / desktopArtifactPartBytes) },
+            (_, index) => desktopArtifactPartKey(id, index));
+          assert(partKeys.length > 1, "the packaged fixture must cross a part boundary");
+          for (const [index, key] of partKeys.entries()) {
+            assert.equal(await minio.storage.getObjectSize(key),
+              Math.min(desktopArtifactPartBytes, sizeBytes - index * desktopArtifactPartBytes));
+          }
+          assert.equal(await minio.storage.getObjectSize(desktopArtifactStagingKey(id)), sizeBytes);
+          const delayed = (await maintenance.getJobs(["delayed"])).filter(job =>
+            job.data.type === "object-delete" && partKeys.includes(job.data.objectKey));
+          assert.equal(delayed.length, partKeys.length);
+          for (const job of delayed) {
+            await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
+            await job.remove();
+          }
+          for (const key of partKeys) await assert.rejects(minio.storage.getObjectSize(key));
         }
-        assert.equal(await minio.storage.getObjectSize(desktopArtifactStagingKey(artifact.id)), artifact.sizeBytes);
-        const delayed = (await maintenance.getJobs(["delayed"])).filter(job =>
-          job.data.type === "object-delete" && partKeys.includes(job.data.objectKey));
-        assert.equal(delayed.length, partKeys.length);
-        for (const job of delayed) {
-          await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
-          await job.remove();
-        }
-        for (const key of partKeys) await assert.rejects(minio.storage.getObjectSize(key));
-        console.log("Packaged Mac used presigned MinIO parts, composed and verified the result, and cleaned the exact staging keys.");
+        console.log("Packaged Mac used presigned MinIO parts for the file and website archives, verified both, and cleaned the exact staging keys.");
       }
       assert.deepEqual({
         graph: connector.stats.graph, workspace: connector.stats.workspace,

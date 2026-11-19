@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   conversationEventSchema,
@@ -17,6 +18,7 @@ import {
   type InteractiveApplicationFile,
   isMeaninglessTemporaryUploadFilename,
   workspacePermissionPolicy,
+  webBundleManifestSchema,
   type TaskArtifactFileType,
   imagePreviewMimeTypeSchema,
   MAX_IMAGE_PREVIEW_BYTES,
@@ -139,6 +141,7 @@ const verifiedDesktopArtifactInputSchema = z.strictObject({
   mimeType: z.string().min(1).max(160),
   sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   multipart: z.literal(true).optional(),
+  webBundle: webBundleManifestSchema.optional(),
   sha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/iu)
@@ -1136,6 +1139,7 @@ export class FileService {
     if (verified.sizeBytes > (verified.multipart ? desktopArtifactMaxBytes : this.config.upload.maxFileSizeBytes)) {
       throw new AppError("FILE_LIMIT_EXCEEDED");
     }
+    if (verified.webBundle && mimeType !== "text/html") throw new AppError("ARTIFACT_REGISTRATION_INVALID");
     const displayName = artifactDisplayName(verified.displayName, mimeType);
     const objectKey = desktopArtifactObjectKey(
       verified.conversationId,
@@ -1187,6 +1191,13 @@ export class FileService {
             checksumSha256: verified.sha256,
             objectKey,
           });
+          if (verified.webBundle) {
+            const bundle = await tx.webArtifactBundle.findFirst({
+              where: { fileId: committed.id, ownerId: verified.ownerId, conversationId: verified.conversationId },
+            });
+            const archived = webBundleManifestSchema.safeParse(bundle?.manifestJson);
+            if (!archived.success || !isDeepStrictEqual(archived.data, verified.webBundle)) throw new AppError("CONFLICT");
+          }
           return { artifact: committed, turnId: turn.id, created: null };
         }
 
@@ -1200,6 +1211,7 @@ export class FileService {
           sizeBytes,
           checksumSha256: verified.sha256,
           objectKey,
+          ...(verified.webBundle && { webBundle: verified.webBundle }),
         });
         return { artifact: created.created, turnId: turn.id, created };
       });

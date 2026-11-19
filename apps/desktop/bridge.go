@@ -132,7 +132,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			headers.Set(desktopAttachmentHeader, strconv.Itoa(desktopAttachmentVersion))
 		}
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
-		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart")
+		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website")
 	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,

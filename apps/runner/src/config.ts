@@ -91,6 +91,7 @@ const runnerConfigSchema = z
     LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: booleanEnvironment(false),
     LINKSENSE_DESKTOP_BROWSER_ENABLED: booleanEnvironment(false),
     LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: booleanEnvironment(false),
+    LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED: booleanEnvironment(false),
     LINKSENSE_USER_DATA_ROOT: absoluteDirectory,
     LINKSENSE_USER_DATA_VOLUME: dockerVolumeName.optional(),
     LINKSENSE_PYTHON_BASE_SITE_PACKAGES: z
@@ -221,7 +222,8 @@ const runnerConfigSchema = z
         (config.LINKSENSE_DESKTOP_TURN_ID !== undefined) !== (config.LINKSENSE_DESKTOP_RUNTIME_GENERATION !== undefined) ||
         (config.LINKSENSE_DESKTOP_TURN_ID !== undefined && !config.LINKSENSE_DESKTOP_PROXY_ORIGIN) ||
         ((config.LINKSENSE_DESKTOP_CONNECTIONS_ENABLED || config.LINKSENSE_DESKTOP_BROWSER_ENABLED ||
-          config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED) && !config.LINKSENSE_DESKTOP_TURN_ID) ||
+          config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED || config.LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED) &&
+          !config.LINKSENSE_DESKTOP_TURN_ID) ||
         config.LINKSENSE_USER_DATA_VOLUME || config.LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS ||
         config.LINKSENSE_MANAGED_BROWSER_ENABLED) {
         context.addIssue({ code: "custom", path: ["LINKSENSE_WORKER_PROVIDER"], message: "desktop_worker_requires_supervised_loopback_configuration" })

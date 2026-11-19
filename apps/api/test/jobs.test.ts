@@ -767,6 +767,16 @@ describe("desktop artifact cleanup", () => {
     ]])
   })
 
+  it.each([false, true])("cleans only unpublished website resources (referenced: %s)", async referenced => {
+    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-website-job-"))
+    const paths = ["index.html", "assets/style.css"]
+    const website = failedJob("desktop-website", { type: "desktop-website-cleanup", conversationId, artifactId, paths }, "")
+    const { run, removeObject } = fixture(root.path, referenced)
+    await expect(run(website)).resolves.toEqual({ deleted: !referenced })
+    expect(removeObject.mock.calls).toEqual(referenced ? [] : paths.map(path =>
+      [`web-artifact-bundles/${artifactId}/${path}`, expect.any(AbortSignal)]))
+  })
+
   it("bounds part keys to zero-based indices below the shared maximum", async () => {
     expect(desktopArtifactStagingKey(artifactId)).toBe(stageKey)
     expect(desktopArtifactPartKey(artifactId, 0)).toBe(`${partPrefix}/0`)
@@ -803,7 +813,7 @@ describe("desktop artifact cleanup", () => {
       {} as RunnerClient, {} as AuditService, capabilityRoot, queueControl({ failedJobs: [] }),
       { $transaction: transaction } as unknown as PrismaClient,
     )
-    return { run: () => jobs["process"](job, auth), transaction, removeObject, removeIncompleteUpload }
+    return { run: (selected = job) => jobs["process"](selected, auth), transaction, removeObject, removeIncompleteUpload }
   }
 })
 

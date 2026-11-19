@@ -3,7 +3,7 @@ import {
   desktopExecutionCommandSchema, desktopExecutionResultSchema,
   desktopRuntimeOutputSchema, desktopToolCancelSchema, desktopToolRequestSchema, desktopToolResultSchema,
 } from "../src/desktop-execution.js";
-import { desktopArtifactMaxParts, desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema } from "../src/desktop-artifacts.js";
+import { desktopArtifactMaxParts, desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema, webBundleArchiveMaxBytes } from "../src/desktop-artifacts.js";
 
 const id = "10000000-0000-4000-8000-000000000001";
 const turnId = "10000000-0000-4000-8000-000000000002";
@@ -140,6 +140,19 @@ describe("desktop execution wire contract", () => {
       expect(desktopArtifactUploadGrantSchema.safeParse({
         ...result.data, destination: { kind: "presigned_parts", parts },
       }).success).toBe(false);
+    }
+  });
+
+  it("accepts an archive-relative HTML entry only for negotiated website artifacts", () => {
+    const frame = {
+      type: "tool.request", id, operation: "artifact.website", conversation_id: id, turn_id: turnId,
+      runtime_generation: id, run_token: `lsdr_${"a".repeat(43)}`, expires_at: expiresAt,
+      body: { filename: "index.html", display_name: "Site", entry_path: "pages/index.html", size_bytes: 256, sha256: "b".repeat(64) },
+    };
+    expect(desktopToolRequestSchema.parse(frame)).toEqual(frame);
+    expect(desktopToolRequestSchema.safeParse({ ...frame, operation: "artifact.prepare" }).success).toBe(false);
+    for (const invalid of [{ entry_path: "theme.css" }, { entry_path: "/index.html" }, { size_bytes: webBundleArchiveMaxBytes + 1 }]) {
+      expect(desktopToolRequestSchema.safeParse({ ...frame, body: { ...frame.body, ...invalid } }).success).toBe(false);
     }
   });
 });

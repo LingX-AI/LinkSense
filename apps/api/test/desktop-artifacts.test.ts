@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import { desktopArtifactPartBytes } from "@linksense/shared";
+import JSZip from "jszip";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { AppError } from "../src/lib/errors.js";
 import { sha256 } from "../src/lib/crypto.js";
 import { desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactStagingKey } from "../src/modules/files/desktop-artifact-storage.js";
 import { DesktopArtifacts } from "../src/modules/files/desktop-artifacts.js";
+import { webBundleObjectKey } from "../src/modules/web-sites/bundle.js";
 
 const text = Buffer.from("An artifact from this task.\n");
 
@@ -38,6 +40,7 @@ async function fixture(maximumBytes = 1024) {
     hasPrefixExpiry: vi.fn<NonNullable<ConstructorParameters<typeof DesktopArtifacts>[0]["storage"]["hasPrefixExpiry"]>>()
       .mockResolvedValue(true),
     putObjectStream: vi.fn(async (key: string, source: Readable) => { objects.set(key, await buffer(source)); }),
+    putObject: vi.fn(async (key: string, data: Buffer) => { objects.set(key, data); }),
     getObjectStream: vi.fn(async (key: string) => {
       const data = objects.get(key);
       if (!data) throw new AppError("ARTIFACT_NOT_FOUND");
@@ -54,27 +57,33 @@ async function fixture(maximumBytes = 1024) {
       objects.set(key, Buffer.concat(bytes));
     }),
   };
-  const registered = new Map<string, string>();
+  const registered = new Map<string, {
+    eventId: string; value: Parameters<ConstructorParameters<typeof DesktopArtifacts>[0]["register"]>[0];
+  }>();
   const register = vi.fn<ConstructorParameters<typeof DesktopArtifacts>[0]["register"]>().mockImplementation(async (input) => {
-    const eventId = registered.get(input.artifactId) ?? randomUUID();
-    registered.set(input.artifactId, eventId);
+    const eventId = registered.get(input.artifactId)?.eventId ?? randomUUID();
+    registered.set(input.artifactId, { eventId, value: input });
     return {
       success: true, artifact_id: input.artifactId, file_id: input.artifactId,
       display_name: input.displayName, download_card_event_id: eventId,
     };
   });
   const scheduleCleanup = vi.fn<ConstructorParameters<typeof DesktopArtifacts>[0]["scheduleCleanup"]>(async () => {});
+  const scheduleWebsiteCleanup = vi.fn<ConstructorParameters<typeof DesktopArtifacts>[0]["scheduleWebsiteCleanup"]>(async () => {});
   const running = vi.fn(async () => true);
-  const exists = vi.fn(async (_conversationId: string, artifactId: string) => registered.has(artifactId));
+  const committed = vi.fn<ConstructorParameters<typeof DesktopArtifacts>[0]["committed"]>(async (_scope, artifactId, website) => {
+    const row = registered.get(artifactId)?.value;
+    return row ? { size_bytes: row.sizeBytes, sha256: row.sha256, ...(website && row.webBundle && { webBundle: row.webBundle }) } : null;
+  });
   const service = new DesktopArtifacts({
-    redis, storage, maximumBytes, scratchRoot: scratch.path, scheduleCleanup, running,
-    exists, register,
+    redis, storage, maximumBytes, scratchRoot: scratch.path, scheduleCleanup, scheduleWebsiteCleanup, running,
+    committed, register,
   });
   const check = vi.fn(async () => {});
   const signal = AbortSignal.timeout(5_000);
   const metadata = { filename: "notes.txt", display_name: "Report.txt", size_bytes: text.length, sha256: sha256(text) };
   const prepare = () => service.prepare(scope, metadata, signal, check);
-  return { scope, service, prepare, register, running, check, signal, storage, objects, scheduleCleanup, exists, metadata };
+  return { scope, service, prepare, register, running, check, signal, storage, objects, scheduleCleanup, scheduleWebsiteCleanup, committed, metadata };
 }
 
 it("publishes only after a temporary upload is verified and rechecked", async () => {
@@ -148,13 +157,13 @@ it("does not issue presigned forms without expiration for late writes", async ()
 });
 
 it("rechecks the run after looking up a receipt and before writing the composed object", async () => {
-  const { scope, signal, service, check, storage, objects, running, exists, metadata } = await fixture(text.length - 1);
+  const { scope, signal, service, check, storage, objects, running, committed, metadata } = await fixture(text.length - 1);
   storage.presignedPostObject.mockResolvedValue({ url: "https://objects.example.test/bucket", fields: { policy: "fixture" } });
   const { artifact_id: id } = await service.prepare(scope, metadata, signal, check, true);
   objects.set(desktopArtifactPartKey(id, 0), text);
-  exists.mockImplementationOnce(async () => {
+  committed.mockImplementationOnce(async () => {
     running.mockResolvedValue(false);
-    return false;
+    return null;
   });
   await expect(service.confirm(scope, id, signal, check, vi.fn())).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(storage.composeObject).not.toHaveBeenCalled();
@@ -196,3 +205,47 @@ it.each(["valid", "changed"] as const)("registers only verified multipart bytes 
   }
   expect(storage.composeObject).toHaveBeenCalledExactlyOnceWith(desktopArtifactStagingKey(id), keys, expect.any(AbortSignal));
 });
+
+it.each(["ready", "missing resource", "cleanup unavailable"] as const)(
+  "only publishes the verified website once its resources and durable cleanup are ready (%s)",
+  async scenario => {
+    const { scope, signal, service, check, storage, objects, register, prepare, scheduleWebsiteCleanup } = await fixture();
+    const entry = Buffer.from('<!doctype html><link rel="stylesheet" href="/assets/theme.css"><h1>Report</h1>');
+    const zip = new JSZip().file("index.html", entry);
+    if (scenario !== "missing resource") zip.file("assets/theme.css", "h1{color:red}", { createFolders: false });
+    const archive = await zip.generateAsync({ type: "nodebuffer" });
+    const grant = await service.prepare(scope, {
+      filename: "index.html", display_name: "Report.html", entry_path: "index.html",
+      size_bytes: archive.length, sha256: sha256(archive), mime_type: "application/zip",
+    }, signal, check, true);
+    const artifactId = grant.artifact_id;
+    const finalKey = desktopArtifactObjectKey(scope.conversationId, artifactId);
+    await service.upload(scope, artifactId, archive.length, Readable.from([archive]), signal, check);
+    if (scenario === "cleanup unavailable") scheduleWebsiteCleanup.mockRejectedValueOnce(new Error("queue unavailable"));
+    const confirm = () => service.confirm(scope, artifactId, signal, check, vi.fn());
+    if (scenario !== "ready") {
+      await expect(confirm()).rejects.toMatchObject({
+        code: scenario === "missing resource" ? "WEB_SITE_RESOURCES_MISSING" : "RUNNER_UNAVAILABLE",
+      });
+      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(objects.has(finalKey)).toBe(false);
+      expect(register).not.toHaveBeenCalled();
+      if (scenario === "missing resource") await expect(prepare()).resolves.toMatchObject({ destination: { kind: "api" } });
+      return;
+    }
+    const receipt = await confirm();
+    expect(scheduleWebsiteCleanup).toHaveBeenCalledExactlyOnceWith(
+      scope.conversationId, artifactId, ["assets/theme.css", "index.html"], Date.parse(grant.expires_at),
+    );
+    expect(storage.putObject.mock.invocationCallOrder[0]).toBeGreaterThan(scheduleWebsiteCleanup.mock.invocationCallOrder[0]!);
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      sizeBytes: entry.length, sha256: sha256(entry), webBundle: expect.objectContaining({ entry_path: "index.html" }),
+    }), expect.any(Function));
+    expect(objects.get(finalKey)).toEqual(entry);
+    expect(objects.get(webBundleObjectKey(artifactId, "index.html"))?.toString()).toContain('href="./assets/theme.css"');
+    objects.delete(desktopArtifactStagingKey(artifactId));
+    await expect(confirm()).resolves.toEqual(receipt);
+    expect(storage.putObject).toHaveBeenCalledTimes(2);
+    expect(storage.putObjectStream).toHaveBeenCalledTimes(2);
+  },
+);
