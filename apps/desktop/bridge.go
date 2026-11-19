@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -49,6 +50,8 @@ const (
 	desktopToolVersion          = 1
 	desktopToolHeader           = "X-LinkSense-Desktop-Tools"
 	desktopToolOperationsHeader = "X-LinkSense-Desktop-Tool-Operations"
+	desktopAttachmentHeader     = "X-LinkSense-Desktop-Attachments"
+	desktopAttachmentVersion    = 1
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
@@ -125,6 +128,9 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
+		if runtime.GOOS == "darwin" {
+			headers.Set(desktopAttachmentHeader, strconv.Itoa(desktopAttachmentVersion))
+		}
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
 		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute")
 	}
@@ -163,7 +169,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 	var link *runtimeLink
 	if ready.ExecutionVersion != nil {
-		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations)
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations, ready.AttachmentVersion)
 		if err != nil {
 			return false, "RUNNER_UNAVAILABLE"
 		}
@@ -250,6 +256,7 @@ type deviceReady struct {
 	ProtocolVersion     int      `json:"protocol_version"`
 	HeartbeatIntervalMS int      `json:"heartbeat_interval_ms"`
 	ExecutionVersion    *int     `json:"execution_protocol_version,omitempty"`
+	AttachmentVersion   *int     `json:"attachment_protocol_version,omitempty"`
 	ToolVersion         *int     `json:"tool_protocol_version,omitempty"`
 	ToolOperations      []string `json:"tool_operations,omitempty"`
 }
@@ -265,6 +272,7 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 		!validUUID(ready.DeviceID) || !validUUID(ready.ConnectionID) ||
 		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 ||
 		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) ||
+		(ready.AttachmentVersion != nil && (ready.ExecutionVersion == nil || *ready.AttachmentVersion != desktopAttachmentVersion)) ||
 		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) ||
 		(len(ready.ToolOperations) > 0 && ready.ToolVersion == nil) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")

@@ -90,6 +90,10 @@ export type StartOperationState = {
     | "RUNNER_TURN_START_SEALED"
 }
 
+export function isSealedStartOperation(state: StartOperationState): boolean {
+  return state.status === "failed" && state.errorCode === "RUNNER_TURN_START_SEALED"
+}
+
 export function correlateStartOperation<T extends {
   id: string
   items?: readonly { type: string; clientId?: unknown }[]

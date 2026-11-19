@@ -4,7 +4,7 @@ import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import type { Logger } from "pino"
 import {
-  desktopExecutionMaxInFlight,
+  desktopAttachmentGrantFieldsSchema, desktopExecutionMaxInFlight,
   desktopExecutionStartReceiptSchema, desktopUserInputReceiptSchema, runnerTurnInterruptResultSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE, RUNNER_TURN_INTERRUPT_REQUESTED,
   RUNNER_EVENT_BATCH_MAX_COUNT, RUNNER_EVENT_BATCH_TARGET_BYTES,
@@ -15,19 +15,27 @@ import type { DesktopWorkerProvider } from "../controller/desktop-worker-provide
 import type { WorkerInstance } from "../controller/worker-provider.js"
 import { acknowledgedEventCount } from "../event-sink.js"
 import type { StartTurnInput } from "../process-pool.js"
-import { StartOperationStore, type StartOperationState } from "../start-operation.js"
+import { isSealedStartOperation, StartOperationStore, type StartOperationState } from "../start-operation.js"
 import { RunnerEventOutboxStore } from "../workspace/event-outbox.js"
 import { prepareConversationControl, RuntimeGenerationIntegrityError, WorkspaceManager } from "../workspace/workspace-manager.js"
 import { initializeDesktopCapabilities } from "./capabilities.js"
+import { DesktopAttachmentError, prepareDesktopAttachments } from "./attachments.js"
 import { desktopModelProviders } from "./model-providers.js"
 import { recoverDesktopStart, recoverDesktopTerminal } from "./turn-history.js"
 
 type StartCommand = Extract<DesktopExecutionCommand, { operation: "turn.start" }>
 type Scope = Pick<DesktopExecutionCommand, "owner_id" | "conversation_id" | "runtime_generation" | "turn_id">
-type Session = { scope: Scope; interrupted: boolean; worker?: WorkerInstance; run?: DesktopRuntimeRun; release?: Promise<void> }
+type Session = {
+  scope: Scope; interrupted: boolean; preparation: AbortController; worker?: WorkerInstance; run?: DesktopRuntimeRun
+  materialized?: Awaited<ReturnType<typeof prepareDesktopAttachments>>; release?: Promise<void>
+}
 type StartReceipt = ReturnType<typeof desktopExecutionStartReceiptSchema.parse>
 type DrainDelivery = (body: DesktopExecutionRecovery["body"]) => Promise<DesktopExecutionAck>
-export type DesktopRuntimeRun = { scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout }
+type AttachmentReady = (command: StartCommand, signal: AbortSignal) => Promise<void>
+export type DesktopRuntimeRun = {
+  scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout
+  confirmAttachments?: (signal: AbortSignal) => Promise<number>
+}
 const emptyMcpGeneration = createHash("sha256").update("").digest("hex")
 const healthSchema = z.object({ status: z.literal("available") })
 class DesktopUserInputUnavailableError extends Error {}
@@ -57,7 +65,10 @@ export class DesktopTurns {
     return this.readJournal(run.scope, this.scopedRun(run.scope.conversation_id) === run)
   }
 
-  async execute(command: DesktopExecutionCommand, signal: AbortSignal, deliver?: DrainDelivery): Promise<DesktopExecutionResult> {
+  async execute(command: DesktopExecutionCommand, signal: AbortSignal, callbacks?: {
+    deliver?: DrainDelivery
+    attachmentsReady?: AttachmentReady
+  }): Promise<DesktopExecutionResult> {
     const envelope = { type: "command.result", id: command.id, operation: command.operation } as const
     let uncertain = false
     const session = this.sessions.get(command.conversation_id)
@@ -76,7 +87,7 @@ export class DesktopTurns {
           if (prior) return { ...envelope, operation: command.operation, ok: true, result: prior }
           throw new Error("desktop conversation already has an active delivery")
         }
-        const result = await this.start(command, signal, () => { uncertain = true })
+        const result = await this.start(command, signal, () => { uncertain = true }, callbacks?.attachmentsReady)
         return { ...envelope, operation: command.operation, ok: true, result }
       }
       if (command.operation === "turn.inspect") {
@@ -93,6 +104,7 @@ export class DesktopTurns {
         return { ...envelope, operation: command.operation, ok: true, result }
       }
       if (command.operation === "turn.drain") {
+        const deliver = callbacks?.deliver
         if (!deliver || session || this.seals.has(command.conversation_id)) throw new Error("desktop outbox is not available")
         uncertain = true
         const terminal = await this.withRecovery(command.conversation_id, () => this.drain(command, signal, deliver))
@@ -108,7 +120,10 @@ export class DesktopTurns {
         return { ...envelope, operation: command.operation, ok: true, result }
       }
       if (!sameTurn?.worker || !sameTurn.run) {
-        if (sameTurn) sameTurn.interrupted = true
+        if (sameTurn) {
+          sameTurn.interrupted = true
+          sameTurn.preparation.abort()
+        }
         if (!sameTurn && session) {
           throw new Error("desktop conversation already has an active delivery")
         }
@@ -131,6 +146,7 @@ export class DesktopTurns {
     } catch (error) {
       return { ...envelope, ok: false, error_code: error instanceof DesktopUserInputUnavailableError
         ? "USER_INPUT_REQUEST_UNAVAILABLE"
+        : error instanceof DesktopAttachmentError && !uncertain ? "ATTACHMENT_UPLOAD_INVALID"
         : uncertain || command.operation === "turn.inspect" ? "RUNNER_OPERATION_UNCERTAIN" : "RUNNER_UNAVAILABLE" }
     }
   }
@@ -201,8 +217,21 @@ export class DesktopTurns {
       const manager = await this.readGeneration(session.scope)
       if (!manager) throw new RuntimeGenerationIntegrityError()
       const store = new StartOperationStore(manager)
-      if (!await store.read(conversation_id, turn_id)) {
-        await store.createSealed(conversation_id, turn_id, owner_id, runtime_generation)
+      let journal = await store.read(conversation_id, turn_id)
+      // The worker has exited and writes correlation before calling native turn/start.
+      if (session.materialized && journal?.ownerId === owner_id &&
+          (journal.runtimeGeneration === undefined || journal.runtimeGeneration === runtime_generation) && journal.requestFingerprint &&
+          !journal.correlation && (journal.status === "starting" || journal.status === "uncertain")) {
+        journal = await store.update(journal, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+      }
+      const settled = journal ?? await store.createSealed(conversation_id, turn_id, owner_id, runtime_generation)
+      if (settled?.ownerId === owner_id &&
+          (settled.runtimeGeneration === undefined || settled.runtimeGeneration === runtime_generation)) {
+        if (isSealedStartOperation(settled) || (settled.status === "failed" && !settled.correlation)) {
+          await session.materialized?.discard()
+        } else if (settled.correlation || settled.status === "succeeded") {
+          await session.materialized?.forget()
+        }
       }
     }
     if (this.sessions.get(conversation_id) === session) this.sessions.delete(conversation_id)
@@ -212,23 +241,27 @@ export class DesktopTurns {
     this.closing = true
     for (const session of this.sessions.values()) clearTimeout(session.run?.timer)
     await this.provider.stopWorkers()
+    await Promise.all([...this.sessions.values()].filter(session => session.materialized).map(session => this.release(session)))
     this.sessions.clear()
   }
 
-  private async start(command: StartCommand, signal: AbortSignal, submitted: () => void) {
+  private async start(command: StartCommand, signal: AbortSignal, submitted: () => void, attachmentsReady?: AttachmentReady) {
     const { owner_id, conversation_id, runtime_generation, turn_id } = command
     const expiresAt = Date.parse(command.body.credentials.expires_at)
     if (expiresAt <= Date.now() || this.sessions.size >= desktopExecutionMaxInFlight) {
       throw new Error("desktop run admission unavailable")
     }
     const scope = { owner_id, conversation_id, runtime_generation, turn_id }
-    const session: Session = { scope, interrupted: false }
+    const session: Session = { scope, interrupted: false, preparation: new AbortController() }
+    let materialized: Awaited<ReturnType<typeof prepareDesktopAttachments>> | undefined
+    let absentFromJournal = false
     // Reserve synchronously so stop sees this turn even during the first disk read.
     this.sessions.set(conversation_id, session)
     try {
       await this.seals.get(conversation_id)
       const prior = await this.readJournal(scope, false)
       if (prior) return prior
+      absentFromJournal = true
       signal.throwIfAborted()
       if (session.interrupted) return await this.sealUnstarted(scope)
       if (command.body.native_thread_id && !await this.readGeneration(scope)) throw new RuntimeGenerationIntegrityError()
@@ -237,8 +270,22 @@ export class DesktopTurns {
       const capabilityGeneration = await initializeDesktopCapabilities(this.runtimeRoot, paths)
       if (session.interrupted) return await this.sealUnstarted(scope)
       signal.throwIfAborted()
-      const startBody = this.startBody(command, capabilityGeneration)
-      const worker = await this.startWorker(scope, signal)
+      if (command.body.attachments?.length) {
+        if (!attachmentsReady) throw new Error("desktop attachments were not negotiated")
+        const preparationSignal = AbortSignal.any([signal, session.preparation.signal])
+        const grants = command.body.attachments.map(file => desktopAttachmentGrantFieldsSchema.parse(file.download_grant))
+        if (grants.some(grant => grant.commandId !== command.id)) throw new DesktopAttachmentError()
+        const grantDeadline = Math.min(...grants.map(grant => grant.expiresAt))
+        const downloadSignal = AbortSignal.any([preparationSignal, AbortSignal.timeout(Math.max(0, grantDeadline - Date.now()))])
+        materialized = await prepareDesktopAttachments(paths, this.origin, command, downloadSignal)
+        downloadSignal.throwIfAborted()
+        preparationSignal.throwIfAborted()
+        await attachmentsReady(command, preparationSignal)
+      }
+      if (session.interrupted) return await this.sealUnstarted(scope)
+      signal.throwIfAborted()
+      const startBody = this.startBody(command, capabilityGeneration, materialized?.entries)
+      const worker = await this.startWorker(scope, AbortSignal.any([signal, session.preparation.signal]))
       session.worker = worker
       if (session.interrupted) return await this.sealUnstarted(scope)
       signal.throwIfAborted()
@@ -246,12 +293,31 @@ export class DesktopTurns {
       const run: DesktopRuntimeRun = {
         scope, token: command.body.credentials.run_token, expiresAt,
         timer: setTimeout(() => { void this.finish(run).catch(this.workerLost) }, expiresAt - Date.now()),
+        ...(materialized && attachmentsReady && {
+          confirmAttachments: async (requestSignal: AbortSignal) => {
+            const deadline = Math.min(expiresAt, Date.parse(command.expires_at))
+            const admission = AbortSignal.any([signal, requestSignal, session.preparation.signal])
+            admission.throwIfAborted()
+            await attachmentsReady(command, admission)
+            admission.throwIfAborted()
+            if (Date.now() >= deadline) throw new DesktopAttachmentError()
+            return deadline
+          },
+        }),
       }
       session.run = run
+      if (materialized) session.materialized = materialized
       submitted()
       let result: StartReceipt
       try {
         result = desktopExecutionStartReceiptSchema.parse(await this.request(worker, command, "/turns/start", signal, startBody))
+        // The gateway must still know this command when the worker rechecks admission.
+        while (materialized && result.status === "starting") {
+          await delay(100, undefined, { signal })
+          const observed = await this.readJournal(scope, true)
+          if (!observed) throw new Error("desktop attachment start journal missing")
+          result = observed
+        }
       } catch (error) {
         try {
           const manager = await this.readGeneration(scope)
@@ -265,8 +331,14 @@ export class DesktopTurns {
       }
       if (result.status === "failed") this.finishAfterAcknowledgement(run)
       return result
+    } catch (error) {
+      if (session.interrupted && !session.run) return await this.sealUnstarted(scope)
+      if (absentFromJournal && command.body.attachments?.length && !session.run && !signal.aborted) throw new DesktopAttachmentError()
+      throw error
     } finally {
-      if (!session.run) await this.release(session)
+      if (!session.run) {
+        try { await materialized?.discard() } finally { await this.release(session) }
+      }
     }
   }
 
@@ -363,14 +435,14 @@ export class DesktopTurns {
     }
   }
 
-  private startBody(command: StartCommand, capabilityGeneration: string): Omit<StartTurnInput, "conversationId"> {
+  private startBody(command: StartCommand, capabilityGeneration: string, attachments: StartTurnInput["context"]["attachments"] = []): Omit<StartTurnInput, "conversationId"> {
     return {
       ownerId: command.owner_id, projectionTurnId: command.turn_id, expectedRuntimeGeneration: command.runtime_generation,
       codexThreadId: command.body.native_thread_id, appServerProcessLimit: 1,
       capabilityGeneration, mcpGeneration: emptyMcpGeneration, mcpServers: [],
       collaborationMode: "default", capabilities: [], environment: {},
       context: {
-        userInput: command.body.input, attachments: [], priorityPlugins: [], prioritySkills: [],
+        userInput: command.body.input, attachments, priorityPlugins: [], prioritySkills: [],
         ...(command.body.selected_knowledge_bases ? { selectedKnowledgeBases: command.body.selected_knowledge_bases } : {}),
       },
       reasoningEffort: command.body.reasoning_effort,

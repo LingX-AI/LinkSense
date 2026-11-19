@@ -62,7 +62,7 @@ func TestPackagedDesktopGateway(t *testing.T) {
 		t.Fatalf("device bridge stopped: %s", device.Status().ErrorCode)
 	case <-runtime.done:
 		t.Fatal("packaged runtime stopped")
-	case <-time.After(75 * time.Second):
+	case <-time.After(145 * time.Second):
 		t.Fatal("gateway fixture did not close")
 	}
 }

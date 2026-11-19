@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import pino from "pino"
 import { expect, it, vi } from "vitest"
 import { desktopExecutionAckSchema, desktopExecutionCommandSchema } from "@linksense/shared"
@@ -393,6 +393,40 @@ it("does not dispatch a completed command ID again on the same connection", asyn
     await link.close()
     await provider.shutdown()
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("admits Stop when ordinary attachment-capable commands fill their slots", async () => {
+  const owner = randomUUID()
+  const provider = new DesktopWorkerProvider({
+    dataRoot: tmpdir(), runtimeRoot: tmpdir(), controlToken: randomBytes(32).toString("hex"),
+  }, logger)
+  const turns = new DesktopTurns(provider, tmpdir(), "https://server.example.test", vi.fn(), logger)
+  const finish = deferred<void>()
+  const execute = vi.spyOn(turns, "execute").mockImplementation(async command => {
+    await finish.promise
+    return { type: "command.result", id: command.id, operation: command.operation, ok: false, error_code: "RUNNER_UNAVAILABLE" }
+  })
+  const write = vi.fn(async () => {})
+  const link = new DesktopLink(randomUUID(), owner, turns, write, vi.fn(), [], true)
+  const inspect = desktopExecutionCommandSchema.parse({
+    type: "command", id: randomUUID(), owner_id: owner, conversation_id: randomUUID(),
+    runtime_generation: randomUUID(), turn_id: randomUUID(), operation: "turn.inspect",
+    expires_at: new Date(Date.now() + 10_000).toISOString(),
+  })
+  try {
+    for (let index = 0; index < 7; index++) link.receive({ ...inspect, id: randomUUID() })
+    link.receive(inspect)
+    expect(execute).toHaveBeenCalledTimes(7)
+    const stop = { ...inspect, id: randomUUID(), operation: "turn.interrupt" } as const
+    link.receive(stop)
+    expect(execute).toHaveBeenCalledWith(stop, expect.any(AbortSignal), expect.any(Object))
+    link.receive({ ...stop, id: randomUUID() })
+    expect(execute).toHaveBeenCalledTimes(8)
+  } finally {
+    finish.resolve()
+    await link.close()
+    await provider.shutdown()
   }
 })
 

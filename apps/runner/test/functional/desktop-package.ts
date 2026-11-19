@@ -201,11 +201,11 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
           type: "command", operation: "turn.drain", id: randomUUID(), owner_id: ownerId,
           conversation_id: conversationId, runtime_generation: runtimeGeneration, turn_id: projectionId,
           expires_at: new Date(Date.now() + 30_000).toISOString(),
-        }), AbortSignal.timeout(20_000), async batch => {
+        }), AbortSignal.timeout(20_000), { deliver: async batch => {
           deliveries.push(...batch.events.map(({ event }) => event));
           return { type: "execution.ack", id: randomUUID(), operation: "events", ok: true,
             data: { accepted_delivery_ids: batch.events.map(({ deliveryId }) => deliveryId) } };
-        });
+        } });
         assert(result.ok && result.operation === "turn.drain");
         assert.equal(result.result.terminal?.turn.status, "completed");
         assert.equal(result.result.terminal?.turn.id, savedTurn.id);

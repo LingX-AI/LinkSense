@@ -17,6 +17,21 @@ const processExit = runnerStartSettledSchema.pick({ conversationId: true }).exte
   projectionTurnId: z.uuid(), capabilityGeneration: z.string().regex(/^[a-f0-9]{64}$/u),
 })
 
+async function whileResponseOpen<T>(
+  response: import("node:http").ServerResponse, work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  // A POST request can close normally as soon as its body has been read.
+  const controller = new AbortController()
+  const onClose = () => { if (!response.writableEnded) controller.abort() }
+  response.once("close", onClose)
+  try {
+    if (response.destroyed) controller.abort()
+    return await work(controller.signal)
+  } finally {
+    response.off("close", onClose)
+  }
+}
+
 async function readScreenshot(response: Response): Promise<Buffer | null> {
   const length = Number(response.headers.get("content-length"))
   if (!response.ok || response.headers.get("content-type") !== "image/jpeg" ||
@@ -70,6 +85,17 @@ export function desktopWorkerCallbacks(
     authenticate(request.headers)
     runnerHeartbeatSchema.parse(request.body)
     return { data: { confirmed: true } }
+  })
+  app.post("/internal/runner/attachments-ready", async (request, reply) => {
+    const { run } = authenticate(request.headers)
+    const body = runnerStartSettledSchema.parse(request.body)
+    if (!run.confirmAttachments || body.conversationId !== run.scope.conversation_id ||
+      body.projectionTurnId !== run.scope.turn_id || body.runtimeGeneration !== run.scope.runtime_generation) {
+      throw new Error("desktop attachment scope unavailable")
+    }
+    const confirm = run.confirmAttachments
+    const expiresAt = await whileResponseOpen(reply.raw, signal => confirm(signal))
+    return { confirmed: true, expiresAt }
   })
   app.post("/internal/runner/start-settled", async (request, reply) => {
     const { link, turns, run } = authenticate(request.headers)
@@ -132,36 +158,28 @@ export function desktopWorkerCallbacks(
       if (body.data.conversationId !== run.scope.conversation_id || body.data.turnId !== run.scope.turn_id) {
         return reply.code(403).send({ error_code: "FORBIDDEN" })
       }
-      const controller = new AbortController()
-      const abort = () => controller.abort()
-      const onClose = () => { if (!reply.raw.writableEnded) abort() }
-      request.raw.once("aborted", abort)
-      reply.raw.once("close", onClose)
-      try {
-        const result = await link.requestTool(run, invoke(body.data), controller.signal)
+      return whileResponseOpen(reply.raw, async signal => {
+        const result = await link.requestTool(run, invoke(body.data), signal)
         if (result.ok) {
           if (result.operation === "browser.execute") {
             const { result: browser, screenshot_id } = result.data
             if (!browser.ok || !screenshot_id) return browser
             const response = await fetch(new URL(`${desktopBrowserScreenshotPath}/${run.scope.turn_id}/${screenshot_id}`, serverOrigin), {
               headers: { authorization: `Bearer ${run.token}`, "accept-encoding": "identity" },
-              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4_000)]),
+              signal: AbortSignal.any([signal, AbortSignal.timeout(4_000)]),
               redirect: "error",
               cache: "no-store",
             })
             const bytes = await readScreenshot(response)
             if (!bytes) return browserUseFailure("BROWSER_USE_COMMAND_FAILED")
-            if (controller.signal.aborted || current()?.turns.scopedRun(run.scope.conversation_id) !== run)
+            if (signal.aborted || current()?.turns.scopedRun(run.scope.conversation_id) !== run)
               return browserUseFailure("BROWSER_USE_CANCELLED")
             return { ...browser, data: { ...browser.data, image: bytes.toString("base64") } }
           }
           return result.data
         }
         return reply.code(errorCatalog[result.error_code].http_status).send({ error_code: result.error_code })
-      } finally {
-        request.raw.off("aborted", abort)
-        reply.raw.off("close", onClose)
-      }
+      })
     })
   }
   registerTool("/internal/web-search/search", toolScope.extend({ request: webSearchRequestSchema }),

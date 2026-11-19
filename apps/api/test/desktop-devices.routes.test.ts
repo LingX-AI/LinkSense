@@ -1,11 +1,13 @@
 import Fastify from "fastify";
 import { randomBytes, randomUUID } from "node:crypto";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DESKTOP_EXECUTION_PROTOCOL_HEADER, desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
-  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionCallback, type DesktopExecutionCommand,
+  DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, desktopAttachmentProtocolVersion,
+  desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
+  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionAck,
+  type DesktopExecutionCallback, type DesktopExecutionCommand,
 } from "@linksense/shared";
 import { DesktopCommandUncertainError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
 import { AppError } from "../src/lib/errors.js";
@@ -43,7 +45,7 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   const app = Fastify();
   const authority = vi.fn<(binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>>()
     .mockResolvedValue(true);
-  const recover = vi.fn(async (_scope: DesktopExecutionBinding & { ownerId: string }, frame: DesktopExecutionCallback, signal: AbortSignal) => {
+  const recover = vi.fn(async (_scope: DesktopExecutionBinding & { ownerId: string }, frame: DesktopExecutionCallback, signal: AbortSignal): Promise<DesktopExecutionAck> => {
     signal.throwIfAborted();
     if (frame.operation !== "events") throw new AppError("FORBIDDEN");
     return { type: "execution.ack", operation: "events", id: frame.id, ok: true,
@@ -93,12 +95,15 @@ function barrier() {
   return { promise, resolve: () => release() };
 }
 
-async function connect(app: ReturnType<typeof Fastify>, token: string, executionVersion?: number) {
+async function connect(app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false) {
   const address = app.server.listening
     ? `http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`
     : await app.listen({ host: "127.0.0.1", port: 0 });
   const socket = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`, {
-    headers: executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) },
+    headers: {
+      ...(executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) }),
+      ...(attachments ? { [DESKTOP_ATTACHMENT_PROTOCOL_HEADER]: String(desktopAttachmentProtocolVersion) } : {}),
+    },
   });
   sockets.push(socket);
   await once(socket, "open");
@@ -223,6 +228,113 @@ describe("desktop execution transport", () => {
     expect(await cancelled).toEqual({ type: "command.cancel", id: command.id });
     await finished.promise;
     expect(gateway.recover.mock.calls[0]?.[2].aborted).toBe(true);
+  });
+
+  it("withholds attachment readiness when Stop wins while the gateway is validating it", async () => {
+    const gateway = await fixture();
+    const origin = await fixture(gateway.repository);
+    const deviceId = randomUUID(), connectionId = randomUUID();
+    await gateway.coordinator.connect(deviceId, connectionId);
+    const frames = new EventEmitter();
+    const send = vi.fn<Parameters<DesktopDeviceTransport["attach"]>[0]["send"]>(frame => {
+      frames.emit("frame", frame);
+      return true;
+    });
+    const detach = await gateway.execution.attach({
+      ownerId: owner, deviceId, connectionId, attachments: true, toolOperations: [],
+      verifyCredential: async () => true, send, close: () => {},
+    });
+    if (!detach) throw new Error("Mac did not negotiate attachment execution");
+    let enterValidation = () => {};
+    let finishValidation = () => {};
+    const validationEntered = new Promise<void>(resolve => { enterValidation = resolve; });
+    const validationFinished = new Promise<void>(resolve => { finishValidation = resolve; });
+    const pending: Promise<unknown>[] = [];
+    try {
+      const binding = await origin.execution.connection(deviceId);
+      if (!binding) throw new Error("Missing negotiated Mac connection");
+      const scope = inspection();
+      const expiresAt = Date.now() + 10_000;
+      const expires_at = new Date(expiresAt).toISOString();
+      const run_token = `lsdr_${"a".repeat(43)}`;
+      const start = desktopExecutionCommandSchema.parse({
+        ...scope, expires_at, operation: "turn.start",
+        body: {
+          native_thread_id: null, input: "", reasoning_effort: "low",
+          credentials: {
+            turn_id: scope.turn_id, expires_at, run_token,
+            primary: { purpose: "primary", model: "sample", revision: 1, protocol_mode: "native_responses", token: `lsdm_${"b".repeat(43)}` },
+          },
+          attachments: [{
+            id: randomUUID(), filename: "notes.txt", size_bytes: 4, sha256: "c".repeat(64),
+            download_grant: `${expiresAt}.${scope.id}.${"d".repeat(64)}`,
+          }],
+        },
+      });
+      const startFrame = once(frames, "frame", { signal: AbortSignal.timeout(2_000) });
+      pending.push(origin.execution.send(binding, start).catch(() => undefined));
+      expect((await startFrame)[0]).toEqual(start);
+      const ready = {
+        type: "execution.callback", operation: "attachments.ready", start_id: start.id, id: randomUUID(), run_token,
+        conversation_id: start.conversation_id, runtime_generation: start.runtime_generation, turn_id: start.turn_id,
+      } satisfies DesktopExecutionCallback;
+      gateway.recover.mockImplementationOnce(async () => {
+        enterValidation();
+        await validationFinished;
+        return { type: "execution.ack", operation: "attachments.ready", id: ready.id, ok: true };
+      });
+      const validating = gateway.execution.receiveCallback(connectionId, ready);
+      pending.push(validating);
+      await Promise.race([validationEntered, validating.then(() => { throw new Error("Readiness did not reach validation"); })]);
+
+      const stop = desktopExecutionCommandSchema.parse({ ...scope, expires_at, id: randomUUID(), operation: "turn.interrupt" });
+      const stopFrame = once(frames, "frame", { signal: AbortSignal.timeout(2_000) });
+      pending.push(origin.execution.send(binding, stop).catch(() => undefined));
+      expect((await stopFrame)[0]).toEqual(stop);
+
+      finishValidation();
+      await validating;
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "execution.ack", id: ready.id, ok: true }));
+    } finally {
+      finishValidation();
+      detach();
+      await Promise.allSettled(pending);
+    }
+  });
+
+  it.each([
+    { peer: "attachment-capable", attachments: true, ordinarySlots: 7 },
+    { peer: "legacy", attachments: false, ordinarySlots: 8 },
+  ])("keeps Stop within the eight-command limit for a $peer Mac", async ({ attachments, ordinarySlots }) => {
+    const { app, execution } = await fixture();
+    const { device, token } = await paired(app);
+    const { socket, ready } = await connect(app, token, desktopExecutionProtocolVersion, attachments);
+    expect(desktopExecutionDeviceReadySchema.parse(ready).attachment_protocol_version)
+      .toBe(attachments ? desktopAttachmentProtocolVersion : undefined);
+    const binding = await execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const pending: Promise<unknown>[] = [];
+    const issue = (command: DesktopExecutionCommand) => {
+      const frame = readFrame(socket);
+      const result = execution.send(binding, command);
+      pending.push(result);
+      return Promise.race([frame, result]);
+    };
+    const expires_at = new Date(Date.now() + 20_000).toISOString();
+    const unavailable = { ok: false, error_code: "RUNNER_UNAVAILABLE" };
+    try {
+      for (let admitted = 0; admitted < ordinarySlots; admitted++) {
+        const command = inspection({ expires_at });
+        expect(await issue(command)).toEqual(command);
+      }
+      expect(await issue(inspection({ expires_at }))).toMatchObject(unavailable);
+      const stop = { ...inspection({ expires_at }), operation: "turn.interrupt" } as const;
+      if (attachments) expect(await issue(stop)).toEqual(stop);
+      expect(await issue({ ...stop, id: randomUUID() })).toMatchObject(unavailable);
+    } finally {
+      socket.terminate();
+      await Promise.allSettled(pending);
+    }
   });
 
   it("sends a command to the current negotiated Mac across API replicas and correlates its receipt", async () => {

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  desktopAttachmentStartLifetimeMs,
+  desktopAttachmentStartupReserveMs,
   desktopExecutionCommandSchema,
   desktopExecutionCommandLifetimeMs,
   type DesktopExecutionCommand,
@@ -12,6 +14,7 @@ import type { DesktopProjectionFence } from "../modules/desktop-credentials/run-
 import { AppError } from "../lib/errors.js";
 import { DesktopCommandUncertainError, DesktopCommandUndeliveredError, type DesktopDeviceTransport } from "./desktop-device-transport.js";
 import type { DesktopExecutionBinding } from "../modules/desktop-devices/coordinator.js";
+import type { DesktopAttachments } from "../modules/files/desktop-attachments.js";
 import type { RunnerStartInput, RunnerStartOperation } from "./runner.js";
 
 type ConversationScope = Pick<DesktopRunScope, "ownerId" | "conversationId">;
@@ -24,13 +27,15 @@ type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<UserInputCom
 export class DesktopRunner {
   constructor(
     private readonly findConversation: (scope: ConversationScope) => Promise<{ desktopDeviceId: string | null; runtimeGeneration: string } | null>,
-    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge">,
+    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments">,
     private readonly leases: Pick<DesktopRunLeases, "issue" | "discardUndelivered">,
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
+    private readonly attachments: Pick<DesktopAttachments, "manifest">,
   ) {}
 
-  async assertAvailable(scope: ConversationScope): Promise<void> {
-    await this.resolve(scope);
+  async assertAvailable(scope: ConversationScope, needsAttachments = false): Promise<void> {
+    const { binding } = await this.resolve(scope);
+    if (needsAttachments) await this.assertAttachmentSupport(binding);
   }
 
   async start(input: RunnerStartInput, connectionId?: string): Promise<RunnerStartOperation> {
@@ -41,8 +46,7 @@ export class DesktopRunner {
         input.mcpServers.length || Object.keys(input.environment).length || input.modelProvider.privacyMasking ||
         input.modelTransitionSource?.provider.privacyMasking || context.applicationInstructions ||
         context.approvedPlanImplementation || context.automationExecution || context.requireFinalResponse ||
-        context.officeSelectionContext ||
-        context.attachments.length || context.priorityPlugins.length || context.prioritySkills.length) {
+        context.officeSelectionContext || context.priorityPlugins.length || context.prioritySkills.length) {
       throw new AppError("RUNNER_UNAVAILABLE");
     }
     const scope = { ownerId: input.ownerId, conversationId: input.conversationId, turnId: input.projectionTurnId, runtimeGeneration: input.expectedRuntimeGeneration };
@@ -51,10 +55,17 @@ export class DesktopRunner {
     if (context.selectedKnowledgeBases?.length && !await this.transport.supportsKnowledge(binding)) {
       throw new DesktopCommandUndeliveredError();
     }
+    const commandId = randomUUID();
+    const runScope = { ...scope, deviceId: binding.deviceId, connectionId: binding.connectionId };
+    if (context.attachments.length) await this.assertAttachmentSupport(binding);
+    const expiry = Date.now() + desktopAttachmentStartLifetimeMs;
+    const attachments = context.attachments.length
+      ? await this.attachments.manifest(runScope, context.attachments.length, commandId, expiry - desktopAttachmentStartupReserveMs)
+      : undefined;
     const credentials = await this.leases.issue(binding, input);
     try {
       // A worker cannot report its exit with an expired lease.
-      await this.scheduleExpiry({ ...scope, deviceId: binding.deviceId, connectionId: binding.connectionId }, dayjs(credentials.expires_at).valueOf());
+      await this.scheduleExpiry(runScope, dayjs(credentials.expires_at).valueOf());
     } catch {
       await this.leases.discardUndelivered(credentials.turn_id, credentials.run_token);
       throw new DesktopCommandUndeliveredError();
@@ -64,15 +75,23 @@ export class DesktopRunner {
       body: {
         native_thread_id: input.codexThreadId ?? null, input: context.userInput, reasoning_effort: input.reasoningEffort, credentials,
         ...(context.selectedKnowledgeBases?.length ? { selected_knowledge_bases: context.selectedKnowledgeBases } : {}),
+        ...(attachments ? { attachments } : {}),
       },
-    }).catch(async (error: unknown) => {
-      if (error instanceof DesktopCommandUndeliveredError) {
+    }, attachments ? { expiresAt: expiry, id: commandId } : undefined).catch(async (error: unknown) => {
+      if (error instanceof DesktopCommandUndeliveredError || (error instanceof AppError && error.code === "ATTACHMENT_UPLOAD_INVALID")) {
         await this.leases.discardUndelivered(credentials.turn_id, credentials.run_token);
       }
       throw error;
     });
     if (frame.operation !== "turn.start" || !frame.result) throw new DesktopCommandUncertainError();
+    if (attachments && frame.result.status === "failed") {
+      await this.leases.discardUndelivered(credentials.turn_id, credentials.run_token);
+    }
     return frame.result;
+  }
+
+  private async assertAttachmentSupport(binding: DesktopExecutionBinding): Promise<void> {
+    if (!await this.transport.supportsAttachments(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
   }
 
   async inspect(scope: TurnScope): Promise<RunnerStartOperation | null> {
@@ -148,11 +167,12 @@ export class DesktopRunner {
     target: Awaited<ReturnType<DesktopRunner["resolve"]>>,
     scope: TurnScope,
     input: CommandInput,
+    delivery = { id: randomUUID(), expiresAt: Date.now() + desktopExecutionCommandLifetimeMs },
   ): Promise<Extract<DesktopExecutionResult, { ok: true }>> {
     const command = desktopExecutionCommandSchema.safeParse({
-      type: "command", id: randomUUID(), owner_id: scope.ownerId, conversation_id: scope.conversationId,
+      type: "command", id: delivery.id, owner_id: scope.ownerId, conversation_id: scope.conversationId,
       runtime_generation: target.runtimeGeneration, turn_id: scope.turnId,
-      expires_at: new Date(Date.now() + desktopExecutionCommandLifetimeMs).toISOString(),
+      expires_at: new Date(delivery.expiresAt).toISOString(),
       ...input,
     });
     if (!command.success) throw new DesktopCommandUndeliveredError();

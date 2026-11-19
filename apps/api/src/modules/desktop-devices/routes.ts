@@ -6,6 +6,7 @@ import type { Redis } from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { z, ZodError } from "zod";
 import {
+  DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
@@ -14,6 +15,7 @@ import {
   desktopDevicePairInputSchema,
   desktopDeviceRenameInputSchema,
   desktopDeviceRenameResultSchema,
+  desktopAttachmentProtocolVersion,
   desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
@@ -162,6 +164,8 @@ export async function registerDesktopDeviceRoutes(
   server.on("connection", (socket, request: IncomingMessage) => {
     const supportsExecution = execution !== undefined &&
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
+    const supportsAttachments = supportsExecution &&
+      request.headers[DESKTOP_ATTACHMENT_PROTOCOL_HEADER] === String(desktopAttachmentProtocolVersion);
     const supportsTools = supportsExecution &&
       request.headers[DESKTOP_TOOL_PROTOCOL_HEADER] === String(desktopToolProtocolVersion);
     const toolOffer = request.headers[DESKTOP_TOOL_OPERATIONS_HEADER];
@@ -190,6 +194,7 @@ export async function registerDesktopDeviceRoutes(
         const callback = desktopExecutionCallbackSchema.safeParse(value);
         if (callback.success) {
           if (callback.data.type === "tool.request" && !current.tools.includes(callback.data.operation)) { socket.close(4400); return; }
+          if (callback.data.operation === "attachments.ready" && !supportsAttachments) { socket.close(4400); return; }
           await execution?.receiveCallback(current.connectionId, callback.data);
           return;
         }
@@ -229,6 +234,7 @@ export async function registerDesktopDeviceRoutes(
           if (state.execution && execution) {
             const detach = await execution.attach({
               ownerId: device.ownerId, deviceId: device.id, connectionId,
+              attachments: supportsAttachments,
               toolOperations: state.tools,
               verifyCredential: () => service.hasCurrentCredential(device),
               send: frame => {
@@ -248,6 +254,7 @@ export async function registerDesktopDeviceRoutes(
           clearTimeout(authDeadline);
           socket.send(JSON.stringify(state.execution ? desktopExecutionDeviceReadySchema.parse({
             ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
+            ...(supportsAttachments ? { attachment_protocol_version: desktopAttachmentProtocolVersion } : {}),
             ...(state.tools.length ? {
               tool_protocol_version: desktopToolProtocolVersion,
               ...(offered ? { tool_operations: state.tools } : {}),

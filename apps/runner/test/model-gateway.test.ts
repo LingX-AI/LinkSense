@@ -41,6 +41,39 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it.each(["native_responses", "chat_completions_bridge"] as const)(
+    "keeps desktop workspace paths off the %s wire without changing unrelated text",
+    async (protocolMode) => {
+      const origin = "https://linksense-fixture.example.test";
+      const turn = "10000000-0000-4000-8000-000000000001";
+      const dataRoot = "/var/folders/fixture/LinkSense Files";
+      const home = `${dataRoot}/home`;
+      const workspace = `${home}/workspace`;
+      const relative = "attachments/notes.txt";
+      const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 403 }));
+      const gateway = await startGateway({ fetch: upstream, desktopProxyOrigin: origin, desktopPaths: { dataRoot, home } });
+      const lease = gateway.issueLease({
+        ...leaseMetering, conversationId: "desktop-paths", revision: 1,
+        upstreamBaseUrl: `${origin}/api/v1/desktop/models/${turn}/primary`,
+        apiKey: `lsdm_${"a".repeat(43)}`, protocolMode, model: "model-a",
+      });
+      const prompt = "Keep ~/workspace/attachments/notes.txt and https://example.test/notes unchanged.";
+      await requestGateway(gateway, lease.token, {
+        model: "model-a", input: [
+          { role: "user", content: [{ type: "input_text", text: `<cwd>${workspace}</cwd>\n${prompt}` }] },
+          { type: "function_call", call_id: "read", name: "read_file", arguments: "{}" },
+          { type: "function_call_output", call_id: "read", output: `read /private${workspace}/${relative}` },
+        ],
+      });
+      expect(upstream).toHaveBeenCalledOnce();
+      const body = String(upstream.mock.calls[0]?.[1]?.body);
+      expect(body).toContain("<cwd>.</cwd>");
+      expect(body).toContain(`read ./${relative}`);
+      expect(body).toContain(prompt);
+      expect(body).not.toContain(dataRoot);
+    },
+  );
+
   it("uses independent desktop grants only for their native purpose and never follows an unscoped provider URL", async () => {
     const origin = "https://linksense-fixture.example.test";
     const turn = "10000000-0000-4000-8000-000000000001";
@@ -3027,6 +3060,7 @@ async function startGateway(
   options: {
     fetch?: typeof fetch;
     desktopProxyOrigin?: string;
+    desktopPaths?: { dataRoot: string; home: string };
     logger?: Logger;
     requestBodyLimit?: number;
     incomingRequestBodyLimit?: number;

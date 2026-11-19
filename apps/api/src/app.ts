@@ -150,6 +150,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   'req.headers["x-fallback-cookies"]',
   'req.headers["x-linksense-app-capability"]',
   'req.headers["x-linksense-file-name"]',
+  'req.headers["x-linksense-desktop-attachment-grant"]',
   "req.headers.authorization",
   "req.headers.cookie",
   "req.body.password",

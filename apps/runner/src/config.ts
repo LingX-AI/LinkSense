@@ -85,6 +85,7 @@ const runnerConfigSchema = z
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
     LINKSENSE_SERVICE_SESSION_ID: uuid.optional(),
     LINKSENSE_DESKTOP_PROXY_ORIGIN: desktopServerOriginSchema.optional(),
+    LINKSENSE_DESKTOP_DATA_ROOT: absoluteDirectory.optional(),
     LINKSENSE_DESKTOP_TURN_ID: uuid.optional(),
     LINKSENSE_DESKTOP_RUNTIME_GENERATION: uuid.optional(),
     LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: booleanEnvironment(false),

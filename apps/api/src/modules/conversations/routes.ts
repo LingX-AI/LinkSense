@@ -569,6 +569,16 @@ export const conversationRoutes: FastifyPluginAsync<{
       );
   });
 
+  app.post("/:id/turn-start/interrupt", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    const { idempotency_key } = z.strictObject({ idempotency_key: z.uuid() }).parse(request.body);
+    const result = await services.conversations.interruptDesktopTurnSubmission(
+      user.id, id, idempotency_key, auditContext(request),
+    );
+    return reply.code(202).send(ok(result, request.id));
+  });
+
   app.post(
     "/:id/user-input-requests/:requestId/respond",
     async (request, reply) => {

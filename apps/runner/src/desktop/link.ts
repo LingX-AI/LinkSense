@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import {
-  desktopExecutionCallbackSchema, desktopExecutionCommandLifetimeMs, desktopExecutionMaxInFlight,
+  desktopCommandCapacity,
+  desktopExecutionCallbackSchema, desktopExecutionLifetimeFor, desktopExecutionMaxInFlight,
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
@@ -35,6 +36,7 @@ export class DesktopLink {
     private readonly write: (frame: Output) => Promise<void>,
     private readonly fail: () => void,
     private readonly toolOperations: readonly DesktopToolOperation[] = [],
+    private readonly attachments = false,
   ) {}
 
   receive(frame: Extract<Input, { type: "link.frame" }>["frame"]): void {
@@ -65,7 +67,7 @@ export class DesktopLink {
     })
     const expiry = Date.parse(command.expires_at)
     const remaining = expiry - now
-    if (remaining <= 0 || remaining > desktopExecutionCommandLifetimeMs) {
+    if (remaining <= 0 || remaining > desktopExecutionLifetimeFor(command)) {
       this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("RUNNER_UNAVAILABLE") }))
       return
     }
@@ -80,16 +82,25 @@ export class DesktopLink {
       this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("FORBIDDEN") }))
       return
     }
-    if (this.commands.size >= desktopExecutionMaxInFlight) {
+    if (this.commands.size >= desktopCommandCapacity(command.operation, this.attachments)) {
       this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("RUNNER_UNAVAILABLE") }))
       return
     }
     const controller = new AbortController()
     this.commands.set(command.id, controller)
     const signal = AbortSignal.any([this.lifetime.signal, controller.signal, AbortSignal.timeout(remaining)])
-    const execution = command.operation === "turn.drain"
-      ? this.turns.execute(command, signal, body => this.recover(command, body, signal))
-      : this.turns.execute(command, signal)
+    const execution = this.turns.execute(command, signal, {
+      ...(command.operation === "turn.drain" && { deliver: body => this.recover(command, body, signal) }),
+      ...(this.attachments && { attachmentsReady: async (start, signal) => {
+        const { conversation_id, runtime_generation, turn_id } = start
+        const frame = desktopExecutionCallbackSchema.parse({
+          conversation_id, runtime_generation, turn_id, id: randomUUID(), start_id: start.id,
+          type: "execution.callback", operation: "attachments.ready", run_token: start.body.credentials.run_token,
+        })
+        const result = await this.sendCallback(frame, signal)
+        if (!result.ok || result.operation !== "attachments.ready") throw new Error("desktop attachments were not acknowledged")
+      } }),
+    })
     this.track(execution.then(async frame => {
       if (!signal.aborted) await this.write({ type: "link.frame", link_id: this.id, frame })
     }).finally(() => { this.commands.delete(command.id) }))

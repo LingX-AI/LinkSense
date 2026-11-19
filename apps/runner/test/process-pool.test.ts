@@ -86,6 +86,68 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("seals an attachment start when the device loses authority during native preparation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-attachment-gate-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    input.context.attachments = [{ filename: "notes.txt", homeRelativePath: "workspace/attachments/notes.txt" }];
+    eventSink.confirmDesktopAttachments.mockImplementation(async () => {
+      expect(controlled.methods).toContain("thread/start");
+      expect(controlled.methods).not.toContain("turn/start");
+      throw new Error("device run revoked");
+    });
+    try {
+      await pool.beginStartOperation(input);
+      await vi.waitFor(() => expect(eventSink.reportStartSettled).toHaveBeenCalledOnce());
+      expect(eventSink.confirmDesktopAttachments).toHaveBeenCalledWith({
+        conversationId: input.conversationId, projectionTurnId: input.projectionTurnId,
+        runtimeGeneration: input.expectedRuntimeGeneration,
+      });
+      expect(controlled.methods).not.toContain("turn/start");
+      const operation = await pool.getStartOperation(input.conversationId, input.projectionTurnId);
+      expect(operation).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" });
+      expect(operation?.correlation).toBeUndefined();
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("does not submit attachments when admission expires while persisting native correlation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-attachment-expiry-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    input.context.attachments = [{ filename: "notes.txt", homeRelativePath: "workspace/attachments/notes.txt" }];
+    const deadline = Date.now() + 60_000;
+    eventSink.confirmDesktopAttachments.mockResolvedValue(deadline);
+    const persistCorrelation = StartOperationStore.prototype.updateCorrelation;
+    vi.spyOn(StartOperationStore.prototype, "updateCorrelation").mockImplementation(async function (
+      this: StartOperationStore, ...args: Parameters<typeof persistCorrelation>
+    ) {
+      const state = await persistCorrelation.apply(this, args);
+      vi.spyOn(Date, "now").mockReturnValue(deadline);
+      return state;
+    });
+    try {
+      await pool.beginStartOperation(input);
+      await vi.waitFor(() => expect(eventSink.reportStartSettled).toHaveBeenCalledOnce());
+      expect(controlled.methods).not.toContain("turn/start");
+      expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({
+        status: "failed", errorCode: "RUNNER_TURN_START_SEALED",
+        correlation: { codexThreadId: expect.any(String) },
+      });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("keeps desktop thread and turn admission inside the native task workspace sandbox", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-desktop-native-policy-"));
     roots.push(root);
@@ -12343,6 +12405,7 @@ function createStartOperationPool(
   const eventSink = {
     publish,
     reportStartSettled: vi.fn<NonNullable<RunnerEventSink["reportStartSettled"]>>(async () => undefined),
+    confirmDesktopAttachments: vi.fn<NonNullable<RunnerEventSink["confirmDesktopAttachments"]>>(async () => Date.now() + 60_000),
     publishBatch: vi.fn<RunnerEventSink["publishBatch"]>(async (conversationId, events) => {
       for (const event of events) await publish(conversationId, event);
     }),

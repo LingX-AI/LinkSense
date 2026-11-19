@@ -40,6 +40,7 @@ export async function attachDesktopBrowserFixture(input: {
     let clicked = false;
     socket.on("message", value => {
       const data: unknown = JSON.parse(value.toString());
+      if (data === "pong") return;
       if (typeof data === "object" && data && "type" in data && data.type === "cancel" &&
           "id" in data && typeof data.id === "string") {
         if (pending.delete(data.id)) cancelled.push(data.id);
@@ -77,6 +78,11 @@ export async function attachDesktopBrowserFixture(input: {
       }
       socket.send(JSON.stringify({ id: command.id, result }));
     });
+    const heartbeat = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) socket.send('"ping"');
+    }, 20_000);
+    heartbeat.unref();
+    socket.once("close", () => clearInterval(heartbeat));
     return {
       socket, title, tabId, image, ref, observed, cancelled, token: paired.token,
       readImage: (turnId: string, id: string, token: string) => fetch(

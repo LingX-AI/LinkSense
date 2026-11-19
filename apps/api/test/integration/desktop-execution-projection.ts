@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import type { Duplex } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
   conversationStartFailurePayloadSchema,
+  DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
@@ -28,6 +30,7 @@ import Fastify from "fastify";
 import { WebSocket } from "ws";
 
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
+import { LocalFilesystemObjectStorage } from "../../src/adapters/object-storage.js";
 import { RunnerClient, type RunnerStartInput } from "../../src/adapters/runner.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
@@ -47,6 +50,7 @@ import { registerDesktopDeviceRoutes } from "../../src/modules/desktop-devices/r
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/modules/events/recovery-scheduler.js";
 import { ConversationEventService } from "../../src/modules/events/service.js";
+import { FileService } from "../../src/modules/files/service.js";
 import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking/service.js";
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
@@ -54,7 +58,7 @@ import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
 import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js";
-import { verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
+import { installPackagedAttachmentTransferGate, verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
 import { attachDesktopBrowserFixture } from "./desktop-browser-fixture.js";
@@ -180,6 +184,13 @@ export async function verifyDesktopExecutionProjection(input: {
         rejectNextRecovery = false;
         return Promise.reject(new Error("fixture recovery dispatch is unavailable"));
       },
+    });
+    const attachmentTransfer = installPackagedAttachmentTransferGate(app);
+    const attachmentSockets = new Set<Duplex>();
+    app.server.on("upgrade", (request, socket) => {
+      if (request.url !== "/api/v1/desktop/devices/socket" || !request.headers[DESKTOP_ATTACHMENT_PROTOCOL_HEADER]) return;
+      attachmentSockets.add(socket);
+      socket.once("close", () => { attachmentSockets.delete(socket); });
     });
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const browserFixture = await attachDesktopBrowserFixture({ app, address, ownerId });
@@ -677,9 +688,21 @@ export async function verifyDesktopExecutionProjection(input: {
     const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
     if (runtimeRoot) {
       replacement.socket.terminate();
+      const storage = new LocalFilesystemObjectStorage({
+        ...config, objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: input.workspaceRoot },
+      });
+      const files = new FileService(prisma, conversations, storage, audit, config, redis, {
+        enqueueObjectDelete: outsideFixture, enqueueWorkspaceDirectoryRemoval: outsideFixture,
+      });
       await verifyPackagedDesktopGateway({
-        runtimeRoot, scratch: input.workspaceRoot, address, prisma, redis, coordinator, conversations,
-        events, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
+        runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
+        events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
+        revokeAttachmentRun: turnId => leases.revoke(turnId),
+        disconnectAttachmentSocket: async connectionId => {
+          assert.equal((await coordinator.executionConnection(deviceId))?.connectionId, connectionId);
+          assert.equal(attachmentSockets.size, 1);
+          for (const socket of attachmentSockets) socket.destroy();
+        },
         serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey, browserFixture.token, ...connector.secrets],
         searchMarker,
         connector,

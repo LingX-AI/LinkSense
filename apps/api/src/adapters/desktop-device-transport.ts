@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import dayjs from "dayjs";
 import {
+  desktopCommandCapacity,
   desktopExecutionCancelSchema,
-  desktopExecutionCommandLifetimeMs,
+  desktopExecutionLifetimeFor,
   desktopExecutionCommandSchema,
   desktopExecutionMaxFrameBytes,
   desktopExecutionMaxInFlight,
@@ -60,6 +61,7 @@ type DeviceSocket = {
   close: () => void;
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
+  attachments: boolean;
   toolOperations: readonly DesktopToolOperation[];
   tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
   lifetime: AbortController;
@@ -128,10 +130,10 @@ export class DesktopDeviceTransport {
     socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
-    const { ownerId, deviceId, connectionId, verifyCredential, send, close, toolOperations } = socket;
+    const { ownerId, deviceId, connectionId, verifyCredential, send, close, toolOperations, attachments } = socket;
     const binding = { deviceId, connectionId, gatewayId: this.id };
     const connection: DeviceSocket = {
-      ownerId, binding, verifyCredential, send, close, toolOperations, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
+      ownerId, binding, verifyCredential, send, close, toolOperations, attachments, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
     };
     this.sockets.set(connectionId, connection);
     const detach = () => {
@@ -143,7 +145,7 @@ export class DesktopDeviceTransport {
       }
     };
     try {
-      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op))) &&
+      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments) &&
         this.sockets.get(connectionId) === connection) return detach;
       detach();
       return null;
@@ -161,6 +163,10 @@ export class DesktopDeviceTransport {
     return this.coordinator.supportsKnowledge(binding);
   }
 
+  supportsAttachments(binding: DesktopExecutionBinding): Promise<boolean> {
+    return this.coordinator.supportsAttachments(binding);
+  }
+
   async send(
     binding: DesktopExecutionBinding,
     raw: DesktopExecutionCommand,
@@ -170,7 +176,7 @@ export class DesktopDeviceTransport {
     const expiresAt = dayjs(command.expires_at).valueOf();
     const lifetime = expiresAt - Date.now();
     const request: Dispatch = { kind: "dispatch", binding, replyGatewayId: this.id, frame: command };
-    if (lifetime <= 0 || lifetime > desktopExecutionCommandLifetimeMs || signal?.aborted ||
+    if (lifetime <= 0 || lifetime > desktopExecutionLifetimeFor(command) || signal?.aborted ||
       Buffer.byteLength(JSON.stringify(command)) > desktopExecutionMaxFrameBytes) {
       throw new DesktopCommandUndeliveredError();
     }
@@ -266,7 +272,8 @@ export class DesktopDeviceTransport {
       return;
     }
     socket.callbacks.add(key);
-    const pending = frame.type === "execution.recovery" ? socket.pending.get(frame.drain_id) : undefined;
+    const pending = frame.type === "execution.recovery" ? socket.pending.get(frame.drain_id)
+      : frame.operation === "attachments.ready" ? socket.pending.get(frame.start_id) : undefined;
     const tool = frame.type === "tool.request" ? { frame, controller: new AbortController() } : undefined;
     if (tool) socket.tools.set(frame.id, tool);
     const signal = AbortSignal.any([
@@ -279,7 +286,17 @@ export class DesktopDeviceTransport {
         socket.close();
         return;
       }
-      if (frame.type === "execution.recovery") {
+      if (frame.operation === "attachments.ready") {
+        const command = pending?.command;
+        if (!socket.attachments || pending?.state !== "sent" || pending.expiresAt <= Date.now() ||
+            command?.operation !== "turn.start" || !command.body.attachments?.length ||
+            command.turn_id !== frame.turn_id || command.conversation_id !== frame.conversation_id ||
+            command.runtime_generation !== frame.runtime_generation ||
+            !await this.coordinator.mayDispatch(binding, command.id)) {
+          reply(reject("FORBIDDEN"));
+          return;
+        }
+      } else if (frame.type === "execution.recovery") {
         const command = pending?.command;
         if (!pending || pending.state !== "sent" || pending.expiresAt <= Date.now() || command?.operation !== "turn.drain" ||
             command.conversation_id !== frame.conversation_id || command.runtime_generation !== frame.runtime_generation ||
@@ -298,7 +315,9 @@ export class DesktopDeviceTransport {
         return;
       }
       const ack = await this.callback({ ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal);
-      if (!signal.aborted && (frame.type !== "execution.recovery" || socket.pending.get(frame.drain_id) === pending)) reply(ack);
+      if (frame.operation === "attachments.ready" &&
+          (!pending || !await this.coordinator.mayDispatch(binding, pending.command.id))) return;
+      if (!signal.aborted && (!pending || socket.pending.get(pending.command.id) === pending)) reply(ack);
     } catch (error) {
       if (!signal.aborted) reply(reject(error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "AUTH_REQUIRED")
         ? "FORBIDDEN" : "RUNNER_UNAVAILABLE"));
@@ -418,15 +437,17 @@ export class DesktopDeviceTransport {
       await this.reply(request, failure(frame, "USER_INPUT_REQUEST_UNAVAILABLE"), true);
       return;
     }
-    if (frame.operation === "turn.start" && frame.body.selected_knowledge_bases?.length &&
-      !knowledgeTools.every(op => socket.toolOperations.includes(op))) {
+    if (frame.operation === "turn.start" && (
+      (frame.body.selected_knowledge_bases?.length && !knowledgeTools.every(op => socket.toolOperations.includes(op))) ||
+      (frame.body.attachments?.length && !socket.attachments)
+    )) {
       await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
     }
     const expiresAt = dayjs(frame.expires_at).valueOf();
     const remaining = expiresAt - Date.now();
-    if (remaining <= 0 || remaining > desktopExecutionCommandLifetimeMs ||
-      socket.pending.size >= desktopExecutionMaxInFlight) {
+    if (remaining <= 0 || remaining > desktopExecutionLifetimeFor(frame) ||
+      socket.pending.size >= desktopCommandCapacity(frame.operation, socket.attachments)) {
       await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
     }
@@ -445,6 +466,16 @@ export class DesktopDeviceTransport {
     socket.pending.set(frame.id, delivery);
     const authorized = await socket.verifyCredential() && await this.authorize(socket.binding, frame);
     const current = authorized && await this.coordinator.mayDispatch(socket.binding, frame.id);
+    if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
+    if (current && frame.operation === "turn.interrupt") {
+      const start = [...socket.pending.values()].find(({ command }) => command.operation === "turn.start" &&
+        command.body.attachments?.length && command.turn_id === frame.turn_id &&
+        command.conversation_id === frame.conversation_id && command.runtime_generation === frame.runtime_generation);
+      if (start) {
+        start.lifetime.abort();
+        await this.coordinator.cancelAttachmentPreparation(start.command.id);
+      }
+    }
     if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
     if (!current ||
       Date.now() >= expiresAt || !socket.send(frame)) {

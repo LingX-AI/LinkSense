@@ -408,8 +408,8 @@ export class RunnerClient {
     return await this.resolveWorkspace?.(ownerId, conversationId) === "local";
   }
 
-  assertDesktopAvailable(ownerId: string, conversationId: string): Promise<void> {
-    return this.desktopRunner().assertAvailable({ ownerId, conversationId });
+  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false): Promise<void> {
+    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments);
   }
 
   drainDesktopTurn(scope: Parameters<DesktopRunner["drain"]>[0]): ReturnType<DesktopRunner["drain"]> {

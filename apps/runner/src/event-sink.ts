@@ -69,6 +69,7 @@ export interface RunnerEventSink {
     page?: DesktopConnectionRequestBody["page"];
   }): Promise<unknown>;
   reportStartSettled?(input: RunnerStartSettled): Promise<void>;
+  confirmDesktopAttachments?(input: RunnerStartSettled): Promise<number>;
   /** Atomically persists the event before returning. */
   publish(conversationId: string, event: LinkSensePublishedEvent): Promise<void>;
   /** Persists every original event, in order, before returning. */
@@ -293,6 +294,17 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       this.deliveryWaiters.get(body.conversationId)?.abort();
     }
     await this.resumeConversation(body.conversationId);
+  }
+
+  async confirmDesktopAttachments(input: RunnerStartSettled): Promise<number> {
+    const body = runnerStartSettledSchema.parse(input);
+    const response = await this.post("/internal/runner/attachments-ready", body,
+      this.workspaceManager.ownerFor(body.conversationId));
+    const { confirmed, expiresAt } = asRecord(response);
+    if (confirmed !== true || typeof expiresAt !== "number" || !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) {
+      throw new Error("desktop attachment admission unavailable");
+    }
+    return expiresAt;
   }
 
   async flushConversation(
@@ -892,7 +904,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     ownerId: string,
     callerSignal?: AbortSignal,
   ): Promise<Response> {
-    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled"
+    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled" ||
+      pathname === "/internal/runner/attachments-ready"
       ? 5_000
       : pathname.startsWith("/internal/knowledge/")
       ? deriveKnowledgeSearchTimeouts(

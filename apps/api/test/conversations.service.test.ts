@@ -6867,6 +6867,48 @@ describe("ConversationService subagent detail", () => {
 });
 
 describe("ConversationService pending and turn materialization", () => {
+  it("releases the conversation lock when Stop wins before dispatch of a prepared Mac attachment turn", async () => {
+    const fixture = await conversationFixture();
+    const idempotencyKey = "mac-attachment-stop-before-dispatch";
+    const turnId = uuidv5(`turn-start:${idempotencyKey}`, CONVERSATION_ID);
+    const local = conversationRow({
+      executionTarget: "local",
+      desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(local);
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([
+      attachmentRow({ status: "staged", turnId: null, workspaceRootRelPath: local.workspaceRelPath }),
+    ]);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{
+      revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null,
+    }]);
+    let releaseRecovery = () => {};
+    const recovery = new Promise<null>(resolve => { releaseRecovery = () => resolve(null); });
+    fixture.redis.acquireRecoveryLock.mockReturnValueOnce(recovery);
+    const updateIntent = fixture.prisma.conversationTurnStartIntent.updateMany;
+    const prepare = updateIntent.getMockImplementation();
+    if (!prepare) throw new Error("Missing start-intent fixture");
+    updateIntent.mockImplementationOnce(async input => {
+      const result = await prepare(input);
+      await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, turnId, {})).resolves.toEqual({
+        code: "TURN_INTERRUPT_REQUESTED", turn_id: turnId,
+      });
+      return result;
+    });
+
+    try {
+      await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+        inputText: "Read the attachment", priorityCapabilityIds: [], idempotencyKey, submitMode: "normal",
+      }, {})).resolves.toMatchObject({ accepted: true, status: "starting", turn_id: turnId });
+      expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(CONVERSATION_ID, turnId, OWNER_ID, local.runtimeGeneration);
+      expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+      expect(fixture.redis.releaseConversationLock).toHaveBeenCalledWith(CONVERSATION_ID, "conversation-lock");
+    } finally {
+      releaseRecovery();
+    }
+  });
+
   it("does not persist an inspected Mac start after its delivering connection changes", async () => {
     const fixture = await conversationFixture();
     const connectionId = "10000000-0000-4000-8000-000000000009";
@@ -9733,6 +9775,34 @@ describe("ConversationService pending and turn materialization", () => {
     expect(JSON.stringify(fixture.audit.write.mock.calls)).not.toContain(
       "next private request",
     );
+  });
+
+  it.each([
+    { hasStagedFile: false, preserveStagedAttachments: false, canQueue: true, inputText: "later" },
+    { hasStagedFile: true, preserveStagedAttachments: true, canQueue: true, inputText: "later" },
+    { hasStagedFile: true, preserveStagedAttachments: false, canQueue: false, inputText: "later" },
+    { hasStagedFile: true, preserveStagedAttachments: false, canQueue: false, inputText: "" },
+  ])("preserves staged files when queuing on Mac (%j)", async ({
+    hasStagedFile, preserveStagedAttachments, canQueue, inputText,
+  }) => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ executionTarget: "local" }));
+    const transaction = fixture.defaultTransaction;
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID, executionTarget: "local" }]);
+    transaction.conversationTurn.findFirst.mockResolvedValueOnce({ id: TURN_ID });
+    transaction.conversationFile.findFirst.mockResolvedValueOnce(hasStagedFile ? { id: "staged-file" } : null);
+
+    const queued = fixture.service.createPending(OWNER_ID, CONVERSATION_ID, {
+      inputText, priorityCapabilityIds: [], preserveStagedAttachments,
+    }, {});
+    if (canQueue) {
+      await expect(queued).resolves.toMatchObject({ input_text: inputText, status: "waiting_previous_turn" });
+    } else {
+      await expect(queued).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+      expect(transaction.pendingRequest.create).not.toHaveBeenCalled();
+      expect(transaction.conversationFile.findFirst).toHaveBeenCalledOnce();
+    }
+    expect(transaction.conversationFile.updateMany).not.toHaveBeenCalled();
   });
 
   it("creates a pending request while an accepted turn start is still projecting", async () => {
@@ -12683,6 +12753,7 @@ async function conversationFixture() {
     renewUserRuntimeLease: vi.fn(async () => true),
     releaseUserRuntimeLease: vi.fn(async () => undefined),
     acquireConversationLock: vi.fn(async () => "conversation-lock"),
+    extendConversationLock: vi.fn(async () => true),
     releaseConversationLock: vi.fn(async () => undefined),
     acquireRecoveryLock: vi.fn<
       (
@@ -12768,6 +12839,7 @@ async function conversationFixture() {
     })),
     reconcile: vi.fn(async () => ({ thread: {}, goal: null })),
     isDesktopConversation: vi.fn(async () => false),
+    assertDesktopAvailable: vi.fn(async () => undefined),
     desktopProjectionFence: vi.fn<() => Promise<DesktopProjectionFence & { connectionId: string }>>(),
     inspectStartOperation: vi.fn<() => Promise<RunnerStartOperation | null>>(
       async () => null,

@@ -7,6 +7,9 @@ import type { AppServices } from "../../services.js";
 import type { ConnectionService } from "../connections/service.js";
 import { isDesktopRunActive } from "../desktop-credentials/run-authority.js";
 import type { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
+import { DesktopAttachments } from "../files/desktop-attachments.js";
+import { registerDesktopAttachmentRoute } from "../files/desktop-attachment-route.js";
+import { reserveDesktopAttachmentSlot } from "../files/desktop-attachment-slots.js";
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import type { RedisDesktopDeviceCoordinator } from "./coordinator.js";
 import { registerDesktopBrowserScreenshotRoute, type DesktopBrowserUse } from "./browser-use.js";
@@ -29,6 +32,7 @@ export async function registerDesktopExecution(
 ): Promise<DesktopDeviceTransport | undefined> {
   const { config, prisma, redis } = services;
   if (!config.desktopLocalExecutionEnabled) return undefined;
+  const attachments = new DesktopAttachments(prisma, config);
   const turnScope = (frame: Pick<DesktopExecutionCommand, "conversation_id" | "turn_id" | "runtime_generation">) => ({
     conversationId: frame.conversation_id,
     turnId: frame.turn_id,
@@ -58,6 +62,13 @@ export async function registerDesktopExecution(
             signal.throwIfAborted();
           },
         }, scope, frame, signal);
+      }
+      if (frame.operation === "attachments.ready") {
+        await leases.verifyRunBinding(scope, frame.run_token, "use");
+        await attachments.ready(scope);
+        await leases.verifyRunBinding(scope, frame.run_token, "use");
+        signal.throwIfAborted();
+        return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true };
       }
       if (frame.type === "execution.callback") await leases.verifyRunBinding(scope, frame.run_token);
       const check = async () => {
@@ -95,7 +106,13 @@ export async function registerDesktopExecution(
     where: { id: conversationId, ownerId, archiveStatus: "active", executionTarget: "local" },
     select: { desktopDeviceId: true, runtimeGeneration: true },
   }), transport, leases, ({ turnId: projectionTurnId, ...scope }, expiresAt) =>
-    services.events.scheduleDesktopRecovery({ ...scope, projectionTurnId, expiresAt })));
+    services.events.scheduleDesktopRecovery({ ...scope, projectionTurnId, expiresAt }), attachments));
+  registerDesktopAttachmentRoute(app, attachments, leases, () => reserveDesktopAttachmentSlot(redis.client), async (scope, commandId) => {
+    const binding = await coordinator.executionConnection(scope.deviceId);
+    if (binding?.connectionId !== scope.connectionId || !await coordinator.mayDispatch(binding, commandId)) {
+      throw new AppError("FORBIDDEN");
+    }
+  });
   await app.register(desktopModelProxyRoutes, {
     prefix: DESKTOP_MODEL_PROXY_PATH,
     leases,

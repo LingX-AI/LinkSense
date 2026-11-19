@@ -178,6 +178,7 @@ import {
 import {
   correlateStartOperation,
   CorruptStartOperationError,
+  isSealedStartOperation,
   StartOperationInterruptedError,
   StartOperationStore,
   type StartOperationResult,
@@ -1989,12 +1990,15 @@ export class AppServerProcessPool {
         managed.knownTurnIds = new Set(baselineTurnIds);
       }
 
-      await onPrepared?.({
-        codexThreadId: managed.codexThreadId,
+      const codexThreadId = managed.codexThreadId;
+      const prepareSubmission = () => onPrepared?.({
+        codexThreadId,
         baselineTurnIds,
         preparedAt: new Date().toISOString(),
         operationKind: input.goal ? "goal" : operationKind,
       });
+      const needsAttachmentCheck = this.options.desktopWorkspace && input.context.attachments.length > 0;
+      if (!needsAttachmentCheck) await prepareSubmission();
       await this.startOperationStore.assertNotInterrupted(
         input.conversationId,
         input.projectionTurnId,
@@ -2091,6 +2095,22 @@ export class AppServerProcessPool {
         input.reasoningEffort,
         input.collaborationMode,
       );
+      let attachmentDeadline: number | undefined;
+      if (needsAttachmentCheck) {
+        // Recheck after native preparation, before journaling or submitting this input.
+        try {
+          const sink = this.options.eventSink;
+          if (!sink.confirmDesktopAttachments) throw new Error("desktop attachment admission unavailable");
+          attachmentDeadline = await sink.confirmDesktopAttachments({
+            conversationId: input.conversationId,
+            projectionTurnId: input.projectionTurnId,
+            runtimeGeneration: input.expectedRuntimeGeneration,
+          });
+        } catch {
+          throw new StartOperationInterruptedError();
+        }
+        await prepareSubmission();
+      }
       nativeRequestIssued = true;
       const turnStartParams: TurnStartParams = {
         threadId: managed.codexThreadId,
@@ -2153,6 +2173,9 @@ export class AppServerProcessPool {
         input.conversationId,
         input.projectionTurnId,
       );
+      if (needsAttachmentCheck && (attachmentDeadline === undefined || Date.now() >= attachmentDeadline)) {
+        throw new StartOperationInterruptedError();
+      }
       turnStartRequestIssued = true;
       const response = await managed.client.request<{ turn: CodexTurn }>(
         "turn/start",
@@ -8554,12 +8577,6 @@ function assertStartOperationIdentity(
   ) {
     throw new StartOperationIdempotencyConflictError();
   }
-}
-
-function isSealedStartOperation(state: StartOperationState): boolean {
-  return (
-    state.status === "failed" && state.errorCode === "RUNNER_TURN_START_SEALED"
-  );
 }
 
 function isSafelyRetryableStartOperation(state: StartOperationState): boolean {

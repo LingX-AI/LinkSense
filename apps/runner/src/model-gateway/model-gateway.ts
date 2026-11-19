@@ -53,6 +53,7 @@ import {
   chatCompletionStreamToResponses,
   chatCompletionToResponse,
 } from "./chat-completions-bridge.js";
+import { desktopModelPathProjection, type DesktopModelPaths } from "./desktop-paths.js";
 import {
   ModelRequestBodyTooLargeError,
   ModelRequestImageError,
@@ -248,6 +249,7 @@ type ModelGatewayOptions = {
   fetch?: typeof fetch;
   /** The packaged origin; in desktop mode inference can only leave via scoped HTTP. */
   desktopProxyOrigin?: string;
+  desktopPaths?: DesktopModelPaths;
   onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
   /** Counts only; reported after a request had values replaced. */
   onPrivacyMasking?: (
@@ -295,6 +297,7 @@ export class ModelGateway implements ModelGatewayRuntime {
   private readonly httpProxyDispatcher: EnvHttpProxyAgent;
   private readonly webSocketProxyAgent: ProxyAgent;
   private readonly server: Server;
+  private readonly projectDesktopPaths: ReturnType<typeof desktopModelPathProjection> | undefined;
   private listeningBaseUrl: string | null = null;
   private closing = false;
   private closePromise: Promise<void> | null = null;
@@ -303,6 +306,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (options.desktopProxyOrigin !== undefined) {
       desktopServerOriginSchema.parse(options.desktopProxyOrigin);
     }
+    this.projectDesktopPaths = options.desktopPaths ? desktopModelPathProjection(options.desktopPaths) : undefined;
     this.httpProxyDispatcher = new EnvHttpProxyAgent();
     this.webSocketProxyAgent = new ProxyAgent({
       getProxyForUrl: proxyUrlForWebSocket,
@@ -1371,6 +1375,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         context.desktopModelPurpose = authorizedLease === lease ? "primary"
           : authorizedLease.extractionOnly ? "memory_extraction" : "transition_source";
       }
+      this.projectDesktopPaths?.(body);
       body = extractionRequestBody(body, authorizedLease, context.memoryOperation);
       if (authorizedLease.toolPolicy === "none") {
         body.tools = [];

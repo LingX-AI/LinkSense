@@ -23,13 +23,48 @@ export const desktopExecutionProtocolVersion = 2;
 export const DESKTOP_TOOL_PROTOCOL_HEADER = "x-linksense-desktop-tools";
 export const DESKTOP_TOOL_OPERATIONS_HEADER = "x-linksense-desktop-tool-operations";
 export const desktopToolProtocolVersion = 1;
+export const DESKTOP_ATTACHMENT_PROTOCOL_HEADER = "x-linksense-desktop-attachments";
+export const desktopAttachmentProtocolVersion = 1;
+export const desktopAttachmentDownloadPath = "/api/v1/desktop/attachments";
+export const DESKTOP_ATTACHMENT_GRANT_HEADER = "x-linksense-desktop-attachment-grant";
 export const desktopToolRequestLifetimeMs = WEB_SEARCH_MAX_TIMEOUT_MS + 2_000;
 export const desktopToolClockSkewAllowanceMs = 5_000;
 export const desktopExecutionMaxFrameBytes = 1024 * 1024;
 export const desktopExecutionMaxInFlight = 8;
+export function desktopCommandCapacity(operation: DesktopExecutionCommand["operation"], attachments: boolean): number {
+  // Reserve room for Stop while ordinary commands wait for attachment I/O.
+  return attachments && operation !== "turn.interrupt" ? desktopExecutionMaxInFlight - 1 : desktopExecutionMaxInFlight;
+}
 // Leave room for lifecycle callbacks while tool requests wait on providers.
 export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
+export const desktopAttachmentTransferLifetimeMs = 4 * 60_000;
+// Reserve time for worker readiness and native admission after the last file.
+export const desktopAttachmentStartupReserveMs = 30_000;
+export const desktopAttachmentStartLifetimeMs = desktopAttachmentTransferLifetimeMs + desktopAttachmentStartupReserveMs;
+export function desktopExecutionLifetimeFor(command: DesktopExecutionCommand): number {
+  return command.operation === "turn.start" && command.body.attachments?.length
+    ? desktopAttachmentStartLifetimeMs : desktopExecutionCommandLifetimeMs;
+}
+export const desktopAttachmentParamsSchema = z.strictObject({ turnId: uuidSchema, fileId: uuidSchema });
+export const desktopAttachmentGrantSchema = z.string().regex(/^\d{13}\.[0-9a-f-]{36}\.[a-f0-9]{64}$/u);
+export const desktopAttachmentGrantFieldsSchema = desktopAttachmentGrantSchema.transform(value => {
+  const [expiry, commandId, signature] = value.split(".");
+  return { expiresAt: Number(expiry), commandId, signature };
+}).pipe(z.strictObject({
+  expiresAt: z.number().int().positive(), commandId: uuidSchema, signature: z.string().regex(/^[a-f0-9]{64}$/u),
+}));
+export const desktopAttachmentSchema = z.strictObject({
+  id: uuidSchema,
+  filename: z.string().min(1).max(520).refine(name => name !== "." && name !== ".." && !/[\p{Cc}/\\]/u.test(name)),
+  size_bytes: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  download_grant: desktopAttachmentGrantSchema,
+});
+const desktopAttachmentManifestSchema = z.array(desktopAttachmentSchema).min(1).max(256).refine(
+  files => new Set(files.map(file => file.id.toLowerCase())).size === files.length,
+);
+export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
 export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
@@ -41,6 +76,7 @@ export function desktopToolLifetimeFor(operation: DesktopToolOperation): number 
 const toolOperations = z.array(desktopToolOperationSchema).max(desktopToolOperationSchema.options.length);
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
+  attachment_protocol_version: z.literal(desktopAttachmentProtocolVersion).optional(),
   tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
   tool_operations: toolOperations.optional(),
 });
@@ -67,7 +103,8 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
     operation: z.literal("turn.start"),
     body: z.strictObject({
       native_thread_id: uuidSchema.nullable(),
-      input: z.string().trim().min(1).max(128_000),
+      input: z.string().trim().max(128_000),
+      attachments: desktopAttachmentManifestSchema.optional(),
       selected_knowledge_bases: runnerKnowledgeBaseSelectionSchema.optional(),
       reasoning_effort: reasoningEffortSchema,
       credentials: desktopRunCredentialsSchema,
@@ -80,6 +117,8 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
   command.extend({ operation: z.literal("user-input.respond"), body: desktopUserInputResponseSchema }),
 ]).refine(frame => frame.operation !== "turn.start" || frame.turn_id === frame.body.credentials.turn_id, {
   path: ["body", "credentials", "turn_id"], error: "desktop_turn_scope_mismatch",
+}).refine(frame => frame.operation !== "turn.start" || Boolean(frame.body.input || frame.body.attachments?.length), {
+  path: ["body", "input"], error: "desktop_turn_input_required",
 });
 export const desktopExecutionCancelSchema = z.strictObject({
   type: z.literal("command.cancel"), id: uuidSchema,
@@ -123,7 +162,7 @@ export const desktopExecutionResultSchema = z.union([
   receipt.extend({
     ok: z.literal(false),
     operation: desktopExecutionOperation,
-    error_code: z.enum(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN", "FORBIDDEN", "USER_INPUT_REQUEST_UNAVAILABLE"]),
+    error_code: z.enum(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN", "FORBIDDEN", "USER_INPUT_REQUEST_UNAVAILABLE", "ATTACHMENT_UPLOAD_INVALID"]),
   }),
   receipt.extend({
     ok: z.literal(true),
@@ -195,6 +234,7 @@ export const desktopExecutionCallbackSchema = z.union([
     body: runnerStartSettledSchema,
   }),
   callback.extend({ operation: z.literal("turn.exited") }),
+  callback.extend({ operation: z.literal("attachments.ready"), start_id: uuidSchema }),
   // The live gateway authorizes recovery against its pending drain command.
   // There is no bearer or model credential for a replacement worker.
   callbackScope.extend({
@@ -203,7 +243,8 @@ export const desktopExecutionCallbackSchema = z.union([
     operation: z.literal("events"),
     body: runnerEventBatchSchema,
   }),
-]).refine(frame => frame.type === "tool.request" || frame.operation === "turn.exited" || (frame.body.conversationId === frame.conversation_id &&
+]).refine(frame => frame.type === "tool.request" || frame.operation === "turn.exited" || frame.operation === "attachments.ready" ||
+  (frame.body.conversationId === frame.conversation_id &&
   (frame.operation !== "start.settled" || (frame.body.projectionTurnId === frame.turn_id &&
     frame.body.runtimeGeneration === frame.runtime_generation))), { error: "desktop_callback_scope_mismatch" });
 const callbackResult = z.strictObject({ type: z.literal("execution.ack"), id: uuidSchema });
@@ -231,7 +272,7 @@ export const desktopExecutionAckSchema = z.union([
   desktopToolResultSchema,
   callbackResult.extend({
     ok: z.literal(false),
-    operation: z.enum(["events", "start.settled", "turn.exited"]),
+    operation: z.enum(["events", "start.settled", "turn.exited", "attachments.ready"]),
     error_code: z.enum(["FORBIDDEN", "RUNNER_UNAVAILABLE"]),
   }),
   callbackResult.extend({
@@ -244,7 +285,7 @@ export const desktopExecutionAckSchema = z.union([
     operation: z.literal("start.settled"),
     data: runnerStartSettledReceiptSchema,
   }),
-  callbackResult.extend({ ok: z.literal(true), operation: z.literal("turn.exited") }),
+  callbackResult.extend({ ok: z.literal(true), operation: z.enum(["turn.exited", "attachments.ready"]) }),
 ]);
 
 export type DesktopExecutionCommand = z.infer<typeof desktopExecutionCommandSchema>;
@@ -264,6 +305,7 @@ export const desktopRuntimeInputSchema = z.union([
   link.extend({
     type: z.literal("link.open"), owner_id: uuidSchema, tools_version: z.literal(desktopToolProtocolVersion).optional(),
     tool_operations: toolOperations.optional(),
+    attachment_version: z.literal(desktopAttachmentProtocolVersion).optional(),
   }),
   link.extend({ type: z.literal("link.close") }),
   link.extend({

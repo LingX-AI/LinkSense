@@ -42,6 +42,21 @@ describe("desktop execution wire contract", () => {
     ]) expect(desktopExecutionCommandSchema.safeParse(bad).success).toBe(false);
   });
 
+  it("accepts an attachment-only start with signed metadata, never paths or bytes", () => {
+    const attachment = {
+      id, filename: "Résumé 进度.txt", size_bytes: 24, sha256: "a".repeat(64),
+      download_grant: `1794996000000.${start.id}.${"b".repeat(64)}`,
+    };
+    const frame = (attachments: unknown[]) => ({ ...start, body: { ...start.body, input: "", attachments } });
+    expect(desktopExecutionCommandSchema.parse(frame([attachment]))).toEqual(frame([attachment]));
+    for (const attachments of [
+      [], [attachment, attachment], [{ ...attachment, filename: "../private.txt" }],
+      [{ ...attachment, filename: "folder\\private.txt" }], [{ ...attachment, size_bytes: -1 }],
+      [{ ...attachment, url: "https://untrusted.example.test/file" }],
+      [{ ...attachment, data: "dGVzdA==" }], [{ ...attachment, download_grant: "unsigned" }],
+    ]) expect(desktopExecutionCommandSchema.safeParse(frame(attachments)).success).toBe(false);
+  });
+
   it("distinguishes a missing operation, a confirmed start, and an unknown result without accepting raw errors", () => {
     const inspection = { type: "command.result", id, operation: "turn.inspect", ok: true, result: null };
     expect(desktopExecutionResultSchema.parse(inspection)).toEqual(inspection);

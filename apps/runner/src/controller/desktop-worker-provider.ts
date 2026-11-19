@@ -6,6 +6,7 @@ import path from "node:path"
 import type { Logger } from "pino"
 import { z } from "zod"
 import { desktopServerOriginSchema, runtimeEnvironmentPath } from "@linksense/shared"
+import { pruneDesktopAttachments } from "../desktop/attachments.js"
 import { ownerWorkerSecret } from "./storage-key.js"
 import { isNodeError, safeChildPath } from "./worker-provider-utils.js"
 import { prepareLocalProcessRuntimeTools } from "./local-process-runtime-tools.js"
@@ -82,7 +83,7 @@ export class DesktopWorkerProvider implements WorkerProvider {
     await mkdir(this.configuration.dataRoot, { recursive: true, mode: 0o700 })
     await assertPrivateDirectory(this.configuration.dataRoot, this.configuration.dataRoot)
     await chmod(this.configuration.dataRoot, 0o700)
-    await this.pruneWorkspaces()
+    await this.pruneWorkspaces(Date.now(), { startup: true })
     const root = path.join(this.configuration.dataRoot, "tools")
     await ensureDesktopDirectory(this.configuration.dataRoot, root)
     const mcp = path.join(this.configuration.runtimeRoot, "runner/dist/mcp")
@@ -333,7 +334,7 @@ export class DesktopWorkerProvider implements WorkerProvider {
     }
   }
 
-  async pruneWorkspaces(now = Date.now()): Promise<{ deleted: number; retainedBytes: number }> {
+  async pruneWorkspaces(now = Date.now(), options?: { startup: true }): Promise<{ deleted: number; retainedBytes: number }> {
     const root = this.configuration.dataRoot
     const sessions: Array<{ directory: string; ownerId: string; conversationId: string; lastUsedAt: number; bytes: number }> = []
     for await (const owner of await opendir(root)) {
@@ -354,6 +355,7 @@ export class DesktopWorkerProvider implements WorkerProvider {
           marker = sessionMarkerSchema.safeParse(JSON.parse(await readFile(markerFile, "utf8")))
         } catch (error) { if (isNodeError(error, "ENOENT") || error instanceof SyntaxError) continue; throw error }
         if (!marker.success || marker.data.ownerId !== owner.name || marker.data.conversationId !== entry.name) continue
+        if (options?.startup) await pruneDesktopAttachments(paths, owner.name, entry.name)
         // Control and Codex history are needed for idempotency and read-only recovery;
         // eviction applies only to task files once this runtime has a control directory.
         const control = await lstat(path.join(paths.control, "workspaces", entry.name)).catch((error: unknown) => {
@@ -406,6 +408,7 @@ export function desktopWorkerEnvironment(
     CODEX_BIN: path.join(configuration.runtimeRoot, "bin", process.platform === "win32" ? "codex.exe" : "codex"),
     LINKSENSE_RUNNER_MODE: "worker", LINKSENSE_WORKER_PROVIDER: "desktop",
     LINKSENSE_WORKER_OWNER_ID: ownerId, LINKSENSE_SERVICE_SESSION_ID: conversationId,
+    LINKSENSE_DESKTOP_DATA_ROOT: paths.root,
     LINKSENSE_USER_DATA_ROOT: paths.home, LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
     LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
     LINKSENSE_CODEX_HOME_TEMPLATE: path.join(configuration.runtimeRoot, "template"),

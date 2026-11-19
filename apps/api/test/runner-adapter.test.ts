@@ -1591,12 +1591,16 @@ function desktopRunnerFixture(redis: Awaited<ReturnType<typeof createRedisFixtur
   const findConversation = async () => ({ desktopDeviceId: deviceId, runtimeGeneration });
   const send = vi.fn<DesktopDeviceTransport["send"]>();
   const scheduleExpiry = vi.fn(async () => undefined);
-  const runner = new DesktopRunner(findConversation, { connection: async () => binding, send, supportsKnowledge: async () => false }, new DesktopRunLeases(redis, async () => true), scheduleExpiry);
+  const supportsAttachments = vi.fn(async () => false);
+  const manifest = vi.fn();
+  const runner = new DesktopRunner(findConversation, {
+    connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
+  }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest });
   const client = new RunnerClient(testConfig(), async () => "local");
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
-  return { client, binding, send, fetchMock, scheduleExpiry, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
+  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, manifest, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {

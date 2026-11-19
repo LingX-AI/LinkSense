@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -12,13 +14,15 @@ import {
   browserUseApprovalSchema,
   browserUseResultSchema,
   connectionResultSchema,
+  conversationStartFailurePayloadSchema,
   conversationUserInputQuestionSchema,
+  desktopAttachmentDownloadPath,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
   RUNNER_TURN_INTERRUPT_REQUESTED,
 } from "@linksense/shared";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import type { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -26,28 +30,34 @@ import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import type { ConversationService } from "../../src/modules/conversations/service.js";
 import type { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
 import type { ConversationEventService } from "../../src/modules/events/service.js";
+import type { FileService } from "../../src/modules/files/service.js";
 import type { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 
 const fixtureModel = "desktop-fixture";
 const readPrompt = "Read the local fixture file";
 const interruptPrompt = "Wait for the local interruption";
 const interruptApprovalPrompt = "Wait for interruption during browser approval";
+const stoppedAttachmentPrompt = "Never run this attachment transfer";
 const answer = "The packaged Mac read the workspace.";
 
 export async function verifyPackagedDesktopGateway(input: {
   runtimeRoot: string;
   scratch: string;
   address: string;
+  attachmentTransfer: ReturnType<typeof installPackagedAttachmentTransferGate>;
   prisma: PrismaClient;
   redis: LinkSenseRedis;
   coordinator: RedisDesktopDeviceCoordinator;
   conversations: ConversationService;
   events: ConversationEventService;
+  files: Pick<FileService, "uploadAttachment">;
   modelProviderSettings: ModelProviderSettingsService;
   ownerId: string;
   deviceId: string;
   token: string;
   previousConnectionId: string;
+  revokeAttachmentRun: (turnId: string) => Promise<void>;
+  disconnectAttachmentSocket: (connectionId: string) => Promise<void>;
   serverSecrets: string[];
   searchMarker: string;
   connector: { driveName: string; documentName: string; documentText: string };
@@ -75,6 +85,10 @@ export async function verifyPackagedDesktopGateway(input: {
   const providerKey = randomUUID();
   const secrets = [...input.serverSecrets, providerKey];
   const marker = `workspace-marker-${randomUUID()}`;
+  const attachmentName = "fixture.txt";
+  const attachmentData = Buffer.alloc(100 * 1024 * 1024, "a");
+  attachmentData.write(`${marker}\n`);
+  const attachmentChecksum = createHash("sha256").update(attachmentData).digest("hex");
   const model = Fastify();
   const modelRequests = { read: 0, interrupt: 0, interruptApproval: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
@@ -102,7 +116,9 @@ export async function verifyPackagedDesktopGateway(input: {
       })).optional(),
     }).parse(request.body);
     const text = JSON.stringify(body.input);
+    assert(!JSON.stringify(request.body).includes(dataRoot), "desktop data path in model request");
     assert(!secrets.some(secret => text.includes(secret)), "server secret in model input");
+    assert(!text.includes(stoppedAttachmentPrompt), "a stopped attachment transfer reached native inference");
     if (text.includes(interruptPrompt)) {
       modelRequests.interrupt++;
       assert(modelRequests.interrupt === 1, "interrupted turn replayed");
@@ -134,9 +150,12 @@ export async function verifyPackagedDesktopGateway(input: {
     if (call === 1) {
       assert(text.includes(input.knowledge.baseName), "selected knowledge base did not reach Codex");
       assert(body.tools?.some(tool => tool.type === "function" && tool.name === "exec_command"));
+      const attachment = /~\/workspace\/(attachments\/attachments-[a-f0-9-]+-[A-Za-z0-9]{6}\/[a-f0-9-]+\/fixture\.txt)/u.exec(text)?.[1];
+      assert(attachment, "the uploaded attachment did not reach native turn context");
+      assert(!text.includes(marker), "the attachment should arrive as a file, not injected content");
       return reply.type("text/event-stream").send(responseStream({
         id: "fixture-tool", type: "function_call", call_id: "fixture-call", name: "exec_command",
-        arguments: JSON.stringify({ cmd: "cat fixture.txt", yield_time_ms: 1000 }), status: "completed",
+        arguments: JSON.stringify({ cmd: `head -n 1 ${attachment}`, yield_time_ms: 1000 }), status: "completed",
       }));
     }
     if (call === 2) {
@@ -265,7 +284,7 @@ export async function verifyPackagedDesktopGateway(input: {
         id: "desktop-fixture", base_url: `${modelOrigin}/v1`, protocol_mode: "native_responses", api_key: providerKey,
         models: [{
           kind: "chat", id: fixtureModel, display_name: "Desktop fixture", enabled: true,
-          context_window: 32768, supported_reasoning_efforts: ["low"], default_reasoning_effort: "low",
+          context_window: 32768, supported_reasoning_efforts: ["low"], default_reasoning_effort: "low", supports_image_input: true,
         }],
       }],
     }, {});
@@ -276,8 +295,8 @@ export async function verifyPackagedDesktopGateway(input: {
       const rules = join(home, ".codex", "rules");
       await mkdir(workspace, { recursive: true, mode: 0o700 });
       await mkdir(rules, { recursive: true, mode: 0o700 });
-      await writeFile(join(workspace, "fixture.txt"), `${marker}\n`, { mode: 0o600 });
-      await writeFile(join(rules, "default.rules"), 'prefix_rule(pattern=["cat", "fixture.txt"], decision="allow")\n', { mode: 0o600 });
+      await writeFile(join(rules, "default.rules"), 'prefix_rule(pattern=["head"], decision="allow")\n', { mode: 0o600 });
+      await mkdir(join(scratch, ownerId, "services", id, "home", "workspace", "attachments"), { recursive: true, mode: 0o700 });
       return prisma.conversation.create({
         data: {
           id, ownerId, title, titleSource: "manual", archiveStatus: "active", executionTarget: "local", desktopDeviceId: deviceId,
@@ -286,9 +305,12 @@ export async function verifyPackagedDesktopGateway(input: {
       });
     };
     const read = await task("Packaged Mac workspace read");
+    const uploaded = await input.files.uploadAttachment(ownerId, read.id, {
+      filename: attachmentName, reportedMimeType: "text/plain", data: attachmentData,
+    }, {});
     const stop = await task("Packaged Mac interruption");
     const stopApproval = await task("Packaged Mac browser approval interruption");
-    child = spawn(binary, ["-test.run=^TestPackagedDesktopGateway$", "-test.timeout=85s"], {
+    child = spawn(binary, ["-test.run=^TestPackagedDesktopGateway$", "-test.timeout=160s"], {
       env: {
         PATH: process.env.PATH,
         TMPDIR: process.env.TMPDIR,
@@ -325,10 +347,13 @@ export async function verifyPackagedDesktopGateway(input: {
       } while (Date.now() < deadline);
       throw new Error(`Mac gateway timed out waiting for ${description}`);
     };
-    await waitFor("a new negotiated Mac connection", async () => {
-      const current = await coordinator.executionConnection(deviceId);
-      return current !== null && current.connectionId !== input.previousConnectionId;
-    }, 25_000);
+    const waitForConnection = (previousConnectionId: string) =>
+      waitFor("a new negotiated Mac connection", async () => {
+        const current = await coordinator.executionConnection(deviceId);
+        return current && current.connectionId !== previousConnectionId && await coordinator.supportsAttachments(current)
+          ? current.connectionId : false;
+      }, 25_000);
+    const connectionId = await waitForConnection(input.previousConnectionId);
     const submission = (inputText: string, idempotencyKey: string) =>
       ({ inputText, idempotencyKey, submitMode: "normal" as const, priorityCapabilityIds: [] });
     const waitForBrowserApproval = async (conversationId: string, turnId: string, action: z.infer<typeof browserUseApprovalSchema>["action"]) => {
@@ -360,9 +385,136 @@ export async function verifyPackagedDesktopGateway(input: {
       where: { action: "desktop_tool_requested", targetType: "browser_use", metadataJson: { path: ["turn_id"], equals: turnId } },
     });
     const initialBrowserCommands = input.browser.observed.length;
-    const completed = await conversations.acceptTurn(ownerId, read.id, {
-      ...submission(readPrompt, "desktop-read"), knowledgeBaseIds: [input.knowledge.baseId],
-    }, {});
+    const attachmentPath = (turnId: string) => `${desktopAttachmentDownloadPath}/${turnId}/${uploaded.id}`;
+    const nativeRoot = join(dataRoot, ownerId, "services", read.id);
+    const control = join(nativeRoot, "control");
+    const published = join(nativeRoot, "home", "workspace", "attachments");
+    const delayedSubmission = submission(stoppedAttachmentPrompt, randomUUID());
+    const canceled = await conversations.interruptDesktopTurnSubmission(ownerId, read.id, delayedSubmission.idempotencyKey, {});
+    assert.equal(canceled.code, RUNNER_TURN_INTERRUPT_REQUESTED);
+    assert.deepEqual(
+      await conversations.interruptDesktopTurnSubmission(ownerId, read.id, delayedSubmission.idempotencyKey, {}),
+      canceled,
+    );
+    await assert.rejects(conversations.interruptDesktopTurnSubmission(randomUUID(), read.id, delayedSubmission.idempotencyKey, {}));
+    await assert.rejects(conversations.acceptTurn(ownerId, read.id, delayedSubmission, {}), { code: "TURN_START_CLOSED" });
+    assert.equal(await prisma.conversationTurnStartIntent.count({ where: { projectionTurnId: canceled.turn_id } }), 0);
+    assert.equal(await redis.hasTurnSlot(read.id, canceled.turn_id, ownerId), false);
+    assert.equal(input.attachmentTransfer.requests(attachmentPath(canceled.turn_id)), 0);
+    assert.equal(await prisma.conversationFile.count({ where: { id: uploaded.id, status: "staged", turnId: null } }), 1);
+    const stopTransfer = input.attachmentTransfer.hold(uploaded.id);
+    const stoppedSubmission = submission(stoppedAttachmentPrompt, randomUUID());
+    const stopped = await conversations.acceptTurn(ownerId, read.id,
+      stoppedSubmission, {});
+    assert.equal(stopped.status, "starting");
+    const stoppedPath = attachmentPath(stopped.turn_id);
+    await waitFor("the first attachment bytes staged on the Mac", async () => {
+      if (!stopTransfer.started || stopTransfer.closed) return false;
+      return await hasPartialAttachment(control, stopped.turn_id, uploaded.id, attachmentName);
+    });
+    assert.equal(stopTransfer.path, stoppedPath);
+    assert.equal(await redis.hasTurnSlot(read.id, stopped.turn_id, ownerId), true);
+    assert.equal(await prisma.conversationTurnStartIntent.count({
+      where: { projectionTurnId: stopped.turn_id, conversationId: read.id, runnerStatus: "prepared" },
+    }), 1);
+    const preflightLock = await redis.acquireConversationLock(read.id);
+    if (preflightLock) await redis.releaseConversationLock(read.id, preflightLock);
+    assert.equal(preflightLock, null, "conversation unlocked while the file was still arriving");
+    assert.deepEqual(await listDirectory(published), []);
+    assert.equal(modelRequests.read, 0);
+
+    const stoppedBeforeStart = await conversations.interruptDesktopTurnSubmission(ownerId, read.id, stoppedSubmission.idempotencyKey, {});
+    assert.equal(stoppedBeforeStart.code, RUNNER_TURN_INTERRUPT_REQUESTED);
+    assert.equal(stoppedBeforeStart.turn_id, stopped.turn_id);
+    await waitFor("interrupted attachment response and start cleanup", async () =>
+      stopTransfer.closed && !stopTransfer.finished &&
+      !await redis.hasTurnSlot(read.id, stopped.turn_id, ownerId) &&
+      !await prisma.conversationTurnStartIntent.count({ where: { projectionTurnId: stopped.turn_id } }) &&
+      !(await listDirectory(control)).some(name => name.startsWith(`attachments-${stopped.turn_id}-`))
+    );
+    const releasedLock = await waitFor("the canceled transfer's conversation lock release", () =>
+      redis.acquireConversationLock(read.id)
+    );
+    await redis.releaseConversationLock(read.id, releasedLock);
+    const stoppedHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
+    assert.equal(stoppedHistory.items.filter(event => {
+      if (event.event_type !== "conversation.error") return false;
+      const result = conversationStartFailurePayloadSchema.safeParse(event.payload);
+      return result.success && result.data.error_code === "TURN_START_CLOSED" &&
+        result.data.start_failure.turn_id === stopped.turn_id;
+    }).length, 1);
+    assert.equal(await prisma.conversationTurn.count({ where: { id: stopped.turn_id } }), 0);
+    assert.equal(await prisma.conversationFile.count({
+      where: { id: uploaded.id, conversationId: read.id, status: "staged", turnId: null },
+    }), 1);
+    assert.deepEqual(await listDirectory(published), []);
+    assert.equal(modelRequests.read, 0);
+    assert.equal(input.attachmentTransfer.requests(stoppedPath), 1);
+
+    const abandonedPaths: string[] = [];
+    for (const action of ["revocation", "disconnect"] as const) {
+      const transfer = input.attachmentTransfer.hold(uploaded.id);
+      const unstarted = await conversations.acceptTurn(ownerId, read.id,
+        submission(`${stoppedAttachmentPrompt}: ${action}`, randomUUID()), {});
+      assert.equal(unstarted.status, "starting");
+      const downloadPath = attachmentPath(unstarted.turn_id);
+      abandonedPaths.push(downloadPath);
+      await waitFor(`one byte on the Mac before ${action}`, async () =>
+        transfer.started && !transfer.closed &&
+        await hasPartialAttachment(control, unstarted.turn_id, uploaded.id, attachmentName));
+      assert.equal(transfer.path, downloadPath);
+      assert.equal(await redis.hasTurnSlot(read.id, unstarted.turn_id, ownerId), true);
+      assert.deepEqual(await listDirectory(published), []);
+
+      if (action === "revocation") {
+        await input.revokeAttachmentRun(unstarted.turn_id);
+      } else {
+        await input.disconnectAttachmentSocket(connectionId);
+      }
+      await waitFor(`the attachment response to abort after ${action}`, async () => transfer.closed && !transfer.finished);
+      if (action === "disconnect") {
+        const reconnected = await waitForConnection(connectionId);
+        const outcome = await conversations.recoverStartIntent(unstarted.turn_id, { desktopConnectionId: reconnected });
+        assert(outcome === "released" || outcome === "missing", `unexpected reconnect recovery outcome: ${outcome}`);
+      }
+      await waitFor(`start cleanup after ${action}`, async () =>
+        !await redis.hasTurnSlot(read.id, unstarted.turn_id, ownerId) &&
+        !await prisma.conversationTurnStartIntent.count({ where: { projectionTurnId: unstarted.turn_id } }) &&
+        !(await listDirectory(control)).some(name => name.startsWith(`attachments-${unstarted.turn_id}-`)));
+      assert.equal(await prisma.conversationTurn.count({ where: { id: unstarted.turn_id } }), 0);
+      assert.equal(await prisma.conversationFile.count({
+        where: { id: uploaded.id, conversationId: read.id, status: "staged", turnId: null, pendingRequestId: null },
+      }), 1);
+      assert.equal((await stat(join(scratch, read.workspaceRelPath, "attachments", uploaded.id, attachmentName))).size, attachmentData.length);
+      assert.deepEqual(await listDirectory(published), []);
+      assert.equal(modelRequests.read, 0);
+      assert.equal(input.attachmentTransfer.requests(downloadPath), 1);
+    }
+
+    const retrySubmission = { ...submission(readPrompt, "desktop-read-retry"), knowledgeBaseIds: [input.knowledge.baseId] };
+    const retryTransfer = input.attachmentTransfer.hold(uploaded.id, 700);
+    const completed = await conversations.acceptTurn(ownerId, read.id, retrySubmission, {});
+    assert.notEqual(completed.turn_id, stopped.turn_id);
+    await waitFor("the retry staged partial attachment bytes", async () =>
+      retryTransfer.started && !retryTransfer.closed &&
+      await hasPartialAttachment(control, completed.turn_id, uploaded.id, attachmentName)
+    );
+    assert.equal(retryTransfer.path, attachmentPath(completed.turn_id));
+    assert.equal(modelRequests.read, 0);
+    assert.deepEqual(await listDirectory(published), []);
+    const transferStartedAt = Date.now();
+    retryTransfer.release();
+    await waitFor("the throttled 100 MiB response to finish", async () => retryTransfer.finished, 95_000);
+    assert(Date.now() - transferStartedAt >= 65_000, "download did not exercise the former command deadline");
+    const [materialized] = await waitFor("the complete attachment to be published", async () => {
+      const directories = await listDirectory(published);
+      return directories.length === 1 ? directories : false;
+    });
+    assert(materialized);
+    const localAttachment = join(published, materialized, uploaded.id, attachmentName);
+    const downloaded = createHash("sha256");
+    for await (const bytes of createReadStream(localAttachment)) downloaded.update(bytes);
+    assert.equal(downloaded.digest("hex"), attachmentChecksum);
     const status = async (id: string) =>
       (await prisma.conversationTurn.findUnique({ where: { id }, select: { status: true } }))?.status;
     try {
@@ -409,6 +561,14 @@ export async function verifyPackagedDesktopGateway(input: {
       );
     }
     assert.equal(modelRequests.read, 13 + connectorPages);
+    assert.equal(input.attachmentTransfer.requests(stoppedPath), 1);
+    for (const downloadPath of abandonedPaths) assert.equal(input.attachmentTransfer.requests(downloadPath), 1);
+    assert.equal(input.attachmentTransfer.requests(attachmentPath(completed.turn_id)), 1);
+    assert.equal((await conversations.acceptTurn(ownerId, read.id, retrySubmission, {})).turn_id, completed.turn_id);
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId: read.id } }), 1);
+    assert.equal(await prisma.conversationFile.count({
+      where: { id: uploaded.id, conversationId: read.id, filename: attachmentName, status: "bound", turnId: completed.turn_id },
+    }), 1);
     assert.equal(await browserAuditCount(completed.turn_id), 4);
     assert.deepEqual(input.browser.observed.slice(initialBrowserCommands), ["snapshot", "click", "screenshot"]);
     const readHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
@@ -475,7 +635,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: local Shell, scoped web, knowledge, connectors, browser screenshot and native approval, citations, interrupt, and start idempotency.");
+    console.log("Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled 100 MiB retry read by native Codex, scoped tools, approvals, interruption, and start idempotency.");
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();
@@ -485,6 +645,103 @@ export async function verifyPackagedDesktopGateway(input: {
       await childExit?.catch(() => null);
     }
     await model.close();
+  }
+}
+
+type AttachmentTransfer = {
+  fileId: string;
+  path?: string;
+  started: boolean;
+  closed: boolean;
+  finished: boolean;
+  chunkDelayMs: number;
+  release: () => void;
+  released: Promise<void>;
+};
+
+export function installPackagedAttachmentTransferGate(app: FastifyInstance) {
+  let next: AttachmentTransfer | undefined;
+  const requestCounts = new Map<string, number>();
+  app.addHook("onRequest", async request => {
+    if (request.url.startsWith(`${desktopAttachmentDownloadPath}/`)) {
+      requestCounts.set(request.url, (requestCounts.get(request.url) ?? 0) + 1);
+    }
+  });
+  app.addHook("onSend", async (request, reply, payload) => {
+    const gate = next;
+    if (!gate || reply.statusCode !== 200 || !request.url.startsWith(`${desktopAttachmentDownloadPath}/`) ||
+        !request.url.endsWith(`/${gate.fileId}`)) return payload;
+    assert(payload instanceof Readable);
+    next = undefined;
+    gate.path = request.url;
+    reply.raw.once("close", () => {
+      gate.closed = true;
+      gate.release();
+    });
+    reply.raw.once("finish", () => { gate.finished = true; });
+    return Readable.from((async function* () {
+      const iterator = payload.iterator();
+      try {
+        const first = await iterator.next();
+        assert(!first.done && Buffer.isBuffer(first.value) && first.value.byteLength > 1);
+        gate.started = true;
+        yield first.value.subarray(0, 1);
+        await gate.released;
+        if (gate.closed) return;
+        const releasedAt = Date.now();
+        let bytesSent = 0;
+        const throttle = async function* (chunks: AsyncIterable<Buffer>) {
+          for await (const bytes of chunks) {
+            bytesSent += bytes.byteLength;
+            const elapsed = Date.now() - releasedAt;
+            const remaining = Math.ceil(bytesSent / (1024 * 1024) * gate.chunkDelayMs) - elapsed;
+            if (remaining > 0) await delay(remaining);
+            if (gate.closed) return;
+            yield bytes;
+          }
+        };
+        async function* remainingChunks() {
+          yield first.value.subarray(1);
+          for await (const bytes of iterator) {
+            assert(Buffer.isBuffer(bytes));
+            yield bytes;
+          }
+        }
+        yield* throttle(remainingChunks());
+      } finally {
+        await iterator.return?.();
+      }
+    })(), { objectMode: false });
+  });
+  return {
+    hold(fileId: string, chunkDelayMs = 0): AttachmentTransfer {
+      assert.equal(next, undefined);
+      const controller = new AbortController();
+      const released = new Promise<void>(resolve => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
+      next = { fileId, started: false, closed: false, finished: false, release: () => controller.abort(), released, chunkDelayMs };
+      return next;
+    },
+    requests(path: string) { return requestCounts.get(path) ?? 0; },
+  };
+}
+
+async function hasPartialAttachment(control: string, turnId: string, fileId: string, filename: string): Promise<boolean> {
+  const directory = (await listDirectory(control)).find(name => name.startsWith(`attachments-${turnId}-`));
+  if (!directory) return false;
+  try {
+    return (await stat(join(control, directory, fileId, filename))).size === 1;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    return false;
+  }
+}
+
+async function listDirectory(path: string): Promise<string[]> {
+  try {
+    return await readdir(path);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    return [];
   }
 }
 

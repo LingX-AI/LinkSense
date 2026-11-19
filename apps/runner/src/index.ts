@@ -307,7 +307,14 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const modelGateway = new ModelGateway({
     logger,
     ...(isDesktopWorker && config.LINKSENSE_DESKTOP_PROXY_ORIGIN
-      ? { desktopProxyOrigin: config.LINKSENSE_DESKTOP_PROXY_ORIGIN }
+      ? {
+          desktopProxyOrigin: config.LINKSENSE_DESKTOP_PROXY_ORIGIN,
+          desktopPaths: {
+            home: config.LINKSENSE_USER_DATA_ROOT,
+            ...(config.LINKSENSE_DESKTOP_DATA_ROOT && { dataRoot: config.LINKSENSE_DESKTOP_DATA_ROOT }),
+            runtimeRoot: path.dirname(path.dirname(config.CODEX_BIN)),
+          },
+        }
       : {}),
     onMemoryUsage: async (capture) => {
       if (!eventSink.recordMemoryUsage) {
