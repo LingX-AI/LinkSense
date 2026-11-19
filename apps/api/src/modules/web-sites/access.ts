@@ -67,11 +67,16 @@ export function hasSiteAccess(
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-export function siteAccessCookie(secret: string, site: { id: string; passcodeHash: string }): string {
+export function siteAccessCookie(secret: string, site: { id: string; passcodeHash: string }, options: { secure: boolean }): string {
   const maxAge = 30 * 24 * 60 * 60;
   // Release assets load in a sandboxed iframe, whose opaque origin is treated as
-  // cross-site, so a Lax cookie would be withheld from styles, scripts and images.
-  return `${siteAccessCookieName(site.id)}=${siteAccessToken(secret, site.id, site.passcodeHash)}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=${maxAge}`;
+  // cross-site, so HTTPS needs SameSite=None; browsers reject that without Secure,
+  // which plain-HTTP deployments (local, UAT) cannot provide. They fall back to
+  // Lax: the shell and release documents still receive it, cross-site
+  // subresources inside the frame cannot.
+  const attributes = ["Path=/", "HttpOnly", options.secure ? "SameSite=None" : "SameSite=Lax",
+    ...(options.secure ? ["Secure"] : []), `Max-Age=${maxAge}`];
+  return `${siteAccessCookieName(site.id)}=${siteAccessToken(secret, site.id, site.passcodeHash)}; ${attributes.join("; ")}`;
 }
 
 /** Only same-site paths may be used as the post-unlock destination. */

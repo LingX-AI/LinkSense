@@ -12,7 +12,7 @@ import { hashPassword } from "../src/lib/password.js";
 
 const apps: Array<ReturnType<typeof Fastify>> = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())); });
-async function setup() {
+async function setup(publicBaseUrl = "https://linksense.example.test") {
   const fixture = siteFixture();
   const app = Fastify();
   apps.push(app);
@@ -23,8 +23,8 @@ async function setup() {
     if (request.headers.authorization !== "Bearer test-owner") throw new AppError("AUTH_REQUIRED");
     Object.assign(request, { authUser: { id: ownerId } });
   });
-  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service, publicBaseUrl: "https://linksense.example.test" });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl: "https://linksense.example.test", accessSecret: "test-access-secret" });
+  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service, publicBaseUrl });
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl, accessSecret: "test-access-secret" });
   return { ...fixture, app };
 }
 describe("website HTTP boundary", () => {
@@ -190,6 +190,7 @@ describe("website HTTP boundary", () => {
     expect(unlock.headers.location).toBe("/web/sample");
     const cookie = String(unlock.headers["set-cookie"]).split(";")[0]!;
     expect(cookie).toMatch(/^linksense_site_access_[a-f0-9]{32}=/u);
+    expect(String(unlock.headers["set-cookie"])).toContain("SameSite=None; Secure");
     const open = await fixture.app.inject({ url: "/web/sample", headers: { cookie } });
     expect(open.statusCode).toBe(200);
     expect(open.body).toContain("iframe");
@@ -204,6 +205,20 @@ describe("website HTTP boundary", () => {
     // Removing it makes the site public again.
     fixture.row.site.passcodeHash = null;
     expect((await fixture.app.inject("/web/sample")).statusCode).toBe(200);
+  });
+  it("keeps the unlock cookie on plain-HTTP deployments, where browsers reject SameSite=None; Secure", async () => {
+    const fixture = await setup("http://192.168.2.210:19090");
+    fixture.row.site.passcodeHash = await hashPassword("sunrise");
+    const unlock = await fixture.app.inject({
+      method: "POST", url: "/web/sample/unlock", payload: "passcode=sunrise",
+      headers: { "content-type": "application/x-www-form-urlencoded", "accept-language": "en-US" },
+    });
+    expect(unlock.statusCode).toBe(303);
+    const setCookie = String(unlock.headers["set-cookie"]);
+    expect(setCookie).toContain("SameSite=Lax");
+    expect(setCookie).not.toContain("Secure");
+    const cookie = setCookie.split(";")[0]!;
+    expect((await fixture.app.inject({ url: "/web/sample", headers: { cookie } })).statusCode).toBe(200);
   });
 
   it("requires authentication for all management operations and checks resource ownership", async () => {

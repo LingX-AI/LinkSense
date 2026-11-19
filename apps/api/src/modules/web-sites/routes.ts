@@ -88,6 +88,7 @@ export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: s
 
 export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string; accessSecret: string; analyticsBaseUrl?: string }> = async (app, { service, publicBaseUrl, accessSecret, analyticsBaseUrl }) => {
   const analyticsOrigin = analyticsBaseUrl ? new URL(analyticsBaseUrl).origin : undefined;
+  const secureAccessCookie = new URL(publicBaseUrl).protocol === "https:";
   // The passcode form posts urlencoded, which no other route parses.
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 4_096 },
     (_request, body, done) => done(null, body));
@@ -147,7 +148,7 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
     if (!(await verifyPassword(access.passcodeHash, (form.get("passcode") ?? "").slice(0, 128)))) {
       return promptPasscode(request, reply, address, true);
     }
-    reply.header("set-cookie", siteAccessCookie(accessSecret, { id: access.id, passcodeHash: access.passcodeHash }));
+    reply.header("set-cookie", siteAccessCookie(accessSecret, { id: access.id, passcodeHash: access.passcodeHash }, { secure: secureAccessCookie }));
     return reply.redirect(next ?? `/web/${encodeURIComponent(access.slug)}`, 303);
   });
   app.get("/:slug/_releases/:releaseId/*", async (request, reply) => {
