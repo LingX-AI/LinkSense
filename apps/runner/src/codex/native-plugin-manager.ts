@@ -61,10 +61,16 @@ const cliPluginSchema = z
   })
   .passthrough()
 
-const cliPluginListSchema = z.strictObject({
-  installed: z.array(cliPluginSchema).max(512),
-  available: z.array(cliPluginSchema).max(512),
-})
+// Pre-start reconciliation deliberately uses the Codex CLI: it runs before the
+// task app-server exists and must not inherit the app-server's process-scoped
+// config overrides. Accept additive CLI metadata so a pinned Codex upgrade does
+// not fail reconciliation on new fields.
+const cliPluginListSchema = z
+  .object({
+    installed: z.array(cliPluginSchema).max(512),
+    available: z.array(cliPluginSchema).max(512),
+  })
+  .passthrough()
 
 const pluginSummarySchema = z
   .object({
@@ -548,7 +554,7 @@ export class NativePluginManager {
   }): Promise<void> {
     const taskRoot = path.dirname(input.codexHome)
     if (await taskMarketplaceIsRegistered(input.codexHome, taskRoot)) return
-    // Codex 0.150.1 discovers the personal marketplace via HOME. Register the
+    // The pinned Codex discovers the personal marketplace via HOME. Register the
     // stable task root natively so shared HOME never controls task capabilities.
     await this.runJsonCommand(input, ["plugin", "marketplace", "add", taskRoot, "--json"])
     if (!await taskMarketplaceIsRegistered(input.codexHome, taskRoot)) throw new NativePluginRefreshError()
