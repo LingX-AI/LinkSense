@@ -1,3 +1,4 @@
+import { CloudOffIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
@@ -8,7 +9,9 @@ import { useBootstrap } from "@/app/bootstrap-state"
 import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
 import { hasMaintenanceAdminEntry } from "@/app/maintenance-admin-entry"
 import { useProductName } from "@/app/product-branding"
-import { ErrorState, LoadingState } from "@/components/feedback/page-state"
+import { ProductLogo } from "@/components/brand/product-logo"
+import { LoadingState } from "@/components/feedback/page-state"
+import { Button } from "@/components/ui/button"
 import { MaintenancePage } from "@/pages/maintenance-page"
 import { MaintenanceIndicator } from "@/components/shell/maintenance-indicator"
 import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-dialog"
@@ -45,20 +48,16 @@ export function BootstrapGate() {
   // TanStack Query retains the last successful status while polling recovers.
   if (!bootstrap) {
     return (
-      <div className="public-shell">
-        <div className="public-panel">
-          <h1>{t("bootstrap.unavailableTitle", { productName })}</h1>
-          <ErrorState
-            message={
-              error instanceof ApiError &&
-              error.errorCode === "DESKTOP_UPDATE_REQUIRED"
-                ? getErrorMessage(error, t, { productName })
-                : t("bootstrap.unavailableDescription", { productName })
-            }
-            onRetry={refetch}
-          />
-        </div>
-      </div>
+      <PublicFailureScreen
+        title={t("bootstrap.unavailableTitle", { productName })}
+        message={
+          error instanceof ApiError &&
+          error.errorCode === "DESKTOP_UPDATE_REQUIRED"
+            ? getErrorMessage(error, t, { productName })
+            : t("bootstrap.unavailableDescription", { productName })
+        }
+        onRetry={refetch}
+      />
     )
   }
 
@@ -135,7 +134,9 @@ export function PublicAuthRoute() {
       (status !== "anonymous" && status !== "authenticated")
     )
       return
-    rememberBrowserUseLoginReturn(status === "anonymous" ? location.state : null)
+    rememberBrowserUseLoginReturn(
+      status === "anonymous" ? location.state : null
+    )
   }, [location.pathname, location.state, status])
 
   if (status === "loading") return <LoadingState fullScreen />
@@ -148,16 +149,58 @@ export function PublicAuthRoute() {
 
 function SessionRestoreError() {
   const { t } = useTranslation()
+  const productName = useProductName()
 
   return (
-    <div className="public-shell">
-      <div className="public-panel">
-        <ErrorState
-          message={t("auth.sessionRestoreFailed")}
-          onRetry={() => window.location.reload()}
+    <PublicFailureScreen
+      title={t("bootstrap.unavailableTitle", { productName })}
+      message={t("auth.sessionRestoreFailed")}
+      onRetry={() => window.location.reload()}
+    />
+  )
+}
+
+// Full-screen failure page for states reached before the app shell exists,
+// mirroring the maintenance screen's centered, branded layout.
+function PublicFailureScreen({
+  title,
+  message,
+  onRetry,
+}: {
+  title: string
+  message: string
+  onRetry: () => void
+}) {
+  const { t } = useTranslation()
+  const productName = useProductName()
+
+  return (
+    <main className="flex h-svh flex-col overflow-y-auto bg-[var(--app-canvas)] px-5 py-10">
+      <section className="my-auto w-full max-w-md shrink-0 self-center px-2 py-8 text-center sm:px-8">
+        <ProductLogo
+          productName={productName}
+          className="maintenance-brand-logo"
         />
-      </div>
-    </div>
+        <div
+          aria-hidden="true"
+          className="mx-auto mt-8 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive-text"
+        >
+          <CloudOffIcon className="size-6" />
+        </div>
+        <h1 className="mt-4 text-xl font-semibold tracking-tight wrap-anywhere">
+          {title}
+        </h1>
+        <p
+          className="mt-2.5 text-sm leading-6 wrap-anywhere text-muted-foreground"
+          role="alert"
+        >
+          {message}
+        </p>
+        <Button type="button" className="mt-6 min-w-24" onClick={onRetry}>
+          {t("common.retry")}
+        </Button>
+      </section>
+    </main>
   )
 }
 
