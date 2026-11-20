@@ -2,7 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { imagePreviewRegistrationSchema } from "@linksense/shared";
+import {
+  imagePreviewRegistrationSchema,
+  runnerPrivacyMaskingCaptureSchema,
+} from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,6 +88,61 @@ describe("controller and dynamic worker HTTP contracts", () => {
 
         await expect(sink.registerImagePreview(input)).resolves.toEqual({ file_id: fileId });
         expect(registerPreview).toHaveBeenCalledExactlyOnceWith(input);
+        expect(workers.request).not.toHaveBeenCalled();
+      } finally {
+        await sink?.close();
+        await controller.close();
+        await api.close();
+      }
+    },
+  );
+
+  it.each([undefined, "01900000-0000-7000-8000-000000000006"])(
+    "relays privacy masking captures from the worker sink through the controller with service session %s",
+    async (serviceSessionId) => {
+      const capture = {
+        request_id: "01900000-0000-7000-8000-000000000020",
+        owner_id: ownerId,
+        conversation_id: conversationId,
+        turn_id: null,
+        model: "test-model",
+        kinds: { TERM: 1 },
+        masked_count: 1,
+        observed_at: "2026-11-20T00:00:00.000Z",
+      };
+      const api = Fastify({ logger: false });
+      const record = vi.fn((body: unknown) => {
+        expect(runnerPrivacyMaskingCaptureSchema.parse(body)).toEqual(capture);
+        return { recorded: true };
+      });
+      api.post("/internal/runner/privacy-masking", async (request) => {
+        expect(request.headers.authorization).toBe(`Bearer ${globalSecret}`);
+        expect(request.headers["x-linksense-owner-id"]).toBe(ownerId);
+        expect(request.headers["x-linksense-service-session"]).toBe(serviceSessionId);
+        return record(request.body);
+      });
+      const apiUrl = await api.listen({ host: "127.0.0.1", port: 0 });
+      const workers = { request: vi.fn<WorkerManager["request"]>() } as unknown as WorkerManager;
+      const controller = buildControllerServer(parseRunnerConfig({
+        LINKSENSE_RUNNER_MODE: "controller",
+        LINKSENSE_USER_DATA_ROOT: path.join(root, "users"),
+        LINKSENSE_RUNNER_SHARED_SECRET: globalSecret,
+        LINKSENSE_API_INTERNAL_URL: apiUrl,
+      }), workers);
+      let sink: HttpRunnerEventSink | undefined;
+      try {
+        const controllerUrl = await controller.listen({ host: "127.0.0.1", port: 0 });
+        const workspaceManager = new WorkspaceManager(path.join(root, "users"));
+        workspaceManager.bindOwner(conversationId, ownerId);
+        sink = new HttpRunnerEventSink(
+          controllerUrl,
+          ownerWorkerSecret(ownerId, globalSecret, serviceSessionId),
+          workspaceManager,
+          serviceSessionId ? { serviceSessionId } : {},
+        );
+
+        await expect(sink.recordPrivacyMasking(capture)).resolves.toBeUndefined();
+        expect(record).toHaveBeenCalledExactlyOnceWith(capture);
         expect(workers.request).not.toHaveBeenCalled();
       } finally {
         await sink?.close();

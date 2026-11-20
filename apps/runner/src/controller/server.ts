@@ -167,6 +167,7 @@ export function buildControllerServer(
     "/internal/runner/start-settled",
     "/internal/runner/events",
     "/internal/runner/memory-usage",
+    "/internal/runner/privacy-masking",
     "/internal/runner/process-exit",
     "/internal/image-previews",
     "/internal/file-service/register-artifact",
