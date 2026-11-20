@@ -165,6 +165,7 @@ async function deleteConversationGraph(
   await tx.conversationUserInputRequest.deleteMany({
     where: { conversationId },
   });
+  await tx.conversationDesktopApproval.deleteMany({ where: { conversationId } });
   await tx.conversationGoal.deleteMany({ where: { conversationId } });
   await tx.conversationTurn.deleteMany({ where: { conversationId } });
   await tx.conversationTurnStartIntent.deleteMany({

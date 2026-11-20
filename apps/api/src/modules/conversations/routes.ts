@@ -10,6 +10,7 @@ import {
   conversationSourcesSchema,
   conversationOrderUpdateSchema,
   conversationUserInputResponseSchema,
+  desktopApprovalResponseSchema,
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
   interactiveApplicationMessageSourceSchema,
@@ -577,6 +578,15 @@ export const conversationRoutes: FastifyPluginAsync<{
       user.id, id, idempotency_key, auditContext(request),
     );
     return reply.code(202).send(ok(result, request.id));
+  });
+
+  app.post("/:id/approvals/:requestId", { bodyLimit: 1024 }, async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id, requestId } = userInputParamsSchema.parse(request.params);
+    const body = desktopApprovalResponseSchema.parse(request.body);
+    return reply.send(ok(await services.conversations.respondToDesktopApprovalRequest(
+      user.id, id, requestId, body, auditContext(request),
+    ), request.id));
   });
 
   app.post(

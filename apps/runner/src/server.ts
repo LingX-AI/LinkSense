@@ -27,7 +27,7 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   conversationFormWaitingPolicySchema,
-  conversationUserInputResponseSchema,
+  nativeUserInputResponseSchema,
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
   imageGenerationRequestSchema,
@@ -595,7 +595,7 @@ const userInputResponseBodySchema = z.strictObject({
   codexTurnId: z.string().min(1).max(240),
   itemId: z.string().min(1).max(240),
   requestId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  response: conversationUserInputResponseSchema,
+  response: nativeUserInputResponseSchema,
 });
 
 export const reconcileBodySchema = z

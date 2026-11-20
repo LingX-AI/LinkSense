@@ -18,8 +18,10 @@ import {
   emitInteractiveApplicationCustomEventInputSchema,
   interactiveApplicationManifestSchema,
   conversationEventSchema,
+  desktopApprovalMethodSchema,
   runnerCodexGoalSchema,
   runnerCodexEventSchema,
+  runnerDesktopApprovalParamsSchema,
   runnerEventBatchSchema,
   runnerTextDeltaBatchKey,
   isRunnerTextDeltaEvent,
@@ -43,6 +45,7 @@ import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { settleMonitoringStop, settleMonitoringRunStop } from "../automations/monitoring.js";
 import type { ConversationService } from "../conversations/service.js";
+import { cancelDesktopApprovals, recordDesktopApproval, resolveDesktopApproval } from "../conversations/desktop-approvals.js";
 import { settleRevokedMacTurn, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import {
   loadInterruptedAssistantOutputs,
@@ -354,7 +357,7 @@ export class ConversationEventService {
     });
     return projectRunnerEventBatch(events, async (entry, text) => {
       await desktop.check();
-      if (skipDesktopEvent(entry.event, desktop.questions === true)) return true;
+      if (skipDesktopEvent(entry.event, desktop)) return true;
       const result = text.length > 1
         ? await this.ingestTextDeltaBatch(scope.conversationId, text, desktop)
         : await this.ingest(scope.conversationId, entry.event, entry.deliveryId, desktop);
@@ -809,6 +812,17 @@ export class ConversationEventService {
         desktop,
       );
     }
+    const approvalMethod = desktopApprovalMethodSchema.safeParse(input.method);
+    if (approvalMethod.success) {
+      if (!desktop?.approvals) throw new AppError("FORBIDDEN");
+      const body = runnerDesktopApprovalParamsSchema.parse(input.params);
+      if (body.approval.method !== approvalMethod.data) throw new AppError("FORBIDDEN");
+      const event = await recordDesktopApproval(this.prisma, desktop, body, deliveryId);
+      if (!event) return { accepted: true, ignored: true };
+      const projected = projectEvent(event, asObject(event.payloadJson));
+      await this.redis.publishConversationEvent(conversationId, projected);
+      return { accepted: true, event: projected };
+    }
 
     const threadId = nativeThreadId(input.params);
     const turnId = nativeTurnId(input.params);
@@ -1163,6 +1177,7 @@ export class ConversationEventService {
           becameTerminal = update.count === 1;
           if (becameTerminal) {
             if (terminalStatus !== "completed") await settleMonitoringStop(tx, conversationId, turn);
+            if (desktop) await cancelDesktopApprovals(tx, turn.id, terminalAt);
             await tx.conversationUserInputRequest.updateMany({
               where: {
                 turnId: turn.id,
@@ -1515,6 +1530,15 @@ export class ConversationEventService {
       requestId < 0
     ) {
       return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
+    }
+    if (desktop?.approvals) {
+      const event = await resolveDesktopApproval(this.prisma, desktop, threadId, requestId, deliveryId);
+      if (event !== undefined) {
+        if (!event) return { accepted: true, ignored: true };
+        const projected = projectEvent(event, asObject(event.payloadJson));
+        await this.redis.publishConversationEvent(conversationId, projected);
+        return { accepted: true, event: projected };
+      }
     }
     const projectedRequest =
       await this.prisma.conversationUserInputRequest.findFirst({
@@ -3555,9 +3579,12 @@ export class ConversationEventService {
   }
 }
 
-function skipDesktopEvent(event: RunnerCodexEvent, questions: boolean): boolean {
+function skipDesktopEvent(event: RunnerCodexEvent, desktop: DesktopProjectionFence): boolean {
   if (event.method === "serverRequest/resolved") return false;
-  if (event.method === "item/tool/requestUserInput") return !questions;
+  if (event.method === "item/tool/requestUserInput") return desktop.questions !== true;
+  if (event.method === "item/commandExecution/requestApproval" || event.method === "item/fileChange/requestApproval") {
+    return desktop.approvals !== true;
+  }
   // These methods need dedicated accounting, model transition or goals integration.
   return ("preparation" in event && event.preparation !== undefined) ||
     nativeTurnId(event.params) === null ||

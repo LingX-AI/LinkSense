@@ -23,9 +23,9 @@ import {
   desktopExecutionResultSchema,
   desktopProtocolVersion,
   desktopToolCancelSchema,
-  desktopToolOperationSchema,
+  desktopNegotiatedOperationSchema,
   desktopToolProtocolVersion,
-  type DesktopToolOperation,
+  type DesktopNegotiatedOperation,
 } from "@linksense/shared";
 import type { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { hmacSha256 } from "../../lib/crypto.js";
@@ -47,6 +47,7 @@ export async function registerDesktopDeviceRoutes(
     knowledgeTools?: boolean;
     connectionTools?: boolean;
     browserTools?: boolean;
+    nativeApprovals?: boolean;
     artifactTools?: boolean;
     websiteArtifacts?: boolean;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
@@ -96,7 +97,7 @@ export async function registerDesktopDeviceRoutes(
     noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
   });
   const connected = new Map<WebSocket, {
-    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: readonly DesktopToolOperation[]; detach?: () => void;
+    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: readonly DesktopNegotiatedOperation[]; detach?: () => void;
   }>();
   const recoveryEnqueues = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
@@ -173,9 +174,10 @@ export async function registerDesktopDeviceRoutes(
     const toolOffer = request.headers[DESKTOP_TOOL_OPERATIONS_HEADER];
     const offered = typeof toolOffer === "string" ? new Set(toolOffer.split(",")) : undefined;
     const tools = !supportsTools ? [] : !offered ? ["web.search"] as const
-      : desktopToolOperationSchema.options.filter(operation => offered.has(operation) &&
+      : desktopNegotiatedOperationSchema.options.filter(operation => offered.has(operation) &&
         (operation === "web.search" ||
-          (operation === "connection.execute" ? options.connectionTools
+          (operation === "approval.respond" ? options.nativeApprovals
+            : operation === "connection.execute" ? options.connectionTools
             : operation === "browser.execute" ? options.browserTools
             : operation === "artifact.prepare" || operation === "artifact.multipart"
               ? options.artifactTools && offered.has("artifact.prepare")

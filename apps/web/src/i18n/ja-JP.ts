@@ -2,6 +2,7 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
+import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -16,6 +17,7 @@ export const jaJP = {
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
+  desktopApproval: desktopApprovalMessages["ja-JP"],
   saml: samljaJP,
   social: {
     disableHelp:

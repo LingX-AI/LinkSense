@@ -89,6 +89,14 @@ describe("parseConfig", () => {
     expect(() => parseConfig(testEnvironment(desktopBrowser))).toThrow("desktop_browser_use_requires_local_execution")
   })
 
+  it("admits native approvals only with separate opt-in and local execution", () => {
+    const optIn = { LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: "true" }
+    expect(parseConfig(testEnvironment()).desktopNativeApprovalsEnabled).toBe(false)
+    expect(() => parseConfig(testEnvironment(optIn))).toThrow("desktop_approvals_require_local_execution")
+    expect(parseConfig(testEnvironment({ ...optIn, LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }))
+      .desktopNativeApprovalsEnabled).toBe(true)
+  })
+
   it("does not admit Mac artifact uploads until the artifact rollout is enabled", () => {
     const execution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
     const artifacts = { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" }

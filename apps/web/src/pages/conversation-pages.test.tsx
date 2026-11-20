@@ -879,30 +879,34 @@ describe("conversation knowledge base snapshots", () => {
   )
 
   it.each([
-    { submitting: false, matchingItem: true },
-    { submitting: true, matchingItem: true },
-    { submitting: false, matchingItem: false },
+    { submitting: false, matchingItem: true, nativeCommand: false },
+    { submitting: true, matchingItem: true, nativeCommand: false },
+    { submitting: false, matchingItem: false, nativeCommand: false },
+    { submitting: true, matchingItem: false, nativeCommand: true },
   ])(
-    "can stop a Mac browser approval (submitting: $submitting, matching item: $matchingItem)",
-    async ({ submitting, matchingItem }) => {
+    "can stop a Mac approval (native command: $nativeCommand, submitting: $submitting, matching item: $matchingItem)",
+    async ({ submitting, matchingItem, nativeCommand }) => {
       const id = "20000000-0000-4000-8000-000000000001"
       const turnId = "20000000-0000-4000-8000-000000000002"
       const previousTurnId = "20000000-0000-4000-8000-000000000003"
       const requestId = "20000000-0000-4000-8000-000000000004"
       const createdAt = "2026-11-19T00:00:00.000Z"
       const itemId = "browser-approval"
-      const approval = {
+      const request = {
         id: requestId,
         conversation_id: id,
         turn_id: turnId,
         item_id: itemId,
-        kind: "questions",
         status: "pending",
-        auto_resolve_at: null,
         resolved_at: null,
         resolved_action: null,
         created_at: createdAt,
         updated_at: createdAt,
+      }
+      const question = {
+        ...request,
+        kind: "questions",
+        auto_resolve_at: null,
         questions: [
           {
             id: "browser_action",
@@ -916,6 +920,17 @@ describe("conversation knowledge base snapshots", () => {
             ],
           },
         ],
+      }
+      const command = {
+        ...request,
+        kind: "desktop_approval",
+        auto_resolve_at: "2026-11-19T00:03:00.000Z",
+        approval: {
+          method: "item/commandExecution/requestApproval",
+          decisions: ["accept", "cancel"],
+          command: "printf hello",
+          cwd: "$WORKSPACE",
+        },
       }
       const started = (
         sequence: number,
@@ -967,20 +982,30 @@ describe("conversation knowledge base snapshots", () => {
           const path = new URL(String(input), window.location.origin).pathname
           if (init?.method === "POST") {
             if (path.endsWith(`/turns/${turnId}/interrupt`)) return stop()
-            if (path.endsWith(`/user-input-requests/${requestId}/respond`))
+            if (path.endsWith(nativeCommand
+              ? `/approvals/${requestId}`
+              : `/user-input-requests/${requestId}/respond`))
               return respond()
           }
           if (path.endsWith(`/conversations/${id}`)) {
             const stopping = stop.mock.calls.length > 0
-            return envelope({
+            const conversation = {
               id,
-              title: "Mac browser task",
+              title: "Mac task",
               project_id: null,
               execution_target: "local",
               execution_status: stopping ? "interrupted" : "running",
-              running_turn: stopping ? null : { id: turnId, status: "running" },
               updated_at: createdAt,
-              user_input_requests: stopping ? [] : [approval],
+            }
+            if (nativeCommand) return envelope({
+              conversation,
+              turns: [{ id: turnId, status: stopping ? "interrupted" : "running" }],
+              desktop_approval_requests: stopping ? [] : [command],
+            })
+            return envelope({
+              ...conversation,
+              running_turn: stopping ? null : { id: turnId, status: "running" },
+              user_input_requests: stopping ? [] : [question],
               events,
             })
           }
@@ -1013,7 +1038,9 @@ describe("conversation knowledge base snapshots", () => {
         ).not.toBeInTheDocument()
         const destination = (host: string) =>
           i18n.t("browserUse.approval.destination", { host })
-        if (matchingItem) {
+        if (nativeCommand) {
+          expect(card.getByText(command.approval.command)).toBeVisible()
+        } else if (matchingItem) {
           expect(card.getByText(destination("matching.test"))).toBeVisible()
           expect(
             card.getByText(i18n.t("browserUse.approval.targetTab", { tab: 9 }))
@@ -1026,20 +1053,28 @@ describe("conversation knowledge base snapshots", () => {
         expect(card.queryByText(destination("wrong-item.test"))).toBeNull()
         expect(card.queryByText(destination("wrong-turn.test"))).toBeNull()
         if (submitting) {
-          await interaction.click(card.getByRole("radio", { name: "Allow" }))
-          await interaction.click(
-            card.getByRole("button", {
-              name: i18n.t("conversation.userInput.submit"),
+          if (nativeCommand) {
+            const allowOnce = card.getByRole("button", {
+              name: i18n.t("desktopApproval.allowOnce"),
             })
-          )
-          expect(
-            await card.findByRole("button", {
-              name: i18n.t("conversation.userInput.submitting"),
-            })
-          ).toBeDisabled()
+            await interaction.click(allowOnce)
+            expect(allowOnce).toBeDisabled()
+          } else {
+            await interaction.click(card.getByRole("radio", { name: "Allow" }))
+            await interaction.click(
+              card.getByRole("button", {
+                name: i18n.t("conversation.userInput.submit"),
+              })
+            )
+            expect(
+              await card.findByRole("button", {
+                name: i18n.t("conversation.userInput.submitting"),
+              })
+            ).toBeDisabled()
+          }
           expect(respond).toHaveBeenCalledOnce()
         }
-        const stopButton = screen.getByRole("button", {
+        const stopButton = within(screen.getByRole("banner")).getByRole("button", {
           name: i18n.t("conversation.stop"),
         })
         expect(stopButton).toBeEnabled()

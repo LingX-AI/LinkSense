@@ -17,6 +17,7 @@ import { DesktopWorkerProvider } from "../../src/controller/desktop-worker-provi
 import { ownerWorkerSecret } from "../../src/controller/storage-key.js";
 import { DesktopTurns } from "../../src/desktop/turns.js";
 import { StartOperationStore } from "../../src/start-operation.js";
+import { RunnerEventOutboxStore } from "../../src/workspace/event-outbox.js";
 import { prepareConversationControl, WorkspaceManager } from "../../src/workspace/workspace-manager.js";
 
 const sourceRuntime = z.string().refine(path.isAbsolute).parse(process.argv[2]);
@@ -194,6 +195,17 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
       const start = await journal.createStarting(conversationId, projectionId, ownerId, "0".repeat(64));
       assert(start);
       await journal.update(start, { status: "succeeded", result: { codexThreadId: started.thread.id, codexTurnId: savedTurn.id } });
+      const outbox = new RunnerEventOutboxStore(manager, { generation: runtimeGeneration, turnId: projectionId });
+      const pendingApproval = await outbox.append(conversationId, {
+        method: "item/commandExecution/requestApproval",
+        visibility: "user_visible",
+        params: {
+          threadId: started.thread.id, turnId: savedTurn.id, itemId: "fixture-approval", requestId: 1,
+          approval: { method: "item/commandExecution/requestApproval", command: "printf fixture",
+            cwd: "$WORKSPACE", decisions: ["accept", "cancel"] },
+        },
+      });
+      assert.equal((await outbox.peek(conversationId))?.deliveryId, pendingApproval.deliveryId);
       const turns = new DesktopTurns(workerProvider, runtime, origin, () => assert.fail("desktop recovery lost a worker"), logger);
       try {
         const deliveries: unknown[] = [];
@@ -212,6 +224,7 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
         assert.equal(deliveries.length, 1);
         assert.match(JSON.stringify(deliveries[0]), /"method":"item\/completed".*"text":"DESKTOP_PACKAGE_OK"/u);
         assert.equal(modelRequests, requestsBeforeRecovery, "recovery submitted another model request");
+        assert.equal(await outbox.peek(conversationId), null, "recovery left the abandoned approval in the outbox");
       } finally { await turns.shutdown(); }
     }
     assert.deepEqual(failures, []);

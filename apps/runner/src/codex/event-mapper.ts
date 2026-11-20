@@ -8,6 +8,7 @@ import {
   coreMcpServerKey,
   codexMessagePhaseSchema,
   desktopArtifactRelativePathSchema,
+  desktopApprovalDecisionSchema,
   imageGenerationMcpSuccessSchema,
   imageGenerationMcpFailureSchema,
   knowledgeNoAvailableBasesCodeSchema,
@@ -25,6 +26,7 @@ import {
   type RunnerCodexTurn,
   type RunnerConversationEvent,
   type RunnerLinkSenseEvent,
+  type DesktopApprovalFileChange,
   type ImageGenerationMcpFailure,
 } from "@linksense/shared";
 
@@ -412,13 +414,156 @@ export function mapCodexNotification(
   return [];
 }
 
+export type CodexServerRequestOptions = {
+  previewContext?: CodexEventPreviewContext;
+  /** Changes cached from the matching `item/started` fileChange item. */
+  fileChangeApprovalChanges?: readonly DesktopApprovalFileChange[] | null;
+};
+
+/**
+ * Native fileChange approvals omit paths from their server-request params.
+ * Read the preceding item for operation and path previews. Never copy diffs.
+ */
+export function mapCodexFileChangeApprovalChanges(
+  value: unknown,
+  previewContext: CodexEventPreviewContext,
+): DesktopApprovalFileChange[] | null {
+  const item = asRecord(value);
+  const changes = item.changes;
+  if (
+    item.type !== "fileChange" ||
+    !Array.isArray(changes) ||
+    changes.length === 0 ||
+    changes.length > runnerCodexPreviewLimits.fileChanges
+  ) {
+    return null;
+  }
+  const previews: DesktopApprovalFileChange[] = [];
+  for (const candidate of changes) {
+    const change = asRecord(candidate);
+    const kind = asRecord(change.kind);
+    const path = desktopApprovalPath(change.path, previewContext);
+    if (!path || path === "$WORKSPACE") return null;
+    if (kind.type === "update") {
+      const move = desktopApprovalPath(kind.move_path, previewContext);
+      if (kind.move_path !== null && (!move || move === "$WORKSPACE")) return null;
+      previews.push({ path, kind: { type: kind.type, move_path: move } });
+    } else if ((kind.type === "add" || kind.type === "delete") && kind.move_path === undefined) {
+      previews.push({ path, kind: { type: kind.type } });
+    } else {
+      return null;
+    }
+  }
+  return previews;
+}
+
+function desktopApprovalPath(value: unknown, { workspace }: CodexEventPreviewContext): string | null {
+  if (typeof value !== "string" || !workspace || value.includes("$WORKSPACE") ||
+      (value !== workspace && !value.startsWith(`${workspace}/`))) return null;
+  const preview = `$WORKSPACE${value.slice(workspace.length)}`;
+  return (
+    preview.length <= runnerCodexPreviewLimits.pathCharacters &&
+    normalizeSafePathPreview(preview) === preview &&
+    sanitizeNormalizedTextPreview(preview, {}) === preview
+  ) ? preview : null;
+}
+
+function desktopApprovalCommand(
+  value: unknown,
+  { workspace }: CodexEventPreviewContext,
+): string | null {
+  if (!workspace || typeof value !== "string" || !value.trim() ||
+      value.length > runnerCodexPreviewLimits.commandCharacters ||
+      /\$(?:WORKSPACE|SYSTEM_BIN)/u.test(value)) return null;
+  // shortcut: reject lossy previews; support more forms when Codex exposes a safe full scope.
+  const preview = replaceKnownRoots(value, { workspace })
+    .replace(/^\/bin\/(zsh|bash|sh)(?= )/u, "$$SYSTEM_BIN/$1");
+  return sanitizeNormalizedTextPreview(preview, {}) === preview ? preview : null;
+}
+
 /**
  * Converts supported native server requests into the same sanitized event
  * contract used by app-server notifications.
  */
 export function mapCodexServerRequest(
   request: JsonRpcRequest,
+  options: CodexServerRequestOptions = {},
 ): LinkSenseCodexEvent[] {
+  const previewContext = options.previewContext ?? {};
+  if (request.method === "item/commandExecution/requestApproval") {
+    const params = asRecord(request.params);
+    if (params.kind !== "command" || params.networkApprovalContext != null ||
+        params.additionalPermissions != null || params.proposedNetworkPolicyAmendments != null) return [];
+    const threadId = nativeId(params.threadId);
+    const turnId = nativeId(params.turnId);
+    const itemId = nativeId(params.itemId);
+    const command = desktopApprovalCommand(params.command, previewContext);
+    const cwd = desktopApprovalPath(params.cwd, previewContext);
+    // Filter the native list; a proposed prefix rule does not prevent a one-time answer.
+    const decisions = Array.isArray(params.availableDecisions)
+      ? [...new Set(params.availableDecisions.flatMap(value => {
+          const parsed = desktopApprovalDecisionSchema.safeParse(value);
+          return parsed.success ? [parsed.data] : [];
+        }))]
+      : [];
+    if (
+      !threadId ||
+      !turnId ||
+      !itemId ||
+      !command ||
+      !cwd ||
+      decisions.length === 0
+    ) {
+      return [];
+    }
+    return event({
+      method: request.method,
+      visibility: "user_visible",
+      params: {
+        threadId,
+        turnId,
+        itemId,
+        requestId: request.id,
+        approval: {
+          method: request.method,
+          decisions,
+          command,
+          cwd,
+        },
+      },
+    });
+  }
+  if (request.method === "item/fileChange/requestApproval") {
+    const params = asRecord(request.params);
+    const threadId = nativeId(params.threadId);
+    const turnId = nativeId(params.turnId);
+    const itemId = nativeId(params.itemId);
+    const changes = options.fileChangeApprovalChanges;
+    if (
+      !threadId ||
+      !turnId ||
+      !itemId ||
+      !changes ||
+      params.grantRoot != null
+    ) {
+      return [];
+    }
+    return event({
+      method: request.method,
+      visibility: "user_visible",
+      params: {
+        threadId,
+        turnId,
+        itemId,
+        requestId: request.id,
+        approval: {
+          method: request.method,
+          decisions: ["accept", "decline", "cancel"],
+          changes,
+        },
+      },
+    });
+  }
   if (request.method !== "item/tool/requestUserInput") return [];
   const params = asRecord(request.params);
   const threadId = nativeId(params.threadId);

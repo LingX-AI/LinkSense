@@ -14,6 +14,7 @@ import { lockDevelopmentPreview, reuseUnusedDevelopmentPreview, assertCurrentDev
 import { lockDetachedDevelopment, type DevelopmentConversationCreation } from "../applications/development-conversation-lifecycle.js";
 import { readApplicationDistributionAccess } from "../applications/distribution-repository.js";
 import { deleteConversationWithinTransaction } from "./deletion.js";
+import { projectDesktopApproval, respondToDesktopApproval } from "./desktop-approvals.js";
 import { readConversationDevelopmentRoles, ordinaryConversationFilter } from "./application-development-role.js";
 import { requireApplicationDistributionVersion } from "../applications/distribution-policy.js";
 import { applicationDistributionChannelSchema, type ApplicationDistributionChannel } from "@linksense/shared";
@@ -117,6 +118,7 @@ import {
   type ConversationPlanReviewAction,
   conversationStartFailurePayloadSchema,
   desktopAttachmentStartLifetimeMs,
+  type DesktopApprovalResponse,
   type ConversationUserInputResponse,
   type Locale,
   type PublicKnowledgeCitation,
@@ -2623,6 +2625,7 @@ export class ConversationService {
       developmentRoles,
       deletedApplication,
       reasoningEvents,
+      desktopApprovals,
     ] = await Promise.all([
       this.prisma.conversationMessage.findMany({
         where: { conversationId, turnId: { in: messageTurnIds } },
@@ -2694,6 +2697,13 @@ export class ConversationService {
           })
         : null,
       this.findReasoningEvents(conversationId, messageTurnIds),
+      historyQuery && conversation.executionTarget === "local" && activeTurnIds.length > 0
+        ? this.prisma.conversationDesktopApproval.findMany({
+            where: { conversationId, ownerId, codexThreadId: conversation.codexThreadId ?? "",
+              OR: [{ turnId: { in: messageTurnIds } }, { turnId: { in: activeTurnIds }, status: { in: ["pending", "answering"] } }] },
+            orderBy: [{ createdAt: "asc" }, { nativeRequestId: "asc" }],
+          })
+        : [],
     ]);
     const files = await includeReferencedImageAttachments(this.prisma, {
       conversationId, files: scopedFiles, events, messages,
@@ -2933,6 +2943,7 @@ export class ConversationService {
       starting_turn: startingTurn,
       pending_requests: pending.map(projectPending),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
+      ...(desktopApprovals.length > 0 && { desktop_approval_requests: desktopApprovals.map(projectDesktopApproval) }),
       plan_reviews: planReviews.map(projectPlanReview),
       files: files.map(file => {
         const change = desktopFileChanges.get(file.id);
@@ -6070,6 +6081,29 @@ export class ConversationService {
       await this.redis.publishConversationEvent(input.conversationId, projectStoredEvent(result.event));
     }
     return projectUserInputRequest(result.request);
+  }
+
+  async respondToDesktopApprovalRequest(
+    ownerId: string,
+    conversationId: string,
+    requestId: string,
+    response: DesktopApprovalResponse,
+    context: AuditContext,
+  ) {
+    const conversation = await this.assertOwner(ownerId, conversationId);
+    const { desktopDeviceId: deviceId, runtimeGeneration } = conversation;
+    if (conversation.executionTarget !== "local" || !deviceId) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+    const request = await this.prisma.conversationDesktopApproval.findFirst({
+      where: { id: requestId, conversationId, ownerId },
+      select: { turnId: true },
+    });
+    if (!request) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+    const { stored, event } = await respondToDesktopApproval({
+      prisma: this.prisma, runner: this.runner, requestId, response, context,
+      scope: { ownerId, conversationId, deviceId, runtimeGeneration, turnId: request.turnId },
+    });
+    await this.redis.publishConversationEvent(conversationId, projectStoredEvent(event)).catch(() => undefined);
+    return projectDesktopApproval(stored);
   }
 
   async respondToUserInputRequest(

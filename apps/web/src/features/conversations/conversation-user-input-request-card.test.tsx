@@ -8,10 +8,11 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { browserUseActionSchema, supportedLocales } from "@linksense/shared"
+import { browserUseActionSchema, supportedLocales, type DesktopApprovalRequest } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
+import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import i18n from "@/i18n"
 import conversationStyles from "@/index.css?raw"
 
@@ -171,6 +172,116 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
+  it.each([...supportedLocales, "de-DE"] as const)(
+    "shows only one-time command actions and their translations in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const messages = desktopApprovalMessages[locale === "de-DE" ? "zh-CN" : locale]
+      const approval: DesktopApprovalRequest = {
+        id: request.id,
+        conversation_id: request.conversation_id,
+        turn_id: request.turn_id,
+        item_id: request.item_id,
+        kind: "desktop_approval",
+        approval: {
+          method: "item/commandExecution/requestApproval",
+          command: `$SYSTEM_BIN/zsh -lc "printf 'two  spaces'"`,
+          cwd: "$WORKSPACE",
+          decisions: ["accept", "cancel"],
+        },
+        status: "pending",
+        auto_resolve_at: "2026-08-09T08:03:00.000Z",
+        resolved_at: null,
+        resolved_action: null,
+        created_at: request.created_at,
+        updated_at: request.updated_at,
+      }
+      const onApprovalDecision = vi.fn()
+      const { rerender } = render(
+        <ConversationUserInputRequestCard
+          request={approval}
+          submitting={false}
+          onApprovalDecision={onApprovalDecision}
+        />
+      )
+      expect(screen.getByRole("heading", { name: messages.titleCommand })).toBeVisible()
+      expect(screen.getByText((_content, element) =>
+        element?.tagName === "CODE" &&
+        element.textContent === `/bin/zsh -lc "printf 'two  spaces'"`
+      )).toBeVisible()
+      expect(screen.getByText("$WORKSPACE")).toBeVisible()
+      expect(screen.getAllByRole("button")).toHaveLength(2)
+      await userEvent.click(screen.getByRole("button", { name: messages.allowOnce }))
+      expect(onApprovalDecision).toHaveBeenCalledExactlyOnceWith(approval, "accept")
+      rerender(
+        <ConversationUserInputRequestCard
+          request={approval}
+          submitting
+          onApprovalDecision={onApprovalDecision}
+        />
+      )
+      expect(screen.getByRole("button", { name: messages.cancel })).toBeDisabled()
+      rerender(
+        <ConversationUserInputRequestCard
+          request={{ ...approval, status: "unconfirmed", resolved_action: "accept" }}
+          submitting={false}
+          onApprovalDecision={onApprovalDecision}
+        />
+      )
+      expect(screen.getByText(messages.unconfirmed)).toBeVisible()
+      expect(screen.getByText(messages.unconfirmedDescription)).toBeVisible()
+      expect(screen.queryByRole("button")).not.toBeInTheDocument()
+      cleanup()
+      await i18n.changeLanguage("zh-CN")
+    }
+  )
+
+  it.each([...supportedLocales, "de-DE"] as const)(
+    "shows what happens to each file and offers decline in %s",
+    async locale => {
+    await i18n.changeLanguage(locale)
+    const messages = desktopApprovalMessages[locale === "de-DE" ? "zh-CN" : locale]
+    const approval: DesktopApprovalRequest = {
+      id: request.id,
+      conversation_id: request.conversation_id,
+      turn_id: request.turn_id,
+      item_id: request.item_id,
+      kind: "desktop_approval",
+      approval: {
+        method: "item/fileChange/requestApproval",
+        changes: [
+          { path: "$WORKSPACE/new.txt", kind: { type: "add" } },
+          { path: "$WORKSPACE/obsolete.txt", kind: { type: "delete" } },
+          { path: "$WORKSPACE/edit.txt", kind: { type: "update", move_path: null } },
+          { path: "$WORKSPACE/report.txt", kind: { type: "update", move_path: "$WORKSPACE/renamed.txt" } },
+        ],
+        decisions: ["accept", "decline", "cancel"],
+      },
+      status: "pending",
+      auto_resolve_at: "2026-08-09T08:03:00.000Z",
+      resolved_at: null,
+      resolved_action: null,
+      created_at: request.created_at,
+      updated_at: request.updated_at,
+    }
+    const onApprovalDecision = vi.fn()
+    render(<ConversationUserInputRequestCard request={approval} submitting={false} onApprovalDecision={onApprovalDecision} />)
+    expect(screen.getByRole("heading", { name: messages.titleFileChange })).toBeVisible()
+    const [added, deleted, edited, moved] = screen.getAllByRole("listitem")
+    expect(added).toHaveTextContent(messages.fileOperations.add)
+    expect(deleted).toHaveTextContent(messages.fileOperations.delete)
+    expect(deleted).toHaveTextContent("$WORKSPACE/obsolete.txt")
+    expect(edited).toHaveTextContent(messages.fileOperations.update)
+    expect(moved).toHaveTextContent(messages.fileOperations.move)
+    expect(moved).toHaveTextContent("$WORKSPACE/report.txt")
+    expect(moved).toHaveTextContent(messages.moveTo)
+    expect(moved).toHaveTextContent("$WORKSPACE/renamed.txt")
+    await userEvent.click(screen.getByRole("button", { name: messages.decline }))
+    expect(onApprovalDecision).toHaveBeenCalledExactlyOnceWith(approval, "decline")
+    cleanup()
+    await i18n.changeLanguage("zh-CN")
+  })
+
   it.each([...supportedLocales, "de-DE"])(
     "shows a localized approval action and target matching the native request in %s",
     async (locale) => {

@@ -1,11 +1,13 @@
 import { z } from "zod";
 
-import { timestampSchema, uuidSchema } from "./common.js";
+import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
 import {
   conversationFormWaitingPolicySchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
   conversationFormUiHintsSchema,
+  desktopApprovalDecisionSchema,
+  desktopApprovalMethodSchema,
 } from "./conversation-forms.js";
 import {
   capabilitySelectionIdSchema,
@@ -517,6 +519,61 @@ const runnerCodexPathPreviewSchema = z
     "unsafe_preview_secret",
   )
   .refine(isSafePathPreview, "unsafe_preview_path");
+const runnerCodexFileChangeKindSchema = z.enum(["add", "delete", "update"]);
+const desktopApprovalFileChangeSchema = z.strictObject({
+  path: runnerCodexPathPreviewSchema,
+  kind: z.discriminatedUnion("type", [
+    z.strictObject({ type: runnerCodexFileChangeKindSchema.extract(["add", "delete"]) }),
+    z.strictObject({
+      type: runnerCodexFileChangeKindSchema.extract(["update"]),
+      move_path: runnerCodexPathPreviewSchema.nullable(),
+    }),
+  ]),
+});
+export type DesktopApprovalFileChange = z.infer<typeof desktopApprovalFileChangeSchema>;
+const approvalDecisions = uniqueArraySchema(desktopApprovalDecisionSchema).min(1).max(3);
+export const desktopApprovalDetailsSchema = z.discriminatedUnion("method", [
+  z.strictObject({
+    method: desktopApprovalMethodSchema.extract(["item/commandExecution/requestApproval"]),
+    decisions: approvalDecisions,
+    command: runnerCodexCommandPreviewSchema,
+    cwd: runnerCodexPathPreviewSchema.nullable(),
+  }),
+  z.strictObject({
+    method: desktopApprovalMethodSchema.extract(["item/fileChange/requestApproval"]),
+    decisions: approvalDecisions,
+    changes: z.array(desktopApprovalFileChangeSchema).min(1).max(runnerCodexPreviewLimits.fileChanges)
+      .refine(changes => new Set(changes.map(({ path }) => path)).size === changes.length)
+      .refine(changes => changes.length + changes.filter(({ kind }) =>
+        kind.type === "update" && kind.move_path !== null).length <= runnerCodexPreviewLimits.fileChanges),
+  }),
+]);
+export const desktopApprovalRequestSchema = z.strictObject({
+  id: uuidSchema,
+  conversation_id: uuidSchema,
+  turn_id: uuidSchema,
+  item_id: runnerNativeIdSchema,
+  kind: z.literal("desktop_approval"),
+  approval: desktopApprovalDetailsSchema,
+  // `unconfirmed` closes a card whose claimed decision was in flight when the
+  // native request closed. The decision stays in resolved_action, and a late
+  // confirmed receipt may still resolve it to answered/cancelled.
+  status: z.enum([
+    "pending",
+    "answering",
+    "answered",
+    "expired",
+    "cancelled",
+    "unconfirmed",
+  ]),
+  auto_resolve_at: timestampSchema,
+  resolved_at: timestampSchema.nullable(),
+  resolved_action: desktopApprovalDecisionSchema.nullable(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+});
+export type DesktopApprovalDetails = z.infer<typeof desktopApprovalDetailsSchema>;
+export type DesktopApprovalRequest = z.infer<typeof desktopApprovalRequestSchema>;
 const runnerCodexQueryPreviewSchema = runnerCodexSafeTextPreviewSchema(
   runnerCodexPreviewLimits.queryCharacters,
 );
@@ -1050,7 +1107,7 @@ const runnerCodexFileChangeItemSchema = z.strictObject({
     .array(
       z.strictObject({
         kind: z.strictObject({
-          type: z.enum(["add", "delete", "update"]),
+          type: runnerCodexFileChangeKindSchema,
         }),
         path: runnerCodexPathPreviewSchema.optional(),
       }),
@@ -1509,6 +1566,13 @@ const runnerCodexUserInputRequestParamsSchema = z.strictObject({
     .max(240_000)
     .nullable(),
 });
+export const runnerDesktopApprovalParamsSchema = z.strictObject({
+  threadId: runnerNativeIdSchema,
+  turnId: runnerNativeIdSchema,
+  itemId: runnerNativeIdSchema,
+  requestId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  approval: desktopApprovalDetailsSchema,
+});
 const runnerLinkSenseFormRequestParamsSchema = z.strictObject({
   threadId: runnerNativeIdSchema,
   turnId: runnerNativeIdSchema,
@@ -1592,6 +1656,11 @@ export const runnerCodexEventSchema = z.discriminatedUnion("method", [
     "item/tool/requestUserInput",
     runnerCodexUserInputRequestParamsSchema,
   ),
+  // Runner-only. Persist the existing user-input refresh event for older clients.
+  runnerCodexEvent("item/commandExecution/requestApproval", runnerDesktopApprovalParamsSchema)
+    .refine(event => event.method === event.params.approval.method),
+  runnerCodexEvent("item/fileChange/requestApproval", runnerDesktopApprovalParamsSchema)
+    .refine(event => event.method === event.params.approval.method),
   runnerCodexEvent(
     "serverRequest/resolved",
     runnerCodexServerRequestResolvedParamsSchema,

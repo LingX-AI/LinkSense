@@ -7,6 +7,7 @@ import {
   Clock3Icon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
+  ShieldAlertIcon,
 } from "lucide-react"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { toString } from "mdast-util-to-string"
@@ -14,15 +15,24 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import { useTranslation } from "react-i18next"
 import remarkGfm from "remark-gfm"
 
-import type { BrowserUseApproval, ConversationUserInputResponse } from "@linksense/shared"
+import type {
+  BrowserUseApproval,
+  ConversationUserInputResponse,
+  DesktopApprovalRequest,
+} from "@linksense/shared"
 
-import type { ConversationUserInputRequest } from "@/api/contracts"
+import type {
+  ConversationUserInputRequest,
+  ConversationUserInputRequestView,
+} from "@/api/contracts"
 import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -61,11 +71,19 @@ import { cn } from "@/lib/utils"
 const otherChoice = "__linksense_other__"
 const optionChoice = (index: number) => `option:${index}`
 
+type DesktopApprovalDecision = NonNullable<
+  DesktopApprovalRequest["resolved_action"]
+>
+
 type ConversationUserInputRequestCardProps = Readonly<{
-  request: ConversationUserInputRequest
+  request: ConversationUserInputRequestView
   browserApproval?: BrowserUseApproval
   submitting: boolean
   onSubmit?: (response: ConversationUserInputResponse) => void
+  onApprovalDecision?: (
+    request: DesktopApprovalRequest,
+    decision: DesktopApprovalDecision
+  ) => void
   onInteractionStart?: () => void
 }>
 
@@ -74,6 +92,7 @@ export function ConversationUserInputRequestCard({
   browserApproval,
   submitting,
   onSubmit,
+  onApprovalDecision,
   onInteractionStart,
 }: ConversationUserInputRequestCardProps) {
   const { t } = useTranslation()
@@ -113,16 +132,28 @@ export function ConversationUserInputRequestCard({
             aria-level={3}
             className="flex min-w-0 items-center gap-2 text-sm"
           >
-            <MessageCircleQuestionIcon
-              className="size-3.5 shrink-0"
-              aria-hidden="true"
-            />
+            {request.kind === "desktop_approval" ? (
+              <ShieldAlertIcon
+                className="size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+            ) : (
+              <MessageCircleQuestionIcon
+                className="size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+            )}
             {t(
               request.kind === "form"
                 ? terminal
                   ? "conversation.userInput.formResultTitle"
                   : "conversation.userInput.formTitle"
-                : "conversation.userInput.title"
+                : request.kind === "desktop_approval"
+                  ? request.approval.method ===
+                    "item/commandExecution/requestApproval"
+                    ? "desktopApproval.titleCommand"
+                    : "desktopApproval.titleFileChange"
+                  : "conversation.userInput.title"
             )}
           </CardTitle>
           <UserInputStatusBadge status={displayStatus} />
@@ -146,6 +177,14 @@ export function ConversationUserInputRequestCard({
                 </span>
               )}
             </>
+          ) : request.kind === "desktop_approval" ? (
+            t(
+              request.status === "unconfirmed"
+                ? "desktopApproval.unconfirmedDescription"
+                : request.approval.method === "item/commandExecution/requestApproval"
+                  ? "desktopApproval.descriptionCommand"
+                  : "desktopApproval.descriptionFileChange"
+            )
           ) : request.kind === "form" ? (
             <UserInputRequestMarkdownDescription content={request.message} />
           ) : (
@@ -168,6 +207,18 @@ export function ConversationUserInputRequestCard({
           submitting={submitting}
           terminal={terminal}
           onSubmit={(response) => onSubmit?.(response)}
+        />
+      ) : request.kind === "desktop_approval" ? (
+        <DesktopApprovalDetails
+          key={`${request.id}:${request.status}:${request.updated_at}`}
+          request={request}
+          disabled={disabled}
+          submitting={submitting}
+          onDecision={
+            onApprovalDecision
+              ? (decision) => onApprovalDecision(request, decision)
+              : undefined
+          }
         />
       ) : (
         <QuestionUserInputForm
@@ -281,7 +332,7 @@ function UserInputStatusBadge({
 }) {
   const { t } = useTranslation()
   const Icon =
-    status === "pending"
+    status === "pending" || status === "unconfirmed"
       ? MessageCircleQuestionIcon
       : status === "submitting"
         ? LoaderCircleIcon
@@ -309,8 +360,122 @@ function UserInputStatusBadge({
         className={status === "submitting" ? "animate-spin" : undefined}
         aria-hidden="true"
       />
-      {t(`conversation.userInput.status.${status}`)}
+      {t(status === "unconfirmed"
+        ? "desktopApproval.unconfirmed"
+        : `conversation.userInput.status.${status}`)}
     </Badge>
+  )
+}
+
+function DesktopApprovalDetails({
+  request,
+  disabled,
+  submitting,
+  onDecision,
+}: {
+  request: DesktopApprovalRequest
+  disabled: boolean
+  submitting: boolean
+  onDecision?: (decision: DesktopApprovalDecision) => void
+}) {
+  const { t } = useTranslation()
+  const { approval } = request
+  const decisions =
+    request.status === "pending" && onDecision ? approval.decisions : []
+  const decisionLabel = (decision: DesktopApprovalDecision) =>
+    t(
+      decision === "accept"
+        ? "desktopApproval.allowOnce"
+        : decision === "decline"
+          ? "desktopApproval.decline"
+          : "desktopApproval.cancel"
+    )
+
+  return (
+    <>
+      <CardContent className="pb-(--card-spacing)">
+        <dl className="grid gap-3 text-sm">
+          {approval.method === "item/commandExecution/requestApproval" ? (
+            <>
+              <div className="grid gap-1">
+                <dt className="text-xs font-semibold text-[var(--app-muted)]">
+                  {t("desktopApproval.commandLabel")}
+                </dt>
+                <dd className="min-w-0">
+                  <code className="block rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 font-mono text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-[var(--app-text)]">
+                    {approval.command.replace(/^\$SYSTEM_BIN\//u, "/bin/")}
+                  </code>
+                </dd>
+              </div>
+              {approval.cwd && (
+                <div className="grid gap-1">
+                  <dt className="text-xs font-semibold text-[var(--app-muted)]">
+                    {t("desktopApproval.cwdLabel")}
+                  </dt>
+                  <dd className="min-w-0">
+                    <code className="block rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 font-mono text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-[var(--app-text)]">
+                      {approval.cwd}
+                    </code>
+                  </dd>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="grid gap-1">
+              <dt className="text-xs font-semibold text-[var(--app-muted)]">
+                {t("desktopApproval.pathsLabel")}
+              </dt>
+              <dd className="min-w-0">
+                <ul role="list" className="grid gap-1">
+                  {approval.changes.map(({ path, kind }) => {
+                    const destination = kind.type === "update" ? kind.move_path : null
+                    return (
+                      <li key={path} className="min-w-0 rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 text-xs">
+                        <span className="font-semibold text-foreground">
+                          {t(`desktopApproval.fileOperations.${destination ? "move" : kind.type}`)}
+                        </span>
+                        <code className="block font-mono leading-5 wrap-anywhere whitespace-pre-wrap">{path}</code>
+                        {destination && (
+                          <>
+                            <span>{t("desktopApproval.moveTo")}</span>
+                            <code className="block font-mono leading-5 wrap-anywhere whitespace-pre-wrap">{destination}</code>
+                          </>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </dd>
+            </div>
+          )}
+        </dl>
+      </CardContent>
+      {decisions.length > 0 && (
+        <CardFooter
+          className="shrink-0 flex-wrap justify-end gap-1.5 border-t pb-2 [.border-t]:pt-2"
+          aria-busy={submitting || undefined}
+        >
+          {decisions.map((decision) => (
+            <Button
+              key={decision}
+              type="button"
+              size="sm"
+              variant={
+                decision === "accept"
+                  ? "default"
+                  : decision === "decline"
+                    ? "outline"
+                    : "ghost"
+              }
+              disabled={disabled}
+              onClick={() => onDecision?.(decision)}
+            >
+              {decisionLabel(decision)}
+            </Button>
+          ))}
+        </CardFooter>
+      )}
+    </>
   )
 }
 

@@ -5,7 +5,7 @@ import {
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
-  type DesktopToolOperation, type DesktopToolRequest, type DesktopToolResult,
+  type DesktopNegotiatedOperation, type DesktopToolOperation, type DesktopToolRequest, type DesktopToolResult,
 } from "@linksense/shared"
 import type { z } from "zod"
 import type { DesktopRuntimeRun, DesktopTurns } from "./turns.js"
@@ -35,7 +35,7 @@ export class DesktopLink {
     private readonly turns: DesktopTurns,
     private readonly write: (frame: Output) => Promise<void>,
     private readonly fail: () => void,
-    private readonly toolOperations: readonly DesktopToolOperation[] = [],
+    private readonly toolOperations: readonly DesktopNegotiatedOperation[] = [],
     private readonly attachments = false,
   ) {}
 

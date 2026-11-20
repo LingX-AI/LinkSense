@@ -167,6 +167,24 @@ task detail adds the association without changing the native event or its SSE
 cursor. Edits, files produced by commands, and creations outside the retained
 activity window keep their download cards.
 
+Mac one-time command and file approvals use the bundled Codex's native
+requests. Apply `20261120130000_add_conversation_desktop_approvals` before
+upgrading API replicas and `linksense-maintenance` consumers. After all have
+upgraded, set `LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED=true` uniformly
+alongside development/test local execution and reconnect upgraded Macs.
+Older clients do not negotiate `approval.respond`. Cloud approval policy is
+unchanged. The strict profile keeps workspace write limits even after
+approval. Saved rules and full access are not enabled. An unconfirmed
+reply must not be retried automatically; check the outcome on the Mac.
+
+Before downgrading, stop starting local turns and let active approvals and
+turns settle. Turn off the approval flag uniformly and reconnect with the new
+Mac app. Keep the upgraded components running until pending local recovery
+has finished and the affected turns' `desktop-outbox` queues are empty.
+The new runtime drains queued events and discards obsolete approval prompts.
+An older runtime cannot read those prompts if it starts before the drain.
+Do not delete outbox files by hand or drop the approval table on rollback.
+
 By default the packaged fixture uses the local filesystem to verify API
 streaming. Set `LINKSENSE_TEST_MINIO_BIN` to an absolute path to a local MinIO
 executable to verify signed multipart upload instead. The fixture starts a

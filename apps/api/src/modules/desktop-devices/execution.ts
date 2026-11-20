@@ -134,7 +134,8 @@ export async function registerDesktopExecution(
         return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true };
       }
       const questions = frame.type === "execution.callback" && supportsDesktopUserInput(toolOperations);
-      const accepted = await services.events.ingestDesktopBatch({ scope, check, questions }, frame.body, (error, deliveryId) => {
+      const approvals = frame.type === "execution.callback" && toolOperations.includes("approval.respond");
+      const accepted = await services.events.ingestDesktopBatch({ scope, check, questions, approvals }, frame.body, (error, deliveryId) => {
         app.log.warn({ deliveryId, errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR" }, "desktop event batch stopped before acknowledgement");
       });
       return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true, data: { accepted_delivery_ids: accepted } };

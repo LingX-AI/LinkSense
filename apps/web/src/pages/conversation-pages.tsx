@@ -64,8 +64,10 @@ import {
   APPLICATION_BUILDER_SKILL_NAME,
   builtInCapabilityId,
   coreMcpServerKey,
+  desktopApprovalRequestSchema,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
+  type DesktopApprovalRequest,
   type SideChatReference,
 } from "@linksense/shared"
 import { z } from "zod"
@@ -5143,6 +5145,33 @@ export function ConversationPage({
     },
   })
 
+  const respondDesktopApprovalMutation = useMutation({
+    mutationFn: ({
+      request,
+      decision,
+    }: {
+      request: DesktopApprovalRequest
+      decision: NonNullable<DesktopApprovalRequest["resolved_action"]>
+    }) => {
+      if (!conversationId) throw new Error("conversation id is required")
+      return apiRequest(
+        `/conversations/${conversationId}/approvals/${request.id}`,
+        {
+          method: "POST",
+          body: { method: request.approval.method, decision },
+          schema: desktopApprovalRequestSchema,
+        }
+      )
+    },
+    onSuccess: async () => {
+      if (conversationId) await refreshAfterMutation(conversationId)
+    },
+    onError: async (nextError) => {
+      setError(getErrorMessage(nextError, t))
+      if (conversationId) await refreshAfterMutation(conversationId)
+    },
+  })
+
   const planReviewActionMutation = useMutation({
     mutationFn: async (submission: PlanReviewActionSubmission) => {
       if (!conversationId) throw new Error("conversation id is required")
@@ -6046,6 +6075,8 @@ export function ConversationPage({
   const awaitingDesktopQuestion =
     displayConversation.execution_target === "local" &&
     activeUserInputRequest?.kind === "questions"
+  const awaitingDesktopApproval =
+    activeUserInputRequest?.kind === "desktop_approval"
   // The app-server question and the started MCP item share the native item ID.
   const browserApprovalEvent = awaitingDesktopQuestion
     ? visibleEvents.findLast((event) => {
@@ -6087,14 +6118,22 @@ export function ConversationPage({
           ? browserApproval.params.item.browserApproval
           : undefined
       }
-      submitting={respondUserInputMutation.isPending}
+      submitting={
+        respondUserInputMutation.isPending ||
+        respondDesktopApprovalMutation.isPending
+      }
       onInteractionStart={preserveScrollPositionForInteraction}
       onSubmit={(response) => {
+        if (activeUserInputRequest.kind === "desktop_approval") return
         setError(null)
         respondUserInputMutation.mutate({
           request: activeUserInputRequest,
           response,
         })
+      }}
+      onApprovalDecision={(request, decision) => {
+        setError(null)
+        respondDesktopApprovalMutation.mutate({ request, decision })
       }}
     />
   ) : activePlanReview ? (
@@ -6518,7 +6557,7 @@ export function ConversationPage({
               <MessagesSquareIcon aria-hidden="true" />
             </ConversationHeaderButton>
           )}
-          {(!showComposer || awaitingDesktopQuestion) &&
+          {(!showComposer || awaitingDesktopQuestion || awaitingDesktopApproval) &&
             !executionBlocked &&
             visuallyRunning && (
               <Button

@@ -2,12 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
   builtInMcpConfigOverrides,
+  desktopPermissionConfigOverrides,
   linkSenseImageCapabilityConfigOverrides,
   linkSenseModelProviderConfigOverrides,
   linkSenseSkillConfigOverrides,
 } from "../src/codex/runtime-config-overrides.js";
 
 describe("Codex process-level runtime config", () => {
+  it("retains a root denial for approved local commands while preserving the two workspace modes", () => {
+    const overrides = desktopPermissionConfigOverrides({ control: "/fixture/control", codex: "/fixture/codex" });
+    expect(overrides).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^permissions\.linksense-workspace\.filesystem=.*":root"="deny".*":workspace_roots"="write"/u),
+      expect.stringMatching(/^permissions\.linksense-read-only\.filesystem=.*":root"="deny".*":workspace_roots"="read"/u),
+      "permissions.linksense-workspace.network.enabled=false",
+      "permissions.linksense-read-only.network.enabled=false",
+    ]));
+  });
   it("disables the native view_image tool unless the model declares image support", () => {
     expect(linkSenseImageCapabilityConfigOverrides(undefined)).toEqual([
       "features.view_image=false",

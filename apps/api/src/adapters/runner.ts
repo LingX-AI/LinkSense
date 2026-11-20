@@ -17,7 +17,7 @@ import {
   type MemoryExtractionRuntime,
   type PrivacyMaskingRuntime,
   type CodexModelReasoningCatalog,
-  type ConversationUserInputResponse,
+  type NativeUserInputResponse,
   runnerCodexSubAgentDetailSchema,
   runnerCodexSubAgentSummariesSchema,
   runnerCodexGoalSchema,
@@ -876,13 +876,14 @@ export class RunnerClient {
     codexThreadId: string;
     codexTurnId: string;
     itemId: string;
-    response: ConversationUserInputResponse;
+    response: NativeUserInputResponse;
     desktop?: { turnId: string; runtimeGeneration: string };
   }): Promise<{ accepted: true }> {
     if (input.desktop) {
       const { desktop, ownerId, conversationId, ...body } = input;
       return this.desktopRunner().respondUserInput({ ownerId, conversationId, ...desktop }, body);
     }
+    if ("method" in input.response) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     let response: Response;
     try {
       response = await fetch(

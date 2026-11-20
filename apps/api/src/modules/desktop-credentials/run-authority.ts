@@ -10,6 +10,7 @@ export type DesktopProjectionFence = {
   scope: DesktopConversationBinding & Pick<DesktopRunScope, "turnId">;
   check: () => Promise<void>;
   questions?: boolean;
+  approvals?: boolean;
 };
 
 // Covers a Stop for a turn that still has only a start intent.

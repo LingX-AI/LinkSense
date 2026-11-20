@@ -41,7 +41,7 @@ afterAll(async () => { await redis.close(); });
 
 async function fixture(
   repository = new MemoryDesktopDeviceRepository(),
-  tools: { artifactTools?: boolean; websiteArtifacts?: boolean } = {},
+  tools: { artifactTools?: boolean; websiteArtifacts?: boolean; nativeApprovals?: boolean } = {},
 ) {
   for (const id of [owner, other]) repository.owners.set(id, { status: "active", authValidAfter: new Date(0) });
   const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
@@ -597,6 +597,12 @@ describe("desktop tool negotiation", () => {
       expected: ["web.search", "artifact.prepare", "artifact.multipart", "artifact.website"] },
     { name: "legacy offer", gates: { artifactTools: true, websiteArtifacts: true }, toolOffer: "artifact.prepare",
       expected: ["artifact.prepare"] },
+    { name: "native approvals without artifact or browser tools", gates: { nativeApprovals: true }, toolOffer: "approval.respond",
+      expected: ["approval.respond"] },
+    { name: "approval rollout off", gates: { nativeApprovals: false }, toolOffer: "web.search,approval.respond",
+      expected: ["web.search"] },
+    { name: "older app", gates: { nativeApprovals: true }, toolOffer: "web.search",
+      expected: ["web.search"] },
   ])("negotiates $name without changing other tools", async ({ gates, toolOffer, expected }) => {
     const { app } = await fixture(undefined, gates);
     const { token } = await paired(app);

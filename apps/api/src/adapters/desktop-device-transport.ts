@@ -18,7 +18,7 @@ import {
   type DesktopExecutionCommand,
   type DesktopExecutionResult,
   type DesktopToolCancel,
-  type DesktopToolOperation,
+  type DesktopNegotiatedOperation,
   type DesktopToolRequest,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
@@ -63,7 +63,7 @@ type DeviceSocket = {
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
   attachments: boolean;
-  toolOperations: readonly DesktopToolOperation[];
+  toolOperations: readonly DesktopNegotiatedOperation[];
   tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
   lifetime: AbortController;
 };
@@ -76,7 +76,7 @@ type PendingReply = {
 };
 type ExecutionAuthority = (binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>;
 type ExecutionCallback = (
-  binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopToolOperation[] },
+  binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
   frame: DesktopExecutionCallback,
   signal: AbortSignal,
 ) => Promise<DesktopExecutionAck>;
@@ -433,7 +433,7 @@ export class DesktopDeviceTransport {
       return;
     }
     if (pending) return;
-    if (frame.operation === "user-input.respond" && !supportsDesktopUserInput(socket.toolOperations)) {
+    if (frame.operation === "user-input.respond" && !supportsDesktopUserInput(socket.toolOperations, frame.body.response)) {
       await this.reply(request, failure(frame, "USER_INPUT_REQUEST_UNAVAILABLE"), true);
       return;
     }

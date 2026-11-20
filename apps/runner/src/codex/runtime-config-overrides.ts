@@ -23,6 +23,8 @@ export const desktopPermissionProfiles = { default: "linksense-workspace", plan:
 
 export function desktopPermissionConfigOverrides(input: { control: string; codex: string }): string[] {
   const systemRead = [
+    // Codex retains the workspace sandbox for approved commands when the root is explicitly denied.
+    `":root"="deny"`,
     `":minimal"="read"`,
     `${JSON.stringify(input.codex)}="read"`,
     `${JSON.stringify(input.control)}="deny"`,

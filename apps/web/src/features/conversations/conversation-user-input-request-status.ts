@@ -1,6 +1,6 @@
 import { conversationFormAcceptedOutcome } from "@linksense/shared"
 
-import type { ConversationUserInputRequest } from "@/api/contracts"
+import type { ConversationUserInputRequestView } from "@/api/contracts"
 
 export type ConversationUserInputDisplayStatus =
   | "pending"
@@ -11,13 +11,14 @@ export type ConversationUserInputDisplayStatus =
   | "rejected"
   | "cancelled"
   | "expired"
+  | "unconfirmed"
   | "terminated"
 
 export function selectActiveUserInputRequest(
-  requests: readonly ConversationUserInputRequest[],
+  requests: readonly ConversationUserInputRequestView[],
   runningTurnId?: string,
   hasPendingPlanReview = false
-): ConversationUserInputRequest | undefined {
+): ConversationUserInputRequestView | undefined {
   const pending = requests
     .filter(
       (request) => !hasPendingPlanReview || request.kind !== "async_questions"
@@ -38,11 +39,12 @@ export function selectActiveUserInputRequest(
 }
 
 export function getConversationUserInputDisplayStatus(
-  request: ConversationUserInputRequest
+  request: ConversationUserInputRequestView
 ): ConversationUserInputDisplayStatus {
   if (request.status === "pending") return "pending"
   if (request.status === "answering") return "submitting"
   if (request.status === "expired") return "expired"
+  if (request.status === "unconfirmed") return "unconfirmed"
   if (request.status === "cancelled") {
     if (request.resolved_action === "decline") return "rejected"
     if (request.resolved_action === "cancel") return "cancelled"
@@ -54,6 +56,11 @@ export function getConversationUserInputDisplayStatus(
       request.response_semantics,
       request.response_content
     )
+  }
+  if (request.kind === "desktop_approval") {
+    if (request.resolved_action === "accept") return "approved"
+    if (request.resolved_action === "decline") return "rejected"
+    if (request.resolved_action === "cancel") return "cancelled"
   }
   return "submitted"
 }

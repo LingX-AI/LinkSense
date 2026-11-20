@@ -81,7 +81,7 @@ import type {
   ConversationFile,
   ConversationMessage,
   ConversationTurn,
-  ConversationUserInputRequest,
+  ConversationUserInputRequestView,
   ModelPreference,
   NativeCodexItem,
   NativeSubAgentSummary,
@@ -3543,7 +3543,7 @@ type TurnTimelineEntry =
   | {
       id: string
       kind: "user_input_request"
-      request: ConversationUserInputRequest
+      request: ConversationUserInputRequestView
       sequence?: number
       createdAt: string
       fallbackOrder: number
@@ -3748,7 +3748,7 @@ function TurnSummary({
   subAgentSummaries?: readonly NativeSubAgentSummary[]
   intermediateMessages: ConversationMessage[]
   guidedMessages: ConversationMessage[]
-  userInputRequests: ConversationUserInputRequest[]
+  userInputRequests: ConversationUserInputRequestView[]
   renderGuidedMessage: (message: ConversationMessage) => ReactNode
   finalAnswerConfirmed: boolean
   finalAnswerVisible: boolean
@@ -5322,7 +5322,9 @@ export function ConversationThread({
     const turnTerminalFormRequests = conversation.user_input_requests.filter(
       (request) =>
         request.turn_id === turn.id &&
-        (request.kind === "form" || request.kind === "async_questions") &&
+        (request.kind === "form" ||
+          request.kind === "async_questions" ||
+          request.kind === "desktop_approval") &&
         request.status !== "pending" &&
         request.status !== "answering"
     )

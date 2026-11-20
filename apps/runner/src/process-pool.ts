@@ -32,8 +32,13 @@ import type {
   CodexModelReasoningCatalog,
   ConversationFormRequestedSchema,
   ConversationUserInputResponse,
+  DesktopApprovalDecision,
+  DesktopApprovalFileChange,
+  DesktopApprovalMethod,
+  DesktopApprovalResponse,
   ImageGenerationRequest,
   MemoryExtractionRuntime,
+  NativeUserInputResponse,
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
@@ -57,6 +62,8 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
+  desktopApprovalMethodSchema,
+  desktopApprovalTimeoutMs,
   desktopArtifactPathDigestInput,
   modelAutoCompactTokenLimitFor,
   modelIdentifierSchema,
@@ -118,6 +125,7 @@ import {
   deriveLogicalSubAgentPathLabel,
   deriveSubAgentThreadLabel,
   filterChildOwnedCodexTurns,
+  mapCodexFileChangeApprovalChanges,
   mapCodexNotification,
   mapCodexServerRequest,
   opaqueAgentKey,
@@ -409,7 +417,7 @@ export type RespondUserInputRequestInput = {
   codexThreadId: string;
   codexTurnId: string;
   itemId: string;
-  response: ConversationUserInputResponse;
+  response: NativeUserInputResponse;
 };
 
 export type InteractiveFormRequestInput = {
@@ -765,11 +773,14 @@ type ManagedProcess = {
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
   browserApprovalItems: Map<string, string>;
+  /** Sanitized operations from the item/started fileChange item; diffs are never cached. */
+  fileChangeApprovalItems: Map<string, { turnId: string; changes: DesktopApprovalFileChange[] }>;
   userInputConfirmations: Map<number, {
     threadId: string;
     turnId: string;
     itemId: string;
     browserDecision: "allow" | "cancel" | null;
+    approvalDecision: DesktopApprovalDecision | null;
     settle: (confirmed: boolean) => void;
   }>;
   assistantMessageProjections: Map<string, string>;
@@ -828,6 +839,15 @@ type PendingUserInputRequest =
       kind: "form";
       requestedSchema: ConversationFormRequestedSchema;
       resolve: (response: ConversationUserInputResponse) => void;
+    })
+  | (PendingUserInputRequestBase & {
+      kind: "approval";
+      method: DesktopApprovalMethod;
+      /** Only decisions advertised on the published approval card are valid. */
+      decisions: readonly DesktopApprovalDecision[];
+      responseWritten: Promise<boolean>;
+      /** Native expects only `{decision}` as the server-request result. */
+      resolve: (response: { decision: DesktopApprovalDecision }) => void;
     });
 
 type PendingStopHook = {
@@ -940,6 +960,7 @@ export class AppServerProcessPool {
       desktopBrowserEnabled?: boolean;
       desktopArtifactsEnabled?: boolean;
       desktopArtifactsWebsiteEnabled?: boolean;
+      desktopNativeApprovalsEnabled?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -2735,9 +2756,43 @@ export class AppServerProcessPool {
     ) {
       throw new UserInputRequestUnavailableError();
     }
+    if (pending.kind === "approval") {
+      const response = input.response;
+      if (
+        !isDesktopApprovalResponse(response) ||
+        response.method !== pending.method ||
+        !pending.decisions.includes(response.decision) ||
+        [...managed.pendingUserInputRequests].some(([id, request]) =>
+          request.kind === "approval" && request.turnId === pending.turnId && id < input.requestId) ||
+        [...managed.userInputConfirmations.values()].some(confirmation =>
+          confirmation.approvalDecision !== null && confirmation.turnId === pending.turnId)
+      ) {
+        throw new UserInputRequestUnavailableError(
+          "approval response does not match request",
+        );
+      }
+      const confirmation = this.confirmNativeUserInputResponse(
+        managed,
+        input.requestId,
+        pending,
+        null,
+        response.decision,
+      );
+      pending.resolve({ decision: response.decision });
+      if (!await confirmation) {
+        throw new CodexProtocolError("app-server answer unconfirmed");
+      }
+      return { accepted: true as const };
+    }
+    const response = input.response;
+    if (isDesktopApprovalResponse(response)) {
+      throw new UserInputRequestUnavailableError(
+        "user-input response type does not match request",
+      );
+    }
     if (pending.kind === "questions") {
-      const answers = input.response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
-        Object.entries(input.response.content).map(([fieldId, value]) => [
+      const answers = response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
+        Object.entries(response.content).map(([fieldId, value]) => [
           fieldId,
           typeof value === "string" ? [value] : [],
         ]),
@@ -2746,7 +2801,8 @@ export class AppServerProcessPool {
         ? this.confirmNativeUserInputResponse(managed, input.requestId, pending,
             pending.browserApproval
               ? browserApprovalDecision(pending.questions, answers)
-              : null)
+              : null,
+            null)
         : null;
       pending.resolve({ answers });
       if (confirmation && !await confirmation) {
@@ -2755,25 +2811,26 @@ export class AppServerProcessPool {
       return { accepted: true as const };
     }
     if (
-      input.response.action === "accept" &&
+      response.action === "accept" &&
       !conversationFormResponseMatchesSchema(
         pending.requestedSchema,
-        input.response.content,
+        response.content,
       )
     ) {
       throw new UserInputRequestUnavailableError(
         "form response does not match requested schema",
       );
     }
-    pending.resolve(input.response);
+    pending.resolve(response);
     return { accepted: true as const };
   }
 
   private confirmNativeUserInputResponse(
     managed: ManagedProcess,
     requestId: number,
-    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
+    pending: Extract<PendingUserInputRequest, { kind: "questions" | "approval" }>,
     browserDecision: "allow" | "cancel" | null,
+    approvalDecision: DesktopApprovalDecision | null,
   ): Promise<boolean> {
     return new Promise(resolve => {
       let observed = false;
@@ -2790,6 +2847,7 @@ export class AppServerProcessPool {
         turnId: pending.turnId,
         itemId: pending.itemId,
         browserDecision,
+        approvalDecision,
         settle: confirmed => {
           if (!confirmed) finish(false);
           else if (written) finish(true);
@@ -5898,6 +5956,7 @@ export class AppServerProcessPool {
         ),
         pendingUserInputRequests: new Map(),
         browserApprovalItems: new Map(),
+        fileChangeApprovalItems: new Map(),
         userInputConfirmations: new Map(),
         assistantMessageProjections: new Map(),
         imageViewProjections: new Map(),
@@ -5951,7 +6010,29 @@ export class AppServerProcessPool {
             }
           }
         }
+        if (this.options.desktopWorkspace && this.options.desktopNativeApprovalsEnabled &&
+            params.threadId === managed.codexThreadId && typeof params.turnId === "string" &&
+            typeof item.id === "string" && item.type === "fileChange") {
+          if (notification.method === "item/started") {
+            const changes = mapCodexFileChangeApprovalChanges(item, {
+              workspace: managed.workspace,
+              codexHome: managed.codexHome,
+            });
+            if (changes) {
+              rememberBounded(managed.fileChangeApprovalItems, item.id,
+                { turnId: params.turnId, changes }, 128);
+            } else {
+              managed.fileChangeApprovalItems.delete(item.id);
+            }
+          } else if (notification.method === "item/completed") {
+            managed.fileChangeApprovalItems.delete(item.id);
+          }
+        }
         if (notification.method === "serverRequest/resolved" && typeof params.requestId === "number") {
+          const pending = managed.pendingUserInputRequests.get(params.requestId);
+          if (pending?.kind === "approval" && pending.threadId === params.threadId) {
+            cancelPendingUserInputRequest(pending);
+          }
           const confirmation = managed.userInputConfirmations.get(params.requestId);
           if (confirmation && confirmation.browserDecision === null && confirmation.threadId === params.threadId) {
             // Native question closure can confirm submission, not browser authorization.
@@ -5976,7 +6057,9 @@ export class AppServerProcessPool {
             rememberBounded(managed.nativeTerminalTurnIds, turn.id, true, 128);
             this.settleNativeTurnStartedWaiters(managed, turn.id, false);
             for (const confirmation of managed.userInputConfirmations.values()) {
-              if (confirmation.turnId === turn.id) confirmation.settle(false);
+              if (confirmation.turnId === turn.id) {
+                confirmation.settle(false);
+              }
             }
           }
         }
@@ -7037,9 +7120,20 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     request: JsonRpcRequest,
     responseWritten: Promise<boolean>,
-  ): Promise<{ response: Promise<ToolRequestUserInputResponse> }> {
-    const [mapped] = mapCodexServerRequest(request);
-    if (!mapped || mapped.method !== "item/tool/requestUserInput") {
+  ): Promise<{ response: Promise<ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">> }> {
+    const approvalMethod = desktopApprovalMethodSchema.safeParse(request.method);
+    if (approvalMethod.success && (!this.options.desktopWorkspace || !this.options.desktopNativeApprovalsEnabled)) {
+      throw new CodexProtocolError("unsupported native approval request", -32_601);
+    }
+    const params = objectRecord(request.params);
+    const fileScope = request.method === "item/fileChange/requestApproval" && typeof params.itemId === "string"
+      ? managed.fileChangeApprovalItems.get(params.itemId) : undefined;
+    const [mapped] = mapCodexServerRequest(request, {
+      previewContext: { workspace: managed.workspace, codexHome: managed.codexHome },
+      fileChangeApprovalChanges: fileScope && fileScope.turnId === params.turnId ? fileScope.changes : null,
+    });
+    if (!mapped || (mapped.method !== "item/tool/requestUserInput" &&
+        mapped.method !== "item/commandExecution/requestApproval" && mapped.method !== "item/fileChange/requestApproval")) {
       throw new CodexProtocolError(
         `unsupported server request: ${request.method}`,
         request.method === "item/tool/requestUserInput"
@@ -7047,7 +7141,8 @@ export class AppServerProcessPool {
           : -32_601,
       );
     }
-    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled) {
+    if (mapped.method === "item/tool/requestUserInput" && this.options.desktopWorkspace &&
+        !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled) {
       // Older peers cannot present or answer questions; resolve without granting anything.
       return { response: Promise.resolve({ answers: {} }) };
     }
@@ -7057,23 +7152,23 @@ export class AppServerProcessPool {
       this.processes.get(managed.conversationId) !== managed ||
       mapped.params.threadId !== managed.codexThreadId ||
       mapped.params.turnId !== managed.activeTurnId ||
-      managed.pendingUserInputRequests.has(request.id)
+      managed.pendingUserInputRequests.has(request.id) ||
+      managed.userInputConfirmations.has(request.id) ||
+      (approvalMethod.success && (managed.interruptRequest !== null ||
+        managed.nativeTerminalTurnIds.has(mapped.params.turnId)))
     ) {
       throw new CodexProtocolError("stale user-input request", -32_602);
     }
 
     let pending: PendingUserInputRequest | undefined;
-    const response = new Promise<ToolRequestUserInputResponse>((resolve) => {
-      const createdPending: PendingUserInputRequest = {
-        kind: "questions",
+    const response = new Promise<ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">>((resolve) => {
+      const base = {
         threadId: mapped.params.threadId,
         turnId: mapped.params.turnId,
         itemId,
-        questions: mapped.params.questions,
         responseWritten,
-        browserApproval: managed.browserApprovalItems.get(itemId) === mapped.params.turnId,
         timer: null,
-        resolve: (result) => {
+        resolve: (result: ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">) => {
           if (
             managed.pendingUserInputRequests.get(request.id) !== createdPending
           ) {
@@ -7084,19 +7179,24 @@ export class AppServerProcessPool {
           resolve(result);
         },
       };
+      const createdPending: PendingUserInputRequest = mapped.method === "item/tool/requestUserInput"
+        ? {
+            ...base, kind: "questions", questions: mapped.params.questions,
+            browserApproval: managed.browserApprovalItems.get(itemId) === mapped.params.turnId,
+          }
+        : { ...base, kind: "approval", method: mapped.method, decisions: mapped.params.approval.decisions };
       pending = createdPending;
       managed.pendingUserInputRequests.set(request.id, createdPending);
     });
-    if (
-      pending &&
-      !mapped.params.isBlocking &&
-      mapped.params.autoResolutionMs !== null
-    ) {
+    const timeout = mapped.method === "item/tool/requestUserInput"
+      ? mapped.params.isBlocking ? null : mapped.params.autoResolutionMs
+      : desktopApprovalTimeoutMs;
+    if (pending && timeout !== null) {
       pending.timer = setTimeout(
         () => {
           if (pending) cancelPendingUserInputRequest(pending);
         },
-        mapped.params.autoResolutionMs,
+        timeout,
       );
       pending.timer.unref();
     }
@@ -8034,7 +8134,18 @@ function cancelPendingUserInputRequest(
     pending.resolve({ answers: {} });
     return;
   }
+  if (pending.kind === "approval") {
+    // Timeouts and native cancellation map to cancel, never to decline.
+    pending.resolve({ decision: "cancel" });
+    return;
+  }
   pending.resolve({ action: "cancel" });
+}
+
+function isDesktopApprovalResponse(
+  response: NativeUserInputResponse,
+): response is DesktopApprovalResponse {
+  return "method" in response && "decision" in response;
 }
 
 function validateUserInputAnswers(

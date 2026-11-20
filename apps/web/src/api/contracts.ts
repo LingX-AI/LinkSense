@@ -39,6 +39,7 @@ import {
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
   conversationUserInputRequestSchema,
+  desktopApprovalRequestSchema,
   executionConcurrencySettingsSchema as sharedExecutionConcurrencySettingsSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
@@ -717,6 +718,17 @@ export type ConversationUserInputRequest = z.infer<
   typeof conversationUserInputRequestSchema
 >
 
+// Local view model only. The wire formats stay separate: detail responses keep
+// `user_input_requests` unchanged and add `desktop_approval_requests`.
+export const conversationUserInputRequestViewSchema = z.union([
+  conversationUserInputRequestSchema,
+  desktopApprovalRequestSchema,
+])
+
+export type ConversationUserInputRequestView = z.infer<
+  typeof conversationUserInputRequestViewSchema
+>
+
 export const capabilitySummarySchema = z
   .strictObject({
     id: z.string(),
@@ -939,7 +951,9 @@ export const conversationSchema = z
     running_turn: turnSchema.nullable().optional(),
     starting_turn: conversationStartingTurnSchema.nullable().optional(),
     pending_requests: z.array(pendingRequestSchema).optional(),
-    user_input_requests: z.array(conversationUserInputRequestSchema).optional(),
+    user_input_requests: z
+      .array(conversationUserInputRequestViewSchema)
+      .optional(),
     plan_reviews: z.array(conversationPlanReviewSchema).optional(),
     available_capabilities: z.array(capabilitySummarySchema).optional(),
     loaded_capabilities: z.array(capabilitySummarySchema).optional(),
@@ -982,6 +996,9 @@ const conversationDetailPayloadSchema = z
     pending_requests: z.array(pendingRequestSchema).default([]),
     user_input_requests: z
       .array(conversationUserInputRequestSchema)
+      .default([]),
+    desktop_approval_requests: z
+      .array(desktopApprovalRequestSchema)
       .default([]),
     plan_reviews: z.array(conversationPlanReviewSchema).default([]),
     files: z.array(conversationFileSchema).default([]),
@@ -1138,7 +1155,10 @@ const conversationDetailPayloadSchema = z
             file.kind === "attachment" && file.pending_request_id === request.id
         ),
       })),
-      user_input_requests: value.user_input_requests,
+      user_input_requests: [
+        ...value.user_input_requests,
+        ...value.desktop_approval_requests,
+      ],
       plan_reviews: value.plan_reviews,
       attachments: value.files.filter(
         (file) =>

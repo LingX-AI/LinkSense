@@ -16,6 +16,13 @@ export type AuditEntry = AuditContext & {
 
 const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
   desktop_tool_requested: ["operation", "conversation_id", "turn_id", "device_id", "browser_action", "reason_code"],
+  desktop_approval_responded: [
+    "conversation_id",
+    "turn_id",
+    "operation",
+    "action",
+    "delivery",
+  ],
   connection_authorized: ["provider"],
   connection_disconnected: ["provider"],
   connection_enabled: ["provider"],
@@ -364,7 +371,7 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 
 export class AuditService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: Pick<PrismaClient, "auditLog">) {}
 
   async write(entry: AuditEntry): Promise<void> {
     const metadata = sanitizeAuditMetadata(entry.action, entry.metadata ?? {});

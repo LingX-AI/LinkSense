@@ -1222,6 +1222,28 @@ model ConversationUserInputRequest {
   @@map("conversation_user_input_requests")
 }
 
+model ConversationDesktopApproval {
+  id              String    @id @default(uuid()) @db.Uuid
+  conversationId  String    @map("conversation_id") @db.Uuid
+  turnId          String    @map("turn_id") @db.Uuid
+  ownerId         String    @map("owner_id") @db.Uuid
+  codexThreadId   String    @map("codex_thread_id") @db.Text
+  codexTurnId     String    @map("codex_turn_id") @db.Text
+  codexItemId     String    @map("codex_item_id") @db.Text
+  nativeRequestId BigInt    @map("native_request_id") @db.BigInt
+  approvalJson    Json      @map("approval_json") @db.JsonB
+  status          String    @db.VarChar(24)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
+  resolvedAction  String?   @map("resolved_action") @db.VarChar(24)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([turnId, nativeRequestId], map: "conversation_desktop_approvals_native_request_key")
+  @@index([conversationId, turnId, createdAt, id], map: "conversation_desktop_approvals_conversation_turn_idx")
+  @@map("conversation_desktop_approvals")
+}
+
 model ConversationPlanReview {
   id             String    @id @default(uuid()) @db.Uuid
   conversationId String    @map("conversation_id") @db.Uuid

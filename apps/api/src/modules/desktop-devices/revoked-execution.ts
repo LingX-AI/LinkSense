@@ -6,6 +6,7 @@ import { Prisma, type ConversationEvent, type PrismaClient } from "../../generat
 import { loadInterruptedAssistantOutputs, persistInterruptedAssistantOutputs } from "../events/interrupted-assistant-output.js";
 import type { KnowledgeCitationProjection } from "../events/knowledge-citations.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
+import { cancelDesktopApprovals } from "../conversations/desktop-approvals.js";
 
 type RevokedConversation = { ownerId: string; deviceId: string; conversationId: string; runtimeGeneration: string };
 export type RevokedMacTurn = RevokedConversation & { projectionTurnId: string };
@@ -147,6 +148,7 @@ export async function settleRevokedMacTurn(
         select: { codexThreadId: true, codexTurnId: true },
       });
       if (stopped) {
+        await cancelDesktopApprovals(tx, turnId, now);
         const outputs = await loadInterruptedAssistantOutputs(tx, conversationId, turnId, stopped.codexTurnId, project);
         const messages = await persistInterruptedAssistantOutputs(tx, conversationId, turnId, outputs, now);
         events.push(...messages.map(message => message.event));

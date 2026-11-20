@@ -1,6 +1,7 @@
 import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
+import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { samlesES } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import { settingsMessages } from "@/i18n/es-ES/settings"
@@ -28,6 +29,7 @@ export const esES = {
   modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
   sideChat: sideChatMessages["es-ES"],
+  desktopApproval: desktopApprovalMessages["es-ES"],
   saml: samlesES,
   common: {
     poweredBy: "Powered by",

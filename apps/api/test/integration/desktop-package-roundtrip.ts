@@ -16,6 +16,7 @@ import {
   connectionResultSchema,
   conversationStartFailurePayloadSchema,
   conversationUserInputQuestionSchema,
+  desktopApprovalDetailsSchema,
   desktopArtifactReceiptSchema,
   desktopAttachmentDownloadPath,
   knowledgeDocumentListSuccessSchema,
@@ -41,6 +42,8 @@ const fixtureModel = "desktop-fixture";
 const readPrompt = "Read the local fixture file";
 const interruptPrompt = "Wait for the local interruption";
 const interruptApprovalPrompt = "Wait for interruption during browser approval";
+const nativeApprovalPrompt = "Wait for the local native approval";
+const approvalShell = "printf 'approved\\n' > approved.txt";
 const stoppedAttachmentPrompt = "Never run this attachment transfer";
 const answer = "The packaged Mac read the workspace.";
 
@@ -107,12 +110,13 @@ export async function verifyPackagedDesktopGateway(input: {
   let artifactWorkspace: string | undefined;
   let artifactReceipt: DesktopArtifactReceipt | undefined;
   let websiteReceipt: DesktopArtifactReceipt | undefined;
+  let nativeApprovalReceipt: DesktopArtifactReceipt | undefined;
   const websiteRoot = "artifacts/site";
   const websiteHtml = '<!doctype html><link rel="stylesheet" href="/assets/theme.css"><h1>Packaged Mac site</h1>';
   const websiteCss = "h1{color:rebeccapurple}";
   const websiteAssets = ["assets/theme.css", "index.html"];
   const model = Fastify();
-  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, aborted: false };
+  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
   let citation: string | undefined;
@@ -152,8 +156,10 @@ export async function verifyPackagedDesktopGateway(input: {
       return;
     }
     const interruptApproval = text.includes(interruptApprovalPrompt);
-    assert(interruptApproval || text.includes(readPrompt), "unexpected input");
-    const call = interruptApproval ? ++modelRequests.interruptApproval : ++modelRequests.read;
+    const nativeApproval = text.includes(nativeApprovalPrompt);
+    assert(interruptApproval || nativeApproval || text.includes(readPrompt), "unexpected input");
+    const call = interruptApproval ? ++modelRequests.interruptApproval
+      : nativeApproval ? ++modelRequests.nativeApproval : ++modelRequests.read;
     const functions = body.tools?.find(tool => tool.type === "namespace" &&
       tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
     const callTool = (name: string, args: object, group = functions) => {
@@ -168,6 +174,33 @@ export async function verifyPackagedDesktopGateway(input: {
     if (interruptApproval) {
       assert.equal(call, 1, "interrupted browser approval replayed the turn");
       return callTool("browser_use", fixtureClick);
+    }
+    if (nativeApproval) {
+      if (call <= 3) {
+        // Codex recognizes this harmless heredoc as a patch and asks for a native file approval.
+        return reply.type("text/event-stream").send(responseStream({
+          id: `fixture-tool-${call}`, type: "function_call", call_id: `fixture-call-${call}`, name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: call === 1 ? approvalShell :
+              "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: p107-note.txt\n+fixture\n*** End Patch\nPATCH",
+            yield_time_ms: 1000,
+          }),
+          status: "completed",
+        }));
+      }
+      if (call === 4) {
+        const artifactTool = body.tools?.find(tool => tool.type === "namespace" &&
+          tool.tools?.some(member => member.type === "function" && member.name === "register_artifact"));
+        return callTool("register_artifact", {
+          workspace_relative_path: "p107-note.txt", display_name: "p107-note.txt",
+        }, artifactTool);
+      }
+      assert.equal(call, 5);
+      nativeApprovalReceipt = desktopArtifactReceiptSchema.parse(toolOutput(body.input, "fixture-call-4"));
+      return reply.type("text/event-stream").send(responseStream({
+        id: "fixture-approval-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
+        content: [{ type: "output_text", text: answer, annotations: [] }],
+      }));
     }
     if (call === 1) {
       assert(text.includes(input.knowledge.baseName), "selected knowledge base did not reach Codex");
@@ -797,6 +830,72 @@ export async function verifyPackagedDesktopGateway(input: {
       /href="\.\/assets\/theme\.css"/u);
     assert.equal((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "assets/theme.css")).data.toString(), websiteCss);
 
+    const approvalConversation = await task("Packaged Mac native approvals");
+    const approvalTurn = await conversations.acceptTurn(ownerId, approvalConversation.id,
+      submission(nativeApprovalPrompt, "desktop-native-approval"), {});
+    const pendingDesktopApproval = () => waitFor("the native desktop approval", () =>
+      prisma.conversationDesktopApproval.findFirst({
+        where: { ownerId, conversationId: approvalConversation.id, turnId: approvalTurn.turn_id, status: "pending" },
+        orderBy: { nativeRequestId: "asc" },
+      }));
+    const notePath = join(dataRoot, approvalConversation.workspaceRelPath, "p107-note.txt");
+    const shellPath = join(dataRoot, approvalConversation.workspaceRelPath, "approved.txt");
+    const shellApproval = await pendingDesktopApproval();
+    const shellDetails = desktopApprovalDetailsSchema.parse(shellApproval.approvalJson);
+    assert.equal(shellDetails.method, "item/commandExecution/requestApproval");
+    assert.match(shellDetails.command, /printf.*approved\.txt/u);
+    assert.deepEqual(shellDetails.decisions, ["accept", "cancel"]);
+    await assert.rejects(stat(shellPath), { code: "ENOENT" });
+    assert.equal((await conversations.respondToDesktopApprovalRequest(ownerId, approvalConversation.id, shellApproval.id,
+      { method: shellDetails.method, decision: "accept" }, {})).status, "answered");
+    const deniedApproval = await pendingDesktopApproval();
+    assert.equal(await readFile(shellPath, "utf8"), "approved\n");
+    const deniedDetails = desktopApprovalDetailsSchema.parse(deniedApproval.approvalJson);
+    assert.equal(deniedDetails.method, "item/fileChange/requestApproval");
+    assert.deepEqual(deniedDetails.changes, [{ path: "$WORKSPACE/p107-note.txt", kind: { type: "add" } }],
+      "the native file approval did not identify the operation and file");
+    await assert.rejects(conversations.respondToDesktopApprovalRequest(ownerId, approvalConversation.id, deniedApproval.id,
+      { method: "item/commandExecution/requestApproval", decision: "accept" }, {}), { code: "VALIDATION_ERROR" });
+    await assert.rejects(conversations.respondToDesktopApprovalRequest(input.otherOwnerId, approvalConversation.id, deniedApproval.id,
+      { method: deniedDetails.method, decision: "accept" }, {}), { code: "CONVERSATION_NOT_FOUND" });
+    assert.equal((await conversations.respondToDesktopApprovalRequest(ownerId, approvalConversation.id, deniedApproval.id,
+      { method: deniedDetails.method, decision: "decline" }, {})).status,
+      "cancelled");
+    const acceptedApproval = await pendingDesktopApproval();
+    assert.notEqual(acceptedApproval.id, deniedApproval.id, "the denied file change was replayed without a new approval");
+    await assert.rejects(stat(notePath), { code: "ENOENT" });
+    const acceptedDetails = desktopApprovalDetailsSchema.parse(acceptedApproval.approvalJson);
+    assert.equal(acceptedDetails.method, "item/fileChange/requestApproval");
+    assert.equal((await conversations.respondToDesktopApprovalRequest(ownerId, approvalConversation.id, acceptedApproval.id,
+      { method: acceptedDetails.method, decision: "accept" }, {})).status, "answered");
+    await assert.rejects(conversations.respondToDesktopApprovalRequest(ownerId, approvalConversation.id, acceptedApproval.id,
+      { method: acceptedDetails.method, decision: "accept" }, {}), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    const registration = await waitForMcpApproval(approvalConversation.id, approvalTurn.turn_id, "register_artifact");
+    assert.equal(await readFile(notePath, "utf8"), "fixture\n", "the approved file change did not create the note");
+    assert.equal((await conversations.respondToUserInputRequest(ownerId, approvalConversation.id, registration.id, {
+      action: "accept", content: { [registration.questionId]: "Allow" },
+    }, {})).status, "answered");
+    await waitFor("the native approval artifact and completed turn", async () =>
+      Boolean(nativeApprovalReceipt) && await status(approvalTurn.turn_id) === "completed", 25_000);
+    const approvalReceipt = nativeApprovalReceipt;
+    assert(approvalReceipt, "the native approval turn did not register its artifact");
+    const approvalDetail = await conversations.get(ownerId, approvalConversation.id);
+    const registered = approvalDetail.files.find(file => file.id === approvalReceipt.file_id);
+    assert(registered, "the approval turn did not project the registered file");
+    const fileChange = registered.desktop_file_change;
+    assert(fileChange, "the registered file lost its native file activity link");
+    const changeEvent = await prisma.conversationEvent.findFirstOrThrow({
+      where: { conversationId: approvalConversation.id, sseEventId: fileChange.event_id },
+      select: { payloadJson: true },
+    });
+    const changeItem = z.object({ params: z.object({ item: z.object({
+      type: z.literal("fileChange"), changes: z.array(z.object({ path: z.string() })),
+    }) }) }).parse(changeEvent.payloadJson);
+    assert(changeItem.params.item.changes.some(entry => entry.path.endsWith("p107-note.txt")),
+      "the registered artifact is not linked to the native file change");
+    assert.equal(await checksum((await input.files.readArtifactDownload(
+      ownerId, approvalConversation.id, approvalReceipt.file_id, {},
+    )).data), createHash("sha256").update("fixture\n").digest("hex"));
     const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
       submission(interruptApprovalPrompt, "desktop-interrupt-approval"), {});
     const unanswered = await waitForBrowserApproval(stopApproval.id, pendingApproval.turn_id, "click");

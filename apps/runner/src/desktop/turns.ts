@@ -9,7 +9,7 @@ import {
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE, RUNNER_TURN_INTERRUPT_REQUESTED,
   RUNNER_EVENT_BATCH_MAX_COUNT, RUNNER_EVENT_BATCH_TARGET_BYTES,
   supportsDesktopUserInput,
-  type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult, type DesktopToolOperation,
+  type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult, type DesktopNegotiatedOperation,
 } from "@linksense/shared"
 import { z } from "zod"
 import type { DesktopWorkerProvider } from "../controller/desktop-worker-provider.js"
@@ -58,7 +58,7 @@ export class DesktopTurns {
     private readonly origin: string,
     private readonly workerLost: () => void,
     private readonly logger: Logger,
-    private readonly toolOperations: readonly DesktopToolOperation[] = [],
+    private readonly toolOperations: readonly DesktopNegotiatedOperation[] = [],
   ) {}
 
   scopedRun(conversationId: string) {
@@ -117,7 +117,7 @@ export class DesktopTurns {
       }
       if (command.operation === "user-input.respond") {
         const run = this.scopedRun(command.conversation_id)
-        if (!supportsDesktopUserInput(this.toolOperations) || !sameTurn?.worker ||
+        if (!supportsDesktopUserInput(this.toolOperations, command.body.response) || !sameTurn?.worker ||
             !run || run !== sameTurn.run || sameTurn.interrupted) throw new DesktopUserInputUnavailableError()
         uncertain = true
         const result = desktopUserInputReceiptSchema.parse(await this.request(sameTurn.worker, command,
@@ -180,11 +180,19 @@ export class DesktopTurns {
         await outbox.append(conversationId, recovered.answer)
         continue
       }
-      const ack = await deliver({ conversationId, events: batch.map(({ deliveryId, event }) => ({ deliveryId, event })) })
-      if (!ack.ok || ack.operation !== "events") throw new Error("desktop recovery was not acknowledged")
-      const accepted = acknowledgedEventCount(batch, ack.data.accepted_delivery_ids)
-      await outbox.removeBatch(batch.slice(0, accepted))
-      if (accepted < batch.length) throw new Error("desktop recovery is pending")
+      // A recovered prompt belongs to a worker that no longer accepts answers.
+      const events = batch.filter(({ event }) => !("method" in event) ||
+        (event.method !== "item/commandExecution/requestApproval" && event.method !== "item/fileChange/requestApproval"))
+      if (events.length > 0) {
+        const ack = await deliver({ conversationId, events: events.map(({ deliveryId, event }) => ({ deliveryId, event })) })
+        if (!ack.ok || ack.operation !== "events") throw new Error("desktop recovery was not acknowledged")
+        const firstUnaccepted = events[acknowledgedEventCount(events, ack.data.accepted_delivery_ids)]
+        if (firstUnaccepted) {
+          await outbox.removeBatch(batch.slice(0, batch.indexOf(firstUnaccepted)))
+          throw new Error("desktop recovery is pending")
+        }
+      }
+      await outbox.removeBatch(batch)
       terminalDelivered ||= batch.some(({ event }) => "method" in event &&
         event.method === "turn/completed" && event.params.turn.status !== "inProgress" &&
         event.params.threadId === start.result.codexThreadId && event.params.turn.id === start.result.codexTurnId)

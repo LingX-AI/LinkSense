@@ -2,6 +2,7 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
+import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
@@ -16,6 +17,7 @@ export const zhCN = {
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
+  desktopApproval: desktopApprovalMessages["zh-CN"],
   saml: samlzhCN,
   social: socialZhCN,
   personalQuota: personalQuotaZhCN,

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
-import { runnerEventBatchSchema } from "@linksense/shared";
+import { desktopApprovalTimeoutMs, runnerEventBatchSchema } from "@linksense/shared";
 import pino, { type Logger } from "pino";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -2533,6 +2533,73 @@ trust_level = "trusted"
       await expect(answer()).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
     } finally {
       finishWrite?.();
+      await pool.closeAll();
+    }
+  });
+
+  it("matches Mac approvals by request ID and method even when they share an item", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-native-approval-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const workspaceManager = createWorkspaceManager(root);
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, workspaceManager, {
+      desktopWorkspace: true, desktopNativeApprovalsEnabled: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    const thread = { threadId: "thread-native-1", turnId: "turn-native-1" };
+    const method = "item/commandExecution/requestApproval";
+    const respond = (requestId: number, response: Parameters<typeof pool.respondUserInputRequest>[0]["response"]) =>
+      pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId,
+        codexThreadId: thread.threadId, codexTurnId: thread.turnId, itemId: "same-item", response,
+      });
+    try {
+      await pool.startTurn(input);
+      for (const id of [77, 78]) controlled.notify({
+        id, method, params: { ...thread, itemId: "same-item", kind: "command", cwd: workspaceManager.pathsFor(input.conversationId).workspace,
+          command: "printf hello", availableDecisions: ["accept", "cancel"] },
+      });
+      await waitForFast(() => expect(eventSink.publish.mock.calls.filter(([, event]) => event.method === method)).toHaveLength(2));
+      await expect(respond(77, { method: "item/fileChange/requestApproval", decision: "accept" })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      await expect(respond(77, { method, decision: "decline" })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      await expect(respond(78, { method, decision: "accept" })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      const first = respond(77, { method, decision: "accept" });
+      void first.catch(() => {});
+      await waitForFast(() => expect(controlled.requests).toContainEqual({ id: 77, result: { decision: "accept" } }));
+      controlled.notify({ method: "serverRequest/resolved", params: { threadId: thread.threadId, requestId: 77 } });
+      await expect(first).resolves.toEqual({ accepted: true });
+      await expect(respond(77, { method, decision: "accept" })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      expect(controlled.requests.filter(request => request.id === 78 && "result" in request)).toHaveLength(0);
+    } finally { await pool.closeAll(); }
+  });
+
+  it("cancels an unanswered Mac file approval at its deadline without accepting the change", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-native-approval-timeout-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const workspaceManager = createWorkspaceManager(root);
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, workspaceManager, {
+      desktopWorkspace: true, desktopNativeApprovalsEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const thread = { threadId: "thread-native-1", turnId: "turn-native-1" };
+      const workspace = workspaceManager.pathsFor(input.conversationId).workspace;
+      controlled.notify({ method: "item/started", params: { ...thread, item: {
+        type: "fileChange", id: "file-item", status: "inProgress", changes: [{ path: join(workspace, "note.txt"), kind: { type: "add" } }],
+      } } });
+      controlled.notify({
+        id: 87, method: "item/fileChange/requestApproval", params: { ...thread, itemId: "file-item" },
+      });
+      await vi.waitFor(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/fileChange/requestApproval" }),
+      ));
+      await vi.advanceTimersByTimeAsync(desktopApprovalTimeoutMs);
+      expect(controlled.requests).toContainEqual({ id: 87, result: { decision: "cancel" } });
+    } finally {
+      vi.useRealTimers();
       await pool.closeAll();
     }
   });
@@ -12445,6 +12512,7 @@ function createStartOperationPool(
     managedBrowserEnabled?: boolean;
     desktopWorkspace?: boolean;
     desktopBrowserEnabled?: boolean;
+    desktopNativeApprovalsEnabled?: boolean;
     desktopArtifactsEnabled?: boolean;
     desktopArtifactsWebsiteEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
@@ -12496,6 +12564,7 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
     ...(overrides.desktopBrowserEnabled ? { desktopBrowserEnabled: true } : {}),
+    ...(overrides.desktopNativeApprovalsEnabled ? { desktopNativeApprovalsEnabled: true } : {}),
     ...(overrides.desktopArtifactsEnabled ? { desktopArtifactsEnabled: true } : {}),
     ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),
     command: "codex",

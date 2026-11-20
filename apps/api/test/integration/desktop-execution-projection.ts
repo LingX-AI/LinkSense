@@ -108,6 +108,7 @@ export async function verifyDesktopExecutionProjection(input: {
     LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true",
     LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true",
     LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED: "true",
+    LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: "true",
     // Let a website archive within the bundle limit exercise multipart upload.
     ...(useMinio && { LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: String(desktopArtifactPartBytes / 1024 ** 2) }),
     LINKSENSE_CREDENTIAL_MASTER_KEY: randomBytes(32).toString("base64"),
@@ -237,6 +238,7 @@ export async function verifyDesktopExecutionProjection(input: {
       browserTools: true,
       artifactTools: true,
       websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
+      nativeApprovals: true,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;

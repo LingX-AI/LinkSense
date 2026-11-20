@@ -294,6 +294,7 @@ export const auditMessages = {
    desktop_device_renamed: "Ordinateur renommé",
    desktop_device_revoked: "Accès de l’ordinateur révoqué",
    desktop_tool_requested: "Requête d’outil de bureau",
+   desktop_approval_responded: "Réponse à la demande d’autorisation sur le bureau",
    computer_session_started: "Session de l’ordinateur local démarrée",
    computer_session_stopped: "Session de l’ordinateur local arrêtée",
    computer_permission_granted: "Autorisation de l’ordinateur local accordée",

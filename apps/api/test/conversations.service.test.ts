@@ -13406,6 +13406,7 @@ function transactionFixture() {
     conversationShare: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    conversationDesktopApproval: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     computerPermissionGrant: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     localComputerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     conversationPlanReview: {

@@ -5,7 +5,7 @@ import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenS
 import { desktopArtifactPrepareSchema, desktopArtifactSingleGrantSchema, desktopArtifactUploadGrantSchema, desktopWebsiteArtifactPrepareSchema } from "./desktop-artifacts.js";
 import { connectionFailureCodeSchema } from "./connections.js";
 import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
-import { conversationUserInputResponseSchema } from "./conversation-forms.js";
+import { nativeUserInputResponseSchema, type NativeUserInputResponse } from "./conversation-forms.js";
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
@@ -69,15 +69,22 @@ export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
 export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
-export const supportsDesktopUserInput = (operations: readonly DesktopToolOperation[]): boolean =>
-  operations.includes("browser.execute") || operations.includes("artifact.prepare");
+export const desktopNegotiatedOperationSchema = z.enum([...desktopToolOperationSchema.options, "approval.respond"]);
+export type DesktopNegotiatedOperation = z.infer<typeof desktopNegotiatedOperationSchema>;
+export function supportsDesktopUserInput(
+  operations: readonly DesktopNegotiatedOperation[],
+  response?: NativeUserInputResponse,
+): boolean {
+  return response && "method" in response ? operations.includes("approval.respond")
+    : operations.includes("browser.execute") || operations.includes("artifact.prepare");
+}
 export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
   if (operation === "artifact.prepare" || operation === "artifact.multipart" || operation === "artifact.website") return 10_000;
   if (operation === "connection.execute") return 58_000;
   if (operation === "browser.execute") return 34_000;
   return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
 }
-const toolOperations = z.array(desktopToolOperationSchema).max(desktopToolOperationSchema.options.length);
+const toolOperations = z.array(desktopNegotiatedOperationSchema).max(desktopNegotiatedOperationSchema.options.length);
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
   attachment_protocol_version: z.literal(desktopAttachmentProtocolVersion).optional(),
@@ -99,7 +106,7 @@ const desktopUserInputResponseSchema = z.strictObject({
   codexTurnId: z.string().min(1).max(240),
   itemId: z.string().min(1).max(240),
   requestId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  response: conversationUserInputResponseSchema,
+  response: nativeUserInputResponseSchema,
 });
 export const desktopUserInputReceiptSchema = z.strictObject({ accepted: z.literal(true) });
 export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [

@@ -337,6 +337,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: z
       .enum(["true", "false"])
       .default("false")
@@ -446,6 +450,13 @@ const rawConfigSchema = z
       .default("false"),
   })
   .superRefine((config, context) => {
+    if (config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED"],
+        message: "desktop_approvals_require_local_execution",
+      });
+    }
     if (config.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
       context.addIssue({
         code: "custom",
@@ -611,6 +622,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
     desktopBrowserUseEnabled: raw.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED,
+    desktopNativeApprovalsEnabled: raw.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
     desktopArtifactsEnabled: raw.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
     desktopWebsiteArtifactsEnabled:
       raw.LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED,

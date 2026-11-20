@@ -330,6 +330,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const pool = new AppServerProcessPool({
     desktopWorkspace: isDesktopWorker,
     desktopBrowserEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_BROWSER_ENABLED,
+    desktopNativeApprovalsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
     desktopArtifactsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
     desktopArtifactsWebsiteEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED &&
       config.LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED,
