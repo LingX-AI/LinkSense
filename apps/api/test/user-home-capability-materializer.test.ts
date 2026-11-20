@@ -363,6 +363,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(browserSkill).toContain("ordinal")
     expect(browserSkill).toContain("mcp__linksense_core__browser_use")
     expect(await readFile(join(next.skillsRoot, "linksense-browser", "SKILL.md"), "utf8")).toContain("CLOUD managed Chromium")
+    expect(await readFile(join(next.skillsRoot, "linksense-skill-creator", "SKILL.md"), "utf8")).toContain("## Install an existing Skill ZIP")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()

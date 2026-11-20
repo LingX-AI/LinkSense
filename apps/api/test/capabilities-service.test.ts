@@ -20,7 +20,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
+import { ConversationSkillCreatorService } from "../src/modules/capabilities/conversation-skill-creator.js";
 import { CapabilityPackageImporter } from "../src/modules/capabilities/importer.js";
+import { internalSkillCreatorRoutes } from "../src/modules/capabilities/internal-skill-creator-routes.js";
 import { capabilityRoutes } from "../src/modules/capabilities/routes.js";
 import { CapabilityService } from "../src/modules/capabilities/service.js";
 import type {
@@ -1517,6 +1519,112 @@ describe("CapabilityService owner-only visibility", () => {
 });
 
 describe("capabilityRoutes", () => {
+
+  it.each(["web upload", "conversation"])("installs a Skill ZIP with its original files through %s", async (entryPoint) => {
+    const root = await tempRoot();
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, root);
+    const template = Buffer.from([0x00, 0x2d, 0x0a, 0xff]);
+    const checksum = createHash("sha256").update(template).digest("hex");
+    const skillName = "meeting-handbook";
+    const filename = `${skillName}.zip`;
+    const files = {
+      "SKILL.md": `---\nname: ${skillName}\ndescription: Prepare meeting summaries.\nlicense: See LICENSE\n---\nSee templates/summary.bin and workflows/meeting.yml.\n`,
+      "templates/summary.bin": template,
+      "workflows/meeting.yml": "steps: [collect-notes, format-summary]\n",
+      "README.md": "# Meeting Handbook\n",
+      LICENSE: "Fixture license text\n",
+      SHA256SUMS: `${checksum}  templates/summary.bin\n`,
+    };
+    const archive = createStoredZip(Object.entries(files).map(([path, bytes]) => ({
+      path: `${skillName}/${path}`,
+      bytes,
+    })));
+    const app = Fastify();
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+
+    try {
+      if (entryPoint === "web upload") {
+        await app.register(multipart);
+        await app.register(capabilityRoutes, {
+          prefix: "/api/v1/capabilities",
+          service,
+          resolveActor: ownerActor,
+        });
+        const form = new FormData();
+        form.append("file", new Blob([Uint8Array.from(archive)], { type: "application/zip" }), filename);
+        form.append("type", "skill");
+        const request = new Request("http://localhost", { method: "POST", body: form });
+        const preview = await app.inject({
+          method: "POST",
+          url: "/api/v1/capabilities",
+          headers: Object.fromEntries(request.headers),
+          payload: Buffer.from(await request.arrayBuffer()),
+        });
+        expect(preview.statusCode, preview.body).toBe(202);
+        const { preview_token: previewToken } = preview.json<{ data: { preview_token: string } }>().data;
+        const confirmed = await app.inject({
+          method: "POST",
+          url: `/api/v1/capabilities/imports/${previewToken}/confirm`,
+        });
+        expect(confirmed.statusCode, confirmed.body).toBe(201);
+      } else {
+        const workspaceRelPath = `${OWNER_ID}/home/workspace`;
+        const workspaceRelativePath = `artifacts/${filename}`;
+        await mkdir(join(root, workspaceRelPath, "artifacts"), { recursive: true });
+        await writeFile(join(root, workspaceRelPath, workspaceRelativePath), archive);
+        const secret = "test-runner-secret-with-at-least-32-bytes";
+        const skillCreator = new ConversationSkillCreatorService({
+          prisma: {
+            conversation: { findFirst: async () => ({ workspaceRelPath }) },
+            conversationTurn: { findFirst: async () => ({ id: "running-turn" }) },
+            user: { findUnique: async () => ownerActor() },
+          } as never,
+          capabilities: service,
+          workspaceRoot: root,
+          tokenSecret: secret,
+          now: () => FIXED_DATE,
+        });
+        await app.register(internalSkillCreatorRoutes, {
+          prefix: "/internal/skill-creator",
+          service: skillCreator,
+          sharedSecret: secret,
+        });
+        const headers = { authorization: `Bearer ${secret}`, "x-linksense-owner-id": OWNER_ID };
+        const turn = { conversationId: "30000000-0000-4000-8000-000000000001", turnId: "codex-turn-1" };
+        const preview = await app.inject({
+          method: "POST",
+          url: "/internal/skill-creator/preview",
+          headers,
+          payload: { ...turn, workspaceRelativePath },
+        });
+        expect(preview.statusCode, preview.body).toBe(200);
+        const previewBody = preview.json<{ install_token: string; requires_confirmation: boolean }>();
+        expect(previewBody.requires_confirmation).toBe(false);
+        const confirmed = await app.inject({
+          method: "POST",
+          url: "/internal/skill-creator/confirm",
+          headers,
+          payload: { ...turn, installToken: previewBody.install_token },
+        });
+        expect(confirmed.statusCode, confirmed.body).toBe(200);
+        await expect(readFile(join(root, workspaceRelPath, workspaceRelativePath))).resolves.toEqual(archive);
+      }
+
+      expect(store.capabilities).toHaveLength(1);
+      const installed = store.capabilities[0]!;
+      expect(installed).toMatchObject({ name: skillName, type: "skill", status: "active" });
+      const detail = await service.getSkillEdit(ownerActor(), installed.id);
+      expect(detail.files.map(({ path }) => path).sort()).toEqual(Object.keys(files).sort());
+      for (const [path, contents] of Object.entries(files)) {
+        await expect(readFile(join(installed.storagePath, path))).resolves.toEqual(
+          typeof contents === "string" ? Buffer.from(contents) : contents,
+        );
+      }
+    } finally {
+      await app.close();
+    }
+  });
 
   it.each([null, "  会议纪要助手  "])(
     "persists optional display name %s through preview, confirmation, search and replacement",

@@ -5,10 +5,11 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -27,7 +28,7 @@ afterEach(async () => {
 })
 
 describe("linksense-skill-creator built-in Skill", () => {
-  it("initializes, validates, packages, and imports a complete Skill ZIP", async () => {
+  it("initializes, validates, packages, and imports a Skill ZIP with additional resources", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "linksense-skill-creator-"))
     temporaryDirectories.push(workspace)
     const skillsRoot = join(workspace, "built-ins")
@@ -101,6 +102,17 @@ describe("linksense-skill-creator built-in Skill", () => {
       join(generatedRoot, "assets", "follow-up-template.md"),
       "# Follow-up\n",
     )
+    const additionalFiles = {
+      "templates/action-item.md": "- [ ] Action and owner\n",
+      "workflows/follow-up.yml": "steps: [summarize, assign-actions]\n",
+      "README.md": "# Meeting Follow-up\n",
+      LICENSE: "Fixture license text\n",
+    }
+    for (const [path, contents] of Object.entries(additionalFiles)) {
+      const destination = join(generatedRoot, path)
+      await mkdir(dirname(destination), { recursive: true })
+      await writeFile(destination, contents)
+    }
 
     const validated = await runPython(
       join(scriptsRoot, "quick_validate.py"),
@@ -150,12 +162,20 @@ describe("linksense-skill-creator built-in Skill", () => {
           "utf8",
         ),
       ).resolves.toContain("decisions")
+      for (const [path, contents] of Object.entries(additionalFiles)) {
+        await expect(readFile(join(prepared.packageRoot, path), "utf8")).resolves.toBe(contents)
+      }
     } finally {
       await importer.cleanup(prepared)
     }
+
+    const existingZipInstructions = creatorInstructions
+      .split("## Install an existing Skill ZIP\n")[1]?.split("\n## ")[0]
+    expect(existingZipInstructions).toContain("original ZIP")
+    expect(existingZipInstructions).toContain("linksense_core.preview_skill_zip")
   })
 
-  it("rejects unfinished Skills and archives outside artifacts", async () => {
+  it("rejects unfinished Skills, archives outside artifacts, and symlinked resources", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "linksense-skill-creator-"))
     temporaryDirectories.push(workspace)
     const skillsRoot = join(workspace, "built-ins")
@@ -207,6 +227,19 @@ describe("linksense-skill-creator built-in Skill", () => {
       ),
     ).rejects.toMatchObject({
       stderr: expect.stringContaining("under artifacts"),
+    })
+
+    const templates = join(dirname(skillPath), "templates")
+    await mkdir(templates)
+    await symlink("../SKILL.md", join(templates, "instructions.md"))
+    await expect(
+      runPython(
+        join(scriptsRoot, "quick_validate.py"),
+        ["temp/unfinished-skill"],
+        workspace,
+      ),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("symbolic links are not allowed"),
     })
   })
 })
