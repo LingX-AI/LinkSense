@@ -75,6 +75,8 @@ import {
   PrivacyRestorer,
   maskResponsesRequest,
   restoreJsonValue,
+  withChatPlaceholderNote,
+  withPlaceholderNote,
   type PrivacyMaskHit,
   type RestoredEvent,
 } from "../privacy-masking/index.js";
@@ -1415,6 +1417,9 @@ export class ModelGateway implements ModelGatewayRuntime {
           );
           throw new GatewayHttpError(503, "privacy_masking_unavailable");
         }
+        if (authorizedLease.protocolMode !== "chat_completions_bridge") {
+          body = withPlaceholderNote(body);
+        }
       }
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(
@@ -1757,11 +1762,12 @@ export class ModelGateway implements ModelGatewayRuntime {
   ): Promise<void> {
     const streamRequested = body.stream === true;
     let memoryOperation = requestContext.memoryOperation;
+    const chatBody = buildChatCompletionRequest(body, streamRequested);
     const upstream = await this.callUpstream(
       lease.upstreamBaseUrl,
       "chat/completions",
       lease.apiKey,
-      buildChatCompletionRequest(body, streamRequested),
+      masker ? withChatPlaceholderNote(chatBody) : chatBody,
       abort,
       requestContext,
     );

@@ -5,6 +5,12 @@ export type {
 } from "@linksense/shared/privacy-masking-engine";
 export { maskResponsesRequest } from "./request.js";
 export {
+  hasPlaceholder,
+  placeholderNote,
+  withChatPlaceholderNote,
+  withPlaceholderNote,
+} from "./note.js";
+export {
   PrivacyRestorer,
   partialPlaceholderTail,
   restoreJsonValue,

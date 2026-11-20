@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { PrivacyMaskingRuntime } from "@linksense/shared";
 
 import { PrivacyMasker } from "@linksense/shared/privacy-masking-engine";
+import {
+  placeholderNote,
+  withChatPlaceholderNote,
+  withPlaceholderNote,
+} from "../src/privacy-masking/note.js";
 import { maskResponsesRequest } from "../src/privacy-masking/request.js";
 import {
   PrivacyRestorer,
@@ -487,5 +492,96 @@ describe("PrivacyMasker", () => {
     expect(mask.restoreText(`before ${unknown} after`)).toBe(
       `before ${unknown} after`,
     );
+  });
+});
+
+describe("placeholder note", () => {
+  function maskedBody(text: string): Record<string, unknown> {
+    const mask = masker();
+    const body = {
+      instructions: "You write files.",
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text }] },
+      ],
+    };
+    maskResponsesRequest(body, mask);
+    return body;
+  }
+
+  it("says placeholders are put back, after the item they first appear in", () => {
+    const body = maskedBody(`write ${`sk-proj-${"p".repeat(32)}`} to the file`);
+    const noted = withPlaceholderNote(body) as {
+      input: Array<Record<string, unknown>>;
+    };
+    expect(noted.input).toHaveLength(2);
+    expect(noted.input[0]?.role).toBe("user");
+    expect(noted.input[1]?.role).toBe("developer");
+    expect(JSON.stringify(noted.input[1])).toContain(placeholderNote);
+    expect(JSON.stringify(noted.input[1])).not.toContain("sk-proj-");
+  });
+
+  it("is not added when nothing was masked, and stays the same on later turns", () => {
+    const clean = {
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },
+      ],
+    };
+    expect(withPlaceholderNote(clean)).toBe(clean);
+
+    const body = maskedBody(`write ${`sk-proj-${"q".repeat(32)}`} to the file`);
+    const first = withPlaceholderNote(body);
+    const second = withPlaceholderNote(structuredClone(body));
+    expect(second).toEqual(first);
+  });
+
+  it("skips a request that continues a stored response", () => {
+    const body = maskedBody(`write ${`sk-proj-${"r".repeat(32)}`} to the file`);
+    const stored = { ...body, previous_response_id: "resp_1" };
+    expect(withPlaceholderNote(stored)).toBe(stored);
+  });
+
+  it("is never masked or restored as a placeholder itself", () => {
+    const mask = masker();
+    expect(mask.maskText(placeholderNote).text).toBe(placeholderNote);
+    expect(mask.restoreText(placeholderNote)).toBe(placeholderNote);
+    expect(placeholderNote).not.toMatch(/\{\{[A-Z_]+_[0-9a-f]{16,32}\}\}/u);
+  });
+});
+
+describe("chat placeholder note", () => {
+  it("joins the earliest message that holds a placeholder", () => {
+    const chat = {
+      messages: [
+        { role: "system", content: "You write files." },
+        { role: "user", content: "please write the file" },
+        { role: "assistant", content: "ok", tool_calls: [] },
+        { role: "user", content: "password={{SECRET_0123456789abcdef}}" },
+      ],
+    };
+    const noted = withChatPlaceholderNote(chat) as {
+      messages: Array<Record<string, unknown>>;
+    };
+    expect(noted.messages[0]?.content).toBe("You write files.");
+    expect(noted.messages[3]?.content).toBe(
+      `password={{SECRET_0123456789abcdef}}\n\n${placeholderNote}`,
+    );
+  });
+
+  it("appends to the system message when a tool holds the placeholder", () => {
+    const chat = {
+      messages: [{ role: "system", content: "You write files." }],
+      tools: [{ type: "function", function: { name: "f", description: "{{TERM_0123456789abcdef}}" } }],
+    };
+    const noted = withChatPlaceholderNote(chat) as {
+      messages: Array<Record<string, unknown>>;
+    };
+    expect(noted.messages[0]?.content).toBe(
+      `You write files.\n\n${placeholderNote}`,
+    );
+  });
+
+  it("is left out when the conversation has no placeholder", () => {
+    const chat = { messages: [{ role: "user", content: "hello" }] };
+    expect(withChatPlaceholderNote(chat)).toBe(chat);
   });
 });

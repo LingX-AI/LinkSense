@@ -237,6 +237,93 @@ describe("ModelGateway privacy masking", () => {
     expect(JSON.stringify(upstreamBody?.metadata)).not.toContain(secret);
   });
 
+  it("tells the model placeholders are put back before anything runs", async () => {
+    const received: { body: JsonObject | null } = { body: null };
+    const upstream = await startUpstream(async (request, response) => {
+      received.body = await readJson(request);
+      writeJson(response, 200, {
+        id: "resp-noted",
+        object: "response",
+        status: "completed",
+        output: [],
+      });
+    });
+    const gateway = await startGateway();
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "noted-masking",
+      revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`,
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: masking,
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `write ${secret} to the file` }],
+        },
+      ],
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const input = received.body?.input as Array<JsonObject>;
+    expect(input).toHaveLength(2);
+    expect(input[0]?.role).toBe("user");
+    expect(input[1]).toMatchObject({ type: "message", role: "developer" });
+    expect(JSON.stringify(input[1])).toContain("placeholders for real values");
+    expect(JSON.stringify(received.body)).not.toContain(secret);
+  });
+
+  it("tells a chat-completions model the same way", async () => {
+    const received: { body: JsonObject | null } = { body: null };
+    const upstream = await startUpstream(async (request, response) => {
+      received.body = await readJson(request);
+      writeJson(response, 200, {
+        id: "completion-noted",
+        choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+      });
+    });
+    const gateway = await startGateway();
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "noted-chat",
+      revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`,
+      apiKey: "provider-key",
+      protocolMode: "chat_completions_bridge",
+      model: "model-a",
+      privacyMasking: masking,
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `write ${secret} to the file` }],
+        },
+      ],
+      stream: false,
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const messages = received.body?.messages as Array<JsonObject>;
+    expect(messages).toHaveLength(1);
+    expect(JSON.stringify(messages[0]?.content)).toContain(
+      "placeholders for real values",
+    );
+    expect(JSON.stringify(messages[0]?.content)).not.toContain(secret);
+  });
+
   it("reports one counts-only capture per masked request", async () => {
     const upstream = await startUpstream(async (_request, response) => {
       writeJson(response, 200, {
