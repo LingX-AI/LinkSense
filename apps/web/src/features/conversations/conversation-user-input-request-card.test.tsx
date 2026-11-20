@@ -392,7 +392,16 @@ describe("ConversationUserInputRequestCard", () => {
         onSubmit={onSubmit}
       />
     )
-    expect(screen.getByRole("radiogroup", { name: "范围" })).toBeVisible()
+    expect(screen.getByRole("radiogroup", { name: "范围" })).toHaveClass(
+      "flex",
+      "flex-wrap"
+    )
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
+        "grow",
+        "basis-56"
+      )
+    }
     expect(screen.getByText("只包含摘要。")).toBeVisible()
     expect(screen.getByText("包含完整报告。")).toBeVisible()
     expect(screen.getByRole("radio", { name: /精简范围/ })).toBeChecked()
@@ -853,16 +862,11 @@ describe("ConversationUserInputRequestCard", () => {
     const fieldGroup = card.querySelector<HTMLElement>(
       '[data-slot="field-group"]'
     )
-    expect(fieldGroup).toHaveClass(
-      "grid",
-      "gap-x-4",
-      "gap-y-4",
-      "sm:grid-cols-2"
-    )
-    expect(fieldGroup).not.toHaveClass("sm:grid-cols-12")
+    expect(fieldGroup).not.toBeNull()
+    expect(fieldGroup).not.toHaveClass("grid", "sm:grid-cols-2")
 
     const title = within(card).getByPlaceholderText("输入标题")
-    expect(title.closest('[data-slot="field"]')).toHaveClass("sm:col-span-2")
+    expect(title.closest('[data-slot="field"]')).not.toBeNull()
     await interaction.type(title, "季度复盘")
     const notes = within(card).getByPlaceholderText("输入说明")
     expect(notes.tagName).toBe("TEXTAREA")
@@ -873,11 +877,8 @@ describe("ConversationUserInputRequestCard", () => {
     expect(channel).toHaveTextContent("Teams")
     expect(channel).toHaveAttribute("data-size", "default")
     expect(channel).toHaveClass("data-[size=default]:h-10")
-    expect(channel.closest('[data-slot="field"]')).toHaveClass("sm:col-span-1")
     const publishDate = within(card).getByLabelText(/发布日期/)
     expect(publishDate).toHaveClass("h-9")
-    expect(getStructuredField(card, "发布日期")).toHaveClass("sm:col-span-1")
-    expect(getStructuredField(card, "发布时间")).toHaveClass("sm:col-span-2")
     await interaction.click(
       within(card).getByRole("checkbox", { name: "产品" })
     )
@@ -903,20 +904,9 @@ describe("ConversationUserInputRequestCard", () => {
     expect(
       within(card).getByRole("checkbox", { name: /发送通知/ })
     ).toBeChecked()
-    expect(
-      within(card)
-        .getByRole("spinbutton", { name: /重试次数/ })
-        .closest('[data-slot="field"]')
-    ).toHaveClass("sm:col-span-1")
-    expect(
-      within(card)
-        .getByRole("checkbox", { name: /发送通知/ })
-        .closest('[data-slot="field"]')
-    ).toHaveClass("sm:col-span-1")
     for (const field of card.querySelectorAll('[data-slot="field"]')) {
-      expect(field).not.toHaveClass("sm:col-span-4")
-      expect(field).not.toHaveClass("sm:col-span-8")
-      expect(field).not.toHaveClass("sm:col-span-12")
+      expect(field).not.toHaveClass("sm:col-span-1")
+      expect(field).not.toHaveClass("sm:col-span-2")
     }
 
     const submit = within(card).getByRole("button", { name: "提交回答" })

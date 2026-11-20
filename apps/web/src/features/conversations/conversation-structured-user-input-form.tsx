@@ -129,7 +129,7 @@ export function ConversationStructuredUserInputForm({
       aria-readonly={terminal || savedAnswer || undefined}
     >
       <CardContent className="pb-(--card-spacing)">
-        <FieldGroup className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+        <FieldGroup>
           {Object.entries(request.requested_schema.properties).map(
             ([fieldId, field], index) => {
               const inputId = `${formId}-field-${index}`
@@ -248,7 +248,7 @@ function StructuredField({
 
   return (
     <Field
-      className={cn("min-w-0 gap-1.5", structuredFieldColumnClass(field))}
+      className="min-w-0 gap-1.5"
       data-invalid={invalid || undefined}
       data-disabled={disabled || undefined}
     >
@@ -439,7 +439,7 @@ function renderControl(input: {
               <RadioGroupOption
                 key={option.value}
                 htmlFor={optionId}
-                className="items-start"
+                className="min-w-0 grow basis-56 items-start"
               >
                 <RadioGroupItem id={optionId} value={option.value} />
                 <span className="flex min-w-0 flex-col gap-0.5">
@@ -587,23 +587,6 @@ function formatRecommendation(
     : typeof value === "string"
       ? label(value)
       : String(value)
-}
-
-function structuredFieldColumnClass(field: ConversationFormPrimitive): string {
-  if ("format" in field && field.format === "date-time") {
-    return "sm:col-span-2"
-  }
-  if (
-    field.type === "boolean" ||
-    field.type === "number" ||
-    field.type === "integer" ||
-    ("format" in field && field.format === "date") ||
-    "enum" in field ||
-    "oneOf" in field
-  ) {
-    return "sm:col-span-1"
-  }
-  return "sm:col-span-2"
 }
 
 function initialValues(request: StructuredRequest): Record<string, FormValue> {
