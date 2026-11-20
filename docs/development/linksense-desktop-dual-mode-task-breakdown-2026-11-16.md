@@ -33,8 +33,8 @@
 | 主窗口 | 无（不承载网站） | **新增**：webview 加载 `apps/web` 构建 |
 | 本地 runner | 无 | **新增**：supervisor + loopback 转发 |
 | 产品 UI 集成 | 无 | **新增**：Web 侧桌面宿主适配层 + 目标/设备/权限面板 |
-| 打包 | `scripts/desktop.mjs`、`mygo.json`、`.app`/DMG/zip、legal | 复用，补 Developer ID 签名/公证/更新 |
-| Windows 构建 | `mygo.json` Windows 目标、`process_windows.go`、x64/arm64 安装器产物 | 复用，补 Authenticode、WebView2 检测、UIA 回归 |
+| 打包 | `scripts/desktop.mjs`、`mygo.config.ts`、`.app`/DMG/zip、legal | 复用，补 Developer ID 签名/公证/更新 |
+| Windows 构建 | `mygo.config.ts` Windows 目标、`process_windows.go`、x64/arm64 安装器产物 | 复用，补 Authenticode、WebView2 检测、UIA 回归 |
 | Browser Use | 现有 Chrome/Edge 扩展、`browser_use` 工具链、配对/授权/撤销 | 复用；桌面端补状态、引导与配对入口 |
 | 壳能力 | mygo v0.10.0：webview/native、类型化 IPC、菜单/托盘/深链、Secrets、打包/签名/更新、权限引导 | 直接使用；用法见方案 §5.9/§5.10/§7.2 |
 | 测试 | Go 单测 + 原生白盒（真实窗口/AX）+ 打包引擎测试 | 复用，补浏览器侧 E2E、Windows 白盒与桌面冒烟 |
@@ -140,8 +140,8 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 | P1-09 | 桌面产品化（Go） | 托盘、菜单、全局快捷键、通知、多窗口、崩溃日志、单实例深链 | P0-08 | 关窗不退出策略可配；托盘菜单齐全；浏览器登录与深链配对可用；六语言 | 3 |
 | P1-10 | M1 桌面 UI 集成（Web 侧） | 本地/云目标、设备设置、命令/文件审批、审计页；GUI 卡片由 M1b 补齐 | P1-02/04/07/25/27/29 | 本地/云均可创建会话并确认切换；审批选项按原生类型显示；命令规则可撤销；审计脱敏；设置页显示本地工作区占用并可一键清理；GUI 未启用时不要求其权限 | 5 |
 | P1-21 | Browser Use 桌面接入 | 桌面宿主适配层 + 设置页引导 + 状态展示 | P0-09、P1-29 | 桌面内显示扩展状态；系统浏览器完成配对后桌面可见；本地会话经受限回调操作真实标签页；撤销即时；macOS/Windows | 3 |
-| P1-22 | 应用内更新 | `mygo.json` 的 `updates`、更新密钥、`mygo build -upload`、更新窗口/横幅、beta 渠道 | P1-12 | macOS 签名更新；delta 命中与失败回退整包；stable/beta 切换；只读安装位置降级；安装暂存前锁定本地任务，重启后不续跑；发布流程文档 | 4 |
-| P1-12 | 打包/签名/公证 | `scripts/desktop.mjs`、`mygo.json`、`deploy/desktop/` | P1-09/10 | arm64 `.app`/DMG；Developer ID + 公证；运行时/legal 随包；干净 Mac 冒烟；产物供 P1-22 验证更新，不以更新 UI 为本任务前置 | 4 |
+| P1-22 | 应用内更新 | `mygo.config.ts` 的 `updates`、更新密钥、`mygo build -upload`、更新窗口/横幅、beta 渠道 | P1-12 | macOS 签名更新；delta 命中与失败回退整包；stable/beta 切换；只读安装位置降级；安装暂存前锁定本地任务，重启后不续跑；发布流程文档 | 4 |
+| P1-12 | 打包/签名/公证 | `scripts/desktop.mjs`、`mygo.config.ts`、`deploy/desktop/` | P1-09/10 | arm64 `.app`/DMG；Developer ID + 公证；运行时/legal 随包；干净 Mac 冒烟；产物供 P1-22 验证更新，不以更新 UI 为本任务前置 | 4 |
 
 ### 4.4 测试 / 发布
 
@@ -159,7 +159,7 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
-| P1-17 | Windows 构建与安装器 | `mygo.json` Windows 目标、安装器脚本、`deploy/desktop/` | P0-01 | x64/arm64 构建；WebView2 检测与引导；安装/卸载/升级；Authenticode 签名 | 3 |
+| P1-17 | Windows 构建与安装器 | `mygo.config.ts` Windows 目标、安装器脚本、`deploy/desktop/` | P0-01 | x64/arm64 构建；WebView2 检测与引导；安装/卸载/升级；Authenticode 签名 | 3 |
 | P1-18 | UIA 引擎回归 | `apps/desktop/engine.go`、`process_windows.go` | P1-06 | UIA snapshot/click/type/scroll；DPI/多显示器；提权窗口返回稳定 code；白盒测试 | 3 |
 | P1-19a | Windows M1 权限与沙箱 | runner + API + UI | P1-07/17 | 当前用户文件访问、原生命令/文件审批与沙箱、SmartScreen/WebView2 提示；无 GUI 权限前置 | 1 |
 | P1-19b | Windows GUI 安全差异 | 引擎 + API + UI | P1-18/28 | 完整性级别约束；无 TCC 的引导路径；剪贴板/启动白名单 | 0.5 |

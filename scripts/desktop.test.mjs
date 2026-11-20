@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopDependencyNotices, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { desktopBuildServerUrl, desktopCommandInvocation, desktopMacosReleaseTeam, desktopMacosSigningRequirement, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopDependencyNotices, stageDesktopMacosRelease, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
 
 test("release builds require an explicit, safe server origin", () => {
   assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
@@ -28,6 +29,75 @@ test("update checks require a packaged HTTPS feed paired with an Ed25519 public 
     assert.throws(() => desktopUpdateBuildFlags(url, publicKey));
   }
 });
+
+test("macOS release requires native ARM64, HTTPS and an explicit Developer ID team", () => {
+  const server = "https://example.test";
+  const identity = "Developer ID Application: Fixture (ABCDE12345)";
+  assert.equal(desktopMacosReleaseTeam("darwin/arm64", server, identity, "darwin", "arm64"), "ABCDE12345");
+  for (const [target, platform, arch] of [
+    ["darwin/amd64", "darwin", "arm64"], ["darwin/amd64", "darwin", "x64"],
+    ["darwin/arm64", "darwin", "x64"], ["darwin/arm64", "win32", "arm64"],
+  ]) assert.throws(() => desktopMacosReleaseTeam(target, server, identity, platform, arch), /native Apple silicon/u);
+  for (const invalid of [undefined, "-", "Apple Development: Fixture (ABCDE12345)", identity + "\n",
+    "Developer ID Application: Fixture (abcde12345)"]) {
+    assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", server, invalid, "darwin", "arm64"), /Developer ID Application/u);
+  }
+  assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", "http://localhost", identity, "darwin", "arm64"), /HTTPS/u);
+});
+
+test("MyGo scopes notarization and Node's entitlement override to release builds", () => {
+  const configFile = new URL("../apps/desktop/mygo.config.ts", import.meta.url).href;
+  const inspect = (release, command) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e",
+    `import config from ${JSON.stringify(configFile)}; console.log(JSON.stringify(config({ command: ${JSON.stringify(command)} })));`],
+    { env: { ...process.env, LINKSENSE_DESKTOP_MACOS_RELEASE: release }, encoding: "utf8" }));
+  const development = inspect("0", "build");
+  assert.deepEqual(inspect("1", "dev"), development);
+  assert.equal(development.identifier, "org.linksense.desktop");
+  assert.deepEqual(development.urlSchemes, ["linksense-desktop"]);
+  assert.deepEqual(development.macos, { signingIdentity: "-" });
+  const release = inspect("1", "build");
+  assert.deepEqual(release.macos, {
+    signingIdentity: "-",
+    notarize: { keychainProfile: "linksense-desktop-notary" },
+    helperEntitlements: { "runtime/bin/node": "node-release.entitlements.plist" },
+  });
+});
+
+test("a failed release gate preserves prior artifacts and does not expose a failed release", async () => {
+  const build = await mkdtemp(path.join(tmpdir(), "linksense-release-output-"));
+  try {
+    await mkdir(path.join(build, "darwin-arm64"));
+    const old = await stageDesktopMacosRelease(build, stage => writeFile(path.join(stage, "fixture"), "previous"));
+    await assert.rejects(stageDesktopMacosRelease(build, async stage => {
+      await writeFile(path.join(stage, "fixture"), "failed");
+      throw new Error("smoke failed");
+    }), /smoke failed/u);
+    const current = await stageDesktopMacosRelease(build, stage => writeFile(path.join(stage, "fixture"), "verified"));
+    assert.deepEqual((await readdir(build)).sort(), ["darwin-arm64", path.basename(old), path.basename(current)].sort());
+    assert.equal(await readFile(path.join(old, "fixture"), "utf8"), "previous");
+    assert.equal(await readFile(path.join(current, "fixture"), "utf8"), "verified");
+  } finally {
+    await rm(build, { recursive: true, force: true });
+  }
+});
+
+if (process.platform === "darwin") {
+  test("Apple compiles the Developer ID requirement with bundle identity, team and no debugger entitlement", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-requirement-"));
+    try {
+      const output = path.join(directory, "release.req");
+      const requirement = desktopMacosSigningRequirement("ABCDE12345", "org.linksense.desktop");
+      execFileSync("/usr/bin/csreq", ["-r", `=${requirement}`, "-b", output]);
+      const canonical = execFileSync("/usr/bin/csreq", ["-r", output, "-t"], { encoding: "utf8" });
+      assert.match(canonical, /identifier "org\.linksense\.desktop"/u);
+      assert.match(canonical, /certificate leaf\[subject\.OU\] = ABCDE12345/u);
+      assert.match(canonical, /! entitlement\["com\.apple\.security\.get-task-allow"\]/u);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 test("desktop targets cover both supported platforms and architectures", () => {
   assert.equal(desktopTarget("darwin", "arm64"), "darwin/arm64");
   assert.equal(desktopTarget("darwin", "x64"), "darwin/amd64");

@@ -1,7 +1,7 @@
-/** Real packaged Node, Core MCP and pinned Codex; the model endpoint is an isolated local fixture. */
+/** Execution smoke for the runtime verified by scripts/desktop.mjs, using an isolated model fixture. */
 import assert from "node:assert/strict";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -25,16 +25,7 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
   const manifest = z.object({
     target: z.enum(["darwin/arm64", "darwin/amd64", "windows/arm64", "windows/amd64"]),
     versions: z.object({ codex: z.literal(CODEX_SCHEMA_VERSION) }),
-    files: z.array(z.strictObject({
-      path: z.string().regex(/^bin\/[a-z0-9.-]+$/u),
-      sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    })).min(3),
   }).parse(JSON.parse(await readFile(path.join(runtime, "manifest.json"), "utf8")));
-  for (const file of manifest.files) {
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(path.join(runtime, file.path))) hash.update(chunk);
-    assert.equal(hash.digest("hex"), file.sha256, `packaged executable changed: ${file.path}`);
-  }
   const featureOverrides = await loadCodexTemplateFeatureOverrides(path.join(runtime, "template"));
   let modelRequests = 0;
   let workerHeartbeats = 0;

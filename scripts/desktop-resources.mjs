@@ -90,6 +90,26 @@ export async function verifyDesktopResource(filename, expected) {
   if (await desktopResourceDigest(filename) !== expected) throw new Error("Desktop resource checksum mismatch");
 }
 
+export async function verifyDesktopRuntimeFiles(runtime, files) {
+  for (const file of files) {
+    await verifyDesktopResource(path.join(runtime, file.path), file.sha256);
+  }
+}
+
+export async function verifyDesktopPackageManifest(runtime, expected) {
+  const packaged = await readFile(path.join(runtime, "manifest.json"));
+  if (!packaged.equals(expected)) throw new Error("Packaged runtime manifest differs from the verified staged manifest");
+}
+
+export async function verifyMacosBundlePermissions(app) {
+  const { stdout } = await promisify(execFile)("/usr/bin/find", [app, "(",
+    "-type", "d", "!", "-perm", "-055", "-o",
+    "-type", "f", "!", "-perm", "-044", "-o",
+    "-type", "f", "-perm", "-100", "!", "-perm", "-011",
+    ")", "-print", "-quit"], { timeout: 30_000 });
+  if (stdout) throw new Error(`Packaged app is not usable by another macOS account: ${stdout.trim()}`);
+}
+
 async function downloadArtifact(artifact, cache) {
   const filename = path.join(cache, artifact.sha256);
   try {
@@ -206,10 +226,18 @@ export async function prepareDesktopResources(target) {
     for (const name of ["node", "codex", "agent-desktop"]) {
       await copyFile(path.join(desktop, "legal", `${name}-LICENSE`), path.join(staging, "legal", `${name}-LICENSE`));
     }
-    await verifyPackagedDesktopRuntime(staging, target, manifest.versions);
-    await writeFile(path.join(staging, "manifest.json"), `${JSON.stringify({
+    const runtime = {
       schema_version: 1, application: "org.linksense.desktop", target, runtime_arch: platform.runtime_arch, versions: manifest.versions, files,
-    }, null, 2)}\n`, { mode: 0o600 });
+    };
+    const manifestBytes = Buffer.from(`${JSON.stringify(runtime, null, 2)}\n`);
+    await verifyDesktopRuntimeFiles(staging, files);
+    await verifyPackagedDesktopRuntime(staging, target, runtime.versions);
+    await writeFile(path.join(staging, "manifest.json"), manifestBytes, { mode: 0o600 });
+    if (target.startsWith("darwin/") && process.platform === "darwin") {
+      // This is the distributable tree, not a user's private capability or workspace data.
+      await run("/usr/bin/find", [staging, "(", "-type", "d", "-o", "-type", "f", ")",
+        "-exec", "/bin/chmod", "a+rX,go-w", "{}", "+"], { cwd: root });
+    }
     const destination = path.join(desktop, "resources", target.replace("/", "-"), "runtime");
     try {
       const previous = JSON.parse(await readFile(path.join(destination, "manifest.json"), "utf8"));
@@ -225,5 +253,6 @@ export async function prepareDesktopResources(target) {
     await mkdir(path.dirname(destination), { recursive: true });
     await rename(staging, destination);
     console.log(`Prepared checksum-verified desktop runtime for ${target}`);
+    return { runtime, manifestBytes };
   } finally { await rm(staging, { recursive: true, force: true }); }
 }

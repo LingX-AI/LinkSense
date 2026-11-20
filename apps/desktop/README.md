@@ -87,7 +87,8 @@ Preparation checks executable versions and native imports on the build host.
 The runner uses pnpm's portable, hoisted deployment so mygo's resource copier
 retains its complete dependency tree. Runtime license texts ship alongside
 the repository and the target Go application's dependency notices. Local
-macOS builds use ad hoc signing; release signing must select a Developer ID.
+macOS builds use ad hoc signing by default. See [macOS releases](#macos-releases)
+for Developer ID signing and notarization.
 
 Windows ARM64 keeps the native Go shell and agent-desktop engine, and uses
 x64 Node/Codex and npm bindings under Windows 11's built-in x64 emulation.
@@ -109,6 +110,39 @@ for the expanded application. Node and Codex account for approximately
 122.5 MB and 273.6 MB of the expanded files. The original size estimate
 understated installed size; download size and installed size are tracked
 separately for release review.
+
+### macOS releases
+
+Build on an Apple silicon Mac with Xcode command-line tools, a standard
+packaging umask (`022`), a Developer ID
+Application certificate and the `linksense-desktop-notary` Keychain profile.
+Set up the profile interactively with `xcrun notarytool store-credentials
+linksense-desktop-notary`. Keep credentials in Keychain or the release runner's
+secret store.
+
+```sh
+LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY='Developer ID Application: Organization (TEAMID)' \
+  pnpm desktop:build -- --macos-release --platform darwin/arm64 --server-url https://linksense.example.com
+```
+
+MyGo signs the app and its helpers with the hardened runtime, then notarizes and
+staples the app and DMG. The build verifies pinned runtime bytes before signing
+and the final bundle, runtime signatures, tickets and native runtime afterward.
+Verified releases appear in separate `apps/desktop/build/macos-release-*`
+directories; an unsuccessful or ad hoc build leaves them alone.
+
+Before distribution, test a quarantined DMG on an isolated Apple silicon Mac:
+install by dragging to Applications, verify Gatekeeper and the first browser
+sign-in and callback, pair the device and start the bundled runtime from a
+standard account other than the installer. Then replace
+the previous verified app in place with the new one for the **same server
+origin**. Check saved sign-in, pairing, deep links and a new local turn. A
+change of signing identity can prompt macOS to authorize Keychain access again.
+Keep the previous verified DMG separately; after local turns settle, verify the
+same checks when replacing the new app with that previous package. Verify API
+compatibility before rollback; consult the feature gates below.
+
+### Local execution
 
 The app supervises the bundled Node process over a private pipe. Mac device
 execution is off by default and `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`
