@@ -108,8 +108,7 @@ export const ConversationModelSelector = memo(
       )
     }
 
-    const contextWindow =
-      contextUsage?.modelContextWindow ?? selectedModel.context_window
+    const contextWindow = contextUsage?.modelContextWindow ?? null
     const usedTokens = contextUsage?.usedTokens ?? null
     const usagePath =
       auth?.user?.role === "admin" && auth.user.status === "active"

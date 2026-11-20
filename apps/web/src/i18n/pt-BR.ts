@@ -2271,6 +2271,7 @@ export const ptBR = {
     delete: "Remover",
     newTaskNamed: "Nova tarefa no projeto “{{title}}”",
     move: "Mover para projeto",
+    moveToPublicWorkspace: "Mover para o espaço de trabalho comum",
     moveNamed: "Mover “{{title}}” para um projeto",
     name: "Nome do projeto",
     namePlaceholder: "Insira um nome de projeto",

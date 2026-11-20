@@ -3,10 +3,23 @@ import { describe, expect, it } from "vitest"
 
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
+import i18n, { supportedLanguages } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 
 describe("task project localization", () => {
+  it.each(supportedLanguages)(
+    "localizes moving a task to the public workspace in %s",
+    (locale) => {
+      const key = "projects.moveToPublicWorkspace"
+      const chinese = zhCN.projects.moveToPublicWorkspace
+      const label = i18n.getResource(locale, "translation", key)
+      expect(label).toBeTypeOf("string")
+      if (locale !== "zh-CN") expect(label).not.toBe(chinese)
+      expect(i18n.t(key, { lng: "de-DE" })).toBe(chinese)
+    }
+  )
+
   it("localizes sidebar sections and project removal with Chinese fallback", async () => {
     const instance = createInstance()
     await instance.init({

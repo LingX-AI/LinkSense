@@ -25,7 +25,10 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 import { setAccessToken } from "@/api/session"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
 import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
-import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
+import {
+  readLocalConversationDraft,
+  writeLocalConversationDraft,
+} from "@/features/conversations/conversation-local-draft"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
 import {
@@ -523,6 +526,192 @@ describe("archived conversation pagination", () => {
     expect(await screen.findByText("第二页对话")).toBeVisible()
     expect(screen.getByRole("button", { name: "上一页" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled()
+  })
+})
+
+describe("existing task actions", () => {
+  const id = "71000000-0000-4000-8000-000000000001"
+  const completedTurnId = "40000000-0000-4000-8000-000000000001"
+  const projectId = "31000000-0000-4000-8000-000000000001"
+  const endpoint = `/conversations/${id}`
+  const updatedAt = "2026-11-20T00:00:00.000Z"
+
+  function renderExistingTask({
+    windowSize = 128_000,
+    running = false,
+  }: { windowSize?: number | null; running?: boolean } = {}) {
+    let currentProjectId: string | null = projectId
+    const turn = {
+      id: completedTurnId,
+      status: running ? "running" : "completed",
+      collaboration_mode: "default",
+      started_at: updatedAt,
+    }
+    const detail = {
+      id,
+      title: "Existing task",
+      archived: false,
+      updated_at: updatedAt,
+      execution_status: running ? "running" : "idle",
+      messages: [
+        {
+          id: "message-1",
+          role: "user",
+          content: "Earlier prompt",
+          turn_id: completedTurnId,
+          created_at: updatedAt,
+        },
+      ],
+      turns: [turn],
+      running_turn: running ? turn : null,
+      model_context_usage: {
+        used_tokens: 10_000,
+        model_context_window: windowSize,
+        updated_at: updatedAt,
+      },
+    }
+    const preference = modelPreference()
+    const compact = vi.fn(() =>
+      envelope({
+        accepted: true,
+        turn_id: "40000000-0000-4000-8000-000000000002",
+        status: "starting",
+      })
+    )
+    const patch = vi.fn<(body: unknown) => void>()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path.endsWith(`${endpoint}/compact`)) return compact()
+        if (path.endsWith(endpoint)) {
+          if (init?.method === "PATCH") {
+            patch(JSON.parse(String(init.body)))
+            currentProjectId = null
+          }
+          return envelope({ ...detail, project_id: currentProjectId })
+        }
+        if (path.endsWith("/events"))
+          return new Response("", {
+            headers: { "content-type": "text/event-stream" },
+          })
+        if (path.endsWith("/model-preference"))
+          return envelope({
+            ...preference,
+            models: preference.models.map((model) => ({
+              ...model,
+              context_window: 128_000,
+            })),
+          })
+        return envelope({ items: [], next_cursor: null })
+      })
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <MemoryRouter initialEntries={[endpoint]}>
+        <QueryClientProvider client={queryClient}>
+          <Routes>
+            <Route
+              path="/conversations/:conversationId"
+              element={<ConversationPage />}
+            />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>
+    )
+    return { queryClient, compact, patch }
+  }
+
+  beforeEach(async () => {
+    setAccessToken("existing-task-test-token")
+    window.localStorage.clear()
+    await i18n.changeLanguage("zh-CN")
+  })
+
+  afterEach(() => {
+    cleanup()
+    setAccessToken(null)
+    vi.unstubAllGlobals()
+  })
+
+  it("retains unsent text in the composer and in the saved draft after overview compaction", async () => {
+    const draft = "Review the next section"
+    seedLocalDraft(id, { input: draft })
+    const { queryClient, compact } = renderExistingTask()
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    await waitFor(() => expect(composer).toHaveValue(draft))
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    )
+    await waitFor(() => expect(compact).toHaveBeenCalledOnce())
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0))
+    expect(composer).toHaveValue(draft)
+    expect(readLocalConversationDraft(window.localStorage, "user-1", id).input)
+      .toBe(draft)
+  })
+
+  it("clears the submitted compaction command after acceptance", async () => {
+    seedLocalDraft(id, { input: "/compact" })
+    const { queryClient, compact } = renderExistingTask()
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    await waitFor(() => expect(composer).toHaveValue("/compact"))
+    await userEvent.click(composer)
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => expect(compact).toHaveBeenCalledOnce())
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0))
+    expect(composer).toHaveValue("")
+    expect(readLocalConversationDraft(window.localStorage, "user-1", id).input)
+      .toBe("")
+  })
+
+  it("uses the model catalog window for the overview when the usage window is missing", async () => {
+    renderExistingTask({ windowSize: null })
+    const overview = await screen.findByRole("region", {
+      name: i18n.t("conversation.taskOverview.title"),
+    })
+    expect(
+      await within(overview).findByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    ).toBeEnabled()
+    expect(within(overview).getByText("8% 已用")).toBeVisible()
+  })
+
+  it("moves an existing project task to the public workspace from the keyboard", async () => {
+    const { patch } = renderExistingTask()
+    const user = userEvent.setup()
+    const actions = await screen.findByRole("button", {
+      name: i18n.t("common.actions"),
+    })
+    actions.focus()
+    await user.keyboard("{Enter}")
+    const move = await screen.findByRole("menuitem", {
+      name: "移至公共空间",
+    })
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}")
+    expect(move).toHaveFocus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ project_id: null }))
+    await user.click(actions)
+    expect(
+      screen.queryByRole("menuitem", { name: /公共空间/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not move a project task while its turn is running", async () => {
+    const { patch } = renderExistingTask({ running: true })
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole("button", { name: i18n.t("common.actions") })
+    )
+    const move = await screen.findByRole("menuitem", { name: "移至公共空间" })
+    expect(move).toHaveAttribute("aria-disabled", "true")
+    await user.click(move)
+    expect(patch).not.toHaveBeenCalled()
   })
 })
 

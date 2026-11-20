@@ -73,6 +73,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { normalizeLanguage } from "@/i18n"
 import { formatCalendarDate } from "@/i18n/date"
 import { MediaGallery, ResourceList } from "./assistant-rich-output-resources"
+import { RichOutputVisibilityContext } from "./rich-output-resource-context"
 
 const CitationContext = createContext<
   ((number: number) => ReactNode) | undefined
@@ -187,6 +188,7 @@ function ResultTabs({
   children,
 }: RichOutputProps<"Tabs"> & { children?: ReactNode }) {
   const titleId = useId()
+  const visible = useContext(RichOutputVisibilityContext)
   // Validation guarantees one child per tab, in tab order.
   const panels = Children.toArray(children)
   return (
@@ -212,9 +214,14 @@ function ResultTabs({
             value={tab.id}
             keepMounted
             className="min-w-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          >
-            {panels[index]}
-          </TabsContent>
+            render={(props, { hidden }) => (
+              <div {...props}>
+                <RichOutputVisibilityContext.Provider value={visible && !hidden}>
+                  {panels[index]}
+                </RichOutputVisibilityContext.Provider>
+              </div>
+            )}
+          />
         ))}
       </Tabs>
     </div>
@@ -230,6 +237,7 @@ function ResultDisclosure({
   children: ReactNode
   keepMounted?: boolean
 }) {
+  const visible = useContext(RichOutputVisibilityContext)
   return (
     <Collapsible className="min-w-0 border-t border-border">
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-3 text-left text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
@@ -242,9 +250,14 @@ function ResultDisclosure({
       <CollapsibleContent
         keepMounted={keepMounted}
         className="min-w-0 space-y-2 ps-6 pb-3 text-sm"
-      >
-        {children}
-      </CollapsibleContent>
+        render={(props, { open }) => (
+          <div {...props}>
+            <RichOutputVisibilityContext.Provider value={visible && open}>
+              {children}
+            </RichOutputVisibilityContext.Provider>
+          </div>
+        )}
+      />
     </Collapsible>
   )
 }
@@ -607,15 +620,15 @@ function ResultChart(props: RichOutputProps<"Chart">) {
         tickFormatter={(value: number) => numberFormat.format(value)}
       />
       <ChartTooltip
+        filterNull={false}
         content={
           <ChartTooltipContent
             formatter={(value, name) => (
               <span>
                 {series.length > 1 ? `${name}: ` : ""}
                 {typeof value === "number"
-                  ? numberFormat.format(value)
-                  : String(value)}{" "}
-                {unit}
+                  ? `${numberFormat.format(value)} ${unit}`
+                  : t("richOutput.missing")}
               </span>
             )}
           />

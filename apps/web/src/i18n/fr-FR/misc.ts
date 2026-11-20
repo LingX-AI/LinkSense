@@ -251,6 +251,7 @@ export const miscResources = {
     delete: "Retirer",
     newTaskNamed: "Nouvelle tâche dans le projet « {{title}} »",
     move: "Déplacer vers un projet",
+    moveToPublicWorkspace: "Déplacer vers l’espace de travail commun",
     moveNamed: "Déplacer « {{title}} » vers un projet",
     name: "Nom du projet",
     namePlaceholder: "Saisissez un nom de projet",

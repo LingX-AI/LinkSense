@@ -1968,6 +1968,7 @@ export const enUS = {
     delete: "Remove",
     newTaskNamed: "New task in project “{{title}}”",
     move: "Move to project",
+    moveToPublicWorkspace: "Move to public workspace",
     moveNamed: "Move “{{title}}” to a project",
     name: "Project name",
     namePlaceholder: "Enter a project name",

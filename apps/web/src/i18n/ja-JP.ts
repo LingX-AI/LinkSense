@@ -2241,6 +2241,7 @@ export const jaJP = {
     delete: "削除",
     newTaskNamed: "プロジェクト「{{title}}」で新規タスク",
     move: "プロジェクトに移動",
+    moveToPublicWorkspace: "共通ワークスペースに移動",
     moveNamed: "「{{title}}」をプロジェクトに移動",
     name: "プロジェクト名",
     namePlaceholder: "プロジェクト名を入力",

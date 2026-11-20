@@ -1818,6 +1818,7 @@ export const zhCN = {
     delete: "移除",
     newTaskNamed: "在项目“{{title}}”中新建任务",
     move: "移动到项目",
+    moveToPublicWorkspace: "移至公共空间",
     moveNamed: "将“{{title}}”移动到项目",
     name: "项目名称",
     namePlaceholder: "输入项目名称",

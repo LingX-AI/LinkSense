@@ -22,6 +22,8 @@ export const RichOutputTurnContext = createContext<string | undefined>(
   undefined
 )
 
+export const RichOutputVisibilityContext = createContext(true)
+
 export function useRichOutputResources() {
   return useContext(RichOutputResourceContext)
 }
@@ -29,15 +31,14 @@ export function useRichOutputResources() {
 export function useRenderedRichOutputFiles(files: readonly ConversationFile[]) {
   const { register, onDownload } = useRichOutputResources()
   const turnId = useContext(RichOutputTurnContext)
+  const visible = useContext(RichOutputVisibilityContext)
   const ids =
-    onDownload && turnId
+    visible && onDownload && turnId
       ? files
           .filter((file) => file.turn_id === turnId)
           .map((file) => file.id.toLowerCase())
           .join(",")
       : ""
-  // Claim files only after the rich renderer mounts. A failed lazy load or
-  // renderer error leaves the ordinary artifact cards available.
   useEffect(() => (ids ? register(ids.split(",")) : undefined), [ids, register])
 }
 

@@ -711,6 +711,11 @@ for (const [width, theme] of [
     await expect(
       line.getByText("已处理: 12.123456 项", { exact: true })
     ).toBeVisible()
+    await line.locator(".recharts-line-dot").nth(1).hover()
+    await expect(line.getByText("已处理: 0 项", { exact: true })).toBeVisible()
+    await expect(
+      line.getByText("待核对: 暂无数据", { exact: true })
+    ).toBeVisible()
 
     const filter = result.getByRole("searchbox", { name: "筛选可筛选明细" })
     await filter.fill("第二组")
@@ -1846,16 +1851,16 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   await expect(heading).toHaveCSS("height", "28px")
   await expect(sort).toHaveCSS("opacity", "0")
   const row = section.getByRole("link", { name: "Q3 enrollment data" })
-  await expect(row).toHaveCSS("height", "36px")
+  await expect(row).toHaveCSS("height", "34px")
   await expect(
     sidebar.getByRole("link", { name: "Grade 10 syllabus" })
-  ).toHaveCSS("height", "36px")
+  ).toHaveCSS("height", "34px")
   await expect(row.locator("..")).toHaveCSS(
     "background-color",
-    "color(srgb 0.0313726 0.454902 1 / 0.06)"
+    "color(srgb 0.0313726 0.454902 1 / 0.09)"
   )
   const navIcon = sidebar.locator('[data-design-icon="automations"]')
-  await expect(navIcon).toHaveCSS("width", "16px")
+  await expect(navIcon).toHaveCSS("width", "15px")
   await expect(navIcon).toHaveCSS("mask-image", /url\(/)
   expect(
     await page
@@ -1901,44 +1906,17 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   if (!rowBounds || !previewBounds)
     throw new Error("Missing task preview bounds")
   expect(previewBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
-  await row
-    .locator("..")
-    .getByRole("button", { name: "Q3 enrollment data的更多操作" })
-    .click()
-  const taskMenu = page.getByRole("menu").filter({ hasText: "移动到项目" })
-  await expect(taskMenu).toBeVisible()
-  await expect
-    .poll(async () => {
-      const bounds = await taskMenu.boundingBox()
-      return bounds
-        ? Math.round((bounds.x - rowBounds.x - rowBounds.width) * 10) / 10
-        : null
-    })
-    .toBe(8)
-  const menuBounds = await taskMenu.boundingBox()
-  if (!menuBounds) throw new Error("Missing task menu bounds")
-  expect(menuBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
-  expect(menuBounds.y).toBeCloseTo(rowBounds.y, 0)
-  await taskMenu.getByRole("menuitem", { name: "移动到项目" }).hover()
-  const destinations = page.getByRole("menu").filter({ hasText: "公共空间" })
-  await expect(destinations).toBeVisible()
-  await expect
-    .poll(async () => {
-      const bounds = await destinations.boundingBox()
-      return bounds
-        ? Math.round((bounds.x - menuBounds.x - menuBounds.width) * 10) / 10
-        : null
-    })
-    .toBe(8)
-  const destinationsBounds = await destinations.boundingBox()
-  if (!destinationsBounds) throw new Error("Missing project destination bounds")
-  expect(destinationsBounds.x - (menuBounds.x + menuBounds.width)).toBeCloseTo(
-    8,
-    0
+  const actions = row.locator("..")
+  const pin = actions.getByRole("button", { name: "置顶任务“Q3 enrollment data”" })
+  const archive = actions.getByRole("button", { name: "归档任务“Q3 enrollment data”" })
+  await expect(actions.locator(".sidebar-conversation-actions")).toHaveCSS(
+    "opacity",
+    "1"
   )
-  expect(destinationsBounds.y).toBeCloseTo(menuBounds.y, 0)
-  await page.keyboard.press("Escape")
-  await page.keyboard.press("Escape")
+  await expect(actions.getByRole("button", { name: /更多操作/ })).toHaveCount(0)
+  await pin.focus()
+  await page.keyboard.press("Tab")
+  await expect(archive).toBeFocused()
   await page.keyboard.press("Control+k")
   await expect(page.getByRole("dialog", { name: "搜索" })).toBeVisible()
   await page.keyboard.press("Escape")
