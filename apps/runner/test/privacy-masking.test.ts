@@ -101,6 +101,20 @@ describe("PrivacyMasker", () => {
     expect(mask.restoreText(result.text, "embedded-json")).toBe(text);
   });
 
+  it("keeps the shell quoting around a masked Authorization header", () => {
+    const mask = masker();
+    const text = [
+      "curl --url 'https://example.test/api' \\",
+      "  -H 'authorization: Bearer abcdefghijklmnopqrstuvwxyz' \\",
+      "  --insecure",
+    ].join("\n");
+    const result = mask.maskText(text);
+    expect(result.text).toContain("authorization: {{SECRET_");
+    expect(result.text).toContain("}}' \\");
+    expect(result.text).toContain("--insecure");
+    expect(mask.restoreText(result.text)).toBe(text);
+  });
+
   it("does not mask variables, counts, or public-key names", () => {
     const mask = masker();
     const text = [
