@@ -8,6 +8,7 @@ export default ({ command }: { command: string }) => ({
   bindings: "../web/src/adapters/desktop/mygo.ts",
   out: "build",
   macos: {
+    icon: "AppIcon.icns",
     signingIdentity: "-",
     ...(command === "build" && process.env.LINKSENSE_DESKTOP_MACOS_RELEASE === "1" && {
       notarize: { keychainProfile: "linksense-desktop-notary" },

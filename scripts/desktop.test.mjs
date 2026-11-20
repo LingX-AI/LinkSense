@@ -54,9 +54,10 @@ test("MyGo scopes notarization and Node's entitlement override to release builds
   assert.deepEqual(inspect("1", "dev"), development);
   assert.equal(development.identifier, "org.linksense.desktop");
   assert.deepEqual(development.urlSchemes, ["linksense-desktop"]);
-  assert.deepEqual(development.macos, { signingIdentity: "-" });
+  assert.deepEqual(development.macos, { icon: "AppIcon.icns", signingIdentity: "-" });
   const release = inspect("1", "build");
   assert.deepEqual(release.macos, {
+    icon: "AppIcon.icns",
     signingIdentity: "-",
     notarize: { keychainProfile: "linksense-desktop-notary" },
     helperEntitlements: { "runtime/bin/node": "node-release.entitlements.plist" },
