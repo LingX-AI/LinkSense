@@ -49,6 +49,14 @@ Refresh restores subsequent app launches without opening the browser again.
 Deploy the matching API and Web authorization routes before distributing this
 client. Existing Web sessions and refresh-token records need no migration.
 
+On macOS the LinkSense menu bar item can reopen the main window, open
+Settings or New Task, and quit. To keep tasks running when the window closes,
+enable **Keep Running in the Menu Bar When the Window Closes** there. The
+choice persists on this Mac and is off for new and upgraded installs.
+**Quit** still exits the app. The native Settings (`Command+,`) and New Task
+(`Command+N`) actions work after sign-in and respect the app's unsaved-change
+prompts.
+
 To enable **Check for updates**, supply both
 `LINKSENSE_DESKTOP_UPDATE_FEED` (the target's full update manifest URL) and
 `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` (the base64 Ed25519 public key) at build
