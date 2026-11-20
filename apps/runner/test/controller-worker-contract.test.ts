@@ -119,7 +119,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(110_000);
   });
 
-  it("preserves capability metadata and the separate memory model route over Fetch", async () => {
+  it("preserves capability metadata, the memory route and privacy masking over Fetch", async () => {
     const memoryExtraction = {
       model: "memory-model",
       reasoningEffort: "low",
@@ -131,6 +131,18 @@ describe("controller and dynamic worker HTTP contracts", () => {
         cached_input_price_per_million: "0.02",
         output_price_per_million: "0.5",
       },
+    };
+    const privacyMasking = {
+      revision: 3,
+      secrets: true,
+      personal: false,
+      kinds: {},
+      words: ["Nightjar"],
+      words_any_case: true,
+      words_whole: true,
+      actions: {},
+      allow: [],
+      placeholder_key: "b".repeat(64),
     };
     const controllerConfig = parseRunnerConfig({
       LINKSENSE_RUNNER_MODE: "controller",
@@ -245,6 +257,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
               protocolMode: "native_responses",
               apiKey: "test-provider-key",
               memoryExtraction,
+              privacyMasking,
             },
             expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
             capabilityGeneration: "a".repeat(64),
@@ -294,7 +307,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
           capabilityGeneration: "a".repeat(64),
           codexThreadId: null,
           environment: {},
-          modelProvider: { memoryExtraction },
+          modelProvider: { memoryExtraction, privacyMasking },
           context: {
             requireFinalResponse: true,
             selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],

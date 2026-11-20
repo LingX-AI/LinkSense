@@ -519,6 +519,9 @@ function prewarmInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
@@ -1884,6 +1887,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -2262,6 +2268,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -2387,6 +2396,9 @@ export function buildRunnerServer(
             : {}),
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -2493,6 +2505,9 @@ export function buildRunnerServer(
             model: body.model,
             reasoningEffort: body.reasoningEffort,
             modelProvider: {
+              ...(body.modelProvider.privacyMasking
+                ? { privacyMasking: body.modelProvider.privacyMasking }
+                : {}),
               ...(body.modelProvider.memoryExtraction
                 ? { memoryExtraction: body.modelProvider.memoryExtraction }
                 : {}),
@@ -2896,6 +2911,9 @@ function goalRuntimeInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
@@ -2947,6 +2965,9 @@ function subAgentReadInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
