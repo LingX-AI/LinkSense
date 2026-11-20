@@ -102,7 +102,10 @@ describe("LinkSense Core MCP Skill creator module", () => {
     })
     await expect(rpc.call(2, "tools/list", {})).resolves.toMatchObject({
       tools: expect.arrayContaining([
-        expect.objectContaining({ name: "preview_skill_zip" }),
+        expect.objectContaining({
+          name: "preview_skill_zip",
+          description: expect.stringContaining("existing or newly created Skill ZIP"),
+        }),
         expect.objectContaining({
           name: "install_skill",
           description: expect.stringContaining("A preview with no risks may be installed immediately"),
