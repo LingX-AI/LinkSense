@@ -3,6 +3,7 @@ import path from "node:path"
 import Fastify from "fastify"
 import {
   browserUseFailure, browserUseRequestSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
+  desktopArtifactSourceBindingSchema,
   desktopArtifactUploadLifetimeMs, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
   desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, desktopWebsiteArtifactPrepareSchema,
   errorCatalog, internalKnowledgeDocumentListRequestSchema,
@@ -165,6 +166,7 @@ export function desktopWorkerCallbacks(
     mimeType: z.string().max(160).optional(),
     // The site root is accepted only when the run negotiated artifact.website.
     webRootRelativePath: z.string().min(1).max(2_000).optional(),
+    sourceBinding: desktopArtifactSourceBindingSchema.optional(),
   })
   app.post("/internal/file-service/register-artifact", { bodyLimit: 16_384 }, async (request, reply) => {
     const { link, run } = authenticate(request.headers)
@@ -188,6 +190,7 @@ export function desktopWorkerCallbacks(
         let source: DesktopArtifactSource | undefined
         try {
           let invocation: DesktopToolInvocation
+          let sourceSha256: string
           if (body.webRootRelativePath) {
             const snapshot = await openDesktopWebsiteArtifactSource({
               workspaceRoot: artifacts.workspace,
@@ -197,6 +200,7 @@ export function desktopWorkerCallbacks(
               checkWorkspace: artifacts.check,
             })
             source = snapshot.source
+            sourceSha256 = snapshot.entrySha256
             const prepared = desktopWebsiteArtifactPrepareSchema.safeParse({
               filename: "website.zip",
               display_name: body.displayName,
@@ -209,6 +213,7 @@ export function desktopWorkerCallbacks(
             invocation = { operation: "artifact.website", body: prepared.data }
           } else {
             source = await openDesktopArtifactSource(artifacts.workspace, body.workspaceRelativePath, desktopArtifactMaxBytes, lifetime, artifacts.check)
+            sourceSha256 = source.sha256
             const prepared = desktopArtifactPrepareSchema.safeParse({
               filename: path.posix.basename(body.workspaceRelativePath),
               display_name: body.displayName,
@@ -228,8 +233,12 @@ export function desktopWorkerCallbacks(
               grant.operation !== "artifact.website") || grant.operation !== invocation.operation) {
             throw new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
           }
+          const desktopSourcePathDigest = body.sourceBinding?.sha256 === sourceSha256
+            ? body.sourceBinding.digest : undefined
           return await uploadDesktopArtifact({
-            origin: serverOrigin, turnId: run.scope.turn_id, runToken: run.token, source, grant: grant.data, signal: lifetime,
+            origin: serverOrigin, turnId: run.scope.turn_id, runToken: run.token, source,
+            ...(desktopSourcePathDigest && { desktopSourcePathDigest }),
+            grant: grant.data, signal: lifetime,
           })
         } finally {
           if (source) await source.close().catch(() => undefined)

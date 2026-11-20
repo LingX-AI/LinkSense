@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
+import i18n from "@/i18n"
 import {
   setupApplicationTests,
   conversation,
@@ -12,6 +13,135 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+
+  it.each([true, false])(
+    "refreshes the Mac file association while the turn is running, confirmation first: %s",
+    async (confirmationFirst) => {
+      const turnId = "30000000-0000-4000-8000-000000000093"
+      const fileId = "30000000-0000-4000-8000-000000000094"
+      const path = "$WORKSPACE/report.txt"
+      const conversationId = "20000000-0000-4000-8000-000000000001"
+      const turn = { id: turnId, status: "running" }
+      const frame = (sequence: number) => ({
+        id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+        conversation_id: conversationId,
+        turn_id: turnId,
+        sequence_no: sequence,
+        sse_event_id: `c1:${sequence}`,
+        visibility: "user_visible",
+        created_at: "2026-11-20T00:00:00.000Z",
+      })
+      const completion = {
+        ...frame(confirmationFirst ? 3 : 2),
+        event_type: "item/completed",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/completed",
+          params: {
+            threadId: "native-thread",
+            turnId: "native-turn",
+            item: {
+              type: "fileChange",
+              id: "report-creation",
+              status: "completed",
+              changes: [{ path, kind: { type: "add" } }],
+            },
+          },
+        },
+      }
+      const confirmation = {
+        ...frame(confirmationFirst ? 2 : 3),
+        event_type: "conversation.artifact.created",
+        payload: {
+          schema_version: 1,
+          file_id: fileId,
+          display_name: "report.txt",
+          mime_type: "text/plain",
+          size_bytes: 8,
+        },
+      }
+      const detailReads: string[] = []
+      let completed = false
+      let confirmed = false
+      const { fetchMock } = installApiMock({
+        conversationGetResponse: async () => {
+          detailReads.push(`${completed}:${confirmed}`)
+          return json({
+            success: true,
+            data: {
+              conversation: {
+                ...conversation,
+                execution_target: "local",
+                execution_status: "running",
+              },
+              turns: [turn],
+              messages: conversation.messages.filter((message) => message.role === "user")
+                .map((message) => ({ ...message, turn_id: turnId })),
+              events: completed ? [completion] : [],
+              files: confirmed ? [{
+                id: fileId,
+                filename: "report.txt",
+                kind: "artifact",
+                downloadable: true,
+                turn_id: turnId,
+                ...(completed && {
+                  desktop_file_change: { event_id: completion.sse_event_id, change_index: 0 },
+                }),
+              }] : [],
+              last_event_id: "c1:1",
+            },
+          })
+        },
+      })
+      const baseFetch = fetchMock.getMockImplementation()
+      if (!baseFetch) throw new Error("Application API mock is missing")
+      let stream: ReadableStreamDefaultController<Uint8Array> | undefined
+      fetchMock.mockImplementation(async (input, init) => {
+        if (new URL(String(input), window.location.origin).pathname !== "/api/v1/conversations/c1/events") {
+          return baseFetch(input, init)
+        }
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) { stream = controller },
+        }), { headers: { "content-type": "text/event-stream" } })
+      })
+      renderApp()
+      await waitFor(() => expect(stream).toBeDefined())
+      const send = (event: typeof completion | typeof confirmation) =>
+        act(async () => {
+          stream?.enqueue(new TextEncoder().encode(
+            `id: ${event.sse_event_id}\nevent: ${event.event_type}\ndata: ${JSON.stringify(event)}\n\n`
+          ))
+        })
+      completed = !confirmationFirst
+      confirmed = confirmationFirst
+      await send(confirmationFirst ? confirmation : completion)
+      if (confirmationFirst) {
+        await waitFor(() => expect(detailReads).toContain("false:true"))
+      } else {
+        await waitFor(() => expect(detailReads).toContain("true:false"))
+      }
+      completed = confirmed = true
+      await send(confirmationFirst ? completion : confirmation)
+      await waitFor(() => expect(detailReads).toContain("true:true"))
+
+      const interaction = userEvent.setup()
+      const summary = await screen.findByTestId(`turn-summary-${turnId}`)
+      await interaction.click(within(summary).getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: i18n.t("conversation.thinking"),
+        }),
+      }))
+      const activity = await within(summary).findByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: i18n.t("conversation.nativeActivities.fileChangeCompleted", { count: 1 }),
+        }),
+      })
+      await interaction.click(activity)
+      expect(await within(summary).findByRole("button", { name: "下载 report.txt" })).toBeVisible()
+      expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
+    }
+  )
 
   it.each(["attachment", "image_preview"] as const)(
     "loads a viewed %s through its authenticated image endpoint without registering an artifact",

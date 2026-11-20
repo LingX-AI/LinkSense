@@ -18,6 +18,7 @@ import {
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
   runnerPrivacyMaskingCaptureSchema,
+  type DesktopArtifactSourceBinding,
   type ImagePreviewRegistration,
   type RunnerStartSettled,
 } from "@linksense/shared";
@@ -85,6 +86,7 @@ export interface RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
+    sourceBinding?: DesktopArtifactSourceBinding;
   }, signal?: AbortSignal): Promise<unknown>;
   registerImagePreview(input: ImagePreviewRegistration): Promise<unknown>;
   generateImage?(input: {
@@ -405,6 +407,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
+    sourceBinding?: DesktopArtifactSourceBinding;
   }, signal?: AbortSignal): Promise<unknown> {
     // Desktop keeps the file in the local workspace and relays it through the
     // supervisor; the cloud registration contract is unchanged.
@@ -663,6 +666,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     displayName: string;
     mimeType?: string;
     webRootRelativePath?: string;
+    sourceBinding?: DesktopArtifactSourceBinding;
   }, signal?: AbortSignal): Promise<unknown> {
     const response = await this.request(
       "/internal/file-service/register-artifact",
@@ -673,6 +677,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         displayName: input.displayName,
         ...(input.mimeType ? { mimeType: input.mimeType } : {}),
         ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
+        ...(input.sourceBinding && { sourceBinding: input.sourceBinding }),
       },
       this.workspaceManager.ownerFor(input.conversationId),
       signal,

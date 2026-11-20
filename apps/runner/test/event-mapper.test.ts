@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
+
 import {
   runnerCodexEventSchema,
   runnerCodexPreviewLimits,
 } from "@linksense/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   deriveSubAgentThreadLabel,
@@ -19,6 +21,49 @@ const previewContext = {
 };
 
 describe("mapCodexNotification", () => {
+  it("binds native additions by their exact local path without changing the redacted preview", () => {
+    const contents = "private fixture contents";
+    const checksum = createHash("sha256").update(contents).digest("hex");
+    const unicode = "artifacts/résumé.txt".normalize("NFD");
+    const long = `artifacts/${"directory/".repeat(110)}report.txt`;
+    const notification = {
+      method: "item/completed",
+      params: {
+        threadId: "thr_1", turnId: "turn_1",
+        item: {
+          id: "file-change", type: "fileChange", status: "completed",
+          changes: [
+            `${previewContext.workspace}/${unicode}`,
+            `${previewContext.workspace}/${long}`,
+            `${previewContext.codexHome}/artifacts/preview.png`,
+            `${previewContext.workspace}/../outside.txt`,
+          ].map(path => ({ path, kind: { type: "add" }, diff: contents })),
+        },
+      },
+    };
+    const onDesktopFileCreated = vi.fn();
+    const mapped = mapCodexNotification(notification, previewContext, { onDesktopFileCreated });
+    expect(mapped).toEqual(mapCodexNotification(notification, previewContext));
+    expect(onDesktopFileCreated.mock.calls).toEqual([
+      [unicode, "$WORKSPACE/artifacts/résumé.txt", "file-change", checksum],
+      [long, expect.stringContaining("…"), "file-change", checksum],
+    ]);
+    expect(JSON.stringify(mapped)).not.toContain(previewContext.workspace);
+    expect(JSON.stringify(mapped)).not.toContain(contents);
+    expect(JSON.stringify(mapped)).not.toContain(checksum);
+
+    onDesktopFileCreated.mockClear();
+    const changes = [
+      { path: unicode, kind: { type: "add" }, diff: contents },
+      { path: unicode.normalize("NFC"), kind: { type: "add" }, diff: contents },
+      { path: "artifacts/edited.txt", kind: { type: "update" }, diff: "only a patch" },
+    ];
+    mapCodexNotification({
+      ...notification, params: { ...notification.params, item: { ...notification.params.item, changes } },
+    }, previewContext, { onDesktopFileCreated });
+    expect(onDesktopFileCreated).not.toHaveBeenCalled();
+  });
+
   it("projects only a bounded Mac Browser Use action and destination, never raw arguments", () => {
     const notification = {
       method: "item/started",

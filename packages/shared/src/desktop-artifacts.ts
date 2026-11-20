@@ -10,6 +10,29 @@ export const desktopArtifactMaxParts = desktopArtifactMaxBytes / desktopArtifact
 // The additional space covers ZIP headers for the bounded website entry list.
 export const webBundleArchiveMaxBytes = webBundleLimits.totalBytes + 8 * 1024 ** 2;
 
+/** Binds the verified upload to one native item's display path, never to a raw local path. */
+export const desktopArtifactPathDigestHeader = "x-linksense-desktop-artifact-path-digest";
+export const desktopArtifactPathDigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+export const desktopArtifactPathDigestInput = (turnId: string, itemId: string, preview: string): string =>
+  JSON.stringify([turnId.toLowerCase(), itemId, preview]);
+export const desktopArtifactRelativePathSchema = z.string().refine(value =>
+  !/[\\\0]/u.test(value) && !/^[a-z]:\//iu.test(value) &&
+  value.split("/").every(part => part.length > 0 && part !== "." && part !== ".."),
+);
+// Verified within the Mac runtime; neither value is part of the device event protocol.
+export const desktopArtifactSourceBindingSchema = z.strictObject({
+  digest: desktopArtifactPathDigestSchema,
+  sha256: desktopArtifactPathDigestSchema,
+});
+export type DesktopArtifactSourceBinding = z.infer<typeof desktopArtifactSourceBindingSchema>;
+
+/** API-only association to a change in a persisted native completion event. */
+export const desktopArtifactFileChangeSchema = z.strictObject({
+  event_id: z.string().min(1).max(160),
+  change_index: z.number().int().nonnegative(),
+});
+export type DesktopArtifactFileChange = z.infer<typeof desktopArtifactFileChangeSchema>;
+
 const artifactName = z.string().min(1).max(260)
   .refine(value => value.trim() !== "" && value !== "." && value !== ".." && !/[\p{Cc}/\\]/u.test(value));
 export const desktopArtifactPrepareSchema = z.strictObject({

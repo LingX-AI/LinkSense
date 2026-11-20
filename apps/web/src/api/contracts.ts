@@ -32,6 +32,7 @@ import {
   conversationEventSchema,
   conversationExecutionTargetSchema,
   conversationFileKindSchema,
+  desktopArtifactFileChangeSchema,
   conversationCollaborationModeSchema,
   conversationApplicationDevelopmentRoleSchema,
   conversationHistoryPageSchema,
@@ -410,6 +411,7 @@ export const conversationFileSchema = z
     created_at: z.string().optional(),
     download_available: z.boolean().optional(),
     downloadable: z.boolean().optional(),
+    desktop_file_change: desktopArtifactFileChangeSchema.optional(),
   })
   .passthrough()
   .refine((value) => Boolean(value.name ?? value.filename), {
@@ -639,6 +641,7 @@ export const conversationTimelineEventSchema = z.object({
   payload: z.unknown(),
   created_at: z.string(),
   sequence_no: z.number().int().nonnegative(),
+  file_change_artifact_ids: z.record(z.string(), uuidSchema).optional(),
 })
 
 export type ConversationEvent = z.infer<typeof conversationTimelineEventSchema>
@@ -1110,6 +1113,15 @@ const conversationDetailPayloadSchema = z
         (message) => message.artifacts?.map((file) => file.id) ?? []
       )
     )
+    const artifactIdsByEvent = new Map<string, Record<string, string>>()
+    for (const file of value.files) {
+      if (file.kind !== "artifact" || !file.desktop_file_change || !file.download_available)
+        continue
+      const { event_id, change_index } = file.desktop_file_change
+      const ids = artifactIdsByEvent.get(event_id) ?? {}
+      ids[change_index] = file.id
+      artifactIdsByEvent.set(event_id, ids)
+    }
     return conversationSchema.parse({
       ...value.conversation,
       goal: value.goal ?? value.conversation.goal ?? null,
@@ -1138,7 +1150,13 @@ const conversationDetailPayloadSchema = z
         (file) => file.kind === "artifact" && !attachedArtifactIds.has(file.id)
       ),
       activities: value.activities,
-      events: value.events.map(toConversationTimelineEvent),
+      events: value.events.map((event) => {
+        const ids = artifactIdsByEvent.get(event.sse_event_id)
+        return {
+          ...toConversationTimelineEvent(event),
+          ...(ids && { file_change_artifact_ids: ids }),
+        }
+      }),
       model_context_usage:
         value.model_context_usage ??
         value.conversation.model_context_usage ??

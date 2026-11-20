@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
-import { desktopArtifactPartBytes } from "@linksense/shared";
+import { desktopArtifactPartBytes, desktopArtifactPathDigestInput } from "@linksense/shared";
 import JSZip from "jszip";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { AppError } from "../src/lib/errors.js";
@@ -100,6 +100,25 @@ it("publishes only after a temporary upload is verified and rechecked", async ()
   expect(objects.get(finalKey)).toEqual(text);
   expect(storage.putObjectStream).toHaveBeenCalledTimes(2);
   expect(register).toHaveBeenCalledWith(expect.objectContaining({ sizeBytes: text.length, sha256: sha256(text), mimeType: "text/plain" }), expect.any(Function));
+  expect(register.mock.calls[0]?.[0]).not.toHaveProperty("desktopSourcePathDigest");
+});
+
+it("distinguishes two native creations at the same path in one turn", () => {
+  expect(desktopArtifactPathDigestInput("turn-1", "first", "site/index.html"))
+    .not.toBe(desktopArtifactPathDigestInput("turn-1", "second", "site/index.html"));
+});
+
+it("forwards the desktop source path digest to registration without returning it", async () => {
+  const { scope, signal, service, prepare, check, register } = await fixture();
+  const digest = "b".repeat(64);
+  const grant = await prepare();
+  await service.upload(scope, grant.artifact_id, text.length, Readable.from([text]), signal, check);
+  const receipt = await service.confirm(scope, grant.artifact_id, signal, check, vi.fn(), digest);
+  expect(register).toHaveBeenCalledWith(
+    expect.objectContaining({ desktopSourcePathDigest: digest }), expect.any(Function),
+  );
+  expect(receipt).not.toHaveProperty("desktopSourcePathDigest");
+  expect(JSON.stringify(receipt)).not.toContain(digest);
 });
 
 it("refuses a different connection and a changed upload before registration or final storage", async () => {

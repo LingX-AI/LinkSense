@@ -1504,6 +1504,8 @@ model ConversationFile {
   mimeType              String?  @map("mime_type") @db.VarChar(160)
   sizeBytes             BigInt   @map("size_bytes") @db.BigInt
   checksumSha256        String?  @map("checksum_sha256") @db.VarChar(64)
+  /// SHA-256 binding to the verified native file activity; never returned or logged.
+  desktopSourcePathDigest String? @map("desktop_source_path_digest") @db.VarChar(64)
   storageBackend        String   @map("storage_backend") @db.VarChar(32)
   workspaceRelativePath String?  @map("workspace_relative_path") @db.Text
   workspaceRootRelPath  String?  @map("workspace_root_rel_path") @db.Text

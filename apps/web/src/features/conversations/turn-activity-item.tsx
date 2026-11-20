@@ -38,6 +38,9 @@ export function TurnActivityItem({
   open,
   onOpenChange,
   artifactFilesById,
+  turnId,
+  onDownload,
+  downloadingFileId,
   loadArtifactPreview,
   onPreviewImage,
 }: {
@@ -48,6 +51,9 @@ export function TurnActivityItem({
   open?: boolean
   onOpenChange?: (open: boolean) => void
   artifactFilesById?: ReadonlyMap<string, ConversationFile>
+  turnId?: string
+  onDownload?: (file: ConversationFile) => void
+  downloadingFileId?: string
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewImage?: (item: ImagePreviewItem) => void
 }) {
@@ -70,7 +76,7 @@ export function TurnActivityItem({
             stopped && first.item.type !== "contextCompaction"
               ? "item/completed"
               : first.method,
-            { stopped }
+            { stopped, artifactIdsByChange: first.artifactIdsByChange }
           )
       : null
   const activeActivities = effectiveActivities.filter(
@@ -163,6 +169,10 @@ export function TurnActivityItem({
                 method={activity.method}
                 stopped={stopped}
                 artifactFilesById={artifactFilesById}
+                artifactIdsByChange={activity.artifactIdsByChange}
+                turnId={turnId}
+                onDownload={onDownload}
+                downloadingFileId={downloadingFileId}
                 loadArtifactPreview={loadArtifactPreview}
                 onPreviewImage={onPreviewImage}
               />
@@ -173,6 +183,10 @@ export function TurnActivityItem({
         model && (
           <NativeActivityDetails
             model={model}
+            artifactFilesById={artifactFilesById}
+            turnId={turnId}
+            onDownload={onDownload}
+            downloadingFileId={downloadingFileId}
             imageFileId={imageFileId}
             imageFile={
               imageFileId

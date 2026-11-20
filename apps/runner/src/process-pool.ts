@@ -57,6 +57,7 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
+  desktopArtifactPathDigestInput,
   modelAutoCompactTokenLimitFor,
   modelIdentifierSchema,
   PUBLIC_SITE_SKILL_NAME,
@@ -773,6 +774,7 @@ type ManagedProcess = {
   }>;
   assistantMessageProjections: Map<string, string>;
   imageViewProjections: Map<string, string | null>;
+  desktopFileCreations: Map<string, { itemId: string; preview: string; sha256: string }>;
   /** Raw child ids remain Runner-local and only index UI-safe labels. */
   subAgentLabelsByThreadId: Map<string, string>;
   /** Native child lifecycle observed on this app-server; never projected raw. */
@@ -4366,6 +4368,20 @@ export class AppServerProcessPool {
         400,
       );
     }
+    // A registration request may arrive while the preceding native notification
+    // is still queued. Use the native receive order, not HTTP arrival order.
+    const creation = this.options.desktopWorkspace
+      ? await managed.notificationQueue.enqueueOperation(async () =>
+          managed.desktopFileCreations.get(`${turnId}\0${input.workspaceRelativePath}`),
+        )
+      : undefined;
+    if (this.options.desktopWorkspace) {
+      signal?.throwIfAborted();
+      if (this.processes.get(conversationId) !== managed ||
+          managed.activeProjectionTurnId !== turnId || !managed.activeTurnId) {
+        throw new FileServiceRequestError("FILE_SERVICE_TURN_INACTIVE", false, 409);
+      }
+    }
     const artifact = {
       conversationId,
       turnId,
@@ -4374,6 +4390,13 @@ export class AppServerProcessPool {
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.artifactKind ? { artifactKind: input.artifactKind } : {}),
       ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
+      ...(creation && {
+        sourceBinding: {
+          digest: createHash("sha256")
+            .update(desktopArtifactPathDigestInput(turnId, creation.itemId, creation.preview)).digest("hex"),
+          sha256: creation.sha256,
+        },
+      }),
     };
     return this.options.eventSink.registerArtifact(artifact, ...(signal ? [signal] : []));
   }
@@ -5878,6 +5901,7 @@ export class AppServerProcessPool {
         userInputConfirmations: new Map(),
         assistantMessageProjections: new Map(),
         imageViewProjections: new Map(),
+        desktopFileCreations: new Map(),
         subAgentLabelsByThreadId: new Map(),
         subAgentRuntimeByThreadId: new Map(),
         subAgentRuntimeNotificationRevision: 0,
@@ -6551,10 +6575,20 @@ export class AppServerProcessPool {
     }
     await this.hydrateSubAgentLabels(managed, notification);
     const activeTurnId = managed.activeTurnId;
+    const projectionTurnId = managed.activeProjectionTurnId;
     const projectionContext = {
       ...this.correlateNativeStopHook(managed, notification),
       subAgentLabelsByThreadId: managed.subAgentLabelsByThreadId,
       desktopBrowserApproval: this.options.desktopBrowserEnabled === true,
+      ...(this.options.desktopArtifactsEnabled && projectionTurnId && notifiedTurnId === activeTurnId && {
+        onDesktopFileCreated: (path: string, preview: string, itemId: string, sha256: string) => {
+          // shortcut: older creations fall back to cards; grow the window only if typical turns exhaust it.
+          rememberBounded(
+            managed.desktopFileCreations,
+            `${projectionTurnId}\0${path}`, { itemId, preview, sha256 }, runnerCodexPreviewLimits.fileChanges,
+          );
+        },
+      }),
     } satisfies CodexNotificationProjectionContext;
     const events = notifications.flatMap(entry => mapCodexNotification(
       entry,

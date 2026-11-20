@@ -21,7 +21,7 @@ export async function openDesktopWebsiteArtifactSource(input: {
   webRootRelativePath: string
   signal: AbortSignal
   checkWorkspace?: () => Promise<void>
-}): Promise<{ source: DesktopArtifactSource; entryPath: string }> {
+}): Promise<{ source: DesktopArtifactSource; entryPath: string; entrySha256: string }> {
   const { workspaceRoot, signal } = input
   signal.throwIfAborted()
   const entry = webBundlePathSchema.safeParse(input.workspaceRelativePath)
@@ -43,6 +43,7 @@ export async function openDesktopWebsiteArtifactSource(input: {
   let files = 0
   let entries = 0
   let totalBytes = 0
+  let entrySha256: string | undefined
   const listStat = async (target: string) => lstat(target, { bigint: true }).catch(() => { throw busyArtifact() })
   const visit = async (directory: string, relative: string, depth: number): Promise<void> => {
     signal.throwIfAborted()
@@ -75,6 +76,7 @@ export async function openDesktopWebsiteArtifactSource(input: {
         if (BigInt(file.sizeBytes) !== info.size) throw busyArtifact()
         const bytes = await buffer(file.read(signal))
         totalBytes += bytes.length
+        if (relativePath === entryPath) entrySha256 = file.sha256
         zip.file(relativePath, bytes, { createFolders: false })
         stats.set(absolute, info)
       } finally {
@@ -83,7 +85,7 @@ export async function openDesktopWebsiteArtifactSource(input: {
     }
   }
   await visit(verifiedRoot, "", 0)
-  if (!zip.file(entryPath)) throw invalidArtifact()
+  if (!entrySha256) throw invalidArtifact()
   // Recheck the whole tree so a concurrent edit cannot mix different saves.
   for (const [target, before] of stats) {
     signal.throwIfAborted()
@@ -97,7 +99,7 @@ export async function openDesktopWebsiteArtifactSource(input: {
   if (archive.length === 0 || archive.length > webBundleArchiveMaxBytes) throw limitExceeded()
   signal.throwIfAborted()
   await check().catch(() => { throw busyArtifact() })
-  return { entryPath, source: archiveArtifactSource(archive) }
+  return { entryPath, entrySha256, source: archiveArtifactSource(archive) }
 }
 
 function archiveArtifactSource(archive: Buffer): DesktopArtifactSource {

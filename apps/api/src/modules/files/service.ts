@@ -13,6 +13,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   conversationEventSchema,
   desktopArtifactMaxBytes,
+  desktopArtifactPathDigestSchema,
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   interactiveApplicationFileSchema,
   type InteractiveApplicationFile,
@@ -146,6 +147,7 @@ const verifiedDesktopArtifactInputSchema = z.strictObject({
     .string()
     .regex(/^[a-f0-9]{64}$/iu)
     .transform((value) => value.toLowerCase()),
+  desktopSourcePathDigest: desktopArtifactPathDigestSchema.optional(),
 });
 
 export type VerifiedDesktopArtifactInput = z.infer<
@@ -1191,6 +1193,12 @@ export class FileService {
             checksumSha256: verified.sha256,
             objectKey,
           });
+          // A replay never changes an existing binding. Old artifacts have no
+          // digest and stay replayable; when both sides carry one it must match.
+          if (committed.desktopSourcePathDigest && verified.desktopSourcePathDigest &&
+              committed.desktopSourcePathDigest !== verified.desktopSourcePathDigest) {
+            throw new AppError("CONFLICT");
+          }
           if (verified.webBundle) {
             const bundle = await tx.webArtifactBundle.findFirst({
               where: { fileId: committed.id, ownerId: verified.ownerId, conversationId: verified.conversationId },
@@ -1211,6 +1219,7 @@ export class FileService {
           sizeBytes,
           checksumSha256: verified.sha256,
           objectKey,
+          ...(verified.desktopSourcePathDigest && { desktopSourcePathDigest: verified.desktopSourcePathDigest }),
           ...(verified.webBundle && { webBundle: verified.webBundle }),
         });
         return { artifact: created.created, turnId: turn.id, created };
@@ -1252,6 +1261,7 @@ export class FileService {
       sizeBytes: bigint;
       checksumSha256: string;
       objectKey: string;
+      desktopSourcePathDigest?: string;
       webBundle?: WebBundleManifest | null;
     },
   ) {
@@ -1273,6 +1283,10 @@ export class FileService {
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         checksumSha256: input.checksumSha256,
+        ...(input.desktopSourcePathDigest && {
+          desktopSourcePathDigest: input.desktopSourcePathDigest,
+          createdBy: input.ownerId,
+        }),
         storageBackend: "minio",
         minioObjectKey: input.objectKey,
         downloadable: true,

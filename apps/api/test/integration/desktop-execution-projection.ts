@@ -14,6 +14,8 @@ import {
   desktopArtifactMaxParts,
   desktopArtifactPartBytes,
   desktopArtifactPath,
+  desktopArtifactPathDigestHeader,
+  desktopArtifactPathDigestInput,
   desktopArtifactReceiptSchema,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
@@ -93,6 +95,7 @@ export async function verifyDesktopExecutionProjection(input: {
   workspaceRoot: string;
   otherOwnerId: string;
   legacyConversationId: string;
+  legacyArtifact: { id: string; contents: Buffer };
   cloudConversationId: string;
 }): Promise<void> {
   const { prisma, ownerId, deviceId, token } = input;
@@ -188,6 +191,15 @@ export async function verifyDesktopExecutionProjection(input: {
     const files = new FileService(prisma, conversations, storage, audit, config, redis, {
       enqueueObjectDelete: outsideFixture, enqueueWorkspaceDirectoryRemoval: outsideFixture,
     });
+    const legacyArtifact = input.legacyArtifact;
+    const legacyFile = await prisma.conversationFile.findUniqueOrThrow({ where: { id: legacyArtifact.id } });
+    assert.equal(legacyFile.desktopSourcePathDigest, null);
+    assert(legacyFile.minioObjectKey);
+    await storage.putObject(legacyFile.minioObjectKey, legacyArtifact.contents, { "content-type": "text/plain" });
+    const legacyDownload = await files.readArtifactDownload(ownerId, input.legacyConversationId, legacyArtifact.id, {});
+    assert.equal(legacyDownload.filename, "legacy.txt");
+    assert.deepEqual(await buffer(legacyDownload.data), legacyArtifact.contents);
+    await assert.rejects(files.readArtifactDownload(input.otherOwnerId, input.legacyConversationId, legacyArtifact.id, {}), { code: "CONVERSATION_NOT_FOUND" });
     const jobs = new BackgroundJobs(config, storage, runner, audit, config.capabilityRoot, maintenance, prisma);
     let beforeArtifactRegistration: (() => Promise<void>) | undefined;
     const local = await verifyLocalComputerSessions({ ...input, conversations });
@@ -539,6 +551,7 @@ export async function verifyDesktopExecutionProjection(input: {
         title: `Mac artifact ${action}`, titleSource: "manual", archiveStatus: "active",
       } });
       const projectionTurnId = randomUUID();
+      const nativeArtifactTurnId = randomUUID();
       await prisma.conversationTurnStartIntent.create({ data: {
         projectionTurnId, ownerId, conversationId: task.id, runtimeGeneration: task.runtimeGeneration,
         capabilityGeneration, inputText: "Publish the fixture file", capabilitiesJson: [], attachmentsJson: [],
@@ -568,10 +581,33 @@ export async function verifyDesktopExecutionProjection(input: {
         prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId } }),
         prisma.conversationTurn.create({ data: {
           id: projectionTurnId, conversationId: task.id, submittedBy: ownerId, codexThreadId: nativeThread,
-          codexTurnId: randomUUID(), sequenceNo: 1, status: "running", startedAt: new Date(),
+          codexTurnId: nativeArtifactTurnId, sequenceNo: 1, status: "running", startedAt: new Date(),
           submitMode: "normal", capabilityGeneration, capabilitiesJson: [],
         } }),
       ]);
+      const filePath = "$WORKSPACE/artifacts/report.txt";
+      const activityId = randomUUID();
+      const showLink = action === "stop" && !website;
+      const artifactDetail = () => conversations.get(ownerId, task.id);
+      const artifactHistory = () => events.historyPage(ownerId, task.id, { afterSequence: 0n, limit: 20 });
+      if (showLink) {
+        const entry = {
+          deliveryId: randomUUID(),
+          event: {
+            method: "item/completed", visibility: "user_visible",
+            params: {
+              threadId: nativeThread, turnId: nativeArtifactTurnId,
+              item: { id: activityId, type: "fileChange", status: "completed", changes: [{ path: filePath, kind: { type: "add" } }] },
+            },
+          },
+        } satisfies EventDelivery;
+        assertAccepted(await sendEvents(initial.socket, {
+          type: "execution.callback", id: randomUUID(), operation: "events",
+          conversation_id: task.id, turn_id: projectionTurnId, runtime_generation: task.runtimeGeneration,
+          run_token: runToken, body: { conversationId: task.id, events: [entry] },
+        }), [entry.deliveryId]);
+        assert.deepEqual((await artifactDetail()).files, []);
+      }
       const prepare = async () => {
         const result = await invokeTool(artifactRequest());
         assert(result.ok && result.operation === operation);
@@ -583,14 +619,18 @@ export async function verifyDesktopExecutionProjection(input: {
           body: new Uint8Array(artifactContents), signal: AbortSignal.timeout(5_000),
         });
         assert.equal(upload.status, 204);
-        return { id, confirm: () => fetch(`${endpoint}/confirm`, {
-          method: "POST", headers, signal: AbortSignal.timeout(5_000),
+        return { id, confirm: (digest?: string) => fetch(`${endpoint}/confirm`, {
+          method: "POST",
+          headers: { ...headers, ...(digest && { [desktopArtifactPathDigestHeader]: digest }) },
+          signal: AbortSignal.timeout(5_000),
         }) };
       };
       const committed = action === "stop" ? await prepare() : undefined;
       if (committed) {
         const confirm = async () => {
-          const response = await committed.confirm();
+          const response = await committed.confirm(showLink
+            ? sha256(desktopArtifactPathDigestInput(projectionTurnId, activityId, filePath))
+            : undefined);
           assert.equal(response.status, 200);
           return desktopArtifactReceiptSchema.parse(await response.json());
         };
@@ -598,6 +638,18 @@ export async function verifyDesktopExecutionProjection(input: {
         assert.equal(await prisma.conversationEvent.count({ where: {
           conversationId: task.id, eventType: "conversation.artifact.created",
         } }), 1);
+        if (showLink) {
+          const detail = await artifactDetail();
+          const history = await artifactHistory();
+          const file = detail.files.find(candidate => candidate.id === committed.id);
+          const completed = history.items.find(event => event.event_type === "item/completed");
+          assert(completed?.payload.params.item.type === "fileChange");
+          assert.deepEqual(file?.desktop_file_change, { event_id: completed.sse_event_id, change_index: 0 });
+          assert.equal(completed.payload.params.item.changes[0]?.path, filePath);
+          assert.deepEqual(detail.events.find(event => event.id === completed.id), completed);
+          assert.deepEqual(await buffer((await files.readArtifactDownload(ownerId, task.id, committed.id, {})).data), artifactContents);
+          await assert.rejects(conversations.get(input.otherOwnerId, task.id), { code: "CONVERSATION_NOT_FOUND" });
+        }
       }
       const pending = await prepare();
       let entered = () => {};

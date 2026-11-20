@@ -1,4 +1,4 @@
-import { getNativeCodexPayload, type ConversationEvent } from "@/api/contracts"
+import { getNativeCodexPayload, type Conversation, type ConversationEvent } from "@/api/contracts"
 
 export type ConversationQueryRefreshScope =
   "none" | "detail" | "detail-and-list"
@@ -42,6 +42,7 @@ export function getConversationEventQueryRefreshScope(
   event: ConversationEvent,
   options: {
     projectedTurnId?: string | null
+    executionTarget?: Conversation["execution_target"]
   } = {}
 ): ConversationQueryRefreshScope {
   const native = getNativeCodexPayload(event)
@@ -58,6 +59,16 @@ export function getConversationEventQueryRefreshScope(
     native.params.item.type === "imageView" &&
     native.params.item.fileId
   ) {
+    return "detail"
+  }
+  if (
+    options.executionTarget === "local" &&
+    native?.method === "item/completed" &&
+    native.params.item.type === "fileChange" &&
+    native.params.item.status === "completed" &&
+    native.params.item.changes.some((change) => change.kind.type === "add" && change.path)
+  ) {
+    // Confirmation can trigger a refresh before the Runner's outbox delivers this activity.
     return "detail"
   }
   if (

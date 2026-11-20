@@ -131,7 +131,7 @@ export class DesktopArtifacts {
     });
   }
 
-  async confirm(scope: DesktopRunScope, artifactId: string, signal: AbortSignal, check: Check, fence: Fence): Promise<DesktopArtifactReceipt> {
+  async confirm(scope: DesktopRunScope, artifactId: string, signal: AbortSignal, check: Check, fence: Fence, desktopSourcePathDigest?: string): Promise<DesktopArtifactReceipt> {
     return this.withGrant(scope, artifactId, signal, check, async ({ metadata, partCount, expiresAt }, lifetime, authorize) => {
       const objectKey = desktopArtifactObjectKey(scope.conversationId, artifactId);
       const entryPath = "entry_path" in metadata ? metadata.entry_path : undefined;
@@ -205,6 +205,7 @@ export class DesktopArtifacts {
         ownerId: scope.ownerId, conversationId: scope.conversationId, projectionTurnId: scope.turnId,
         artifactId, displayName: media.filename, mimeType: media.mimeType, sizeBytes, sha256: checksum,
         ...(partCount && { multipart: true }),
+        ...(desktopSourcePathDigest && { desktopSourcePathDigest }),
         ...(webBundle && { webBundle }),
       }, async tx => {
         await fence(tx);

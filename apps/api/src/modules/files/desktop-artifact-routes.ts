@@ -4,6 +4,8 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   desktopArtifactMaxBytes,
   desktopArtifactPath,
+  desktopArtifactPathDigestHeader,
+  desktopArtifactPathDigestSchema,
   desktopArtifactReceiptSchema,
   desktopArtifactUploadLifetimeMs,
   desktopRunTokenSchema,
@@ -33,6 +35,7 @@ type AuthorizedArtifact = {
   token: string;
   artifactId: string;
 };
+type AuthorizedConfirmation = AuthorizedArtifact & { desktopSourcePathDigest: string | undefined };
 type AuthorizedUpload = AuthorizedArtifact & { contentLength: number };
 type RequestLifetime = { signal: AbortSignal; dispose: () => void };
 
@@ -48,7 +51,7 @@ export const registerDesktopArtifactRoutes: FastifyPluginAsync<DesktopArtifactRo
     });
 
     const uploads = new WeakMap<FastifyRequest, AuthorizedUpload>();
-    const confirmations = new WeakMap<FastifyRequest, AuthorizedArtifact>();
+    const confirmations = new WeakMap<FastifyRequest, AuthorizedConfirmation>();
 
     const authorize = async (request: FastifyRequest): Promise<AuthorizedArtifact> => {
       if (request.url.includes("?")) throw new AppError("VALIDATION_ERROR");
@@ -104,7 +107,10 @@ export const registerDesktopArtifactRoutes: FastifyPluginAsync<DesktopArtifactRo
       onRequest: async (request) => {
         const authorized = await authorize(request);
         assertNoRequestBody(request);
-        confirmations.set(request, authorized);
+        confirmations.set(request, {
+          ...authorized,
+          desktopSourcePathDigest: confirmationPathDigest(request),
+        });
       },
     }, async (request, reply) => {
       const authorized = confirmations.get(request);
@@ -124,6 +130,7 @@ export const registerDesktopArtifactRoutes: FastifyPluginAsync<DesktopArtifactRo
             await options.leases.fenceRunBinding(authorized.scope, authorized.token);
             lifetime.signal.throwIfAborted();
           },
+          authorized.desktopSourcePathDigest,
         );
         if (lifetime.signal.aborted) throw abortedRequest(request);
         const parsed = desktopArtifactReceiptSchema.parse(receipt);
@@ -161,6 +168,19 @@ function assertNoRequestBody(request: FastifyRequest): void {
   if (request.headers["transfer-encoding"] !== undefined) throw new AppError("VALIDATION_ERROR");
   const contentLength = request.headers["content-length"];
   if (contentLength !== undefined && contentLength !== "0") throw new AppError("VALIDATION_ERROR");
+}
+
+/**
+ * Optional on the wire: older workers omit it and older APIs ignore it. The
+ * digest is validated only after the run binding in `authorize`, and the path
+ * itself never leaves the device.
+ */
+function confirmationPathDigest(request: FastifyRequest): string | undefined {
+  const raw = request.headers[desktopArtifactPathDigestHeader];
+  if (raw === undefined) return undefined;
+  const parsed = desktopArtifactPathDigestSchema.safeParse(raw);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR");
+  return parsed.data;
 }
 
 function requestLifetime(reply: FastifyReply, milliseconds: number): RequestLifetime {

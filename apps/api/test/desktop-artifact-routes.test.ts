@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import {
   desktopArtifactMaxBytes,
   desktopArtifactPath,
+  desktopArtifactPathDigestHeader,
   type DesktopArtifactReceipt,
 } from "@linksense/shared";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -30,6 +31,7 @@ type Confirm = (
   signal: AbortSignal,
   check: () => Promise<void>,
   fence: (tx: Prisma.TransactionClient) => Promise<void>,
+  desktopSourcePathDigest?: string,
 ) => Promise<DesktopArtifactReceipt>;
 
 const token = `lsdr_${"a".repeat(43)}`;
@@ -265,10 +267,11 @@ it("aborts an in-flight upload when the response side disconnects before the bod
 it("confirms through the publication fence and returns only the strict shared receipt", async ({ onTestFinished }) => {
   const f = await fixture(onTestFinished);
   const tx = {} as Prisma.TransactionClient;
-  f.confirm.mockImplementationOnce(async (scope, artifactId, signal, check, fence) => {
+  f.confirm.mockImplementationOnce(async (scope, artifactId, signal, check, fence, digest) => {
     expect(scope).toBe(f.scope);
     expect(artifactId).toBe(f.artifactId);
     expect(signal.aborted).toBe(false);
+    expect(digest).toBeUndefined();
     await check();
     await fence(tx);
     expect(signal.aborted).toBe(false);
@@ -283,6 +286,43 @@ it("confirms through the publication fence and returns only the strict shared re
   expect(f.fenceRunBinding).toHaveBeenCalledWith(f.scope, token);
   for (const call of f.verifyRunBinding.mock.calls) expect(call[2]).toBe("use");
   expect(f.upload).not.toHaveBeenCalled();
+});
+
+it("forwards a valid source path digest, rejects malformed ones and keeps the run binding first", async ({ onTestFinished }) => {
+  const f = await fixture(onTestFinished);
+  const digest = "a".repeat(64);
+  f.confirm.mockImplementationOnce(async (_scope, _artifactId, _signal, _check, _fence, received) => {
+    expect(received).toBe(digest);
+    return f.receipt;
+  });
+  const accepted = await f.app.inject({
+    method: "POST", url: f.confirmUrl,
+    headers: { authorization: bearer, [desktopArtifactPathDigestHeader]: digest },
+  });
+  expect(accepted.statusCode).toBe(200);
+  // The digest stays a request-side binding detail, never a receipt field.
+  expect(accepted.json()).toEqual(f.receipt);
+  expect(accepted.body).not.toContain(digest);
+  expect(f.confirm).toHaveBeenCalledTimes(1);
+
+  for (const invalid of ["A".repeat(64), "a".repeat(63), `${"a".repeat(64)}0`, "not-a-digest"]) {
+    const rejected = await f.app.inject({
+      method: "POST", url: f.confirmUrl,
+      headers: { authorization: bearer, [desktopArtifactPathDigestHeader]: invalid },
+    });
+    expect(rejected.statusCode, invalid).toBe(400);
+    expect(rejected.json()).toMatchObject({ success: false, error_code: "VALIDATION_ERROR" });
+  }
+  expect(f.confirm).toHaveBeenCalledTimes(1);
+
+  // An invalid header must not bypass or precede the lease check.
+  f.verifyRunBinding.mockRejectedValueOnce(new AppError("FORBIDDEN"));
+  const denied = await f.app.inject({
+    method: "POST", url: f.confirmUrl,
+    headers: { authorization: bearer, [desktopArtifactPathDigestHeader]: "not-a-digest" },
+  });
+  expect(denied.statusCode).toBe(403);
+  expect(f.confirm).toHaveBeenCalledTimes(1);
 });
 
 it("returns no receipt when the publication fence denies confirmation", async ({ onTestFinished }) => {

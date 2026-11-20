@@ -3319,12 +3319,18 @@ type NativeLifecycleEntry = {
   sequence: number
   createdAt: string
   stopped: boolean
+  artifactIdsByChange?: Readonly<Record<string, string>>
 }
 
 function collapseNativeLifecycle(events: ConversationEvent[]) {
-  const uniqueEvents = [
-    ...new Map(events.map((event) => [event.id, event])).values(),
-  ].sort((left, right) => left.sequence_no - right.sequence_no)
+  const byId = new Map<string, ConversationEvent>()
+  for (const event of events) {
+    // Only the detail snapshot carries file links. The replayed native event is identical.
+    if (!byId.get(event.id)?.file_change_artifact_ids) byId.set(event.id, event)
+  }
+  const uniqueEvents = [...byId.values()].sort(
+    (left, right) => left.sequence_no - right.sequence_no
+  )
   const latestByItemId = new Map<string, NativeLifecycleEntry>()
   const stoppedTurns = new Set(
     uniqueEvents.flatMap((event) => {
@@ -3353,6 +3359,10 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
       event,
       item: native.params.item,
       method: native.method,
+      artifactIdsByChange:
+        native.method === "item/completed" && native.params.item.type === "fileChange"
+          ? event.file_change_artifact_ids
+          : undefined,
       sequence: previous?.sequence ?? event.sequence_no,
       createdAt: previous?.createdAt ?? event.created_at,
       stopped:
@@ -4467,8 +4477,11 @@ function TurnSummary({
                           entries.every((activity) => activity.stopped))
                       }
                       artifactFilesById={artifactFilesById}
+                      turnId={turn.id}
                       loadArtifactPreview={loadArtifactPreview}
                       onPreviewImage={onPreviewImage}
+                      onDownload={onDownload}
+                      downloadingFileId={downloadingFileId}
                       open={
                         firstActivity
                           ? nativeActivityOpen(firstActivity.item.id)

@@ -7,6 +7,8 @@ import {
   desktopArtifactMaxBytes,
   desktopArtifactPartBytes,
   desktopArtifactPath,
+  desktopArtifactPathDigestHeader,
+  desktopArtifactPathDigestSchema,
   desktopArtifactReceiptSchema,
   desktopArtifactUploadGrantSchema,
   desktopArtifactUploadLifetimeMs,
@@ -31,14 +33,18 @@ export async function uploadDesktopArtifact(input: {
   turnId: string
   runToken: string
   source: DesktopArtifactSource
+  /** Optional for callers without a workspace path binding; the worker always sends it. */
+  desktopSourcePathDigest?: string
   grant: DesktopArtifactUploadGrant
   signal: AbortSignal
 }): Promise<DesktopArtifactReceipt> {
-  const { origin, turnId, runToken, source, signal } = input
+  const { origin, turnId, runToken, source, desktopSourcePathDigest, signal } = input
   signal.throwIfAborted()
   const grant = desktopArtifactUploadGrantSchema.safeParse(input.grant)
   if (!grant.success || !desktopServerOriginSchema.safeParse(origin).success ||
       !z.uuid().safeParse(turnId).success || !desktopRunTokenSchema.safeParse(runToken).success ||
+      (desktopSourcePathDigest !== undefined &&
+        !desktopArtifactPathDigestSchema.safeParse(desktopSourcePathDigest).success) ||
       !Number.isSafeInteger(source.sizeBytes) || source.sizeBytes < 1 || source.sizeBytes > desktopArtifactMaxBytes) {
     throw invalidRequest()
   }
@@ -268,9 +274,15 @@ export async function uploadDesktopArtifact(input: {
     await sendUpload({ kind: "api" })
   }
   lifetime.throwIfAborted()
+  const confirmHeaders = desktopSourcePathDigest === undefined
+    ? apiHeaders
+    : { ...apiHeaders, [desktopArtifactPathDigestHeader]: desktopSourcePathDigest }
   try {
     const response = await fetch(new URL(`${endpoint}/confirm`, origin), {
-      ...requestDefaults, method: "POST", headers: apiHeaders, signal: lifetime,
+      ...requestDefaults, method: "POST",
+      // Only the confirmation carries the digest; upload requests and storage never see it.
+      headers: confirmHeaders,
+      signal: lifetime,
     })
     const payload = await readResponseJson(response)
     lifetime.throwIfAborted()

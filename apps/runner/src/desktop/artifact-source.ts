@@ -4,6 +4,8 @@ import type { BigIntStats } from "node:fs"
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises"
 import path from "node:path"
 
+import { desktopArtifactRelativePathSchema } from "@linksense/shared"
+
 import { isNodeError } from "../controller/worker-provider-utils.js"
 import { FileServiceRequestError } from "../file-service-error.js"
 
@@ -98,7 +100,10 @@ export async function openDesktopArtifactSource(
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
     throw artifactError("ARTIFACT_REGISTRATION_INVALID")
   }
-  const segments = validatedSegments(workspaceRelativePath)
+  if (!desktopArtifactRelativePathSchema.safeParse(workspaceRelativePath).success) {
+    throw artifactError("ARTIFACT_REGISTRATION_INVALID")
+  }
+  const segments = workspaceRelativePath.split("/")
   await checkWorkspace?.().catch(() => { throw artifactError("FILE_SERVICE_FORBIDDEN") })
   const root = await canonicalWorkspaceRoot(workspaceRoot, checkWorkspace !== undefined)
   const target = path.join(root.path, ...segments)
@@ -347,32 +352,6 @@ async function canonicalWorkspaceRoot(
     throw artifactError("ARTIFACT_REGISTRATION_INVALID")
   }
   return { path: root, dev: info.dev, ino: info.ino }
-}
-
-/**
- * Rejects dot components, empty components, NUL, backslashes and absolute
- * paths before any resolution, so no input can normalize onto a trusted path.
- */
-function validatedSegments(value: string): string[] {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.includes("\0") ||
-    value.includes("\\") ||
-    path.isAbsolute(value) ||
-    path.win32.isAbsolute(value)
-  ) {
-    throw artifactError("ARTIFACT_REGISTRATION_INVALID")
-  }
-  const segments = value.split("/")
-  if (
-    segments.some(
-      (segment) => segment.length === 0 || segment === "." || segment === "..",
-    )
-  ) {
-    throw artifactError("ARTIFACT_REGISTRATION_INVALID")
-  }
-  return segments
 }
 
 function isStrictDescendant(root: string, candidate: string): boolean {

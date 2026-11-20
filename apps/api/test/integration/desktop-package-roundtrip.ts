@@ -721,10 +721,12 @@ export async function verifyPackagedDesktopGateway(input: {
       select: {
         id: true, turnId: true, filename: true, mimeType: true, sizeBytes: true, status: true,
         storageBackend: true, downloadable: true, minioObjectKey: true,
-        workspaceRelativePath: true, workspaceRootRelPath: true,
+        workspaceRelativePath: true, workspaceRootRelPath: true, desktopSourcePathDigest: true,
       },
     });
     assert.equal(artifactFiles.length, 2, "each approval should create exactly one file row");
+    assert(artifactFiles.every(file => file.desktopSourcePathDigest === null),
+      "shell-created and pre-existing files must not claim a native file-creation association");
     const artifactFile = artifactFiles.find(file => file.id === artifact.file_id);
     assert(artifactFile);
     const artifactEvents = await prisma.conversationEvent.findMany({

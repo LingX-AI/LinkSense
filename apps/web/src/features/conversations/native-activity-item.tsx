@@ -57,6 +57,10 @@ export function NativeActivityDetails({
   imageFile,
   imageFileId,
   imagePreviewUnavailable,
+  artifactFilesById,
+  turnId,
+  onDownload,
+  downloadingFileId,
   loadArtifactPreview,
   onPreviewImage,
 }: {
@@ -64,6 +68,10 @@ export function NativeActivityDetails({
   imageFile?: ConversationFile
   imageFileId?: string
   imagePreviewUnavailable?: boolean
+  artifactFilesById?: ReadonlyMap<string, ConversationFile>
+  turnId?: string
+  onDownload?: (file: ConversationFile) => void
+  downloadingFileId?: string
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewImage?: (item: ImagePreviewItem) => void
 }) {
@@ -71,6 +79,29 @@ export function NativeActivityDetails({
   const locale = i18n.resolvedLanguage ?? "zh-CN"
   const [activeImagePreview, setActiveImagePreview] =
     useState<ImagePreviewItem | null>(null)
+
+  function renderPath({ path, artifactId }: NativeActivityViewModel["fileChanges"][number]) {
+    const file = artifactId ? artifactFilesById?.get(artifactId.toLowerCase()) : undefined
+    if (!turnId || file?.kind !== "artifact" || file.turn_id !== turnId ||
+        !file.download_available || !onDownload) {
+      return path ? <code>{path}</code> : null
+    }
+    const downloading = downloadingFileId === file.id
+    return (
+      <Button
+        type="button"
+        variant="link"
+        size="xs"
+        className="h-auto min-h-6 max-w-full min-w-6 px-0 py-1"
+        aria-label={t("conversation.downloadArtifact", { name: file.name })}
+        aria-busy={downloading || undefined}
+        disabled={downloading}
+        onClick={() => onDownload(file)}
+      >
+        <span className="truncate">{file.name}</span>
+      </Button>
+    )
+  }
 
   return (
     <>
@@ -93,18 +124,19 @@ export function NativeActivityDetails({
         <ol
           className="native-activity-detail-lines"
           aria-label={t("conversation.nativeActivityDetails.fileChanges")}
+          role="list"
         >
           {model.fileChanges.map((change) => {
             const changeKey = `conversation.nativeActivityDetails.fileKinds.${change.kind}`
             return (
-              <li key={`${change.kind}-${change.path ?? "no-path"}`}>
+              <li key={change.artifactId ?? `${change.kind}-${change.path ?? "no-path"}`}>
                 <FilePenLineIcon className="size-3.5" aria-hidden="true" />
-                <span>
+                <span className="min-w-0">
                   {translatedValue(t, changeKey, change.kind)}
                   {change.path && (
                     <>
                       {" "}
-                      <code>{change.path}</code>
+                      {renderPath(change)}
                     </>
                   )}
                 </span>
@@ -317,6 +349,10 @@ export function NativeActivityItem({
   activityGroup,
   commandActivities,
   artifactFilesById,
+  artifactIdsByChange,
+  turnId,
+  onDownload,
+  downloadingFileId,
   loadArtifactPreview,
   open,
   onOpenChange,
@@ -329,6 +365,10 @@ export function NativeActivityItem({
   activityGroup?: NativeToolActivity[]
   commandActivities?: NativeCommandActivity[]
   artifactFilesById?: ReadonlyMap<string, ConversationFile>
+  artifactIdsByChange?: Readonly<Record<string, string>>
+  turnId?: string
+  onDownload?: (file: ConversationFile) => void
+  downloadingFileId?: string
   loadArtifactPreview?: LoadArtifactPreview
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -357,7 +397,7 @@ export function NativeActivityItem({
         stopped && item.type !== "contextCompaction"
           ? "item/completed"
           : method,
-        { stopped }
+        { stopped, artifactIdsByChange }
       )
   const summary = translateNativeActivitySummary(model, t)
   const running =
@@ -416,6 +456,10 @@ export function NativeActivityItem({
         imageFile={imageFile}
         imageFileId={imageFileId}
         imagePreviewUnavailable={item.type === "imageView" && !running && !imageFileId}
+        artifactFilesById={artifactFilesById}
+        turnId={turnId}
+        onDownload={onDownload}
+        downloadingFileId={downloadingFileId}
         loadArtifactPreview={loadArtifactPreview}
         onPreviewImage={onPreviewImage}
       />

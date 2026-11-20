@@ -156,8 +156,16 @@ work and let active confirmations finish. Then disable artifact registration
 uniformly: the flag also disables confirmation routes, and older replicas
 cannot confirm a multipart grant. Keep updated consumers running until
 remaining grants have expired and delayed cleanup jobs have drained. Retry
-failed cleanup in system maintenance before rolling back. Existing registered
-artifacts and downloads require no migration.
+failed cleanup in system maintenance before rolling back.
+
+Apply `20261120100000_add_desktop_artifact_path_digest` before starting API
+replicas that resolve desktop file activities. Retain the nullable column on
+binary rollback. Older Macs omit the binding and older APIs ignore it; existing
+artifacts need no backfill and keep their download cards. A native file creation
+links only when a single confirmed artifact matches its verified snapshot. The
+task detail adds the association without changing the native event or its SSE
+cursor. Edits, files produced by commands, and creations outside the retained
+activity window keep their download cards.
 
 By default the packaged fixture uses the local filesystem to verify API
 streaming. Set `LINKSENSE_TEST_MINIO_BIN` to an absolute path to a local MinIO

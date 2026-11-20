@@ -18,6 +18,11 @@ import type {
   ConversationFile,
   NativeCodexItem,
 } from "@/api/contracts"
+import {
+  conversationDetailSchema,
+  conversationEventRecordSchema,
+  toConversationTimelineEvent,
+} from "@/api/contracts"
 import { downloadApiFile } from "@/api/client"
 import {
   AssistantMarkdown,
@@ -7691,6 +7696,81 @@ describe("conversation turn responses", () => {
 
     expect(within(summary).getByText("已更新文件")).toBeVisible()
     expect(summary.querySelectorAll(".native-activity-item")).toHaveLength(1)
+  })
+
+  it("updates a persisted file link after confirmation in either replay order and removes an ambiguous link", async () => {
+    const interaction = userEvent.setup()
+    const conversationId = "30000000-0000-4000-8000-000000000001"
+    const turnId = "30000000-0000-4000-8000-000000000002"
+    const fileId = "30000000-0000-4000-8000-000000000003"
+    const eventId = "30000000-0000-4000-8000-000000000004"
+    const path = "$WORKSPACE/exports/report.txt"
+    const completion = {
+      id: eventId,
+      conversation_id: conversationId,
+      event_type: "item/completed",
+      sse_event_id: `${conversationId}:2`,
+      turn_id: turnId,
+      visibility: "user_visible",
+      sequence_no: 2,
+      created_at: completedConversation.updated_at,
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          turnId: "native-turn-1",
+          item: { id: "file-change", type: "fileChange", status: "completed", changes: [{ path, kind: { type: "add" } }] },
+        },
+      },
+    } as const
+    const file = {
+      id: fileId,
+      kind: "artifact",
+      filename: "report.txt",
+      downloadable: true,
+      turn_id: turnId,
+    } as const
+    const detail = (files: readonly object[]) =>
+      conversationDetailSchema.parse({
+        conversation: { ...completedConversation, id: conversationId, execution_target: "local" },
+        messages: completedConversation.messages?.map((message) => ({ ...message, turn_id: turnId })),
+        turns: completedConversation.turns?.map((turn) => ({ ...turn, id: turnId })),
+        files,
+        events: [completion],
+      })
+    const before = detail([])
+    const after = detail([{ ...file, desktop_file_change: { event_id: completion.sse_event_id, change_index: 0 } }])
+    const ambiguous = detail([
+      file,
+      { ...file, id: "30000000-0000-4000-8000-000000000005", filename: "copy.txt" },
+    ])
+    const replay = toConversationTimelineEvent(conversationEventRecordSchema.parse(completion))
+    const onDownload = vi.fn()
+    const view = (snapshot: Conversation, events: ConversationEvent[]) => (
+      <ConversationThread conversation={{ ...snapshot, events }} onDownload={onDownload} />
+    )
+    const { rerender } = render(view(before, [replay]))
+    const summary = screen.getByTestId(`turn-summary-${turnId}`)
+    await interaction.click(within(summary).getByRole("button", { name: "展开中间过程" }))
+    await interaction.click(within(summary).getByRole("button", {
+      name: i18n.t("conversation.nativeActivityDetails.expand", {
+        activity: i18n.t("conversation.nativeActivities.summary.editedFiles.leading_one"),
+      }),
+    }))
+    const details = within(summary).getByRole("list", { name: "文件变更详情" })
+    const downloadName = i18n.t("conversation.downloadArtifact", { name: file.filename })
+    expect(within(details).getByText(path)).toBeVisible()
+    for (const events of [[replay, ...(after.events ?? [])], [...(after.events ?? []), replay]]) {
+      rerender(view(after, events))
+      const control = within(details).getByRole("button", { name: downloadName })
+      await interaction.click(control)
+      expect(onDownload).toHaveBeenLastCalledWith(expect.objectContaining({ id: fileId }))
+    }
+    rerender(view(ambiguous, [...(ambiguous.events ?? []), replay]))
+    expect(within(details).queryByRole("button", { name: downloadName })).not.toBeInTheDocument()
+    expect(within(details).getByText(path)).toBeVisible()
   })
 
   it("renders native subagent transitions as grouped chips instead of raw protocol terms", async () => {

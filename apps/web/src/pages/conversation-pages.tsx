@@ -2346,6 +2346,7 @@ export function ConversationPage({
               : null
           const refreshScope = getConversationEventQueryRefreshScope(event, {
             projectedTurnId,
+            executionTarget: conversation?.execution_target,
           })
           const reconciliationScope =
             executionTransition && refreshScope === "detail-and-list"

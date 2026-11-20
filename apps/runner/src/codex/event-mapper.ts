@@ -7,6 +7,7 @@ import {
   browserUseToolName,
   coreMcpServerKey,
   codexMessagePhaseSchema,
+  desktopArtifactRelativePathSchema,
   imageGenerationMcpSuccessSchema,
   imageGenerationMcpFailureSchema,
   knowledgeNoAvailableBasesCodeSchema,
@@ -56,6 +57,7 @@ export type CodexNotificationProjectionContext = {
   supersededItemId?: string;
   subAgentLabelsByThreadId?: ReadonlyMap<string, string | null>;
   desktopBrowserApproval?: boolean;
+  onDesktopFileCreated?: (path: string, preview: string, itemId: string, sha256: string) => void;
 };
 
 const turnStatuses = new Set([
@@ -385,6 +387,10 @@ export function mapCodexNotification(
     const turnId = nativeId(params.turnId);
     const item = sanitizeItem(params.item, previewContext, projectionContext);
     if (!threadId || !turnId || !item) return [];
+    if (notification.method === "item/completed" && item.type === "fileChange" &&
+        item.status === "completed" && projectionContext.onDesktopFileCreated && previewContext.workspace) {
+      collectDesktopFileCreations(params.item, item, previewContext, projectionContext.onDesktopFileCreated);
+    }
     const timestampKey =
       notification.method === "item/started" ? "startedAtMs" : "completedAtMs";
     const timestamp = nonnegativeNumber(params[timestampKey]);
@@ -1346,6 +1352,31 @@ function sanitizeCommandPreview(
     runnerCodexPreviewLimits.commandCharacters,
     previewContext,
   );
+}
+
+function collectDesktopFileCreations(
+  raw: unknown,
+  item: Extract<RunnerCodexItem, { type: "fileChange" }>,
+  context: CodexEventPreviewContext,
+  collect: NonNullable<CodexNotificationProjectionContext["onDesktopFileCreated"]>,
+): void {
+  const { changes } = asRecord(raw);
+  if (!context.workspace || !Array.isArray(changes)) return;
+  const prefix = `${context.workspace}/`;
+  const counts = new Map<string, number>();
+  for (const { path } of item.changes) {
+    if (path) counts.set(path, (counts.get(path) ?? 0) + 1);
+  }
+  for (const rawChange of changes.slice(0, runnerCodexPreviewLimits.fileChanges)) {
+    const { path, kind, diff } = asRecord(rawChange);
+    // shortcut: native additions carry full bytes; edits and reads stay unlinked unless Codex supplies a full snapshot.
+    if (asRecord(kind).type !== "add" || typeof path !== "string" || typeof diff !== "string") continue;
+    const relative = path.startsWith(prefix) ? path.slice(prefix.length) : path;
+    if (!desktopArtifactRelativePathSchema.safeParse(relative).success) continue;
+    const preview = sanitizePathPreview(path, context);
+    if (!preview || counts.get(preview) !== 1) continue;
+    collect(relative, preview, item.id, createHash("sha256").update(diff).digest("hex"));
+  }
 }
 
 function sanitizePathPreview(

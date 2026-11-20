@@ -201,6 +201,14 @@ try {
     (id, owner_id, conversation_id, device_id, capability, scope, target_json, expires_at)
     VALUES (${legacyGrantId}::uuid, ${owner}::uuid, ${scope.conversationId}::uuid, ${stored.id}::uuid,
       'computer.act', 'session', '{"bundle_id":"com.example.Legacy"}'::jsonb, now() + interval '1 day')`;
+  const legacyArtifactId = randomUUID();
+  const legacyArtifactContents = Buffer.from("Artifact saved before path mapping.\n");
+  await db.$executeRaw`INSERT INTO conversation_files
+    (id, conversation_id, turn_id, kind, source, status, filename, mime_type, size_bytes, checksum_sha256,
+     storage_backend, minio_object_key, downloadable, download_card_event_id, updated_at)
+    VALUES (${legacyArtifactId}::uuid, ${scope.conversationId}::uuid, ${scope.turnId}::uuid,
+      'artifact', 'agent_generated', 'registered', 'legacy.txt', 'text/plain', ${legacyArtifactContents.length},
+      ${sha256(legacyArtifactContents)}, 'minio', ${`fixtures/${legacyArtifactId}`}, true, ${randomUUID()}::uuid, now())`;
   await migrate("desktop_upgrade");
   assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: legacyGrantId } })).sessionId, null);
   assert.equal(await authority(), true);
@@ -208,6 +216,7 @@ try {
     prisma: db, ownerId: owner, deviceId: stored.id, token: issued.token,
     databaseUrl: databaseUrl("desktop_upgrade"), workspaceRoot: join(root, "workspaces"),
     otherOwnerId: other, legacyConversationId: scope.conversationId, cloudConversationId: conversation,
+    legacyArtifact: { id: legacyArtifactId, contents: legacyArtifactContents },
   });
   const settledExistingTurn = await db.conversationTurn.findUniqueOrThrow({ where: { id: scope.turnId } });
   assert.equal(settledExistingTurn.status, "failed");

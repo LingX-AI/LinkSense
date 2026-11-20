@@ -2,6 +2,7 @@ import { settleCancelledAutomationPending, monitoringInstructionsForStart } from
 import { assertPairedDesktopDevice } from "./execution-target.js";
 import { lockDesktopConversation, type DesktopProjectionFence } from "../desktop-credentials/run-authority.js";
 import { endLocalComputerSessions } from "../local-computer/repository.js";
+import { resolveDesktopArtifactFileChanges } from "../files/desktop-artifact-references.js";
 import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
@@ -2889,6 +2890,8 @@ export class ConversationService {
           detailEvents,
           new Set(messages.map((message) => message.id)),
         );
+    const projectedEvents = detailEvents.map(projectStoredEvent);
+    const desktopFileChanges = resolveDesktopArtifactFileChanges(ownerId, conversationId, projectedEvents, files);
     return {
       conversation: {
         ...projectConversation(
@@ -2931,8 +2934,11 @@ export class ConversationService {
       pending_requests: pending.map(projectPending),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       plan_reviews: planReviews.map(projectPlanReview),
-      files: files.map(projectFile),
-      events: detailEvents.map(projectStoredEvent),
+      files: files.map(file => {
+        const change = desktopFileChanges.get(file.id);
+        return { ...projectFile(file), ...(change && { desktop_file_change: change }) };
+      }),
+      events: projectedEvents,
       model_context_usage: projectModelContextUsage(latestModelContextUsage),
       ...(runningTurn
         ? {

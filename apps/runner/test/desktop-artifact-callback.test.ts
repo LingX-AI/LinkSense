@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "no
 import { tmpdir } from "node:os"
 import path from "node:path"
 import {
+  desktopArtifactPathDigestHeader,
   desktopExecutionAckSchema,
   webBundleLimits,
   type DesktopArtifactUploadGrant,
@@ -206,20 +207,29 @@ it("refuses a workspace alias substituted after the run was admitted", async () 
   expect(fixture.frames).toEqual([])
 })
 
-it("uploads a verified local file with no workspace path in the device frame", async () => {
+it.each([true, false])("publishes a file without a raw path and binds only matching bytes (%s)", async matching => {
   const fixture = await artifactFixture()
+  const digest = "b".repeat(64)
+  const checksum = createHash("sha256").update(fixture.bytes).digest("hex")
   const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
     const href = String(url)
+    const headers = new Headers(init?.headers)
     if (href.endsWith("/upload")) {
+      expect(headers.has(desktopArtifactPathDigestHeader)).toBe(false)
       expect(await drainBody(init)).toBe(fixture.bytes.byteLength)
       return new Response(null, { status: 200 })
     }
-    if (href.endsWith("/confirm")) return Response.json(fixture.receipt)
+    if (href.endsWith("/confirm")) {
+      expect(headers.get(desktopArtifactPathDigestHeader)).toBe(matching ? digest : null)
+      return Response.json(fixture.receipt)
+    }
     throw new Error(`unexpected artifact request ${href}`)
   })
   vi.stubGlobal("fetch", fetchMock)
 
-  const response = await fixture.request(fixture.body)
+  const response = await fixture.request({
+    ...fixture.body, sourceBinding: { digest, sha256: matching ? checksum : "a".repeat(64) },
+  })
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual(fixture.receipt)
 
@@ -232,6 +242,7 @@ it("uploads a verified local file with no workspace path in the device frame", a
     sha256: createHash("sha256").update(fixture.bytes).digest("hex"),
   })
   expect(JSON.stringify(prepare)).not.toContain(fixture.workspace)
+  expect(JSON.stringify(prepare)).not.toContain(digest)
   const requested = fetchMock.mock.calls.map(([url]) => String(url))
   expect(requested).toEqual([
     `${origin}/api/v1/desktop/artifacts/${fixture.scope.turn_id}/${fixture.artifactId}/upload`,
