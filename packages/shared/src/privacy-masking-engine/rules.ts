@@ -142,8 +142,11 @@ export const privacyRules: readonly PrivacyRule[] = [
   },
   {
     kind: "SECRET",
+    // Stop at quotes and backslashes: they close the surrounding shell or
+    // JSON string, and swallowing them would leave the model an unclosed
+    // quote it "fixes", corrupting the header once the value is restored.
     pattern:
-      /(?<![A-Za-z])(?:authorization|cookie)[ \t]*:[ \t]*([^\r\n]{8,})/gid,
+      /(?<![A-Za-z])(?:authorization|cookie)[ \t]*:[ \t]*([^\r\n'"\\]{8,})/gid,
     group: 1,
     markers: ["authorization", "cookie"],
     validate: looksLikeHeaderValue,
