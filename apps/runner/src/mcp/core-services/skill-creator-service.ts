@@ -162,7 +162,7 @@ function unavailable(): SkillCreatorMcpError {
 const previewTool = {
   name: "preview_skill_zip",
   description:
-    "Validate and risk-scan one Skill ZIP from artifacts/. This creates an expiring preview and never installs the Skill.",
+    "Validate and risk-scan one existing or newly created Skill ZIP in artifacts/ using the same checks as a web upload. Returns an expiring preview for install_skill.",
   inputSchema: {
     type: "object",
     properties: {
