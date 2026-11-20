@@ -35,6 +35,7 @@ export class PrivacyMaskingActivityService {
             model: capture.model,
             maskedCount: capture.masked_count,
             kinds: capture.kinds,
+            hints: capture.hints,
             createdAt,
           },
         ],
@@ -81,6 +82,7 @@ export class PrivacyMaskingActivityService {
         model: row.model,
         masked_count: row.maskedCount,
         kinds: row.kinds,
+        hints: Array.isArray(row.hints) ? row.hints : [],
         created_at: row.createdAt.toISOString(),
       })),
       next_before:

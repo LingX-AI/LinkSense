@@ -360,6 +360,13 @@ export const settingsResources = {
     privacyMaskingActivityEmpty:
       "Aucune requête masquée sur cette période pour l'instant.",
     privacyMaskingActivityLoadMore: "Charger plus",
+    privacyMaskingActivityHintLength: "{{length}} caractères",
+    privacyMaskingActivityLocationPrompt: "Invite",
+    privacyMaskingActivityLocationInstructions: "Instructions",
+    privacyMaskingActivityLocationToolArguments: "Arguments d’outil",
+    privacyMaskingActivityLocationToolOutput: "Sortie d’outil",
+    privacyMaskingActivityLocationTools: "Définitions d’outils",
+    privacyMaskingActivityLocationOther: "Autre",
     privacyMaskingBehaviorNote:
       "Le modèle voit des jetons au lieu des valeurs réelles. Les tâches qui doivent examiner un secret peuvent échouer tant que vous n’ajoutez pas cette valeur à la liste autorisée.",
     appearancePageDescription:

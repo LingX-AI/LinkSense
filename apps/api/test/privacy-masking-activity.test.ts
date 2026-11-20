@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { RunnerPrivacyMaskingCapture } from "@linksense/shared";
+
 import type { PrismaClient } from "../src/generated/prisma/client.js";
 import { PrivacyMaskingActivityService } from "../src/modules/privacy-masking/activity.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
 
-function capture() {
+function capture(): RunnerPrivacyMaskingCapture {
   return {
     request_id: "30000000-0000-4000-8000-000000000001",
     owner_id: userId,
@@ -14,8 +16,12 @@ function capture() {
     model: "model-a",
     kinds: { API_KEY: 2, TERM: 1 },
     masked_count: 3,
+    hints: [
+      { kind: "API_KEY", length: 40, location: "tool_output", count: 2 },
+      { kind: "TERM", length: 4, location: "prompt", count: 1 },
+    ],
     observed_at: "2026-11-17T08:00:00.000Z",
-  } as const;
+  };
 }
 
 function fixture() {
@@ -31,6 +37,10 @@ function fixture() {
       model: "model-a",
       maskedCount: 3,
       kinds: { API_KEY: 2, TERM: 1 },
+      hints: [
+        { kind: "API_KEY", length: 40, location: "tool_output", count: 2 },
+        { kind: "TERM", length: 4, location: "prompt", count: 1 },
+      ],
       createdAt: new Date("2026-11-17T08:00:00.000Z"),
     },
   ]);
@@ -67,6 +77,10 @@ describe("privacy masking activity", () => {
           model: "model-a",
           maskedCount: 3,
           kinds: { API_KEY: 2, TERM: 1 },
+          hints: [
+            { kind: "API_KEY", length: 40, location: "tool_output", count: 2 },
+            { kind: "TERM", length: 4, location: "prompt", count: 1 },
+          ],
           createdAt: new Date("2026-11-17T08:00:00.000Z"),
         },
       ],
@@ -91,6 +105,10 @@ describe("privacy masking activity", () => {
           model: "model-a",
           masked_count: 3,
           kinds: { API_KEY: 2, TERM: 1 },
+          hints: [
+            { kind: "API_KEY", length: 40, location: "tool_output", count: 2 },
+            { kind: "TERM", length: 4, location: "prompt", count: 1 },
+          ],
           created_at: "2026-11-17T08:00:00.000Z",
         },
       ],
@@ -116,6 +134,7 @@ describe("privacy masking activity", () => {
       model: "model-a",
       maskedCount: 1,
       kinds: { API_KEY: 1 },
+      hints: [],
       createdAt: new Date(Date.UTC(2026, 10, 17, 8, 0, 0, index)),
     }));
     f.findMany.mockResolvedValueOnce(rows);

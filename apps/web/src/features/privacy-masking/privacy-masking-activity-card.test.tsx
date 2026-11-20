@@ -27,6 +27,10 @@ function activity(overrides: Record<string, unknown> = {}) {
         model: "model-a",
         masked_count: 3,
         kinds: { API_KEY: 2, TERM: 1 },
+        hints: [
+          { kind: "API_KEY", length: 40, location: "tool_output", count: 2 },
+          { kind: "TERM", length: 4, location: "prompt", count: 1 },
+        ],
         created_at: "2026-11-17T08:00:00.000Z",
       },
     ],
@@ -71,6 +75,34 @@ describe("privacy masking activity card", () => {
     }
   )
 
+  it("expands a record into what was replaced and where", async () => {
+    await i18n.changeLanguage("en-US")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => envelope(activity()))
+    )
+    const user = userEvent.setup()
+    renderCard()
+    const trigger = (await screen.findByText("model-a")).closest("button")
+    expect(trigger).not.toBeNull()
+    await user.click(trigger as HTMLElement)
+
+    expect(
+      await screen.findByText(i18n.t("settings.privacyMaskingKindApiKey"))
+    ).toBeVisible()
+    expect(
+      screen.getByText(i18n.t("settings.privacyMaskingActivityLocationToolOutput"))
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        i18n.t("settings.privacyMaskingActivityHintLength", { length: "40" })
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByText(i18n.t("settings.privacyMaskingActivityLocationPrompt"))
+    ).toBeVisible()
+  })
+
   it("shows an empty state and reloads for the wider period", async () => {
     await i18n.changeLanguage("en-US")
     const fetchMock = vi.fn(
@@ -114,6 +146,7 @@ describe("privacy masking activity card", () => {
                   model: "model-b",
                   masked_count: 2,
                   kinds: { API_KEY: 2 },
+                  hints: [],
                   created_at: "2026-11-17T06:00:00.000Z",
                 },
               ],

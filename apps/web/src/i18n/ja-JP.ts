@@ -860,6 +860,13 @@ export const jaJP = {
     privacyMaskingActivityEmpty:
       "この期間にマスクされたリクエストはまだありません。",
     privacyMaskingActivityLoadMore: "さらに読み込む",
+    privacyMaskingActivityHintLength: "{{length}} 文字",
+    privacyMaskingActivityLocationPrompt: "プロンプト",
+    privacyMaskingActivityLocationInstructions: "システム指示",
+    privacyMaskingActivityLocationToolArguments: "ツール引数",
+    privacyMaskingActivityLocationToolOutput: "ツール出力",
+    privacyMaskingActivityLocationTools: "ツール定義",
+    privacyMaskingActivityLocationOther: "その他",
     appearancePageDescription:
       "{{productName}} の画面テーマと基本の文字サイズを設定します。",
     theme: "テーマ",

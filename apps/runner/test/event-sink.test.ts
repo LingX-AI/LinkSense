@@ -12,7 +12,11 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { desktopExecutionMaxFrameBytes, runnerEventBatchSchema } from "@linksense/shared";
+import {
+  desktopExecutionMaxFrameBytes,
+  runnerEventBatchSchema,
+  type RunnerPrivacyMaskingCapture,
+} from "@linksense/shared";
 
 import { HttpRunnerEventSink } from "../src/event-sink.js";
 import type {
@@ -1005,7 +1009,7 @@ it("posts a counts-only privacy masking capture with the owner header", async ()
     workspaceManager,
     { fetch: fetchMock },
   );
-  const capture = {
+  const capture: RunnerPrivacyMaskingCapture = {
     request_id: "01900000-0000-7000-8000-000000000003",
     owner_id: ownerId,
     conversation_id: conversationId,
@@ -1013,6 +1017,7 @@ it("posts a counts-only privacy masking capture with the owner header", async ()
     model: "model-a",
     kinds: { API_KEY: 2 },
     masked_count: 2,
+    hints: [{ kind: "API_KEY", length: 40, location: "prompt", count: 2 }],
     observed_at: "2026-11-17T08:00:00.000Z",
   };
   await sink.recordPrivacyMasking(capture);

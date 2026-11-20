@@ -601,6 +601,13 @@ export const enUS = {
     privacyMaskingActivityEmpty:
       "No requests have been masked in this period yet.",
     privacyMaskingActivityLoadMore: "Load more",
+    privacyMaskingActivityHintLength: "{{length}} characters",
+    privacyMaskingActivityLocationPrompt: "Prompt",
+    privacyMaskingActivityLocationInstructions: "Instructions",
+    privacyMaskingActivityLocationToolArguments: "Tool arguments",
+    privacyMaskingActivityLocationToolOutput: "Tool output",
+    privacyMaskingActivityLocationTools: "Tool definitions",
+    privacyMaskingActivityLocationOther: "Other",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
     theme: "Theme",

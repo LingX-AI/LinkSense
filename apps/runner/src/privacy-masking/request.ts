@@ -3,8 +3,13 @@ import type {
   PrivacyMaskHit,
   PrivacyMasker,
 } from "@linksense/shared/privacy-masking-engine";
+import type { PrivacyMaskingLocation } from "@linksense/shared";
 
 type JsonObject = Record<string, unknown>;
+
+export type MaskRequestHit = PrivacyMaskHit & {
+  location: PrivacyMaskingLocation;
+};
 
 /**
  * Structural fields a model reads as instructions about the request rather
@@ -99,20 +104,25 @@ function isIdKey(key: string): boolean {
 export function maskResponsesRequest(
   body: JsonObject,
   masker: PrivacyMasker,
-): PrivacyMaskHit[] {
-  const hits: PrivacyMaskHit[] = [];
-  const mask = (value: string, context: MaskContext) => {
+): MaskRequestHit[] {
+  const hits: MaskRequestHit[] = [];
+  const mask = (
+    value: string,
+    context: MaskContext,
+    location: PrivacyMaskingLocation,
+  ) => {
     if (/^data:[^,]*;base64,[A-Za-z0-9+/]*={0,2}$/u.test(value)) {
       return value;
     }
     const result = masker.maskText(value, context);
-    hits.push(...result.hits);
+    hits.push(...result.hits.map((hit) => ({ ...hit, location })));
     return result.text;
   };
   const walk = (
     value: unknown,
     key: string,
     parentType: string | null,
+    location: PrivacyMaskingLocation,
   ): unknown => {
     if (typeof value === "string") {
       if (keptKeys.has(key) || isIdKey(key)) return value;
@@ -120,10 +130,12 @@ export function maskResponsesRequest(
         key === "arguments" || key === "partial_json"
           ? "embedded-json"
           : "plain";
-      return mask(value, context);
+      return mask(value, context, location);
     }
     if (Array.isArray(value)) {
-      return value.map((item) => walk(item, key, parentType));
+      return value.map((item) =>
+        walk(item, key, parentType, itemLocation(item, location)),
+      );
     }
     if (value === null || typeof value !== "object") return value;
     if (keptSubtrees.has(key)) return value;
@@ -132,13 +144,46 @@ export function maskResponsesRequest(
       typeof object.type === "string" ? object.type : parentType;
     const next: JsonObject = {};
     for (const [childKey, childValue] of Object.entries(object)) {
-      next[childKey] = walk(childValue, childKey, type);
+      next[childKey] = walk(childValue, childKey, type, location);
     }
     return next;
   };
 
   for (const [key, value] of Object.entries(body)) {
-    (body as JsonObject)[key] = walk(value, key, null);
+    (body as JsonObject)[key] = walk(
+      value,
+      key,
+      null,
+      topLevelLocation(key),
+    );
   }
   return hits;
+}
+
+function topLevelLocation(key: string): PrivacyMaskingLocation {
+  if (key === "instructions") return "instructions";
+  if (key === "tools") return "tools";
+  if (key === "input") return "prompt";
+  return "other";
+}
+
+/** An input item says where its text belongs; everything else inherits. */
+function itemLocation(
+  item: unknown,
+  inherited: PrivacyMaskingLocation,
+): PrivacyMaskingLocation {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) {
+    return inherited;
+  }
+  const type = (item as JsonObject).type;
+  if (typeof type !== "string") return inherited;
+  if (type === "function_call") return "tool_arguments";
+  if (type.endsWith("_call_output")) return "tool_output";
+  if (type === "message") {
+    const role = (item as JsonObject).role;
+    return role === "system" || role === "developer"
+      ? "instructions"
+      : "prompt";
+  }
+  return inherited;
 }

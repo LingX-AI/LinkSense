@@ -585,3 +585,42 @@ describe("chat placeholder note", () => {
     expect(withChatPlaceholderNote(chat)).toBe(chat);
   });
 });
+
+describe("mask request hit locations", () => {
+  it("says where in the request each value appeared", () => {
+    const mask = masker({ words: ["Acme"] });
+    const body = {
+      instructions: "You work for Acme.",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Acme secret" }],
+        },
+        {
+          type: "function_call",
+          name: "lookup",
+          call_id: "call_1",
+          arguments: '{"query":"Acme"}',
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_1",
+          output: "Acme output",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "lookup",
+          description: "Find Acme records",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+    };
+    const hits = maskResponsesRequest(body, mask);
+    expect(new Set(hits.map((hit) => hit.location))).toEqual(
+      new Set(["instructions", "prompt", "tool_arguments", "tool_output", "tools"]),
+    );
+  });
+});

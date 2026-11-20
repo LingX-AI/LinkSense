@@ -18,6 +18,7 @@ const capture = {
   model: "model-a",
   kinds: { API_KEY: 2 },
   masked_count: 2,
+  hints: [{ kind: "API_KEY", length: 40, location: "prompt", count: 2 }],
   observed_at: "2026-11-17T08:00:00.000Z",
 };
 
@@ -54,6 +55,20 @@ describe("internal privacy masking activity", () => {
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json().data).toEqual({ recorded: true });
     expect(record).toHaveBeenCalledExactlyOnceWith(capture);
+  });
+
+  it("accepts a capture from a runner that predates hints", async () => {
+    const { app, record } = await fixture();
+    const legacy: Record<string, unknown> = { ...capture };
+    delete legacy.hints;
+    const response = await app.inject({
+      method: "POST",
+      url: "/runner/privacy-masking",
+      headers,
+      payload: legacy,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(record).toHaveBeenCalledExactlyOnceWith({ ...legacy, hints: [] });
   });
 
   it.each([{}, { authorization: "Bearer invalid" }])(

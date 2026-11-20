@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   imagePreviewRegistrationSchema,
   runnerPrivacyMaskingCaptureSchema,
+  type RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,7 +101,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
   it.each([undefined, "01900000-0000-7000-8000-000000000006"])(
     "relays privacy masking captures from the worker sink through the controller with service session %s",
     async (serviceSessionId) => {
-      const capture = {
+      const capture: RunnerPrivacyMaskingCapture = {
         request_id: "01900000-0000-7000-8000-000000000020",
         owner_id: ownerId,
         conversation_id: conversationId,
@@ -108,6 +109,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
         model: "test-model",
         kinds: { TERM: 1 },
         masked_count: 1,
+        hints: [{ kind: "TERM", length: 4, location: "prompt", count: 1 }],
         observed_at: "2026-11-20T00:00:00.000Z",
       };
       const api = Fastify({ logger: false });

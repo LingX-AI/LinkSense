@@ -26,12 +26,14 @@ import type {
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
+  PrivacyMaskingHint,
   PrivacyMaskingRuntime,
   RunnerMemoryUsageCapture,
   RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import {
   CONTEXT_LENGTH_EXCEEDED,
+  PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
   DESKTOP_MODEL_PURPOSE_HEADER,
   createModelProviderFetch,
   desktopModelProxyUrl,
@@ -77,6 +79,7 @@ import {
   restoreJsonValue,
   withChatPlaceholderNote,
   withPlaceholderNote,
+  type MaskRequestHit,
   type PrivacyMaskHit,
   type RestoredEvent,
 } from "../privacy-masking/index.js";
@@ -2178,7 +2181,7 @@ export class ModelGateway implements ModelGatewayRuntime {
   }
 
   private reportPrivacyMasking(
-    hits: readonly PrivacyMaskHit[],
+    hits: readonly MaskRequestHit[],
     lease: Pick<
       ModelGatewayLeaseInput,
       "ownerId" | "conversationId" | "model"
@@ -2187,13 +2190,36 @@ export class ModelGateway implements ModelGatewayRuntime {
   ): void {
     if (!this.options.onPrivacyMasking) return;
     const kinds: Record<string, number> = {};
+    const hintsByShape = new Map<string, PrivacyMaskingHint>();
     let maskedCount = 0;
     for (const hit of hits) {
       if (hit.action !== "mask") continue;
       maskedCount += 1;
       kinds[hit.kind] = Number(kinds[hit.kind] ?? 0) + 1;
+      const key = `${hit.kind}\u0000${hit.length}\u0000${hit.location}`;
+      const hint = hintsByShape.get(key);
+      if (hint) hint.count += 1;
+      else {
+        hintsByShape.set(key, {
+          kind: hit.kind,
+          length: hit.length,
+          location: hit.location,
+          count: 1,
+        });
+      }
     }
     if (maskedCount === 0) return;
+    const hints = [...hintsByShape.values()]
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          left.kind.localeCompare(right.kind) ||
+          left.length - right.length ||
+          left.location.localeCompare(right.location),
+      )
+      .slice(0, PRIVACY_MASKING_ACTIVITY_HINT_LIMIT);
+    // Hints come from the hits already in memory; the report itself is
+    // sent fire-and-forget so a slow API never delays the model request.
     const capture: RunnerPrivacyMaskingCapture = {
       request_id: context.requestId,
       owner_id: lease.ownerId,
@@ -2202,6 +2228,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       model: lease.model,
       kinds,
       masked_count: maskedCount,
+      hints,
       observed_at: new Date(context.startedAt).toISOString(),
     };
     void Promise.resolve()

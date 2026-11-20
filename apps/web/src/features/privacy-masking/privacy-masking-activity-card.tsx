@@ -1,13 +1,21 @@
-import { ActivityIcon } from "lucide-react"
+import { ActivityIcon, ChevronDown } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import type { PrivacyMaskingKind } from "@linksense/shared"
+import type {
+  PrivacyMaskingKind,
+  PrivacyMaskingLocation,
+} from "@linksense/shared"
 
 import { getErrorMessage } from "@/api/error-message"
 import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { privacyMaskingKindLabelKeys } from "@/features/privacy-masking/kinds"
@@ -18,6 +26,15 @@ function formatWhen(value: string, language: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value))
+}
+
+const locationLabelKeys: Record<PrivacyMaskingLocation, string> = {
+  prompt: "settings.privacyMaskingActivityLocationPrompt",
+  instructions: "settings.privacyMaskingActivityLocationInstructions",
+  tool_arguments: "settings.privacyMaskingActivityLocationToolArguments",
+  tool_output: "settings.privacyMaskingActivityLocationToolOutput",
+  tools: "settings.privacyMaskingActivityLocationTools",
+  other: "settings.privacyMaskingActivityLocationOther",
 }
 
 export function PrivacyMaskingActivityCard() {
@@ -95,42 +112,91 @@ export function PrivacyMaskingActivityCard() {
           </p>
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {records.map((record) => (
-              <li
-                key={record.id}
-                className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
-              >
-                <time
-                  dateTime={record.created_at}
-                  className="shrink-0 text-xs text-muted-foreground tabular-nums"
-                >
-                  {formatWhen(record.created_at, i18n.language)}
-                </time>
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-                  {record.model}
-                </span>
-                <span className="flex flex-wrap gap-1">
-                  {Object.entries(record.kinds)
-                    .sort((left, right) => right[1] - left[1])
-                    .map(([kind, count]) => (
-                      <span
-                        key={kind}
-                        className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
-                      >
-                        {t(
-                          privacyMaskingKindLabelKeys[
-                            kind as PrivacyMaskingKind
-                          ] ?? kind
-                        )}{" "}
-                        ×{count}
-                      </span>
-                    ))}
-                </span>
-                <span className="shrink-0 text-xs font-medium tabular-nums">
-                  ×{record.masked_count}
-                </span>
-              </li>
-            ))}
+            {records.map((record) => {
+              const row = (
+                <>
+                  <time
+                    dateTime={record.created_at}
+                    className="shrink-0 text-xs text-muted-foreground tabular-nums"
+                  >
+                    {formatWhen(record.created_at, i18n.language)}
+                  </time>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                    {record.model}
+                  </span>
+                  <span className="flex flex-wrap gap-1">
+                    {Object.entries(record.kinds)
+                      .sort((left, right) => right[1] - left[1])
+                      .map(([kind, count]) => (
+                        <span
+                          key={kind}
+                          className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
+                        >
+                          {t(
+                            privacyMaskingKindLabelKeys[
+                              kind as PrivacyMaskingKind
+                            ] ?? kind
+                          )}{" "}
+                          ×{count}
+                        </span>
+                      ))}
+                  </span>
+                  <span className="shrink-0 text-xs font-medium tabular-nums">
+                    ×{record.masked_count}
+                  </span>
+                </>
+              )
+              return (
+                <li key={record.id}>
+                  {record.hints.length === 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                      {row}
+                    </div>
+                  ) : (
+                    <Collapsible>
+                      <CollapsibleTrigger className="group flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                        {row}
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-180"
+                        />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <ul className="grid gap-1 border-t border-border/60 px-3 py-2">
+                          {record.hints.map((hint) => (
+                            <li
+                              key={`${hint.kind}:${hint.length}:${hint.location}`}
+                              className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground"
+                            >
+                              <span className="font-medium text-foreground/80">
+                                {t(
+                                  privacyMaskingKindLabelKeys[hint.kind] ??
+                                    hint.kind
+                                )}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span>{t(locationLabelKeys[hint.location])}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                {t(
+                                  "settings.privacyMaskingActivityHintLength",
+                                  {
+                                    length: numberFormat.format(hint.length),
+                                  }
+                                )}
+                              </span>
+                              <span className="tabular-nums">
+                                ×{hint.count}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
 

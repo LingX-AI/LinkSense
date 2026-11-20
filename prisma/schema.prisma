@@ -2521,6 +2521,7 @@ model UserPrivacyMaskingRecord {
   model          String   @db.VarChar(200)
   maskedCount    Int      @map("masked_count")
   kinds          Json     @db.JsonB
+  hints          Json     @default("[]") @db.JsonB
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([userId, requestId])

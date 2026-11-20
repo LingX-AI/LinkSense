@@ -871,6 +871,13 @@ export const ptBR = {
     privacyMaskingActivityEmpty:
       "Ainda não há solicitações mascaradas neste período.",
     privacyMaskingActivityLoadMore: "Carregar mais",
+    privacyMaskingActivityHintLength: "{{length}} caracteres",
+    privacyMaskingActivityLocationPrompt: "Prompt",
+    privacyMaskingActivityLocationInstructions: "Instruções",
+    privacyMaskingActivityLocationToolArguments: "Argumentos da ferramenta",
+    privacyMaskingActivityLocationToolOutput: "Saída da ferramenta",
+    privacyMaskingActivityLocationTools: "Definições de ferramentas",
+    privacyMaskingActivityLocationOther: "Outro",
     appearancePageDescription:
       "Defina o tema da interface e o tamanho da fonte base do {{productName}}.",
     theme: "Tema",

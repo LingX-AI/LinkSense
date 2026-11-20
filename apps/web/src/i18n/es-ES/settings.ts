@@ -170,6 +170,14 @@ export const settingsMessages = {
     privacyMaskingActivityEmpty:
       "Aún no hay solicitudes enmascaradas en este periodo.",
     privacyMaskingActivityLoadMore: "Cargar más",
+    privacyMaskingActivityHintLength: "{{length}} caracteres",
+    privacyMaskingActivityLocationPrompt: "Indicación",
+    privacyMaskingActivityLocationInstructions: "Instrucciones",
+    privacyMaskingActivityLocationToolArguments:
+      "Argumentos de la herramienta",
+    privacyMaskingActivityLocationToolOutput: "Salida de la herramienta",
+    privacyMaskingActivityLocationTools: "Definiciones de herramientas",
+    privacyMaskingActivityLocationOther: "Otro",
     appearancePageDescription:
       "Configura el tema y el tamaño de letra base de {{productName}}.",
     theme: "Tema",

@@ -364,6 +364,7 @@ describe("ModelGateway privacy masking", () => {
       model: "model-a",
       kinds: { API_KEY: 1 },
       masked_count: 1,
+      hints: [{ kind: "API_KEY", length: secret.length, location: "prompt", count: 1 }],
     });
   });
 

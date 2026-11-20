@@ -161,10 +161,43 @@ const privacyMaskingKindCountsSchema = z.record(
   z.number().int().nonnegative(),
 );
 
+/** Where in the request a value was replaced. */
+export const privacyMaskingLocationValues = [
+  "prompt",
+  "instructions",
+  "tool_arguments",
+  "tool_output",
+  "tools",
+  "other",
+] as const;
+
+export const privacyMaskingLocationSchema = z.enum(
+  privacyMaskingLocationValues,
+);
+export type PrivacyMaskingLocation = z.infer<
+  typeof privacyMaskingLocationSchema
+>;
+
+export const PRIVACY_MASKING_ACTIVITY_HINT_LIMIT = 50;
+
+/**
+ * One shape of value replaced in a request: its kind, how long it was and
+ * where it appeared, never the value or its placeholder. Requests with the
+ * same shape and place share one hint with a count.
+ */
+export const privacyMaskingHintSchema = z.strictObject({
+  kind: privacyMaskingKindSchema,
+  length: z.number().int().positive().max(1_000_000),
+  location: privacyMaskingLocationSchema,
+  count: z.number().int().positive(),
+});
+
+export type PrivacyMaskingHint = z.infer<typeof privacyMaskingHintSchema>;
+
 /**
  * What the runner reports once per model request where values were replaced.
- * Counts only: the placeholder registry and original values never leave the
- * runner.
+ * Counts and shapes only: the placeholder registry and original values never
+ * leave the runner.
  */
 export const runnerPrivacyMaskingCaptureSchema = z
   .strictObject({
@@ -175,6 +208,10 @@ export const runnerPrivacyMaskingCaptureSchema = z
     model: z.string().min(1).max(200),
     kinds: privacyMaskingKindCountsSchema,
     masked_count: z.number().int().positive(),
+    hints: z
+      .array(privacyMaskingHintSchema)
+      .max(PRIVACY_MASKING_ACTIVITY_HINT_LIMIT)
+      .default([]),
     observed_at: z.iso.datetime(),
   })
   .superRefine((capture, context) => {
@@ -190,6 +227,9 @@ export const privacyMaskingActivityRecordSchema = z.strictObject({
   model: z.string(),
   masked_count: z.number().int().nonnegative(),
   kinds: privacyMaskingKindCountsSchema,
+  hints: z.array(privacyMaskingHintSchema).max(
+    PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
+  ),
   created_at: z.iso.datetime(),
 });
 
