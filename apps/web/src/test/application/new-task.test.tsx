@@ -886,6 +886,7 @@ describe("LinkSense application", () => {
     const optimisticStopButton = await screen.findByRole("button", {
       name: "停止",
     })
+    expect(composer).toHaveValue("")
     expect(optimisticTurnSummary).toBeInTheDocument()
     promotionScrollTo.mockClear()
     initialScroller.scrollTop = 37
@@ -924,6 +925,7 @@ describe("LinkSense application", () => {
       initialComposerShell
     )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    expect(composer).toHaveValue("")
     expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
       initialModelSelector
     )
@@ -965,6 +967,7 @@ describe("LinkSense application", () => {
         document.getElementById("conversation-message-new-task-message-1")
       ).toBeInTheDocument()
     )
+    expect(composer).toHaveValue("")
     expect(screen.getByRole("article", { name: "用户消息" })).toBe(
       optimisticUserMessage
     )

@@ -1664,6 +1664,9 @@ export function ConversationPage({
         })
       }
     }
+    if (isNewTaskPromotion && hydratedDraftScopeRef.current === "new") {
+      hydratedDraftScopeRef.current = localDraftScope
+    }
     if (
       hydratedDraftScopeRef.current === localDraftScope &&
       !confirmsLocalAttachmentDraft &&
@@ -1687,6 +1690,7 @@ export function ConversationPage({
     conversation,
     currentPendingTurnSubmission,
     conversationId,
+    isNewTaskPromotion,
     localDraftScope,
     newTaskResetVersion,
     queryClient,
@@ -3039,7 +3043,6 @@ export function ConversationPage({
         routeConversationIdRef.current === null
       ) {
         setNewTaskPromotionConversationId(createdConversation.id)
-        hydratedDraftScopeRef.current = createdConversation.id
         routeConversationIdRef.current = createdConversation.id
         if (suppressEmptyStateUntilFirstMessage) {
           setPendingFirstMessageConversationId(createdConversation.id)
