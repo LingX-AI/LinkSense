@@ -5,11 +5,13 @@ const native = vi.hoisted(() => ({
   info: vi.fn(),
   request: vi.fn(),
   openExternal: vi.fn(),
+  onNavigate: vi.fn(),
 }))
 vi.mock("mygo-runtime", () => ({ isMyGo: () => native.isDesktop }))
 vi.mock("@mygo-plugins/fetch", () => ({ fetch: native.request }))
 vi.mock("./mygo", () => ({
   Desktop: { info: native.info, openExternal: native.openExternal },
+  events: { desktopNavigate: { on: native.onNavigate } },
 }))
 
 import {
@@ -18,6 +20,7 @@ import {
   hostFetch,
   initializeDesktopHost,
   openDesktopExternal,
+  subscribeDesktopNavigation,
 } from "./desktop-adapter"
 
 describe("desktop host boundary", () => {
@@ -75,5 +78,23 @@ describe("desktop host boundary", () => {
     })
     await expect(initializeDesktopHost()).rejects.toThrow()
     expect(native.request).not.toHaveBeenCalled()
+  })
+
+  it("connects the router to the native menu only inside the desktop host", () => {
+    const navigate = vi.fn()
+    const unsubscribe = vi.fn()
+    native.onNavigate.mockImplementation((callback: (path: unknown) => void) => {
+      callback("https://outside.example.test")
+      callback({ path: "/settings/general" })
+      callback("/settings/general")
+      return unsubscribe
+    })
+    expect(subscribeDesktopNavigation(navigate)).toBeUndefined()
+    expect(navigate).not.toHaveBeenCalled()
+
+    native.isDesktop = true
+    expect(subscribeDesktopNavigation(navigate)).toBe(unsubscribe)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledWith("/settings/general")
   })
 })

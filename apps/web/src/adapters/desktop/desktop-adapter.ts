@@ -2,7 +2,7 @@ import { fetch as nativeFetch } from "@mygo-plugins/fetch"
 import { isMyGo } from "mygo-runtime"
 import { z } from "zod"
 
-import { Desktop } from "./mygo"
+import { Desktop, events } from "./mygo"
 
 const hostInfoSchema = z.strictObject({
   bridgeVersion: z.literal(1),
@@ -45,6 +45,18 @@ export function subscribeDesktopUpdate(listener: () => void): () => void {
 
 export function isDesktopHost(): boolean {
   return isMyGo()
+}
+
+const desktopMenuPathSchema = z.enum(["/settings/general", "/conversations/new"])
+
+export function subscribeDesktopNavigation(
+  navigate: (path: z.infer<typeof desktopMenuPathSchema>) => void
+) {
+  if (!isDesktopHost()) return
+  return events.desktopNavigate.on((value) => {
+    const path = desktopMenuPathSchema.safeParse(value)
+    if (path.success) navigate(path.data)
+  })
 }
 
 export async function initializeDesktopHost(): Promise<null> {

@@ -12,9 +12,25 @@ export interface Messages {
    */
   buildConfigurationInvalid(): string;
   /**
+   * `关闭窗口后在菜单栏继续运行`
+   */
+  closeToTray(): string;
+  /**
+   * `新建任务`
+   */
+  newTask(): string;
+  /**
+   * `偏好设置…`
+   */
+  preferences(): string;
+  /**
    * `退出`
    */
   quit(): string;
+  /**
+   * `显示 LinkSense`
+   */
+  showWindow(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -31,38 +47,66 @@ const catalog = createCatalog<Messages>({
   params: {
     "buildConfigurationTitle": [],
     "buildConfigurationInvalid": [],
+    "closeToTray": [],
+    "newTask": [],
+    "preferences": [],
     "quit": [],
+    "showWindow": [],
   },
   messages: {
     "zh-CN": {
       "buildConfigurationTitle": "无法启动 LinkSense",
       "buildConfigurationInvalid": "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。",
+      "closeToTray": "关闭窗口后在菜单栏继续运行",
+      "newTask": "新建任务",
+      "preferences": "偏好设置…",
       "quit": "退出",
+      "showWindow": "显示 LinkSense",
     },
     "en-US": {
       "buildConfigurationTitle": "Unable to start LinkSense",
       "buildConfigurationInvalid": "This application package has no valid server address. Contact your administrator for a correctly configured installer.",
+      "closeToTray": "Keep Running in the Menu Bar When the Window Closes",
+      "newTask": "New Task",
+      "preferences": "Preferences…",
       "quit": "Quit",
+      "showWindow": "Show LinkSense",
     },
     "es-ES": {
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
       "buildConfigurationInvalid": "Este paquete no tiene una dirección de servidor válida. Contacta con el administrador para obtener un instalador configurado correctamente.",
+      "closeToTray": "Seguir en la barra de menús al cerrar la ventana",
+      "newTask": "Nueva tarea",
+      "preferences": "Preferencias…",
       "quit": "Salir",
+      "showWindow": "Mostrar LinkSense",
     },
     "fr-FR": {
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
       "buildConfigurationInvalid": "Ce paquet ne contient pas d’adresse de serveur valide. Contactez votre administrateur pour obtenir un programme d’installation correctement configuré.",
+      "closeToTray": "Rester dans la barre des menus après fermeture de la fenêtre",
+      "newTask": "Nouvelle tâche",
+      "preferences": "Préférences…",
       "quit": "Quitter",
+      "showWindow": "Afficher LinkSense",
     },
     "ja-JP": {
       "buildConfigurationTitle": "LinkSense を起動できません",
       "buildConfigurationInvalid": "このアプリには有効なサーバーアドレスが設定されていません。正しく設定されたインストーラーを管理者に依頼してください。",
+      "closeToTray": "ウィンドウを閉じてもメニューバーに残す",
+      "newTask": "新しいタスク",
+      "preferences": "環境設定…",
       "quit": "終了",
+      "showWindow": "LinkSense を表示",
     },
     "pt-BR": {
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
       "buildConfigurationInvalid": "Este pacote não tem um endereço de servidor válido. Entre em contato com o administrador para obter um instalador configurado corretamente.",
+      "closeToTray": "Continuar na barra de menus ao fechar a janela",
+      "newTask": "Nova tarefa",
+      "preferences": "Preferências…",
       "quit": "Sair",
+      "showWindow": "Mostrar o LinkSense",
     },
   },
 });

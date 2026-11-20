@@ -1,5 +1,9 @@
 {
   "buildConfigurationTitle": "No se puede iniciar LinkSense",
   "buildConfigurationInvalid": "Este paquete no tiene una dirección de servidor válida. Contacta con el administrador para obtener un instalador configurado correctamente.",
-  "quit": "Salir"
+  "closeToTray": "Seguir en la barra de menús al cerrar la ventana",
+  "newTask": "Nueva tarea",
+  "preferences": "Preferencias…",
+  "quit": "Salir",
+  "showWindow": "Mostrar LinkSense"
 }

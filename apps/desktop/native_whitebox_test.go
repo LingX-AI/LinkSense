@@ -83,19 +83,21 @@ func TestMain(m *testing.M) {
 				allowsAPIRequest(nativeWhitebox.desktop.server, request)
 		},
 	}))
+	exitCode := make(chan int, 1)
 	mygo.App.WhenReady(func() {
 		go func() {
-			code := m.Run()
-			nativeWhitebox.server.Close()
-			_ = os.RemoveAll(dataRoot)
+			exitCode <- m.Run()
 			mygo.App.Quit()
-			os.Exit(code)
 		}()
 	})
-	if err := mygo.App.Run(); err != nil {
+	err = mygo.App.Run()
+	nativeWhitebox.server.Close()
+	_ = os.RemoveAll(dataRoot)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Native whitebox application failed")
 		os.Exit(1)
 	}
+	os.Exit(<-exitCode)
 }
 
 func whiteboxAPI(w http.ResponseWriter, r *http.Request) {

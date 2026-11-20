@@ -43,10 +43,7 @@ func main() {
 			return
 		}
 		mygo.App.OnSecondInstance(func(_ []string, _ string) {
-			if win := desktop.mainWindow(); win != nil {
-				win.Show()
-				win.Focus()
-			}
+			desktop.presentMainWindow()
 		})
 		root, err := mygo.App.Path(mygo.PathUserData)
 		if err != nil {
@@ -62,6 +59,9 @@ func main() {
 				desktop.localRuntime = superviseRuntime(filepath.Join(root, "local-runtime"), filepath.Join(resources, "runtime"), origin)
 			}
 			desktop.openMainWindow()
+			if runtime.GOOS == "darwin" {
+				desktop.installShell(root)
+			}
 			return
 		}
 		catalog := locales.In(mygo.App.Locale())

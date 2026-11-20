@@ -1,5 +1,9 @@
 {
   "buildConfigurationTitle": "无法启动 LinkSense",
   "buildConfigurationInvalid": "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。",
-  "quit": "退出"
+  "closeToTray": "关闭窗口后在菜单栏继续运行",
+  "newTask": "新建任务",
+  "preferences": "偏好设置…",
+  "quit": "退出",
+  "showWindow": "显示 LinkSense"
 }

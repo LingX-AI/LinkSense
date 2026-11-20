@@ -1,5 +1,9 @@
 {
   "buildConfigurationTitle": "Impossible de démarrer LinkSense",
   "buildConfigurationInvalid": "Ce paquet ne contient pas d’adresse de serveur valide. Contactez votre administrateur pour obtenir un programme d’installation correctement configuré.",
-  "quit": "Quitter"
+  "closeToTray": "Rester dans la barre des menus après fermeture de la fenêtre",
+  "newTask": "Nouvelle tâche",
+  "preferences": "Préférences…",
+  "quit": "Quitter",
+  "showWindow": "Afficher LinkSense"
 }

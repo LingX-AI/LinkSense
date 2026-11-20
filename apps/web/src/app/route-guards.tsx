@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
+import { subscribeDesktopNavigation } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
@@ -84,6 +85,16 @@ export function ProtectedRoute() {
   const { status, user } = useAuth()
   const { bootstrap } = useBootstrap()
   const location = useLocation()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (status !== "authenticated") return
+    return subscribeDesktopNavigation((path) => {
+      if (path === location.pathname) return
+      void Promise.resolve(navigate(path)).catch(() => {
+        console.error("DESKTOP_NAVIGATION_UNAVAILABLE")
+      })
+    })
+  }, [status, navigate, location.pathname])
   const [destinationUserId, setDestinationUserId] = useState(user?.id)
   if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
     setDestinationUserId(user.id)

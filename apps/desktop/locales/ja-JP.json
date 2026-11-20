@@ -1,5 +1,9 @@
 {
   "buildConfigurationTitle": "LinkSense を起動できません",
   "buildConfigurationInvalid": "このアプリには有効なサーバーアドレスが設定されていません。正しく設定されたインストーラーを管理者に依頼してください。",
-  "quit": "終了"
+  "closeToTray": "ウィンドウを閉じてもメニューバーに残す",
+  "newTask": "新しいタスク",
+  "preferences": "環境設定…",
+  "quit": "終了",
+  "showWindow": "LinkSense を表示"
 }

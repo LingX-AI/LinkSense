@@ -56,6 +56,36 @@ func (msgs Messages) BuildConfigurationInvalid() string {
 	return Catalog.Format(msgs.locale, "buildConfigurationInvalid", nil)
 }
 
+// CloseToTray says "关闭窗口后在菜单栏继续运行"
+// in the language the app shows.
+func CloseToTray() string { return In(i18n.Locale()).CloseToTray() }
+
+// CloseToTray says "关闭窗口后在菜单栏继续运行"
+// in the language of msgs.
+func (msgs Messages) CloseToTray() string {
+	return Catalog.Format(msgs.locale, "closeToTray", nil)
+}
+
+// NewTask says "新建任务"
+// in the language the app shows.
+func NewTask() string { return In(i18n.Locale()).NewTask() }
+
+// NewTask says "新建任务"
+// in the language of msgs.
+func (msgs Messages) NewTask() string {
+	return Catalog.Format(msgs.locale, "newTask", nil)
+}
+
+// Preferences says "偏好设置…"
+// in the language the app shows.
+func Preferences() string { return In(i18n.Locale()).Preferences() }
+
+// Preferences says "偏好设置…"
+// in the language of msgs.
+func (msgs Messages) Preferences() string {
+	return Catalog.Format(msgs.locale, "preferences", nil)
+}
+
 // Quit says "退出"
 // in the language the app shows.
 func Quit() string { return In(i18n.Locale()).Quit() }
@@ -64,4 +94,14 @@ func Quit() string { return In(i18n.Locale()).Quit() }
 // in the language of msgs.
 func (msgs Messages) Quit() string {
 	return Catalog.Format(msgs.locale, "quit", nil)
+}
+
+// ShowWindow says "显示 LinkSense"
+// in the language the app shows.
+func ShowWindow() string { return In(i18n.Locale()).ShowWindow() }
+
+// ShowWindow says "显示 LinkSense"
+// in the language of msgs.
+func (msgs Messages) ShowWindow() string {
+	return Catalog.Format(msgs.locale, "showWindow", nil)
 }

@@ -1,5 +1,9 @@
 {
   "buildConfigurationTitle": "Unable to start LinkSense",
   "buildConfigurationInvalid": "This application package has no valid server address. Contact your administrator for a correctly configured installer.",
-  "quit": "Quit"
+  "closeToTray": "Keep Running in the Menu Bar When the Window Closes",
+  "newTask": "New Task",
+  "preferences": "Preferences…",
+  "quit": "Quit",
+  "showWindow": "Show LinkSense"
 }

@@ -33,6 +33,9 @@ type Desktop struct {
 	login        *browserLoginAttempt
 	openBrowser  func(string) error
 	localRuntime *runtimeSupervisor
+	// The window and application lifecycle callbacks use these only on the main thread.
+	closeToTray bool
+	quitting    bool
 }
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {
@@ -186,5 +189,11 @@ func (d *Desktop) openMainWindow() {
 			_ = mygo.Shell.OpenExternal(u.String())
 		}
 		return nil
+	})
+	win.OnClose(func(event *mygo.CloseEvent) {
+		if d.closeToTray && !d.quitting {
+			event.PreventDefault()
+			win.Hide()
+		}
 	})
 }
