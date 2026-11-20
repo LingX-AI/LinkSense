@@ -4,6 +4,23 @@ import { bind, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/** CompletionNotificationInput carries only IDs and the localized status. */
+export interface CompletionNotificationInput {
+  userId: string;
+  conversationId: string;
+  turnId: string;
+  body: string;
+}
+
+/**
+ * DesktopNotificationClick names the account and conversation of a clicked
+ * notification. The page checks the account before opening the conversation.
+ */
+export interface DesktopNotificationClick {
+  userId: string;
+  conversationId: string;
+}
+
 export interface DesktopUpdateResult {
   state: DesktopUpdateState;
   version?: string;
@@ -40,10 +57,25 @@ export const Desktop = {
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
   info: bind<[], HostInfo>("Desktop.Info", () => []),
+  /**
+   * NotificationsSupported reports whether this build can show notifications,
+   * as MyGo reports it for packaged apps.
+   */
+  notificationsSupported: bind<[], boolean>("Desktop.NotificationsSupported", () => []),
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
+  /**
+   * ShowCompletionNotification shows one task-completion notification. It uses
+   * only the app name and localized status; task content stays in the app.
+   */
+  showCompletionNotification: bind<[CompletionNotificationInput], void>("Desktop.ShowCompletionNotification", (input: CompletionNotificationInput) => [input]),
+  /**
+   * ShowTestNotification shows the notification that exercises the system's
+   * authorization prompt when the user enables notifications.
+   */
+  showTestNotification: bind<[string], void>("Desktop.ShowTestNotification", (body: string) => [body]),
   signIn: bind<[], void>("Desktop.SignIn", () => []),
 } as const;
 
@@ -51,5 +83,6 @@ export const Desktop = {
 
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
+  desktopNotificationClick: event<DesktopNotificationClick>("desktop:notification-click"),
   desktopNavigate: event<string>("desktop:navigate"),
 } as const;

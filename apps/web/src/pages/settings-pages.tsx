@@ -259,7 +259,7 @@ export function SettingsGeneralPage() {
             />
           </section>
         </SettingsCard>
-        <BrowserNotificationSettings userId={user?.id} />
+        <BrowserNotificationSettings key={user?.id} userId={user?.id} />
         <BrowserExtensionSettings userId={user?.id} />
         {isDesktopHost() && (
           <SettingsCard

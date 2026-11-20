@@ -2,7 +2,12 @@ import { fetch as nativeFetch } from "@mygo-plugins/fetch"
 import { isMyGo } from "mygo-runtime"
 import { z } from "zod"
 
-import { Desktop, events } from "./mygo"
+import {
+  Desktop,
+  events,
+  type CompletionNotificationInput,
+  type DesktopNotificationClick,
+} from "./mygo"
 
 const hostInfoSchema = z.strictObject({
   bridgeVersion: z.literal(1),
@@ -19,12 +24,25 @@ const desktopUpdateSchema = z.discriminatedUnion("state", [
   z.strictObject({ state: z.enum(["current", "unavailable", "failed"]) }),
 ])
 
+const desktopNotificationClickSchema = z.strictObject({
+  userId: z.uuid(),
+  conversationId: z.uuid(),
+})
+
+export type DesktopNotificationResult =
+  "shown" | "denied" | "unsupported" | "cancelled" | "failed"
+
 export async function checkDesktopUpdate() {
   if (!isDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
   return desktopUpdateSchema.parse(await Desktop.checkForUpdate())
 }
 
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null
+let desktopNotificationsSupported = false
+let notificationClickBridgeInstalled = false
+let notificationClickListener:
+  ((target: DesktopNotificationClick) => void) | null = null
+let pendingNotificationClick: DesktopNotificationClick | null = null
 let updateRequired = false
 const updateListeners = new Set<() => void>()
 
@@ -47,7 +65,93 @@ export function isDesktopHost(): boolean {
   return isMyGo()
 }
 
-const desktopMenuPathSchema = z.enum(["/settings/general", "/conversations/new"])
+export function isMacDesktopHost(): boolean {
+  return isDesktopHost() && hostInfo?.platform === "darwin"
+}
+
+export function supportsNativeDesktopNotifications(): boolean {
+  return isMacDesktopHost() && desktopNotificationsSupported
+}
+
+export async function showDesktopCompletionNotification(
+  input: CompletionNotificationInput,
+  signal: AbortSignal
+): Promise<DesktopNotificationResult> {
+  if (!supportsNativeDesktopNotifications()) return "unsupported"
+  return desktopNotificationResult(signal, () =>
+    Desktop.showCompletionNotification.with({ signal })(input)
+  )
+}
+
+export async function showDesktopTestNotification(
+  body: string,
+  signal: AbortSignal
+): Promise<DesktopNotificationResult> {
+  if (!supportsNativeDesktopNotifications()) return "unsupported"
+  return desktopNotificationResult(signal, () =>
+    Desktop.showTestNotification.with({ signal })(body)
+  )
+}
+
+async function desktopNotificationResult(
+  signal: AbortSignal,
+  show: () => Promise<void>
+): Promise<DesktopNotificationResult> {
+  try {
+    signal.throwIfAborted()
+    await show()
+    return signal.aborted ? "cancelled" : "shown"
+  } catch (error) {
+    if (signal.aborted) return "cancelled"
+    const message = error instanceof Error ? error.message : ""
+    if (message === "DESKTOP_NOTIFICATIONS_DENIED") return "denied"
+    if (message === "DESKTOP_NOTIFICATIONS_UNSUPPORTED") return "unsupported"
+    return "failed"
+  }
+}
+
+// Notification clicks may launch the app, so the listener is installed before
+// React mounts and holds the target until the router is ready.
+export function installDesktopNotificationClickBridge(): void {
+  if (notificationClickBridgeInstalled || !isDesktopHost()) return
+  notificationClickBridgeInstalled = true
+  events.desktopNotificationClick.on((value) => {
+    const target = desktopNotificationClickSchema.safeParse(value)
+    if (!target.success) return
+    if (notificationClickListener) notificationClickListener(target.data)
+    else pendingNotificationClick = target.data
+  })
+}
+
+export function subscribeDesktopNotificationClick(
+  listener: (target: DesktopNotificationClick) => void
+) {
+  if (!isDesktopHost()) return
+  installDesktopNotificationClickBridge()
+  notificationClickListener = listener
+  if (pendingNotificationClick) {
+    const target = pendingNotificationClick
+    pendingNotificationClick = null
+    listener(target)
+  }
+  return () => {
+    if (notificationClickListener === listener) notificationClickListener = null
+  }
+}
+
+export function desktopNotificationRouteForUser(
+  target: DesktopNotificationClick,
+  userId: string
+): string | null {
+  return target.userId === userId
+    ? `/conversations/${target.conversationId}`
+    : null
+}
+
+const desktopMenuPathSchema = z.enum([
+  "/settings/general",
+  "/conversations/new",
+])
 
 export function subscribeDesktopNavigation(
   navigate: (path: z.infer<typeof desktopMenuPathSchema>) => void
@@ -61,8 +165,18 @@ export function subscribeDesktopNavigation(
 
 export async function initializeDesktopHost(): Promise<null> {
   if (!isDesktopHost()) return null
+  installDesktopNotificationClickBridge()
   hostInfo = hostInfoSchema.parse(await Desktop.info())
   document.documentElement.dataset.desktopPlatform = hostInfo.platform
+  desktopNotificationsSupported = false
+  if (hostInfo.platform === "darwin") {
+    try {
+      desktopNotificationsSupported =
+        (await Desktop.notificationsSupported()) === true
+    } catch {
+      desktopNotificationsSupported = false
+    }
+  }
   return null
 }
 

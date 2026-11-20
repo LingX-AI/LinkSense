@@ -23,14 +23,15 @@ import (
 )
 
 var nativeWhitebox struct {
-	desktop  *Desktop
-	store    *memoryCredentialStore
-	server   *httptest.Server
-	logins   atomic.Int32
-	refresh  atomic.Int32
-	protocol atomic.Int32
-	cloud    atomic.Pointer[cloudWhitebox]
-	browser  atomic.Pointer[browserUseWhitebox]
+	desktop    *Desktop
+	store      *memoryCredentialStore
+	server     *httptest.Server
+	logins     atomic.Int32
+	refresh    atomic.Int32
+	protocol   atomic.Int32
+	cloud      atomic.Pointer[cloudWhitebox]
+	browser    atomic.Pointer[browserUseWhitebox]
+	completion atomic.Bool
 }
 
 // The real platform WebView runs on the main thread; fixtures never use an account or a GUI automation permission.
@@ -231,6 +232,21 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 				AppVersion: input.AppVersion, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			},
 		}
+	case "/api/v1/completion-notifications":
+		if !cloudAuthorized(w, r) {
+			return
+		}
+		items := []any{}
+		cursor := "fixture-notification-baseline"
+		if nativeWhitebox.completion.Load() && r.URL.Query().Get("cursor") == cursor {
+			items = append(items, map[string]any{
+				"turn_id": cloudTurn, "conversation_id": cloudConversation,
+				"source": "task", "status": "completed", "terminal_at": fixtureTime,
+				"task_title": "Private fixture task title",
+			})
+			cursor = "fixture-notification-delivered"
+		}
+		data = map[string]any{"items": items, "next_cursor": cursor}
 	case "/api/v1/projects":
 		data = []any{}
 	case "/api/v1/me/model-preference":

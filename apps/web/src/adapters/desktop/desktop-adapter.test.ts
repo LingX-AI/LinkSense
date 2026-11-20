@@ -6,22 +6,48 @@ const native = vi.hoisted(() => ({
   request: vi.fn(),
   openExternal: vi.fn(),
   onNavigate: vi.fn(),
+  notificationsSupported: vi.fn(),
+  showCompletionNotification: Object.assign(vi.fn(), { with: vi.fn() }),
+  showTestNotification: Object.assign(vi.fn(), { with: vi.fn() }),
+  onNotificationClick: vi.fn(),
 }))
 vi.mock("mygo-runtime", () => ({ isMyGo: () => native.isDesktop }))
 vi.mock("@mygo-plugins/fetch", () => ({ fetch: native.request }))
 vi.mock("./mygo", () => ({
-  Desktop: { info: native.info, openExternal: native.openExternal },
-  events: { desktopNavigate: { on: native.onNavigate } },
+  Desktop: {
+    info: native.info,
+    openExternal: native.openExternal,
+    notificationsSupported: native.notificationsSupported,
+    showCompletionNotification: native.showCompletionNotification,
+    showTestNotification: native.showTestNotification,
+  },
+  events: {
+    desktopNavigate: { on: native.onNavigate },
+    desktopNotificationClick: { on: native.onNotificationClick },
+  },
 }))
 
 import {
+  desktopNotificationRouteForUser,
   getDesktopPlatform,
   getDesktopServerUrl,
   hostFetch,
   initializeDesktopHost,
   openDesktopExternal,
+  showDesktopCompletionNotification,
+  showDesktopTestNotification,
   subscribeDesktopNavigation,
+  subscribeDesktopNotificationClick,
+  supportsNativeDesktopNotifications,
 } from "./desktop-adapter"
+
+let emitNotificationClick: (value: unknown) => void = () => undefined
+native.onNotificationClick.mockImplementation(
+  (callback: (value: unknown) => void) => {
+    emitNotificationClick = callback
+    return vi.fn()
+  }
+)
 
 describe("desktop host boundary", () => {
   afterEach(() => {
@@ -83,12 +109,14 @@ describe("desktop host boundary", () => {
   it("connects the router to the native menu only inside the desktop host", () => {
     const navigate = vi.fn()
     const unsubscribe = vi.fn()
-    native.onNavigate.mockImplementation((callback: (path: unknown) => void) => {
-      callback("https://outside.example.test")
-      callback({ path: "/settings/general" })
-      callback("/settings/general")
-      return unsubscribe
-    })
+    native.onNavigate.mockImplementation(
+      (callback: (path: unknown) => void) => {
+        callback("https://outside.example.test")
+        callback({ path: "/settings/general" })
+        callback("/settings/general")
+        return unsubscribe
+      }
+    )
     expect(subscribeDesktopNavigation(navigate)).toBeUndefined()
     expect(navigate).not.toHaveBeenCalled()
 
@@ -96,5 +124,104 @@ describe("desktop host boundary", () => {
     expect(subscribeDesktopNavigation(navigate)).toBe(unsubscribe)
     expect(navigate).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledWith("/settings/general")
+  })
+
+  it("verifies notification support and keeps delivery failures distinct", async () => {
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    native.notificationsSupported.mockResolvedValue(true)
+    await initializeDesktopHost()
+    expect(supportsNativeDesktopNotifications()).toBe(true)
+
+    const { signal } = new AbortController()
+    native.showCompletionNotification.with.mockReturnValue(
+      native.showCompletionNotification
+    )
+    native.showTestNotification.with.mockReturnValue(
+      native.showTestNotification
+    )
+    const input = {
+      userId: "10000000-0000-4000-8000-000000000001",
+      conversationId: "20000000-0000-4000-8000-000000000001",
+      turnId: "30000000-0000-4000-8000-000000000001",
+      body: "Processed successfully",
+    }
+    native.showCompletionNotification.mockResolvedValueOnce(undefined)
+    await expect(
+      showDesktopCompletionNotification(input, signal)
+    ).resolves.toBe("shown")
+    expect(native.showCompletionNotification).toHaveBeenCalledWith(input)
+
+    native.showTestNotification.mockResolvedValueOnce(undefined)
+    await expect(showDesktopTestNotification("Test", signal)).resolves.toBe(
+      "shown"
+    )
+
+    native.showCompletionNotification.mockRejectedValueOnce(
+      new Error("DESKTOP_NOTIFICATIONS_DENIED")
+    )
+    await expect(
+      showDesktopCompletionNotification(input, signal)
+    ).resolves.toBe("denied")
+
+    native.showCompletionNotification.mockRejectedValueOnce(
+      new Error("system failure")
+    )
+    await expect(
+      showDesktopCompletionNotification(input, signal)
+    ).resolves.toBe("failed")
+
+    native.showCompletionNotification.mockRejectedValueOnce(
+      new Error("DESKTOP_NOTIFICATIONS_UNSUPPORTED")
+    )
+    await expect(
+      showDesktopCompletionNotification(input, signal)
+    ).resolves.toBe("unsupported")
+    await expect(
+      showDesktopCompletionNotification(input, AbortSignal.abort())
+    ).resolves.toBe("cancelled")
+    expect(native.showCompletionNotification.with).toHaveBeenCalledTimes(4)
+  })
+
+  it("accepts only UUID notification clicks and holds a launch click", () => {
+    native.isDesktop = true
+    const target = {
+      userId: "10000000-0000-4000-8000-000000000001",
+      conversationId: "20000000-0000-4000-8000-000000000001",
+    }
+    emitNotificationClick("https://outside.example.test")
+    emitNotificationClick({ ...target, conversationId: "../../etc/passwd" })
+
+    const listener = vi.fn()
+    const unsubscribe = subscribeDesktopNotificationClick(listener)
+    expect(listener).not.toHaveBeenCalled()
+
+    emitNotificationClick(target)
+    expect(listener).toHaveBeenCalledWith(target)
+    expect(desktopNotificationRouteForUser(target, target.userId)).toBe(
+      `/conversations/${target.conversationId}`
+    )
+    expect(
+      desktopNotificationRouteForUser(
+        target,
+        "10000000-0000-4000-8000-000000000002"
+      )
+    ).toBeNull()
+
+    const pendingTarget = {
+      ...target,
+      conversationId: "20000000-0000-4000-8000-000000000002",
+    }
+    unsubscribe?.()
+    emitNotificationClick(pendingTarget)
+    expect(listener).toHaveBeenCalledTimes(1)
+    const nextListener = vi.fn()
+    subscribeDesktopNotificationClick(nextListener)
+    expect(nextListener).toHaveBeenCalledWith(pendingTarget)
   })
 })

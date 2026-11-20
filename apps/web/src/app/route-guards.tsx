@@ -3,7 +3,11 @@ import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
-import { subscribeDesktopNavigation } from "@/adapters/desktop/desktop-adapter"
+import {
+  desktopNotificationRouteForUser,
+  subscribeDesktopNavigation,
+  subscribeDesktopNotificationClick,
+} from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
@@ -94,6 +98,17 @@ export function ProtectedRoute() {
       })
     })
   }, [status, navigate, location.pathname])
+  useEffect(() => {
+    // Let the index redirect settle before consuming an app-launch click.
+    if (status !== "authenticated" || !user || location.pathname === "/") return
+    return subscribeDesktopNotificationClick((target) => {
+      const path = desktopNotificationRouteForUser(target, user.id)
+      if (!path || path === location.pathname) return
+      void Promise.resolve(navigate(path)).catch(() => {
+        console.error("DESKTOP_NOTIFICATION_NAVIGATION_UNAVAILABLE")
+      })
+    })
+  }, [status, user, navigate, location.pathname])
   const [destinationUserId, setDestinationUserId] = useState(user?.id)
   if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
     setDestinationUserId(user.id)

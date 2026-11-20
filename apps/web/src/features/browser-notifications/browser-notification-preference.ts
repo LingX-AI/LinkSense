@@ -1,3 +1,9 @@
+import {
+  getDesktopServerUrl,
+  isMacDesktopHost,
+  supportsNativeDesktopNotifications,
+} from "@/adapters/desktop/desktop-adapter"
+
 export const BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX =
   "linksense.browserNotifications.enabled"
 export const BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX =
@@ -10,9 +16,10 @@ const BROWSER_NOTIFICATION_PREFERENCE_CHANGED_EVENT =
 const transientDisabledPreferences = new Set<string>()
 const transientDeliveryHistory = new Map<string, string[]>()
 const transientFeedCursors = new Map<string, string>()
+const macNotificationDenials = new Set<string>()
 
 export type BrowserNotificationPermission =
-  NotificationPermission | "unsupported"
+  NotificationPermission | "unsupported" | "unknown"
 
 export type BrowserNotificationEnableResult =
   NotificationPermission | "unsupported" | "error"
@@ -25,11 +32,15 @@ export type BrowserNotificationPreference = Readonly<{
 }>
 
 export function browserNotificationStorageKey(userId: string) {
-  return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${userId}`
+  return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
 }
 
 export function browserNotificationDeliveryStorageKey(userId: string) {
-  return `${BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX}:${userId}`
+  return `${BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
+}
+
+function notificationAccountKey(userId: string) {
+  return isMacDesktopHost() ? `mac:${getDesktopServerUrl()}:${userId}` : userId
 }
 
 function resolveNotificationApi(): typeof Notification | null {
@@ -50,8 +61,9 @@ function resolveLocalStorage(): Storage | null {
 }
 
 function readEnabled(userId: string): boolean {
-  if (transientDisabledPreferences.has(userId)) return false
   try {
+    if (transientDisabledPreferences.has(notificationAccountKey(userId)))
+      return false
     const stored = resolveLocalStorage()?.getItem(
       browserNotificationStorageKey(userId)
     )
@@ -67,14 +79,26 @@ export function readBrowserNotificationPreference(
   userId: string
 ): BrowserNotificationPreference {
   const notificationApi = resolveNotificationApi()
-  const permission = notificationApi?.permission ?? "unsupported"
+  const desktop = isMacDesktopHost()
+  const supported = desktop
+    ? supportsNativeDesktopNotifications()
+    : notificationApi !== null
+  const permission = desktop
+    ? macNotificationDenials.has(notificationAccountKey(userId))
+      ? "denied"
+      : "unknown"
+    : (notificationApi?.permission ?? "unsupported")
   const enabled = readEnabled(userId)
 
   return {
     enabled,
-    effectiveEnabled: enabled && permission === "granted",
+    effectiveEnabled:
+      enabled &&
+      (desktop
+        ? supported && permission !== "denied"
+        : permission === "granted"),
     permission,
-    supported: notificationApi !== null,
+    supported,
   }
 }
 
@@ -91,6 +115,7 @@ export function persistBrowserNotificationPreference(
   enabled: boolean
 ): boolean {
   const storageKey = browserNotificationStorageKey(userId)
+  const accountKey = notificationAccountKey(userId)
   const storage = resolveLocalStorage()
   try {
     if (!storage) throw new Error("browser notification storage unavailable")
@@ -98,15 +123,16 @@ export function persistBrowserNotificationPreference(
     if (storage.getItem(storageKey) !== String(enabled)) {
       throw new Error("browser notification preference was not persisted")
     }
-    transientDisabledPreferences.delete(userId)
+    transientDisabledPreferences.delete(accountKey)
+    if (enabled) macNotificationDenials.delete(accountKey)
   } catch {
     const removed = removeBrowserNotificationPreference(storage, storageKey)
     if (!enabled && removed) {
-      transientDisabledPreferences.delete(userId)
+      transientDisabledPreferences.delete(accountKey)
       dispatchPreferenceChanged(userId)
       return true
     }
-    transientDisabledPreferences.add(userId)
+    transientDisabledPreferences.add(accountKey)
     dispatchPreferenceChanged(userId)
     return false
   }
@@ -128,8 +154,13 @@ function removeBrowserNotificationPreference(
 }
 
 export function disableBrowserNotifications(userId: string) {
-  transientFeedCursors.delete(userId)
+  clearBrowserNotificationFeedCursor(userId)
   return persistBrowserNotificationPreference(userId, false)
+}
+
+export function recordMacNotificationDenial(userId: string) {
+  macNotificationDenials.add(notificationAccountKey(userId))
+  disableBrowserNotifications(userId)
 }
 
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationEnableResult> {
@@ -149,18 +180,18 @@ export async function requestBrowserNotificationPermission(): Promise<BrowserNot
 }
 
 export function readBrowserNotificationFeedCursor(userId: string) {
-  return transientFeedCursors.get(userId) ?? null
+  return transientFeedCursors.get(notificationAccountKey(userId)) ?? null
 }
 
 export function saveBrowserNotificationFeedCursor(
   userId: string,
   cursor: string
 ) {
-  transientFeedCursors.set(userId, cursor)
+  transientFeedCursors.set(notificationAccountKey(userId), cursor)
 }
 
 export function clearBrowserNotificationFeedCursor(userId: string) {
-  transientFeedCursors.delete(userId)
+  transientFeedCursors.delete(notificationAccountKey(userId))
 }
 
 export function subscribeBrowserNotificationPreference(
@@ -269,7 +300,7 @@ export function hasBrowserNotificationDelivery(
 
 function readBrowserNotificationDeliveryHistory(userId: string): string[] {
   const storageKey = browserNotificationDeliveryStorageKey(userId)
-  const fallback = transientDeliveryHistory.get(userId) ?? []
+  const fallback = transientDeliveryHistory.get(storageKey) ?? []
   try {
     const stored = window.localStorage?.getItem(storageKey)
     let parsed: unknown = []
@@ -284,7 +315,7 @@ function readBrowserNotificationDeliveryHistory(userId: string): string[] {
     const merged = [...new Set([...delivered, ...fallback])].slice(
       -BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT
     )
-    transientDeliveryHistory.set(userId, merged)
+    transientDeliveryHistory.set(storageKey, merged)
     return merged
   } catch {
     return fallback
@@ -296,12 +327,10 @@ function writeBrowserNotificationDeliveryHistory(
   delivered: string[]
 ) {
   const bounded = delivered.slice(-BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT)
-  transientDeliveryHistory.set(userId, bounded)
+  const storageKey = browserNotificationDeliveryStorageKey(userId)
+  transientDeliveryHistory.set(storageKey, bounded)
   try {
-    window.localStorage?.setItem(
-      browserNotificationDeliveryStorageKey(userId),
-      JSON.stringify(bounded)
-    )
+    window.localStorage?.setItem(storageKey, JSON.stringify(bounded))
   } catch {
     // The bounded in-memory history still prevents duplicate delivery in-page.
   }

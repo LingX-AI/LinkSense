@@ -14,11 +14,15 @@ import {
 } from "@/app/client-build"
 import { ClientUpdateNotice } from "@/components/shell/client-update-notice"
 import { ApplicationLoadError } from "@/app/application-load-error"
-import { initializeDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import {
+  initializeDesktopHost,
+  installDesktopNotificationClickBridge,
+} from "@/adapters/desktop/desktop-adapter"
 
 initializeTheme()
 initializeUiFontSize()
 clearClientUpdateUrl()
+installDesktopNotificationClickBridge()
 const disposeClientBuildListeners = installClientBuildListeners()
 
 const rootElement = document.getElementById("root")

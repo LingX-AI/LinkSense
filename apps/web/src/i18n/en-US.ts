@@ -868,6 +868,18 @@ export const enUS = {
       "Notifications are connected. You will be notified here when a task or automation produces a result.",
     testSent:
       "A test notification was sent to the system. If you did not see it, check your operating system's notification settings for this browser.",
+    desktopTitle: "macOS notifications",
+    desktopDescription:
+      "Get a notification when a task or automation finishes while LinkSense is in the background.",
+    desktopEnable: "Enable macOS notifications",
+    desktopUnsupported:
+      "Notifications are unavailable in this app build. Use a packaged LinkSense desktop app to receive task completion notifications.",
+    desktopPermissionDenied:
+      "macOS has blocked notifications for {{productName}}. Allow them in System Settings > Notifications, then try again.",
+    desktopDeliveryError:
+      "The system could not show the notification. Check the notification settings for {{productName}} in macOS System Settings, then try again.",
+    desktopTestSent:
+      "A test notification was sent. If you did not see it, check the notification settings for {{productName}} in macOS System Settings.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processed successfully",
     statusFailedBody: "Processing failed",

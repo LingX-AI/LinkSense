@@ -12,6 +12,11 @@ vi.mock("./mygo", () => ({
       platform: "darwin",
       version: "0.1.0",
     }),
+    notificationsSupported: async () => false,
+  },
+  events: {
+    desktopNavigate: { on: vi.fn() },
+    desktopNotificationClick: { on: vi.fn() },
   },
 }))
 

@@ -166,11 +166,16 @@ func validUUID(id string) bool {
 }
 
 func (d *Desktop) openMainWindow() {
+	page := mygo.PageOptions{DevTools: mygo.DevToolsDisabled}
+	if runtime.GOOS == "darwin" {
+		// Keep the existing completion feed running after Close to Menu Bar.
+		page.BackgroundThrottling = mygo.ThrottlingOff
+	}
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: "LinkSense", URL: "/",
 		Width: 1200, Height: 800, MinWidth: 720, MinHeight: 540,
 		StateKey: "desktop-main",
-		Page:     mygo.PageOptions{DevTools: mygo.DevToolsDisabled},
+		Page:     page,
 	})
 	d.mu.Lock()
 	d.window = win

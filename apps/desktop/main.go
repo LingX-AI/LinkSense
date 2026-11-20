@@ -15,6 +15,7 @@ import (
 func main() {
 	mygo.App.SetName("LinkSense")
 	desktop := &Desktop{}
+	mygo.App.OnNotificationClick(desktop.handleNotificationClick)
 	defer desktop.cancelSignIn()
 	defer func() {
 		if desktop.localRuntime != nil {

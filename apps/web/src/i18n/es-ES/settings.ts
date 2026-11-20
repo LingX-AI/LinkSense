@@ -222,6 +222,18 @@ export const settingsMessages = {
       "Las notificaciones están conectadas. Recibirás un aviso aquí cuando una tarea o automatización produzca un resultado.",
     testSent:
       "Se ha enviado una notificación de prueba al sistema. Si no la has visto, comprueba los ajustes de notificaciones de este navegador en tu sistema operativo.",
+    desktopTitle: "Notificaciones de macOS",
+    desktopDescription:
+      "Recibe una notificación cuando termine una tarea o automatización mientras LinkSense está en segundo plano.",
+    desktopEnable: "Activar las notificaciones de macOS",
+    desktopUnsupported:
+      "Las notificaciones no están disponibles en esta compilación de la aplicación. Usa una aplicación de escritorio LinkSense empaquetada para recibir notificaciones al completar tareas.",
+    desktopPermissionDenied:
+      "macOS ha bloqueado las notificaciones de {{productName}}. Permítelas en Ajustes del Sistema > Notificaciones y vuelve a intentarlo.",
+    desktopDeliveryError:
+      "El sistema no pudo mostrar la notificación. Revisa los ajustes de notificaciones de {{productName}} en Ajustes del Sistema de macOS y vuelve a intentarlo.",
+    desktopTestSent:
+      "Se ha enviado una notificación de prueba al sistema. Si no la has visto, revisa los ajustes de notificaciones de {{productName}} en Ajustes del Sistema de macOS.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Procesado correctamente",
     statusFailedBody: "Error de procesamiento",

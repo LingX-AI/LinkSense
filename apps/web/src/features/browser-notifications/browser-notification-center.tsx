@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router-dom"
 
 import { ApiError, apiRequest } from "@/api/client"
+import {
+  isMacDesktopHost,
+  showDesktopCompletionNotification,
+} from "@/adapters/desktop/desktop-adapter"
 import { completionNotificationFeedSchema } from "@/api/contracts"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
@@ -12,6 +16,8 @@ import {
   clearBrowserNotificationFeedCursor,
   hasBrowserNotificationDelivery,
   readBrowserNotificationFeedCursor,
+  readBrowserNotificationPreference,
+  recordMacNotificationDenial,
   saveBrowserNotificationFeedCursor,
   showBrowserNotification,
 } from "@/features/browser-notifications/browser-notification-preference"
@@ -42,6 +48,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
   )
   const deliveredInThisTabRef = useRef(new Set<string>())
   const activeNotificationsRef = useRef(new Set<Notification>())
+  const nativeNotifications = isMacDesktopHost()
 
   const completionQuery = useQuery({
     queryKey: ["completion-notifications", userId, queryInstanceId],
@@ -56,6 +63,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
           },
           signal,
         })
+        signal.throwIfAborted()
         cursorRef.current = feed.next_cursor
         saveBrowserNotificationFeedCursor(userId, feed.next_cursor)
         return { feed, requestedCursor }
@@ -87,11 +95,12 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!completionData) return
-    let cancelled = false
+    const delivery = new AbortController()
+    const { signal } = delivery
 
     const deliverNotifications = async () => {
       for (const item of completionData.feed.items) {
-        if (cancelled) return
+        if (signal.aborted) return
         const notificationId = `${item.source}:${item.turn_id}`
         if (deliveredInThisTabRef.current.has(notificationId)) continue
         if (hasBrowserNotificationDelivery(userId, notificationId)) continue
@@ -108,6 +117,41 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
             : item.status === "failed"
               ? t("browserNotifications.statusFailedBody")
               : t("browserNotifications.statusInterruptedBody")
+        if (nativeNotifications) {
+          // Native text stays generic: the task title and content must not
+          // reach the lock screen or Notification Center.
+          const result = await withNotificationLock(
+            userId,
+            notificationId,
+            async () => {
+              if (
+                signal.aborted ||
+                !readBrowserNotificationPreference(userId).effectiveEnabled ||
+                hasBrowserNotificationDelivery(userId, notificationId)
+              )
+                return
+              const result = await showDesktopCompletionNotification(
+                {
+                  userId,
+                  conversationId: item.conversation_id,
+                  turnId: item.turn_id,
+                  body,
+                },
+                signal
+              )
+              if (!signal.aborted && result === "shown") {
+                claimBrowserNotificationDelivery(userId, notificationId)
+                deliveredInThisTabRef.current.add(notificationId)
+              }
+              return result
+            }
+          )
+          if (!signal.aborted && result === "denied") {
+            recordMacNotificationDenial(userId)
+            return
+          }
+          continue
+        }
         const notification = await createClaimedBrowserNotification({
           userId,
           notificationId,
@@ -119,7 +163,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
           onClick: () => navigate(target),
         })
         if (!notification) continue
-        if (cancelled) {
+        if (signal.aborted) {
           notification.close()
           return
         }
@@ -131,16 +175,22 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
         }
       }
 
-      if (!cancelled && completionData.requestedCursor === null) {
+      if (!signal.aborted && completionData.requestedCursor === null) {
         void refetch()
       }
     }
 
     void deliverNotifications()
-    return () => {
-      cancelled = true
-    }
-  }, [completionData, navigate, productName, refetch, t, userId])
+    return () => delivery.abort()
+  }, [
+    completionData,
+    nativeNotifications,
+    navigate,
+    productName,
+    refetch,
+    t,
+    userId,
+  ])
 
   return null
 }
@@ -156,7 +206,7 @@ async function createClaimedBrowserNotification(input: {
   body: string
   onClick: () => void
 }): Promise<Notification | null> {
-  const deliver = async () => {
+  return withNotificationLock(input.userId, input.notificationId, async () => {
     if (hasBrowserNotificationDelivery(input.userId, input.notificationId)) {
       return null
     }
@@ -169,15 +219,26 @@ async function createClaimedBrowserNotification(input: {
     if (!notification) return null
     claimBrowserNotificationDelivery(input.userId, input.notificationId)
     return notification
-  }
+  })
+}
 
-  try {
-    if (!navigator.locks) return deliver()
-    return await navigator.locks.request(
-      `linksense-browser-notification:${input.userId}:${input.notificationId}`,
-      deliver
+async function withNotificationLock<T>(
+  userId: string,
+  notificationId: string,
+  deliver: () => Promise<T>
+): Promise<T> {
+  if (!navigator.locks) return deliver()
+  let started = false
+  return navigator.locks
+    .request(
+      `linksense-browser-notification:${userId}:${notificationId}`,
+      () => {
+        started = true
+        return deliver()
+      }
     )
-  } catch {
-    return deliver()
-  }
+    .catch((error) => {
+      if (started) throw error
+      return deliver()
+    })
 }

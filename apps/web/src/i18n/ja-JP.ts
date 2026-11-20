@@ -1129,6 +1129,18 @@ export const jaJP = {
       "通知の接続が完了しました。タスクまたは自動化の結果が出ると、ここで通知します。",
     testSent:
       "システムにテスト通知を送信しました。表示されなかった場合は、OS におけるこのブラウザーの通知設定を確認してください。",
+    desktopTitle: "macOS の通知",
+    desktopDescription:
+      "LinkSense がバックグラウンドで動作している間にタスクや自動化が終了すると、通知が届きます。",
+    desktopEnable: "macOS の通知を有効にする",
+    desktopUnsupported:
+      "このアプリのビルドでは通知を利用できません。タスク完了通知を受け取るには、パッケージ化された LinkSense デスクトップアプリを使用してください。",
+    desktopPermissionDenied:
+      "macOS が {{productName}} の通知をブロックしています。「システム設定」>「通知」で許可してから、もう一度お試しください。",
+    desktopDeliveryError:
+      "システムが通知を表示できませんでした。macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認し、もう一度お試しください。",
+    desktopTestSent:
+      "テスト通知をシステムに送信しました。表示されない場合は、macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認してください。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "処理が完了しました",
     statusFailedBody: "処理に失敗しました",

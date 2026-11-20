@@ -57,6 +57,13 @@ choice persists on this Mac and is off for new and upgraded installs.
 (`Command+N`) actions work after sign-in and respect the app's unsaved-change
 prompts.
 
+Enable **macOS notifications** in **Settings → General**. Turning it on
+sends a test notification and can open the system permission prompt. A saved
+browser preference does not enable Mac notifications. While the app runs
+in the background, it shows task and automation results without task names
+or content. Clicking a notification opens the task only on the matching
+server and account, with the same unsaved-change prompt as in-app navigation.
+
 To enable **Check for updates**, supply both
 `LINKSENSE_DESKTOP_UPDATE_FEED` (the target's full update manifest URL) and
 `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` (the base64 Ed25519 public key) at build

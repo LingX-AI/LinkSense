@@ -1,11 +1,17 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { DEFAULT_ORGANIZATION_DISPLAY_NAME } from "@linksense/shared"
 
 import { apiRequest } from "@/api/client"
+import {
+  isMacDesktopHost,
+  showDesktopTestNotification,
+} from "@/adapters/desktop/desktop-adapter"
 import { completionNotificationFeedSchema } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
 import {
   clearBrowserNotificationFeedCursor,
+  recordMacNotificationDenial,
   saveBrowserNotificationFeedCursor,
   showBrowserNotification,
 } from "@/features/browser-notifications/browser-notification-preference"
@@ -18,39 +24,43 @@ export type BrowserNotificationActivationFeedback =
   | "deliveryError"
   | "feedError"
   | "testSent"
+  | "denied"
+  | "unsupported"
   | null
 
 export function useBrowserNotificationActivation(userId: string | undefined) {
   const { t } = useTranslation()
   const productName = useProductName()
+  const desktop = isMacDesktopHost()
   const preference = useBrowserNotificationPreference(userId)
+  const request = useRef<AbortController | null>(null)
   const [requestPending, setRequestPending] = useState(false)
   const [feedback, setFeedback] =
     useState<BrowserNotificationActivationFeedback>(null)
-  const feedbackMessage =
-    feedback === "storageError"
-      ? t("browserNotifications.storageError")
-      : feedback === "deliveryError"
-        ? t("browserNotifications.deliveryError")
-        : feedback === "feedError"
-          ? t("browserNotifications.feedError")
-          : feedback === "error"
-            ? t("browserNotifications.permissionError")
-            : feedback === "dismissed"
-              ? t("browserNotifications.permissionDismissed")
-              : feedback === "testSent"
-                ? t("browserNotifications.testSent")
-                : null
-
-  const createTestNotification = async () => {
-    if (!userId) return null
-    return showBrowserNotification({
-      title: t("browserNotifications.testTitle", { productName }),
-      body: t("browserNotifications.testBody"),
-      tag: `browser-notification-test:${userId}:${Date.now()}`,
-      onClick: () => undefined,
-    })
-  }
+  useEffect(() => () => request.current?.abort(), [userId])
+  const feedbackKey =
+    feedback &&
+    {
+      storageError: "browserNotifications.storageError",
+      deliveryError: desktop
+        ? "browserNotifications.desktopDeliveryError"
+        : "browserNotifications.deliveryError",
+      feedError: "browserNotifications.feedError",
+      error: "browserNotifications.permissionError",
+      dismissed: "browserNotifications.permissionDismissed",
+      denied: "browserNotifications.desktopPermissionDenied",
+      unsupported: desktop
+        ? "browserNotifications.desktopUnsupported"
+        : "browserNotifications.unsupported",
+      testSent: desktop
+        ? "browserNotifications.desktopTestSent"
+        : "browserNotifications.testSent",
+    }[feedback]
+  const feedbackMessage = feedbackKey
+    ? t(feedbackKey, {
+        productName: desktop ? DEFAULT_ORGANIZATION_DISPLAY_NAME : productName,
+      })
+    : null
 
   const reportDeliveryFailure = () => {
     setFeedback(
@@ -61,23 +71,53 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
   }
 
   const requestPermissionAndActivate = () => {
-    if (!userId) return
+    if (!userId || request.current) return
+    const attempt = new AbortController()
+    request.current = attempt
+    const { signal } = attempt
     setFeedback(null)
     setRequestPending(true)
     void (async () => {
-      const result = await preference.requestPermission()
-      if (result === "default") {
-        setFeedback("dismissed")
-        return
+      if (!desktop) {
+        const result = await preference.requestPermission()
+        if (signal.aborted) return
+        if (result === "default") {
+          setFeedback("dismissed")
+          return
+        }
+        if (result === "error") {
+          setFeedback("error")
+          return
+        }
+        if (result === "unsupported") {
+          setFeedback("unsupported")
+          return
+        }
+        if (result !== "granted") return
       }
-      if (result === "error") {
-        setFeedback("error")
-        return
-      }
-      if (result !== "granted") return
 
-      const notification = await createTestNotification()
-      if (!notification) {
+      const body = t("browserNotifications.testBody")
+      const delivery = desktop
+        ? await showDesktopTestNotification(body, signal)
+        : (await showBrowserNotification({
+              title: t("browserNotifications.testTitle", { productName }),
+              body,
+              tag: `browser-notification-test:${userId}:${Date.now()}`,
+              onClick: () => undefined,
+            }))
+          ? "shown"
+          : "failed"
+      if (signal.aborted || delivery === "cancelled") return
+      if (delivery === "denied") {
+        recordMacNotificationDenial(userId)
+        setFeedback("denied")
+        return
+      }
+      if (delivery === "unsupported") {
+        setFeedback("unsupported")
+        return
+      }
+      if (delivery !== "shown") {
         reportDeliveryFailure()
         return
       }
@@ -86,9 +126,12 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
         const feed = await apiRequest("/completion-notifications", {
           schema: completionNotificationFeedSchema,
           query: { limit: 100 },
+          ...(desktop ? { signal } : {}),
         })
+        if (signal.aborted) return
         saveBrowserNotificationFeedCursor(userId, feed.next_cursor)
       } catch {
+        if (signal.aborted) return
         clearBrowserNotificationFeedCursor(userId)
         setFeedback(
           !preference.enabled || preference.disable()
@@ -104,7 +147,10 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
         return
       }
       setFeedback("testSent")
-    })().finally(() => setRequestPending(false))
+    })().finally(() => {
+      request.current = null
+      setRequestPending(false)
+    })
   }
 
   const disable = () => {

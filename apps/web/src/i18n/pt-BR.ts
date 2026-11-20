@@ -1143,6 +1143,18 @@ export const ptBR = {
       "As notificações estão conectadas. Você receberá um aviso aqui quando uma tarefa ou automação produzir um resultado.",
     testSent:
       "Uma notificação de teste foi enviada ao sistema. Se não a viu, confira as configurações de notificações deste navegador no sistema operacional.",
+    desktopTitle: "Notificações do macOS",
+    desktopDescription:
+      "Receba uma notificação quando uma tarefa ou automação terminar enquanto o LinkSense estiver em segundo plano.",
+    desktopEnable: "Ativar notificações do macOS",
+    desktopUnsupported:
+      "As notificações não estão disponíveis nesta versão do aplicativo. Use um aplicativo de desktop LinkSense empacotado para receber notificações de conclusão de tarefas.",
+    desktopPermissionDenied:
+      "O macOS bloqueou as notificações do {{productName}}. Permita-as em Ajustes do Sistema > Notificações e tente novamente.",
+    desktopDeliveryError:
+      "O sistema não conseguiu mostrar a notificação. Verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS e tente novamente.",
+    desktopTestSent:
+      "Uma notificação de teste foi enviada ao sistema. Se você não a viu, verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processamento concluído",
     statusFailedBody: "Falha no processamento",

@@ -804,6 +804,18 @@ export const zhCN = {
     testBody: "通知已连接，任务或自动化产出结果后会在这里提醒你。",
     testSent:
       "已请求系统显示测试通知。如果没有看到，请检查操作系统对当前浏览器的通知设置。",
+    desktopTitle: "macOS 通知",
+    desktopDescription:
+      "LinkSense 在后台运行时，任务或自动化结束后会发送通知。",
+    desktopEnable: "启用 macOS 通知",
+    desktopUnsupported:
+      "当前安装包无法显示系统通知。请使用已打包的 LinkSense 桌面应用接收任务完成通知。",
+    desktopPermissionDenied:
+      "macOS 已阻止 {{productName}} 的通知。请在“系统设置”>“通知”中允许通知，然后重试。",
+    desktopDeliveryError:
+      "系统未能显示通知。请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置，然后重试。",
+    desktopTestSent:
+      "已向系统发送测试通知。如果没有看到，请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "处理成功",
     statusFailedBody: "处理失败",
