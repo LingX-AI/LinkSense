@@ -1,8 +1,27 @@
 import { randomBytes } from "node:crypto";
+import { z } from "zod";
 
 import { parseSseStream } from "./sse.js";
 
 type JsonObject = Record<string, unknown>;
+
+const finishReasonSchema = z.enum(["stop", "tool_calls", "function_call", "length", "content_filter"]);
+type CompletionStatus = "completed" | "incomplete";
+type TerminalState =
+  | { status: "completed" }
+  | { status: "incomplete"; reason: "max_output_tokens" | "content_filter" };
+
+function terminalState(value: unknown): TerminalState | null {
+  if (value === undefined || value === null) return null;
+  const reason = finishReasonSchema.parse(value);
+  switch (reason) {
+    case "length": return { status: "incomplete", reason: "max_output_tokens" };
+    case "content_filter": return { status: "incomplete", reason: "content_filter" };
+    case "stop":
+    case "tool_calls":
+    case "function_call": return { status: "completed" };
+  }
+}
 
 export type ResponsesStreamEvent = {
   event: string;
@@ -93,17 +112,18 @@ export function chatCompletionToResponse(
 ): JsonObject {
   const choices = Array.isArray(source.choices) ? source.choices : [];
   const firstChoice = choices.find(isRecord);
+  const terminal = terminalState(firstChoice?.finish_reason) ?? { status: "completed" };
   const message = isRecord(firstChoice?.message) ? firstChoice.message : {};
   const output: JsonObject[] = [];
   if (Array.isArray(message.tool_calls)) {
     for (const call of message.tool_calls) {
       if (!isRecord(call)) continue;
-      output.push(chatToolCallToResponseItem(call));
+      output.push(chatToolCallToResponseItem(call, terminal.status));
     }
   }
   const text = chatContentText(message.content);
   if (text !== "" || output.length === 0) {
-    output.push(responseMessageItem(text));
+    output.push(responseMessageItem(text, terminal.status));
   }
   return {
     id: responseId(),
@@ -112,7 +132,8 @@ export function chatCompletionToResponse(
       typeof source.created === "number"
         ? source.created
         : Math.floor(Date.now() / 1_000),
-    status: "completed",
+    status: terminal.status,
+    ...(terminal.status === "incomplete" ? { incomplete_details: { reason: terminal.reason } } : {}),
     model: stringValue(source.model) || fallbackModel,
     output,
     output_text: text,
@@ -138,6 +159,8 @@ export async function* chatCompletionStreamToResponses(
     | undefined;
   const toolStates = new Map<number, ToolStreamState>();
   let usage: unknown;
+  let terminal: TerminalState | null = null;
+  let receivedDone = false;
 
   yield {
     event: "response.created",
@@ -157,7 +180,10 @@ export async function* chatCompletionStreamToResponses(
   };
 
   for await (const event of parseSseStream(upstream.body)) {
-    if (event.data.trim() === "[DONE]") break;
+    if (event.data.trim() === "[DONE]") {
+      receivedDone = true;
+      break;
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(event.data);
@@ -171,6 +197,8 @@ export async function* chatCompletionStreamToResponses(
     const choices = Array.isArray(payload.choices) ? payload.choices : [];
     for (const choice of choices) {
       if (!isRecord(choice)) continue;
+      const nextTerminal = terminalState(choice.finish_reason);
+      if (nextTerminal && terminal?.status !== "incomplete") terminal = nextTerminal;
       const delta = isRecord(choice.delta)
         ? choice.delta
         : isRecord(choice.message)
@@ -302,6 +330,41 @@ export async function* chatCompletionStreamToResponses(
         }
       }
     }
+  }
+
+  if (!receivedDone && !terminal) {
+    throw new Error("model provider stream closed before completion");
+  }
+  if (terminal?.status === "incomplete") {
+    // Native Codex consumes incomplete output from the terminal response. Do
+    // not finalize function calls here: doing so would make truncated arguments executable.
+    const partialOutput: CompletedOutput[] = [...toolStates.values()].map(state => ({
+      outputIndex: state.outputIndex,
+      item: {
+        id: state.itemId, type: "function_call", status: "incomplete",
+        call_id: state.callId, name: state.name, arguments: state.arguments,
+      },
+    }));
+    if (textState) partialOutput.push({
+      outputIndex: textState.outputIndex,
+      item: {
+        id: textState.itemId, type: "message", status: "incomplete", role: "assistant",
+        content: [{ type: "output_text", text: textState.text, annotations: [] }],
+      },
+    });
+    yield {
+      event: "response.incomplete",
+      data: {
+        type: "response.incomplete", sequence_number: sequence,
+        response: {
+          id, object: "response", created_at: createdAt, status: "incomplete", model,
+          incomplete_details: { reason: terminal.reason },
+          output: partialOutput.sort((left, right) => left.outputIndex - right.outputIndex).map(({ item }) => item),
+          output_text: textState?.text ?? "", usage: normalizeUsage(usage),
+        },
+      },
+    };
+    return;
   }
 
   const completedOutput: CompletedOutput[] = [];
@@ -615,12 +678,12 @@ function chatToolChoice(value: unknown): unknown {
   return undefined;
 }
 
-function chatToolCallToResponseItem(source: JsonObject): JsonObject {
+function chatToolCallToResponseItem(source: JsonObject, status: CompletionStatus = "completed"): JsonObject {
   const fn = isRecord(source.function) ? source.function : {};
   return {
     id: itemId("fc"),
     type: "function_call",
-    status: "completed",
+    status,
     call_id:
       typeof source.id === "string" ? source.id : itemId("call"),
     name: stringValue(fn.name) || "unknown_tool",
@@ -631,11 +694,11 @@ function chatToolCallToResponseItem(source: JsonObject): JsonObject {
   };
 }
 
-function responseMessageItem(text: string): JsonObject {
+function responseMessageItem(text: string, status: CompletionStatus = "completed"): JsonObject {
   return {
     id: itemId("msg"),
     type: "message",
-    status: "completed",
+    status,
     role: "assistant",
     content: [{ type: "output_text", text, annotations: [] }],
   };

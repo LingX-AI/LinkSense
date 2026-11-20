@@ -2276,6 +2276,15 @@ async function writeCompletedResponseAsSse(
     sequence_number: sequence++,
     response: inProgress,
   });
+  if (completed.status === "incomplete") {
+    await writeSseEvent(response, "response.incomplete", {
+      type: "response.incomplete",
+      sequence_number: sequence,
+      response: completed,
+    });
+    response.end();
+    return;
+  }
   for (const [outputIndex, item] of output.entries()) {
     await writeSseEvent(response, "response.output_item.added", {
       type: "response.output_item.added",
