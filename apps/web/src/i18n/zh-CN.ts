@@ -504,7 +504,7 @@ export const zhCN = {
       "在请求发送给模型渠道前，把密钥和敏感值替换为占位符，并在回复返回运行时前还原。",
     privacyMaskingEnabled: "启用隐私脱敏",
     privacyMaskingEnabledDescription:
-      "只影响发送给模型渠道的请求。LinkSense 仍会按原文保存任务历史与事件。",
+      "仅脱敏通过任务模型网关发送的文本。不保护自动标题、网页搜索、图片生成或知识库向量化的请求。任务历史与事件仍按原文保存。",
     privacyMaskingSecrets: "密钥与凭据",
     privacyMaskingSecretsDescription:
       "API Key、Token、私钥、密码，以及 Authorization 或 Cookie 请求头的值。",
@@ -534,7 +534,7 @@ export const zhCN = {
       "粘贴一段 Agent 可能发送的文本。这里会按真实请求的方式脱敏，且不会保存任何内容。",
     privacyMaskingTryItPlaceholder:
       "使用密钥 sk-proj-… 部署，然后调用预发环境 API",
-    privacyMaskingTryItOutput: "渠道实际会收到的内容",
+    privacyMaskingTryItOutput: "草稿规则下的文本预览",
     privacyMaskingTryItEmpty: "这段文本中没有需要脱敏的内容。",
     privacyMaskingTryItOffNote:
       "隐私脱敏当前已关闭。此预览显示开启后会被替换的内容。",
@@ -550,7 +550,10 @@ export const zhCN = {
     privacyMaskingKindBankCard: "银行卡号",
     privacyMaskingActivity: "脱敏动态",
     privacyMaskingActivityDescription:
-      "最近替换过敏感值的模型请求，保留 30 天。只记录数量，不保存原值。",
+      "可查看最近 30 天的脱敏请求。记录替换类别、长度、位置和次数，不保存原值。",
+    privacyMaskingSections: "配置与统计",
+    privacyMaskingSectionSettings: "配置",
+    privacyMaskingSectionActivity: "统计",
     privacyMaskingActivityPeriod: "统计周期",
     privacyMaskingActivity7Days: "7 天",
     privacyMaskingActivity30Days: "30 天",

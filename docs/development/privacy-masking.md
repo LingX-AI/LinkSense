@@ -1,11 +1,9 @@
 # Privacy masking
 
-Privacy masking keeps secrets out of model-provider traffic. Before a
-request leaves the runner's model gateway, the gateway replaces secrets and
-the user's own words with stable placeholders; the provider's reply is put
-back before Codex or LinkSense sees it. The model provider receives
-placeholders, while Codex, generated files, and the task UI keep the real
-values.
+Privacy masking replaces recognized secrets and configured words in text
+that leaves the runner's model gateway. Matching values are replaced with
+stable placeholders; known placeholders in the reply are restored before
+Codex sees them.
 
 It is **wire masking**, not storage redaction. LinkSense still stores task
 history, events, and tool output as written. The feature is for users who do
@@ -27,12 +25,11 @@ The settings are per user:
   the settings page's try-it box. It accepts the unsaved draft settings, is
   never stored, and uses the user's own placeholder key so the placeholders
   match a real turn.
-- `GET /api/v1/me/privacy-masking-activity?days=7|30&before=` lists recent
-  model requests that had values replaced, with totals for the window.
-  Rows contain ids, model, timestamp, and counts per kind only; original
-  values and placeholders are never stored. The runner reports them through
-  `POST /internal/runner/privacy-masking`, and rows older than 30 days are
-  pruned when the next row for that user is written.
+- `GET /api/v1/me/privacy-masking-activity?days=7|30` lists recent requests
+  and totals. To continue, pass `before=next_before` and `before_id` from
+  the last row; a time-only cursor remains accepted for older clients.
+  The runner reports activity through `POST /internal/runner/privacy-masking`.
+  Rows older than 30 days are pruned when the next row for that user is written.
 - Settings live in `user_privacy_masking_settings`, encrypted with the
   credential master key. No row means the defaults (masking off).
 - A user's settings are resolved when a turn starts and travel to the
@@ -60,6 +57,11 @@ tool-call ids, tool names and schemas, tool-choice, `prompt_cache_key`,
 encrypted reasoning/signatures, and image data URLs. Tool descriptions are
 masked; tool names and parameter schemas are not.
 
+JSON tool arguments are matched on decoded strings, not JSON escapes.
+If masking would require renaming an argument key or changing a number,
+boolean, or null into a string, the gateway blocks the request rather than
+sending the original value or changing the argument type.
+
 ## Placeholders
 
 A placeholder is `{{KIND_<16 lowercase hex>}}`, produced by HMAC-SHA256 over
@@ -86,12 +88,10 @@ The masking rules and the masker live in
 `packages/shared/src/privacy-masking-engine`, so the API preview and the
 runner use the same engine.
 
-The same page ends with a masking activity card: a 7- or 30-day total of
-replaced values, the number of affected model requests, and the latest
-requests with their model and kind counts. The gateway reports each request
-once through the runner event sink; a failed report is logged and never
-changes the provider request. Only counts and ids are stored, so the card
-cannot reveal what a value was.
+The activity tab shows totals and recent requests over 7 or 30 days. Each
+row records count, kind, length, and location, never the value or the
+placeholder. Older count-only rows still display, without details. A failed
+report is logged and does not change the provider request.
 
 ## Streaming restore
 
@@ -100,21 +100,18 @@ The gateway restores:
 - whole JSON responses, before usage capture and before writing the reply;
 - every SSE event in native, tool-compatible, and Chat Completions bridge
   paths;
-- placeholders split between two text deltas, by holding the event tail and
-  carrying it into the next delta (keepalive events pass through without
-  breaking the hold);
-- tool-call argument strings, with one extra JSON escaping layer so values
+- placeholders split between deltas, without reordering interleaved events;
+- function and MCP argument strings, with one extra JSON escaping layer so values
   containing quotes, backslashes, or newlines remain valid JSON.
 
-An unknown placeholder is left as it is and counted; the gateway never
-guesses a value.
+An unknown placeholder is left as it is; the gateway never guesses a value.
 
 ## Failure behavior
 
 - Masking enabled and the engine throws → `503 privacy_masking_unavailable`,
   and no request is sent.
-- A kind set to `block` is found → `422 privacy_masking_blocked`, and no
-  request is sent.
+- A kind set to `block` is found, or replacement would change the structure
+  of JSON arguments → `422 privacy_masking_blocked`, and no request is sent.
 - Settings that cannot be decrypted or validated →
   `PRIVACY_MASKING_SETTINGS_UNAVAILABLE`; the turn fails closed instead of
   treating the user as opted out.
@@ -124,16 +121,29 @@ guesses a value.
 
 ## Operational notes
 
-- Apply `prisma/migrations/20261116090000_add_user_privacy_masking_settings`
-  before using the settings page.
+- Apply all three existing Mask migrations before serving the new API:
+  `20261116090000_add_user_privacy_masking_settings`,
+  `20261117190000_add_user_privacy_masking_records`, and
+  `20261120110000_add_privacy_masking_record_hints`. Old activity rows receive
+  empty hints; no data rewrite is needed.
+- Upgrade API, Controller/Workers, and Web together before enabling masking.
+  Drain old API instances that predate Mask: they do not read the settings
+  and can send unmasked traffic. Runners that predate Mask cannot accept
+  enabled settings. Do not roll protected traffic back to those builds.
+- A newer API accepts count-only captures. If an API that supports activity
+  but predates hints rejects a capture, the newer Runner submits its counts
+  once without hints. New Web reads count-only rows and can fall back to
+  date-only paging on old APIs; exact-timestamp paging requires the updated
+  API and Web. Refresh old Web tabs and update bundled clients that predate
+  hints; their strict response schema does not understand hints.
 - Changing settings increments a revision that is part of the runner's
   runtime fingerprint, so the next turn rebuilds the conversation process
   with the new configuration.
 - Turning masking on (or changing the words) changes the wire text once, so
   the provider's prompt cache prefix is rebuilt on that turn.
-- The placeholder key is stable while `LINKSENSE_CREDENTIAL_MASTER_KEY` is;
-  rotating the master key changes placeholders and invalidates cached
-  prefixes.
+- Keep `LINKSENSE_CREDENTIAL_MASTER_KEY` unchanged during this rollout.
+  Replacing it without re-encrypting existing settings makes those settings
+  unreadable and blocks their turns; it also changes placeholders.
 - In a shared conversation, model calls use the conversation owner's
   settings, because the owner's runtime performs the turn.
 - Public-knowledge runtimes, title generation, web search, image prompts,

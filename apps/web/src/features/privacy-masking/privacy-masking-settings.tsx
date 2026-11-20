@@ -28,6 +28,7 @@ import { SettingsSectionHeader } from "@/components/settings/settings-section-he
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PrivacyMaskingActivityCard } from "@/features/privacy-masking/privacy-masking-activity-card";
 import { privacyMaskingKindLabelKeys } from "@/features/privacy-masking/kinds";
@@ -84,6 +85,7 @@ export function PrivacyMaskingSettingsPage() {
     settings: defaultPrivacyMaskingSettings,
   });
   const [error, setError] = useState<string | null>(null);
+  const [section, setSection] = useState<"settings" | "activity">("settings");
   const initializedRevision = useRef<number | null>(null);
 
   useEffect(() => {
@@ -170,7 +172,21 @@ export function PrivacyMaskingSettingsPage() {
           <span>{t("common.loading")}</span>
         </div>
       ) : (
-        <div className="grid min-w-0 gap-8">
+        <Tabs
+          value={section}
+          onValueChange={(value) =>
+            setSection(value === "activity" ? "activity" : "settings")
+          }
+        >
+          <TabsList aria-label={t("settings.privacyMaskingSections")}>
+            <TabsTrigger value="settings">
+              {t("settings.privacyMaskingSectionSettings")}
+            </TabsTrigger>
+            <TabsTrigger value="activity">
+              {t("settings.privacyMaskingSectionActivity")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="settings" className="grid min-w-0 gap-8">
           <SettingsCard
             aria-labelledby="privacy-masking-heading"
             layout="split"
@@ -192,6 +208,7 @@ export function PrivacyMaskingSettingsPage() {
               >
                 <Switch
                   id="privacy-masking-enabled"
+                  aria-describedby="privacy-masking-enabled-hint"
                   checked={current.enabled}
                   disabled={!query.data || mutation.isPending}
                   onCheckedChange={(enabled) => update({ enabled })}
@@ -398,11 +415,14 @@ export function PrivacyMaskingSettingsPage() {
             </div>
           </SettingsCard>
 
-          <PrivacyMaskingActivityCard />
-        </div>
+          </TabsContent>
+          <TabsContent value="activity" keepMounted>
+            <PrivacyMaskingActivityCard />
+          </TabsContent>
+        </Tabs>
       )}
 
-      {query.data && (
+      {query.data && section === "settings" && (
         <div className="sticky bottom-0 z-10 -mx-4 mt-8 flex items-center justify-end gap-3 border-t border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-7 sm:px-7">
           <Button
             type="button"

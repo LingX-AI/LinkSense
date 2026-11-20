@@ -804,7 +804,7 @@ export const jaJP = {
       "モデルプロバイダーへ送信する前に秘密情報をプレースホルダーへ置き換え、応答がランタイムに届く前に元へ戻します。",
     privacyMaskingEnabled: "プライバシーマスキングを有効にする",
     privacyMaskingEnabledDescription:
-      "モデルプロバイダーへ送信するリクエストだけに適用されます。LinkSense はタスク履歴とイベントを原文のまま保存します。",
+      "タスク用のモデルゲートウェイを経由するテキストをマスクします。自動タイトルの生成、ウェブ検索、画像生成、ナレッジベースのベクトル化は対象外です。タスク履歴とイベントには元のテキストが残ります。",
     privacyMaskingSecrets: "秘密情報と認証情報",
     privacyMaskingSecretsDescription:
       "API キー、トークン、秘密鍵、パスワード、Authorization または Cookie ヘッダーの値。",
@@ -835,7 +835,7 @@ export const jaJP = {
       "エージェントが送信しそうなテキストを貼り付けてください。実際のリクエストと同じ方法でマスクされ、内容は保存されません。",
     privacyMaskingTryItPlaceholder:
       "キー sk-proj-… でデプロイし、ステージング API を呼び出す",
-    privacyMaskingTryItOutput: "プロバイダーが受け取る内容",
+    privacyMaskingTryItOutput: "下書きルールを適用したテキストのプレビュー",
     privacyMaskingTryItEmpty: "このテキストにマスクされる内容はありません。",
     privacyMaskingTryItOffNote:
       "マスキングはオフです。このプレビューは、オンにしたときに置き換えられる内容を示します。",
@@ -851,7 +851,10 @@ export const jaJP = {
     privacyMaskingKindBankCard: "銀行カード番号",
     privacyMaskingActivity: "マスキング履歴",
     privacyMaskingActivityDescription:
-      "値が置き換えられたモデルリクエストです。30 日間保持されます。保存されるのは件数だけで、値そのものは保存されません。",
+      "値が置き換えられた直近 30 日間のリクエストを確認できます。種類、長さ、出現箇所、件数を記録し、元の値は保存しません。",
+    privacyMaskingSections: "設定と統計",
+    privacyMaskingSectionSettings: "設定",
+    privacyMaskingSectionActivity: "統計",
     privacyMaskingActivityPeriod: "期間",
     privacyMaskingActivity7Days: "7 日間",
     privacyMaskingActivity30Days: "30 日間",

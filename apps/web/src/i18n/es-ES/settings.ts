@@ -114,7 +114,7 @@ export const settingsMessages = {
       "Sustituye secretos por marcadores antes de enviar una solicitud al proveedor del modelo y los restaura antes de que la respuesta llegue al entorno de ejecución.",
     privacyMaskingEnabled: "Activar el enmascaramiento de privacidad",
     privacyMaskingEnabledDescription:
-      "Solo se aplica a las solicitudes enviadas al proveedor del modelo. LinkSense sigue guardando el historial y los eventos tal como se escribieron.",
+      "Enmascara el texto que pasa por la pasarela de modelos de tareas. No protege los títulos automáticos, las búsquedas web, la generación de imágenes ni la vectorización de la base de conocimiento. El historial y los eventos conservan el texto original.",
     privacyMaskingSecrets: "Secretos y credenciales",
     privacyMaskingSecretsDescription:
       "Claves de API, tokens, claves privadas, contraseñas y valores de las cabeceras Authorization o Cookie.",
@@ -145,7 +145,7 @@ export const settingsMessages = {
       "Pega un texto que podría enviar un agente. Aquí se enmascara igual que en una solicitud real y no se guarda nada.",
     privacyMaskingTryItPlaceholder:
       "Despliega con la clave sk-proj-… y llama a la API de preproducción",
-    privacyMaskingTryItOutput: "Lo que recibiría el proveedor",
+    privacyMaskingTryItOutput: "Vista previa del texto con las reglas del borrador",
     privacyMaskingTryItEmpty: "Nada de este texto se enmascararía.",
     privacyMaskingTryItOffNote:
       "El enmascaramiento está desactivado. Esta vista previa muestra lo que se sustituiría al activarlo.",
@@ -161,7 +161,10 @@ export const settingsMessages = {
     privacyMaskingKindBankCard: "Número de tarjeta bancaria",
     privacyMaskingActivity: "Actividad de enmascaramiento",
     privacyMaskingActivityDescription:
-      "Solicitudes al modelo en las que se sustituyeron valores, conservadas 30 días. Solo se guardan recuentos, nunca los valores.",
+      "Consulta las solicitudes con sustituciones de los últimos 30 días. Los registros muestran los tipos, las longitudes, las ubicaciones y los recuentos, nunca los valores originales.",
+    privacyMaskingSections: "Configuración y actividad",
+    privacyMaskingSectionSettings: "Configuración",
+    privacyMaskingSectionActivity: "Actividad",
     privacyMaskingActivityPeriod: "Periodo",
     privacyMaskingActivity7Days: "7 días",
     privacyMaskingActivity30Days: "30 días",

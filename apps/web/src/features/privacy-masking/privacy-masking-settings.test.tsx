@@ -47,9 +47,16 @@ function renderPage() {
 }
 
 describe("privacy masking settings page", () => {
-  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+  it.each([
+    ["zh-CN", /不保护自动标题/u],
+    ["en-US", /does not protect automatic titles/u],
+    ["es-ES", /no protege los títulos automáticos/iu],
+    ["pt-BR", /não protege os títulos automáticos/iu],
+    ["fr-FR", /ne protège pas les titres automatiques/u],
+    ["ja-JP", /自動タイトル.*対象外/u],
+  ] as const)(
     "renders the saved settings in %s",
-    async (language) => {
+    async (language, scope) => {
       await i18n.changeLanguage(language)
       vi.stubGlobal(
         "fetch",
@@ -79,8 +86,75 @@ describe("privacy masking settings page", () => {
           name: i18n.t("settings.privacyMaskingSave"),
         })
       ).toBeDisabled()
+      expect(
+        screen.getByRole("switch", {
+          name: i18n.t("settings.privacyMaskingEnabled"),
+        })
+      ).toHaveAccessibleDescription(i18n.t("settings.privacyMaskingEnabledDescription"))
+      expect(i18n.t("settings.privacyMaskingEnabledDescription")).toMatch(scope)
     }
   )
+
+  it("splits configuration and activity into two tabs", async () => {
+    await i18n.changeLanguage("en-US")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        isActivityRequest(input)
+          ? emptyActivity()
+          : envelope({
+              revision: 0,
+              settings: defaultPrivacyMaskingSettings,
+            })
+      )
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    const settingsTab = await screen.findByRole("tab", {
+      name: i18n.t("settings.privacyMaskingSectionSettings"),
+    })
+    const activityTab = screen.getByRole("tab", {
+      name: i18n.t("settings.privacyMaskingSectionActivity"),
+    })
+    expect(settingsTab).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.getByRole("switch", {
+        name: i18n.t("settings.privacyMaskingEnabled"),
+      })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: i18n.t("settings.privacyMaskingSave"),
+      })
+    ).toBeVisible()
+
+    await user.click(activityTab)
+
+    expect(
+      await screen.findByText(
+        i18n.t("settings.privacyMaskingActivityEmpty")
+      )
+    ).toBeVisible()
+    expect(activityTab).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.queryByRole("switch", {
+        name: i18n.t("settings.privacyMaskingEnabled"),
+      })
+    ).toBeNull()
+    expect(
+      screen.queryByRole("button", {
+        name: i18n.t("settings.privacyMaskingSave"),
+      })
+    ).toBeNull()
+
+    await user.click(settingsTab)
+    expect(
+      screen.getByRole("switch", {
+        name: i18n.t("settings.privacyMaskingEnabled"),
+      })
+    ).toBeVisible()
+  })
 
   it("saves the switch and parsed custom words", async () => {
     await i18n.changeLanguage("en-US")

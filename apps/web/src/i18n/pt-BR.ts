@@ -815,7 +815,7 @@ export const ptBR = {
       "Substitui segredos por marcadores antes de enviar ao provedor do modelo e os restaura antes que a resposta chegue ao ambiente de execução.",
     privacyMaskingEnabled: "Ativar o mascaramento de privacidade",
     privacyMaskingEnabledDescription:
-      "Aplica-se apenas às solicitações enviadas ao provedor do modelo. O LinkSense continua armazenando o histórico e os eventos como foram escritos.",
+      "Mascara o texto enviado pelo gateway de modelos das tarefas. Não protege os títulos automáticos, as pesquisas na web, a geração de imagens nem a vetorização da base de conhecimento. O histórico e os eventos mantêm o texto original.",
     privacyMaskingSecrets: "Segredos e credenciais",
     privacyMaskingSecretsDescription:
       "Chaves de API, tokens, chaves privadas, senhas e valores dos cabeçalhos Authorization ou Cookie.",
@@ -846,7 +846,7 @@ export const ptBR = {
       "Cole um texto que um agente poderia enviar. Ele é mascarado aqui como em uma solicitação real, e nada é armazenado.",
     privacyMaskingTryItPlaceholder:
       "Implante com a chave sk-proj-… e chame a API de homologação",
-    privacyMaskingTryItOutput: "O que o provedor receberia",
+    privacyMaskingTryItOutput: "Prévia do texto com as regras do rascunho",
     privacyMaskingTryItEmpty: "Nada neste texto seria mascarado.",
     privacyMaskingTryItOffNote:
       "O mascaramento está desativado. Esta prévia mostra o que seria substituído quando você o ativar.",
@@ -862,7 +862,10 @@ export const ptBR = {
     privacyMaskingKindBankCard: "Número do cartão bancário",
     privacyMaskingActivity: "Atividade de mascaramento",
     privacyMaskingActivityDescription:
-      "Solicitações ao modelo em que valores foram substituídos, mantidas por 30 dias. Apenas contagens são armazenadas, nunca os valores.",
+      "Veja as solicitações com substituições nos últimos 30 dias. Os registros mostram tipos, comprimentos, locais e contagens, nunca os valores originais.",
+    privacyMaskingSections: "Configurações e atividade",
+    privacyMaskingSectionSettings: "Configurações",
+    privacyMaskingSectionActivity: "Atividade",
     privacyMaskingActivityPeriod: "Período",
     privacyMaskingActivity7Days: "7 dias",
     privacyMaskingActivity30Days: "30 dias",
