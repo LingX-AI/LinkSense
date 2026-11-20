@@ -153,9 +153,7 @@ export function SiteDialog({
       ? { analytics }
       : {}
   const analyticsLocked =
-    action.kind === "edit" &&
-    action.site.status !== "published" &&
-    !analytics
+    action.kind === "edit" && action.site.status !== "published" && !analytics
   const sourceItems = (sources.data ?? []).map((file, index) => ({
     value: file.id,
     label: t(
@@ -204,17 +202,34 @@ export function SiteDialog({
           : selectedSite
             ? publishWebSite(selectedSite.id, action.source.fileId)
             : Promise.reject(new Error(t("webSites.selectExistingSite")))
-      if (action.kind === "edit")
-        return updateWebSite(
-          action.site.id,
-          webSiteUpdateSchema.parse({
-            name,
-            description,
-            ...slugUpdate,
-            ...passcodeUpdate,
+      if (action.kind === "edit") {
+        const settings = webSiteUpdateSchema.parse({
+          name,
+          description,
+          ...slugUpdate,
+          ...passcodeUpdate,
+        })
+        if (analyticsUpdate.analytics !== true)
+          return updateWebSite(action.site.id, {
+            ...settings,
             ...analyticsUpdate,
           })
-        )
+        const hasSettingsChange =
+          settings.name !== action.site.name ||
+          settings.description !== action.site.description ||
+          (settings.slug !== undefined && settings.slug !== action.site.slug) ||
+          settings.passcode !== undefined
+        const saved = hasSettingsChange
+          ? await updateWebSite(action.site.id, settings)
+          : null
+        try {
+          return await updateWebSite(action.site.id, { analytics: true })
+        } catch (error) {
+          if (!saved) throw error
+          notify.error(getErrorMessage(error, t))
+          return saved
+        }
+      }
       if (action.kind === "publish")
         return publishWebSite(action.site.id, fileId)
       await deleteWebSite(action.site.id)
