@@ -140,6 +140,7 @@ import type { CapabilityRuntimeVerification } from "../capabilities/user-home-ma
 import { nextConversationEventSequence } from "../events/sequence.js";
 import type {
   ModelRuntimeSettingsReader,
+  ModelSelectionSource,
   ResolvedModelTransitionRuntime,
   ResolvedModelRuntime,
 } from "../system/model-provider-settings.js";
@@ -897,6 +898,7 @@ export class ConversationService {
     conversationId: string | undefined,
     model: string,
     reasoningEffort: ResolvedModelRuntime["reasoningEffort"],
+    source?: ModelSelectionSource,
   ): Promise<ResolvedModelRuntime> {
     if (!this.modelRuntimeSettings) {
       throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED");
@@ -904,6 +906,7 @@ export class ConversationService {
     const runtime = await this.modelRuntimeSettings.resolveRuntimeForSelection(
       model,
       reasoningEffort,
+      source,
     );
     return this.withPrivacyMasking(
       userId,
@@ -920,6 +923,7 @@ export class ConversationService {
         intent.conversationId,
         intent.model,
         intent.reasoningEffort,
+        "persisted",
       );
     }
     return this.modelRuntimeForUser(intent.ownerId, intent.conversationId);
@@ -1187,7 +1191,7 @@ export class ConversationService {
       }),
       applicationRuntime?.model && applicationRuntime.reasoningEffort
         ? this.modelRuntimeForSelection(input.ownerId, input.conversationId,
-            applicationRuntime.model, applicationRuntime.reasoningEffort)
+            applicationRuntime.model, applicationRuntime.reasoningEffort, "persisted")
         : this.modelRuntimeForUser(
         input.ownerId,
         existing ? input.conversationId : undefined,
@@ -1282,6 +1286,7 @@ export class ConversationService {
             parsed.data.conversationId,
             parsed.data.model,
             parsed.data.reasoningEffort,
+            "persisted",
           )
         : this.modelRuntimeForUser(ownerId, parsed.data.conversationId),
     ]);
@@ -4537,6 +4542,7 @@ export class ConversationService {
                 conversationId,
                 persistedState.model,
                 persistedState.reasoningEffort,
+                "persisted",
               )
             : this.modelRuntimeForUser(ownerId, conversationId),
           this.applicationRuntimeForConversation(
@@ -6753,6 +6759,7 @@ export class ConversationService {
             conversationId,
             turn.model,
             reasoningEffortSchema.parse(turn.reasoningEffort),
+            "persisted",
           )
         : await this.modelRuntimeForUser(ownerId, conversationId);
     const authorizedAgentKeys = await this.authorizedSubAgentKeysForTurn(
@@ -9912,6 +9919,7 @@ export class ConversationService {
                 conversationId,
                 applicationRuntime.model,
                 applicationRuntime.reasoningEffort,
+                "persisted",
               )
             : submission.modelPreference
               ? this.modelRuntimeForSelection(

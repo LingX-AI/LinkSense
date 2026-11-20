@@ -12500,9 +12500,7 @@ function createStartOperationPool(
     ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),
     command: "codex",
     model: "test-model",
-    ...(overrides.modelCatalog
-      ? { modelCatalog: overrides.modelCatalog }
-      : {}),
+    modelCatalog: overrides.modelCatalog ?? { ensure: async () => null },
     processLimit: 2,
     idleTtlMs: overrides.idleTtlMs ?? 60_000,
     templateVersion: "test",

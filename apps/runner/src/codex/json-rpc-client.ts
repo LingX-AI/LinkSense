@@ -72,6 +72,7 @@ export class CodexJsonRpcClient extends EventEmitter {
 
   constructor(options: {
     command: string;
+    cwd?: string;
     userHome: string;
     codexHome: string;
     logger: Logger;
@@ -111,6 +112,7 @@ export class CodexJsonRpcClient extends EventEmitter {
           childEnvironment,
         )
       : spawn(isolatedInvocation.command, isolatedInvocation.args, {
+          cwd: options.cwd,
           env: childEnvironment,
           stdio: "pipe",
         });

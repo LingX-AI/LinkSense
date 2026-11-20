@@ -166,7 +166,7 @@ export class ApplicationService {
       capabilityIds: definition.capabilities.map(item => item.id),
       knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
     });
-    if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort);
+    if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort, "persisted");
   }
 
   async publish(actor: RequestActor, applicationId: string, input: ApplicationVersionInput,
@@ -1149,7 +1149,10 @@ export class ApplicationService {
         ? (current.reasoningEffort as ApplicationRuntimeConfiguration["reasoningEffort"])
         : input.reasoning_effort;
     if (model !== null && reasoningEffort !== null) {
-      await this.models.resolveRuntimeForSelection(model, reasoningEffort);
+      await this.models.resolveRuntimeForSelection(
+        model, reasoningEffort,
+        model === current.model && reasoningEffort === current.reasoningEffort ? "persisted" : "requested",
+      );
     }
     const preparedIcon =
       input.icon === undefined
@@ -1654,7 +1657,7 @@ export class ApplicationService {
         capabilityIds: definition.capabilities.map(capability => capability.id),
         knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
       });
-      if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort);
+      if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort, "persisted");
       return {
         applicationVersionId: versionId, publishedCapabilities: definition.capabilities, interactivePackageId: definition.interactivePackageId,
         kind: definition.kind, applicationId, applicationOwnerId: application.ownerId,
@@ -1722,6 +1725,7 @@ export class ApplicationService {
       await this.models.resolveRuntimeForSelection(
         application.model,
         reasoningEffort,
+        "persisted",
       );
     }
     return {
