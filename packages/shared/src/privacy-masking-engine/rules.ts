@@ -18,6 +18,8 @@ function tokenPattern(body: string): RegExp {
 }
 
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/u;
+const assignedSecretField = String.raw`[A-Za-z0-9_.-]*(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|authorization|cookie|set[_-]?cookie|password|passwd|pwd|secret|token)`;
+const assignedSecretFieldPattern = new RegExp(`^${assignedSecretField}$`, "iu");
 
 /**
  * A value assigned to a secret-looking name is only masked when it looks
@@ -27,7 +29,7 @@ const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]
 function looksLikeAssignedSecret(value: string, field: string): boolean {
   const trimmed = value.replace(/[).;]+$/u, "");
   if (trimmed.length < 4) return false;
-  if (/^(?:\[REDACTED[^\]]*\]|\{\{[A-Z0-9_]+\}\})$/u.test(trimmed)) {
+  if (/^(?:\[REDACTED[^\]]*\]|\{\{[A-Za-z0-9_]+\}\})$/u.test(trimmed)) {
     return false;
   }
   if (/^(?:https?|ftp|file):\/\//iu.test(trimmed)) return false;
@@ -57,6 +59,35 @@ function looksLikeHeaderValue(value: string): boolean {
   if (/\S+=\S+/u.test(trimmed) && /[;]/u.test(trimmed)) return true;
   // Opaque session values are long and have no spaces.
   return trimmed.length >= 16 && !/\s/u.test(trimmed);
+}
+
+function cookiePairs(singleQuoted: boolean): string {
+  const name = singleQuoted
+    ? String.raw`[!#$%&*+.^_\x60|~0-9A-Za-z-]+`
+    : String.raw`[!#$%&'*+.^_\x60|~0-9A-Za-z-]+`;
+  const octet = singleQuoted
+    ? String.raw`[\x21\x23-\x26\x28-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]`
+    : String.raw`[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]`;
+  const pair = String.raw`${name}=(?:"${octet}*"|\\"${octet}*\\"|${octet}*)`;
+  return String.raw`${pair}(?:;[ \t]*${pair})*`;
+}
+
+const cookieFieldValuePattern = new RegExp(`^${cookiePairs(false)}$`, "u");
+const cookieHeaderRules: PrivacyRule[] = [true, false].map((singleQuoted) => ({
+  kind: "SECRET",
+  pattern: new RegExp(
+    String.raw`${singleQuoted ? "(?<=')" : "(?<!')"}(?<![A-Za-z])cookie[ \t]*:[ \t]*(${cookiePairs(singleQuoted)})`,
+    "gid",
+  ),
+  group: 1,
+  markers: ["cookie"],
+}));
+
+export function looksLikeSecretFieldValue(field: string, value: string): boolean {
+  if (/^\{\{[A-Za-z0-9_]+\}\}$/u.test(value.trim())) return false;
+  if (/^cookie$/iu.test(field) && cookieFieldValuePattern.test(value.trim())) return true;
+  if (/^(?:authorization|cookie)$/iu.test(field) && looksLikeHeaderValue(value)) return true;
+  return assignedSecretFieldPattern.test(field) && looksLikeAssignedSecret(value, field);
 }
 
 function isNotAQuantity(value: string): boolean {
@@ -140,6 +171,7 @@ export const privacyRules: readonly PrivacyRule[] = [
     markers: ["://"],
     validate: (value) => !/^(?:\{\{|\$|<|%)/u.test(value),
   },
+  ...cookieHeaderRules,
   {
     kind: "SECRET",
     // Stop at quotes and backslashes: they close the surrounding shell or
@@ -153,8 +185,10 @@ export const privacyRules: readonly PrivacyRule[] = [
   },
   {
     kind: "SECRET",
-    pattern:
-      /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]*(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|authorization|cookie|set[_-]?cookie|password|passwd|pwd|secret|token))["']?[ \t]*[:=][ \t]*["']?((?:\\.|[^\s"',;}{\\]){8,})/gid,
+    pattern: new RegExp(
+      String.raw`(?<![A-Za-z0-9_.-])(${assignedSecretField})["']?[ \t]*[:=][ \t]*["']?((?:\\.|[^\s"',;}{\\]){8,})`,
+      "gid",
+    ),
     group: 2,
     markers: ["key", "secret", "token", "password", "passwd", "pwd", "authorization", "cookie"],
     validate: (value, match) =>
@@ -162,8 +196,10 @@ export const privacyRules: readonly PrivacyRule[] = [
   },
   {
     kind: "SECRET",
-    pattern:
-      /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]*(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|authorization|cookie|set[_-]?cookie|password|passwd|pwd|secret|token))["']?[ \t]*[:=][ \t]*["']([^"'\r\n]{4,})["']/gid,
+    pattern: new RegExp(
+      String.raw`(?<![A-Za-z0-9_.-])(${assignedSecretField})["']?[ \t]*[:=][ \t]*["']([^"'\r\n]{4,})["']`,
+      "gid",
+    ),
     group: 2,
     markers: ["key", "secret", "token", "password", "passwd", "pwd", "authorization", "cookie"],
     validate: (value, match) =>

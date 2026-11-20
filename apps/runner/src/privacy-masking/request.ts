@@ -85,6 +85,8 @@ const keptSubtrees = new Set([
   "allowed_tools",
 ]);
 
+const jsonArgumentItemTypes = new Set(["function_call", "mcp_call", "tool_search_call"]);
+
 function isIdKey(key: string): boolean {
   return (
     key === "id" ||
@@ -121,39 +123,46 @@ export function maskResponsesRequest(
   const walk = (
     value: unknown,
     key: string,
-    parentType: string | null,
     location: PrivacyMaskingLocation,
   ): unknown => {
     if (typeof value === "string") {
       if (keptKeys.has(key) || isIdKey(key)) return value;
-      const context: MaskContext =
-        key === "arguments" || key === "partial_json"
-          ? "embedded-json"
-          : "plain";
-      return mask(value, context, location);
+      return mask(value, "plain", location);
     }
     if (Array.isArray(value)) {
       return value.map((item) =>
-        walk(item, key, parentType, itemLocation(item, location)),
+        walk(item, key, itemLocation(item, location)),
       );
     }
     if (value === null || typeof value !== "object") return value;
     if (keptSubtrees.has(key)) return value;
     const object = value as JsonObject;
-    const type =
-      typeof object.type === "string" ? object.type : parentType;
-    const next: JsonObject = {};
-    for (const [childKey, childValue] of Object.entries(object)) {
-      next[childKey] = walk(childValue, childKey, type, location);
-    }
-    return next;
+    const hasJsonArguments = typeof object.type === "string" &&
+      jsonArgumentItemTypes.has(object.type);
+    return Object.fromEntries(
+      Object.entries(object).map(([childKey, childValue]) => {
+        if (hasJsonArguments && childKey === "arguments") {
+          if (typeof childValue === "string") {
+            return [childKey, mask(childValue, "embedded-json", location)];
+          }
+          if (childValue !== undefined) {
+            const serialized = JSON.stringify(childValue);
+            const masked = mask(serialized, "embedded-json", location);
+            return [childKey, masked === serialized ? childValue : JSON.parse(masked)];
+          }
+        }
+        const childLocation = object.type === "additional_tools" && childKey === "content"
+          ? "instructions"
+          : location;
+        return [childKey, walk(childValue, childKey, childLocation)];
+      }),
+    );
   };
 
   for (const [key, value] of Object.entries(body)) {
-    (body as JsonObject)[key] = walk(
+    body[key] = walk(
       value,
       key,
-      null,
       topLevelLocation(key),
     );
   }
@@ -175,12 +184,13 @@ function itemLocation(
   if (typeof item !== "object" || item === null || Array.isArray(item)) {
     return inherited;
   }
-  const type = (item as JsonObject).type;
-  if (typeof type !== "string") return inherited;
-  if (type === "function_call") return "tool_arguments";
-  if (type.endsWith("_call_output")) return "tool_output";
-  if (type === "message") {
-    const role = (item as JsonObject).role;
+  const { type, role } = item as JsonObject;
+  if (typeof type === "string") {
+    if (type.endsWith("_call")) return "tool_arguments";
+    if (type.endsWith("_call_output") || type === "tool_search_output") return "tool_output";
+    if (type === "additional_tools") return "tools";
+  }
+  if (type === "message" || (type === undefined && typeof role === "string")) {
     return role === "system" || role === "developer"
       ? "instructions"
       : "prompt";

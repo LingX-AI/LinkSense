@@ -6,7 +6,7 @@ import type {
   PrivacyMaskingRuntime,
 } from "../privacy-masking.js";
 
-import { privacyRules, type PrivacyRule } from "./rules.js";
+import { looksLikeSecretFieldValue, privacyRules, type PrivacyRule } from "./rules.js";
 
 export type MaskContext = "plain" | "embedded-json";
 
@@ -36,19 +36,12 @@ const CACHE_MAX_ENTRIES = 512;
 const CACHE_MAX_CHARS = 8_000_000;
 
 const placeholderPattern = /\{\{([A-Z][A-Z0-9_]*)_([0-9a-f]{16,32})\}\}/gu;
+const jsonTokenPattern = /("(?:[^"\\]|\\[\s\S])*")([ \t\r\n]*:[ \t\r\n]*)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu;
+const wordRunePattern = /(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[\p{L}\p{N}_])/u;
+const digitRunePattern = /\p{Nd}/u;
 
 function escapeJsonString(value: string): string {
   return JSON.stringify(value).slice(1, -1);
-}
-
-/** Values inside a tool call's arguments are JSON text, not decoded text. */
-function unescapeJsonFragment(value: string): string {
-  try {
-    const parsed: unknown = JSON.parse(`"${value}"`);
-    return typeof parsed === "string" ? parsed : value;
-  } catch {
-    return value;
-  }
 }
 
 function escapeRegExp(value: string): string {
@@ -58,73 +51,25 @@ function escapeRegExp(value: string): string {
 function buildWordPattern(
   words: readonly string[],
   anyCase: boolean,
+  whole: boolean,
 ): RegExp | null {
   if (words.length === 0) return null;
   const alternatives = [...words]
     .sort((left, right) => right.length - left.length)
-    .map(escapeRegExp)
+    .map((word) => {
+      const literal = escapeRegExp(word);
+      if (!whole) return literal;
+      const runes = [...word];
+      const first = runes[0] ?? "";
+      const last = runes.at(-1) ?? "";
+      const left = wordRunePattern.test(first) ? `(?<!${wordRunePattern.source})` : "";
+      const right = wordRunePattern.test(last) ? `(?!${wordRunePattern.source})` : "";
+      const decimalLeft = digitRunePattern.test(first) ? String.raw`(?<!\p{Nd}\.)` : "";
+      const decimalRight = digitRunePattern.test(last) ? String.raw`(?!\.\p{Nd})` : "";
+      return `${left}${decimalLeft}${literal}${right}${decimalRight}`;
+    })
     .join("|");
   return new RegExp(`(?:${alternatives})`, anyCase ? "giu" : "gu");
-}
-
-const wordRunePattern = /[\p{L}\p{N}_]/u;
-const digitRunePattern = /\p{Nd}/u;
-const noSpaceScriptPattern =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-
-/**
- * A letter, digit or _ of a script that separates words with spaces.
- * Chinese and Japanese do not, so a word of theirs is found inside their
- * text, and a Latin word right beside one ("用ABC做") is still whole.
- * Mirrors magpie's wordRune.
- */
-function isWordRune(rune: string): boolean {
-  return wordRunePattern.test(rune) && !noSpaceScriptPattern.test(rune);
-}
-
-function runeAt(text: string, index: number): string | undefined {
-  const code = text.codePointAt(index);
-  return code === undefined ? undefined : String.fromCodePoint(code);
-}
-
-/** The code point that ends right before index (surrogate pairs included). */
-function runeBefore(text: string, index: number): string | undefined {
-  if (index <= 0) return undefined;
-  const unit = text.charCodeAt(index - 1);
-  const from = unit >= 0xdc00 && unit <= 0xdfff && index >= 2
-    ? index - 2
-    : index - 1;
-  const code = text.codePointAt(from);
-  return code === undefined ? undefined : String.fromCodePoint(code);
-}
-
-/**
- * True when text[start:end] is a word of its own: where its first or last
- * character is a word rune, the character beside it in the text is not.
- * A number is one with its decimals, so 123456 is not whole in 0.123456
- * or 123456.78, while "v1." ends a sentence. Mirrors magpie's wholeWord.
- */
-function wholeWord(text: string, start: number, end: number): boolean {
-  const first = runeAt(text, start);
-  const last = runeBefore(text, end);
-  if (first === undefined || last === undefined) return true;
-  if (isWordRune(first) && start > 0) {
-    const before = runeBefore(text, start);
-    if (before !== undefined && isWordRune(before)) return false;
-    if (digitRunePattern.test(first) && before === ".") {
-      const further = runeBefore(text, start - 1);
-      if (further !== undefined && digitRunePattern.test(further)) return false;
-    }
-  }
-  if (isWordRune(last) && end < text.length) {
-    const after = runeAt(text, end);
-    if (after !== undefined && isWordRune(after)) return false;
-    if (digitRunePattern.test(last) && after === ".") {
-      const further = runeAt(text, end + 1);
-      if (further !== undefined && digitRunePattern.test(further)) return false;
-    }
-  }
-  return true;
 }
 
 function hasMarker(text: string, markers: readonly string[]): boolean {
@@ -145,30 +90,6 @@ function resolveOverlaps(spans: Span[]): Span[] {
     lastEnd = span.end;
   }
   return selected;
-}
-
-function boundEmbeddedJsonSpans(text: string, spans: Span[]): Span[] {
-  // Header rules must not consume a tool argument's closing JSON syntax.
-  const strings = text.matchAll(/"(?:\\[\s\S]|[^"\\])*"/gu);
-  let current = strings.next().value;
-  return [...spans]
-    .sort((left, right) => left.start - right.start)
-    .map((span) => {
-      while (
-        current &&
-        current.index + current[0].length <= span.start
-      ) {
-        current = strings.next().value;
-      }
-      if (!current || span.start <= current.index) return span;
-      const stringEnd = current.index + current[0].length - 1;
-      if (span.start >= stringEnd || span.end <= stringEnd) return span;
-      return {
-        ...span,
-        end: stringEnd,
-        value: text.slice(span.start, stringEnd),
-      };
-    });
 }
 
 function collectRuleSpans(
@@ -193,18 +114,18 @@ export class PrivacyMasker {
   private readonly values = new Map<string, string>();
   private readonly cache = new Map<string, CacheEntry>();
   private cacheChars = 0;
-  private readonly words: readonly string[];
   private readonly wordPattern: RegExp | null;
   private readonly allow: ReadonlySet<string>;
   private readonly actions: Readonly<Record<string, PrivacyMaskingAction>>;
 
   constructor(private readonly config: PrivacyMaskingRuntime) {
-    this.words = [...new Set(config.words.map((word) => word.trim()))].filter(
+    const words = [...new Set(config.words.map((word) => word.trim()))].filter(
       (word) => word.length > 0,
     );
     this.wordPattern = buildWordPattern(
-      this.words,
+      words,
       config.words_any_case,
+      config.words_whole,
     );
     this.allow = new Set(
       config.allow.map((value) => value.trim().toLowerCase()),
@@ -221,39 +142,66 @@ export class PrivacyMasker {
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
+    const result = context === "embedded-json" ? this.maskJson(text) : this.maskPlainText(text);
+    this.remember(cacheKey, result);
+    return result;
+  }
+
+  private maskJson(text: string): CacheEntry {
+    if (!text.trim()) return { text, hits: [] };
+    JSON.parse(text);
+
+    const hits: PrivacyMaskHit[] = [];
+    let property: { valueOffset: number; name: string } | undefined;
+    const masked = text.replace(
+      jsonTokenPattern,
+      (
+        token: string,
+        quoted: string | undefined,
+        separator: string | undefined,
+        offset: number,
+      ) => {
+        const decoded: unknown = quoted === undefined ? token : JSON.parse(quoted);
+        if (typeof decoded !== "string") throw new Error("Invalid JSON string");
+        const field = property?.valueOffset === offset ? property.name : undefined;
+        property = separator === undefined
+          ? undefined
+          : { name: decoded, valueOffset: offset + token.length };
+        const replaceable = quoted !== undefined && separator === undefined;
+        const result = this.maskPlainText(decoded, field);
+        for (const hit of result.hits) {
+          hits.push(!replaceable && hit.action === "mask" ? { ...hit, action: "block" } : hit);
+        }
+        return replaceable && result.text !== decoded ? JSON.stringify(result.text) : token;
+      },
+    );
+    return { text: masked, hits };
+  }
+
+  private maskPlainText(text: string, field?: string): CacheEntry {
     const spans: Span[] = [];
     if (this.config.secrets) {
       const lower = text.toLowerCase();
       for (const rule of privacyRules) {
         collectRuleSpans(text, lower, rule, spans);
       }
+      if (field !== undefined && looksLikeSecretFieldValue(field, text)) {
+        spans.push({ start: 0, end: text.length, kind: "SECRET", value: text });
+      }
     }
-    if (this.wordPattern && this.hasWordMarker(text)) {
+    if (this.wordPattern) {
       for (const match of text.matchAll(this.wordPattern)) {
         const value = match[0];
-        if (value.length === 0) continue;
         const start = match.index;
-        const end = start + value.length;
-        if (this.config.words_whole && !wholeWord(text, start, end)) continue;
-        spans.push({
-          start,
-          end,
-          kind: "TERM",
-          value,
-        });
+        spans.push({ start, end: start + value.length, kind: "TERM", value });
       }
     }
 
     const hits: PrivacyMaskHit[] = [];
-    let masked = text;
-    const bounded = context === "embedded-json"
-      ? boundEmbeddedJsonSpans(text, spans)
-      : spans;
-    for (const span of resolveOverlaps(bounded).reverse()) {
-      const raw =
-        context === "embedded-json"
-          ? unescapeJsonFragment(span.value)
-          : span.value;
+    const chunks: string[] = [];
+    let lastEnd = 0;
+    for (const span of resolveOverlaps(spans)) {
+      const raw = span.value;
       if (this.allow.has(raw.toLowerCase())) continue;
       const action = this.actions[span.kind] ?? "mask";
       if (action === "warn") {
@@ -266,8 +214,8 @@ export class PrivacyMasker {
         continue;
       }
       const placeholder = this.placeholder(span.kind, raw);
-      masked =
-        masked.slice(0, span.start) + placeholder + masked.slice(span.end);
+      chunks.push(text.slice(lastEnd, span.start), placeholder);
+      lastEnd = span.end;
       hits.push({
         kind: span.kind,
         placeholder,
@@ -276,10 +224,10 @@ export class PrivacyMasker {
       });
     }
 
-    hits.reverse();
-    const result = { text: masked, hits };
-    this.remember(cacheKey, result);
-    return result;
+    return {
+      text: lastEnd === 0 ? text : chunks.concat(text.slice(lastEnd)).join(""),
+      hits,
+    };
   }
 
   restoreText(
@@ -299,17 +247,6 @@ export class PrivacyMasker {
   /** The placeholders this run knows; restore leaves anything else alone. */
   knows(placeholder: string): boolean {
     return this.values.has(placeholder);
-  }
-
-  private hasWordMarker(text: string): boolean {
-    if (this.words.length === 0) return false;
-    const lower = this.config.words_any_case ? text.toLowerCase() : text;
-    return this.words.some((word) => {
-      const needle = this.config.words_any_case
-        ? word.toLowerCase()
-        : word;
-      return lower.includes(needle);
-    });
   }
 
   private tag(

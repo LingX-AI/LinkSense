@@ -115,6 +115,21 @@ describe("PrivacyMasker", () => {
     expect(mask.restoreText(result.text)).toBe(text);
   });
 
+  it.each([
+    'Cookie: session="fixture-value-123"; theme=light',
+    `curl -H 'Cookie: session="fixture-value-123"; theme=light' https://example.test`,
+    String.raw`curl -H "Cookie: session=\"fixture-value-123\"; theme=light" https://example.test`,
+  ])("masks a quoted Cookie value without changing shell delimiters: %s", (text) => {
+    const mask = masker();
+    const result = mask.maskText(text);
+    expect(result.text).not.toContain("fixture-value-123");
+    expect(result.text).not.toContain("theme=light");
+    expect(result.text).toBe(
+      text.replace(/session=.*?theme=light/u, result.hits[0]?.placeholder ?? ""),
+    );
+    expect(mask.restoreText(result.text)).toBe(text);
+  });
+
   it("does not mask variables, counts, or public-key names", () => {
     const mask = masker();
     const text = [
@@ -148,6 +163,14 @@ describe("PrivacyMasker", () => {
     });
     expect(exact.maskText("nightjar Nightjar").text).toContain("nightjar");
     expect(exact.maskText("nightjar Nightjar").text).not.toContain("Nightjar");
+  });
+
+  it("tries the shorter whole word if a longer candidate ends inside a word", () => {
+    const mask = masker({ secrets: false, words: ["Nightjar", "Nightjar deployment"] });
+    const text = "Nightjar deployments; Nightjar deployment";
+    const result = mask.maskText(text);
+    expect(result.hits.map((hit) => hit.length)).toEqual([8, 19]);
+    expect(mask.restoreText(result.text)).toBe(text);
   });
 
   it("counts Chinese text as wordless like magpie's wordRune", () => {
@@ -336,6 +359,43 @@ describe("PrivacyMasker", () => {
     );
   });
 
+  it("masks decoded strings in tool arguments as in a plain-text preview", () => {
+    const mask = masker({ words: ["Nightjar", 'internal"project'] });
+    const args = { task: 'notes:\nNightjar uses internal"project' };
+    const preview = mask.maskText(args.task);
+    const body = {
+      input: [{ type: "function_call", arguments: JSON.stringify(args) }],
+    };
+
+    const hits = maskResponsesRequest(body, mask);
+    const masked = body.input[0]?.arguments ?? "";
+    expect(hits.map((hit) => hit.placeholder)).toEqual(
+      preview.hits.map((hit) => hit.placeholder),
+    );
+    expect(JSON.parse(masked)).toEqual({ task: preview.text });
+    expect(JSON.parse(mask.restoreText(masked, "embedded-json"))).toEqual(args);
+  });
+
+  it("preserves untouched argument syntax and large numeric literals", () => {
+    const mask = masker({ words: ["Nightjar"] });
+    const args = '{ "account": 9007199254740993, "task": "\\u004eightjar" }';
+    const body = { input: [{ type: "function_call", arguments: args }] };
+    const [hit] = maskResponsesRequest(body, mask);
+
+    expect(hit?.action).toBe("mask");
+    expect(body.input[0]?.arguments).toBe(
+      `{ "account": 9007199254740993, "task": "${hit?.placeholder}" }`,
+    );
+  });
+
+  it("treats a metadata field named arguments as text, not a tool payload", () => {
+    const mask = masker({ words: ["Nightjar"] });
+    const body = { metadata: { arguments: "Nightjar rollout notes" } };
+    const [hit] = maskResponsesRequest(body, mask);
+    expect(hit).toMatchObject({ kind: "TERM", location: "other" });
+    expect(body.metadata.arguments).toBe(`${hit?.placeholder} rollout notes`);
+  });
+
   it("restores a placeholder split between two deltas", () => {
     const mask = masker();
     const original = "my key is sk-proj-" + "z".repeat(32);
@@ -422,7 +482,11 @@ describe("PrivacyMasker", () => {
       .map((event) => event.payload.delta)
       .join("");
     expect(deltas).toBe(original);
-    expect(keepalive).toHaveLength(1);
+    expect([...first, ...keepalive, ...second].map((event) => event.event)).toEqual([
+      "response.output_text.delta",
+      "response.in_progress",
+      "response.output_text.delta",
+    ]);
   });
 
   it("restores split placeholders across interleaved tool calls", () => {
@@ -437,32 +501,39 @@ describe("PrivacyMasker", () => {
     const restorer = new PrivacyRestorer(mask);
     const events = [
       ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        sequence_number: 1,
         item_id: "call_1",
         delta: arguments_[0]?.slice(0, 15),
       }),
       ...restorer.restoreEvent("response.output_item.added", {
+        sequence_number: 2,
         output_index: 1,
         item: { id: "call_2", type: "function_call" },
       }),
       ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        sequence_number: 3,
         item_id: "call_2",
         delta: arguments_[1]?.slice(0, 15),
       }),
       ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        sequence_number: 4,
         item_id: "call_2",
         delta: arguments_[1]?.slice(15),
       }),
       ...restorer.restoreEvent("response.output_item.done", {
+        sequence_number: 5,
         output_index: 1,
         item: { id: "call_2", type: "function_call" },
       }),
       ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        sequence_number: 6,
         item_id: "call_1",
         delta: arguments_[0]?.slice(15),
       }),
       ...restorer.flush(),
     ];
 
+    expect(events.map((event) => event.payload.sequence_number)).toEqual([1, 2, 3, 4, 5, 6]);
     for (const [index, value] of values.entries()) {
       const text = events
         .filter(
@@ -474,6 +545,23 @@ describe("PrivacyMasker", () => {
         .join("");
       expect(JSON.parse(text)).toEqual({ key: value });
     }
+  });
+
+  it("uses JSON escaping when a split MCP argument is restored", () => {
+    const value = 'fixture"with\\slashes\nand a newline';
+    const mask = masker({ words: [value] });
+    const placeholder = mask.maskText(value).text;
+    const arguments_ = JSON.stringify({ value: placeholder });
+    const restorer = new PrivacyRestorer(mask);
+    const event = "response.mcp_call_arguments.delta";
+    const fields = { type: event, item_id: "mcp_1", output_index: 0 };
+    const split = arguments_.indexOf(placeholder) + 7;
+
+    const events = [
+      ...restorer.restoreEvent(event, { ...fields, delta: arguments_.slice(0, split) }),
+      ...restorer.restoreEvent(event, { ...fields, delta: arguments_.slice(split) }),
+    ];
+    expect(JSON.parse(events.map(({ payload }) => payload.delta).join(""))).toEqual({ value });
   });
 
   it.each([
@@ -636,5 +724,33 @@ describe("mask request hit locations", () => {
     expect(new Set(hits.map((hit) => hit.location))).toEqual(
       new Set(["instructions", "prompt", "tool_arguments", "tool_output", "tools"]),
     );
+  });
+
+  it("distinguishes deferred tool definitions, tool calls, results, and developer instructions", () => {
+    const mask = masker({ words: ["Nightjar"] });
+    const body = {
+      input: [
+        { role: "developer", content: "Nightjar instructions" },
+        { type: "custom_tool_call", name: "apply_patch", input: "Nightjar content" },
+        { type: "tool_search_call", arguments: { query: "Nightjar" } },
+        {
+          type: "tool_search_output",
+          tools: [{ type: "function", name: "lookup", description: "Find Nightjar" }],
+        },
+        {
+          type: "additional_tools",
+          tools: [{ type: "function", name: "lookup", description: "List Nightjar" }],
+        },
+      ],
+    };
+
+    expect(maskResponsesRequest(body, mask).map((hit) => hit.location)).toEqual([
+      "instructions",
+      "tool_arguments",
+      "tool_arguments",
+      "tool_output",
+      "tools",
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Nightjar");
   });
 });

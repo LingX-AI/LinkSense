@@ -533,6 +533,33 @@ describe("ModelGateway privacy masking", () => {
     expect(fetchUpstream).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { arguments: '{"quantity":123456}', word: "123456" },
+    { arguments: '{"status":true}', word: "true" },
+    { arguments: '{"Nightjar":"ordinary value"}', word: "Nightjar" },
+  ])("blocks a private JSON argument that cannot be masked without changing its structure", async (fixture) => {
+    const fetchUpstream = vi.fn<typeof fetch>();
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "blocked-argument-masking",
+      revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1",
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: { ...masking, words: [fixture.word] },
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: [{ type: "function_call", name: "lookup", call_id: "call_1", arguments: fixture.arguments }],
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ error: { code: "privacy_masking_blocked" } });
+    expect(fetchUpstream).not.toHaveBeenCalled();
+  });
+
   it("restores memory extraction usage before recording it", async () => {
     let placeholder = "";
     const upstream = await startUpstream(async (request, response) => {
