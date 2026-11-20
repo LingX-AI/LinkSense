@@ -2,6 +2,7 @@ import {
   PRIVACY_MASKING_ACTIVITY_PAGE_SIZE,
   PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS,
   privacyMaskingActivityResponseSchema,
+  type PrivacyMaskingActivityQuery,
   type PrivacyMaskingActivityResponse,
   type RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
@@ -49,9 +50,10 @@ export class PrivacyMaskingActivityService {
 
   async listForUser(
     userId: string,
-    query: { days: number; before?: string | undefined },
+    query: PrivacyMaskingActivityQuery,
   ): Promise<PrivacyMaskingActivityResponse> {
     const since = new Date(Date.now() - query.days * dayMs);
+    const before = query.before ? new Date(query.before) : undefined;
     const [summary, rows] = await Promise.all([
       this.prisma.userPrivacyMaskingRecord.aggregate({
         where: { userId, createdAt: { gte: since } },
@@ -63,8 +65,11 @@ export class PrivacyMaskingActivityService {
           userId,
           createdAt: {
             gte: since,
-            ...(query.before ? { lt: new Date(query.before) } : {}),
+            ...(before && !query.before_id ? { lt: before } : {}),
           },
+          ...(before && query.before_id
+            ? { OR: [{ createdAt: { lt: before } }, { createdAt: before, id: { lt: query.before_id } }] }
+            : {}),
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: PRIVACY_MASKING_ACTIVITY_PAGE_SIZE + 1,

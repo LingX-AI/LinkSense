@@ -273,12 +273,20 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     capture: RunnerPrivacyMaskingCapture,
   ): Promise<void> {
     if (!this.accepting) return;
-    const body = runnerPrivacyMaskingCaptureSchema.parse(capture);
-    await this.post(
-      "/internal/runner/privacy-masking",
-      body,
-      body.owner_id,
-    );
+    const { hints, ...counts } = runnerPrivacyMaskingCaptureSchema.parse(capture);
+    const pathname = "/internal/runner/privacy-masking";
+    if (hints.length === 0) {
+      await this.post(pathname, counts, counts.owner_id);
+      return;
+    }
+    const response = await this.request(pathname, { ...counts, hints }, counts.owner_id);
+    const result = await parseResponseBody(response);
+    if (response.ok) return;
+    if (response.status === 400 && asRecord(result).error_code === "VALIDATION_ERROR") {
+      await this.post(pathname, counts, counts.owner_id);
+      return;
+    }
+    throw new Error(`LinkSense internal API request failed (${response.status})`);
   }
 
   async resumeConversation(conversationId: string): Promise<void> {

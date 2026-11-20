@@ -227,9 +227,10 @@ export const privacyMaskingActivityRecordSchema = z.strictObject({
   model: z.string(),
   masked_count: z.number().int().nonnegative(),
   kinds: privacyMaskingKindCountsSchema,
-  hints: z.array(privacyMaskingHintSchema).max(
-    PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
-  ),
+  hints: z
+    .array(privacyMaskingHintSchema)
+    .max(PRIVACY_MASKING_ACTIVITY_HINT_LIMIT)
+    .default([]),
   created_at: z.iso.datetime(),
 });
 
@@ -246,15 +247,23 @@ export type PrivacyMaskingActivityResponse = z.infer<
   typeof privacyMaskingActivityResponseSchema
 >;
 
-export const privacyMaskingActivityQuerySchema = z.strictObject({
-  days: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS)
-    .default(7),
-  before: z.iso.datetime().optional(),
-});
+export const privacyMaskingActivityQuerySchema = z
+  .strictObject({
+    days: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS)
+      .default(7),
+    before: z.iso.datetime().optional(),
+    before_id: z.uuid().optional(),
+  })
+  .refine(({ before, before_id }) => !before_id || !!before, {
+    path: ["before"],
+    message: "privacy_masking_activity_cursor_time_required",
+  });
+
+export type PrivacyMaskingActivityQuery = z.infer<typeof privacyMaskingActivityQuerySchema>;
 
 /**
  * Sent to the runner only while masking is enabled; its presence is the

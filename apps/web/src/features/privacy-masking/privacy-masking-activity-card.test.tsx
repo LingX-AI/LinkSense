@@ -131,13 +131,19 @@ describe("privacy masking activity card", () => {
     )
   })
 
-  it("loads the next page with the returned cursor", async () => {
+  it.each([false, true])("loads the next page with the returned cursor (legacy API: %s)", async (legacyApi) => {
     await i18n.changeLanguage("en-US")
-    const nextBefore = "2026-11-17T07:00:00.000Z"
+    const nextBefore = "2026-11-17T08:00:00.000Z"
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL) => {
-        const url = String(input)
-        if (url.includes("before=")) {
+        const url = new URL(String(input), "http://localhost")
+        if (legacyApi && url.searchParams.has("before_id")) {
+          return new Response(JSON.stringify({ success: false, error_code: "VALIDATION_ERROR" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.searchParams.has("before")) {
           return envelope(
             activity({
               records: [
@@ -147,7 +153,7 @@ describe("privacy masking activity card", () => {
                   masked_count: 2,
                   kinds: { API_KEY: 2 },
                   hints: [],
-                  created_at: "2026-11-17T06:00:00.000Z",
+                  created_at: nextBefore,
                 },
               ],
             })
@@ -166,10 +172,28 @@ describe("privacy masking activity card", () => {
       })
     )
     expect(await screen.findByText("model-b")).toBeInTheDocument()
-    expect(
-      fetchMock.mock.calls.some(([input]) =>
-        String(input).includes(encodeURIComponent(nextBefore))
-      )
-    ).toBe(true)
+    const pageUrl = new URL(String(fetchMock.mock.calls[1]?.[0]), "http://localhost")
+    expect(pageUrl.searchParams.get("before")).toBe(nextBefore)
+    expect(pageUrl.searchParams.get("before_id")).toBe("40000000-0000-4000-8000-000000000001")
+    expect(fetchMock).toHaveBeenCalledTimes(legacyApi ? 3 : 2)
+    if (legacyApi) {
+      const legacyUrl = new URL(String(fetchMock.mock.calls[2]?.[0]), "http://localhost")
+      expect(legacyUrl.searchParams.get("before")).toBe(nextBefore)
+      expect(legacyUrl.searchParams.has("before_id")).toBe(false)
+    }
+  })
+
+  it("reads older counts-only activity without replacement hints", async () => {
+    await i18n.changeLanguage("en-US")
+    const legacy = {
+      id: "40000000-0000-4000-8000-000000000001",
+      model: "legacy-model",
+      masked_count: 3,
+      kinds: { API_KEY: 3 },
+      created_at: "2026-11-17T08:00:00.000Z",
+    }
+    vi.stubGlobal("fetch", vi.fn(async () => envelope(activity({ records: [legacy] }))))
+    renderCard()
+    expect((await screen.findByText("legacy-model")).closest("button")).toBeNull()
   })
 })
