@@ -10,8 +10,7 @@ import { resolveLocale } from "../../lib/locale.js";
 import { parseWebSiteCursor, withUrl, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
-import { hasSiteAccess, safeAccessNext, siteAccessCookie, sitePasscodePage } from "./access.js";
-import { verifyPassword } from "../../lib/password.js";
+import { hasReleaseAccess, hasSiteAccess, protectedReleasePath, releaseAccessPath, safeAccessNext, sendPasscodePage, siteIdUnlockPath, siteUnlockBodyLimit, unlockSite, type SiteUnlockLimiter } from "./access.js";
 
 const idParams = z.object({ id: z.uuid() });
 export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string }> = async (app, { service, publicBaseUrl }) => {
@@ -86,23 +85,17 @@ export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: s
   ].join("; ");
 }
 
-export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string; accessSecret: string; analyticsBaseUrl?: string }> = async (app, { service, publicBaseUrl, accessSecret, analyticsBaseUrl }) => {
+export const publicWebSiteRoutes: FastifyPluginAsync<{
+  service: WebSiteService; publicBaseUrl: string; accessSecret: string; takeUnlockAttempt: SiteUnlockLimiter; analyticsBaseUrl?: string;
+}> = async (app, { service, publicBaseUrl, accessSecret, takeUnlockAttempt, analyticsBaseUrl }) => {
   const analyticsOrigin = analyticsBaseUrl ? new URL(analyticsBaseUrl).origin : undefined;
-  const secureAccessCookie = new URL(publicBaseUrl).protocol === "https:";
+  const accessOptions = { secret: accessSecret, secure: new URL(publicBaseUrl).protocol === "https:" };
   // The passcode form posts urlencoded, which no other route parses.
-  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 4_096 },
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: siteUnlockBodyLimit },
     (_request, body, done) => done(null, body));
-  const promptPasscode = (request: FastifyRequest, reply: FastifyReply, address: string, incorrect = false) => {
+  const promptPasscode = (request: FastifyRequest, reply: FastifyReply, slug: string) => {
     const next = safeAccessNext(request.raw.url ?? null);
-    const page = sitePasscodePage(resolveLocale(request), {
-      action: `/web/${encodeURIComponent(address)}/unlock`,
-      ...(next !== undefined ? { next } : {}),
-      incorrect,
-    });
-    return reply.code(401).type("text/html; charset=utf-8")
-      .header("content-security-policy", page.policy)
-      .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
-      .send(page.html);
+    return sendPasscodePage(request, reply, { action: `/web/${slug}/unlock`, ...(next ? { next } : {}) });
   };
   // Run after the host's onSend hook, including for nested release documents.
   app.addHook("onSend", async (_request, reply, payload) => {
@@ -125,39 +118,58 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
         .send(siteNotFoundPage(locale));
       return;
     }
-    void reply.code(details.status).type("text/html; charset=utf-8")
+    void reply.code(normalized.statusOverride ?? details.status).type("text/html; charset=utf-8")
       .header("content-security-policy", "sandbox; default-src 'none'")
       .send(`<!doctype html><html lang="${locale}"><meta charset="utf-8"><title>${escapeHtml(details.message)}</title><body><p>${escapeHtml(details.message)}</p></body></html>`);
   });
-  const entry = (page: Awaited<ReturnType<WebSiteService["publicEntry"]>>): string => {
-    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(page.title)}</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{display:block;border:0;width:100%;height:100%}</style></head><body><iframe title="${escapeHtml(page.title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(page.path)}"></iframe></body></html>`;
+  const entry = (title: string, url: string): string => {
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{display:block;border:0;width:100%;height:100%}</style></head><body><iframe title="${escapeHtml(title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(url)}"></iframe></body></html>`;
   };
   for (const path of ["/:slug", "/:slug/"]) app.get(path, async (request, reply) => {
     const { slug } = z.object({ slug: webSiteSlugSchema }).parse(request.params);
-    if (!hasSiteAccess(request.headers.cookie, accessSecret, await service.publicAccess(slug))) return promptPasscode(request, reply, slug);
-    const page = await service.publicEntry(slug);
-    if (page.url) return reply.redirect(page.url);
-    return reply.type("text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'").send(entry(page));
+    const page = await service.publicEntry({ slug });
+    const search = new URL(request.url, publicBaseUrl).search;
+    if (page.url) return reply.redirect(`${page.url}${search}`);
+    if (!hasSiteAccess(request.headers.cookie, accessOptions, page.access)) return promptPasscode(request, reply, slug);
+    const resource = releaseAccessPath(accessSecret, page.access, page.releaseId) + page.entryPath;
+    return reply.type("text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'").send(entry(page.title, resource + search));
   });
-  app.post("/:address/unlock", async (request, reply) => {
-    const { address } = z.object({ address: z.string().trim().min(1).max(128) }).parse(request.params);
-    const form = new URLSearchParams(typeof request.body === "string" ? request.body : "");
-    const next = safeAccessNext(form.get("next"));
-    const access = await service.publicAccess(address);
-    if (!access.passcodeHash) return reply.redirect(next ?? `/web/${encodeURIComponent(access.slug)}`, 303);
-    if (!(await verifyPassword(access.passcodeHash, (form.get("passcode") ?? "").slice(0, 128)))) {
-      return promptPasscode(request, reply, address, true);
-    }
-    reply.header("set-cookie", siteAccessCookie(accessSecret, { id: access.id, passcodeHash: access.passcodeHash }, { secure: secureAccessCookie }));
-    return reply.redirect(next ?? `/web/${encodeURIComponent(access.slug)}`, 303);
+  app.post("/:slug/unlock", async (request, reply) => {
+    const { slug } = z.object({ slug: webSiteSlugSchema }).parse(request.params);
+    const access = await service.publicAccess({ slug });
+    return unlockSite(request, reply, z.string().parse(request.body), access, accessOptions, takeUnlockAttempt, `/web/${slug}/unlock`, `/web/${access.slug}`);
   });
+  app.post("/_unlock/:id", async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const access = await service.publicAccess({ id });
+    return unlockSite(request, reply, z.string().parse(request.body), access, accessOptions, takeUnlockAttempt, siteIdUnlockPath(id), `/web/${access.slug}`);
+  });
+  const sendResource = (request: FastifyRequest, reply: FastifyReply, resource: Awaited<ReturnType<WebSiteService["resource"]>>) => reply
+    .type(resourceContentType(resource.mimeType)).header("access-control-allow-origin", "*")
+    .header("cross-origin-resource-policy", "cross-origin")
+    .header("content-security-policy", publishedResourcePolicy(publicBaseUrl, `${request.protocol}://${request.host}`, analyticsOrigin))
+    .send(resource.data);
+
+  const resourcePath = z.string().min(1).max(1_000);
   app.get("/:slug/_releases/:releaseId/*", async (request, reply) => {
-    const { slug, releaseId, "*": path } = z.object({ slug: webSiteSlugSchema, releaseId: z.uuid(), "*": z.string().min(1).max(1_000) }).parse(request.params);
-    if (!hasSiteAccess(request.headers.cookie, accessSecret, await service.publicAccess(slug))) return promptPasscode(request, reply, slug);
-    const resource = await service.resource(slug, releaseId, path);
-    return reply.type(resourceContentType(resource.mimeType)).header("access-control-allow-origin", "*")
-      .header("cross-origin-resource-policy", "cross-origin")
-      .header("content-security-policy", publishedResourcePolicy(publicBaseUrl, `${request.protocol}://${request.host}`, analyticsOrigin))
-      .send(resource.data);
+    const { slug, releaseId, "*": path } = z.object({ slug: webSiteSlugSchema, releaseId: z.uuid(), "*": resourcePath }).parse(request.params);
+    try {
+      const resource = await service.resource({ slug }, releaseId, path, access => {
+        if (!hasSiteAccess(request.headers.cookie, accessOptions, access)) throw new AppError("AUTH_REQUIRED");
+      });
+      return sendResource(request, reply, resource);
+    } catch (error) {
+      if (error instanceof AppError && error.code === "AUTH_REQUIRED") return promptPasscode(request, reply, slug);
+      throw error;
+    }
+  });
+  app.get(`${protectedReleasePath}/:id/:releaseId/:grant/*`, async (request, reply) => {
+    const { id, releaseId, grant, "*": path } = z.object({
+      id: z.uuid(), releaseId: z.uuid(), grant: z.string().max(64), "*": resourcePath,
+    }).parse(request.params);
+    const resource = await service.resource({ id }, releaseId, path, access => {
+      if (!hasReleaseAccess(accessSecret, access, releaseId, grant)) throw new AppError("WEB_SITE_NOT_FOUND");
+    }, publicBaseUrl);
+    return sendResource(request, reply, resource);
   });
 };

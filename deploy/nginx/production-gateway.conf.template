@@ -98,6 +98,15 @@ server {
   }
 
   location ^~ /web/ {
+    location ^~ /web/_protected/ {
+      access_log off;
+      error_log /dev/null;
+      if (-f /tmp/linksense-maintenance) {
+        return 503;
+      }
+      proxy_pass http://linksense_api;
+    }
+
     add_header Cache-Control "no-store" always;
     if (-f /tmp/linksense-maintenance) {
       return 503;

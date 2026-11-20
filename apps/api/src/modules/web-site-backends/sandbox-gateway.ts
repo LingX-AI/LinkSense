@@ -7,9 +7,9 @@ import { randomToken } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import { containsControlCharacter } from "../../lib/text.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "../web-sites/public-page.js";
-import { hasSiteAccess, sitePasscodePage } from "../web-sites/access.js";
+import { hasSiteAccess, releaseAccessPath, safeAccessNext, sendPasscodePage, siteIdUnlockPath } from "../web-sites/access.js";
 import { resolveLocale } from "../../lib/locale.js";
-import type { WebSiteService } from "../web-sites/service.js";
+import type { PublicSitePage, WebSiteService } from "../web-sites/service.js";
 import { webSiteSandbox } from "../web-sites/routes.js";
 import { publicFunctionExecution, readRequest, readResponse, validatePublicAppUrl } from "./gateway.js";
 import type { WebSiteBackendService } from "./service.js";
@@ -42,10 +42,11 @@ const hasRoutingField = (keys: Iterable<string>): boolean => {
 
 export function registerPublicAppGateway(
   app: FastifyInstance, backends: WebSiteBackendService,
-  sites: Pick<WebSiteService, "applicationEntry" | "publicApplication" | "publishedSiteIdByAddress" | "publicAccess">,
+  sites: Pick<WebSiteService, "publicEntry" | "publishedSiteIdByAddress">,
   sessions: WebSiteVisitorSessions, config: Pick<AppConfig, "publicBaseUrl" | "jwtSecret">,
 ): void {
   const publicUrl = new URL(config.publicBaseUrl);
+  const accessOptions = { secret: config.jwtSecret, secure: publicUrl.protocol === "https:" };
   const cookieName =`${publicUrl.protocol === "https:" ? "__Host-" : ""}linksense-app-visitor`;
   const visitorOf = (request: FastifyRequest): string | undefined => {
     const values = (request.headers.cookie ?? "").split(";").map(part => part.trim())
@@ -61,29 +62,25 @@ export function registerPublicAppGateway(
       return reply.header("access-control-allow-origin", "*").type("application/javascript; charset=utf-8").send(publicAppSdkScript);
     }
     const canonical = /^\/app\/s\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
-    let entry: Awaited<ReturnType<WebSiteService["publicApplication"]>> | undefined;
+    const search = new URL(raw, publicUrl).search;
+    let entry: PublicSitePage | undefined;
     let backendId: string;
     let address: string;
     let suffix: string;
     let retiredAlias = false;
     let canonicalSiteId: string | undefined;
     let binding: Awaited<ReturnType<typeof backends.store.publicBinding>> | undefined;
-    const passcodeGate = async (siteId: string) => {
-      if (hasSiteAccess(request.headers.cookie, config.jwtSecret, await sites.publicAccess(siteId))) return false;
+    const passcodeGate = (access: { id: string; passcodeHash: string | null }) => {
+      if (hasSiteAccess(request.headers.cookie, accessOptions, access)) return false;
       if (!["GET", "HEAD"].includes(request.method)) throw new AppError("AUTH_REQUIRED");
-      const next = request.raw.url && request.raw.url.startsWith("/") ? request.raw.url : undefined;
-      const page = sitePasscodePage(resolveLocale(request), { action: `/web/${siteId}/unlock`, ...(next ? { next } : {}) });
-      reply.code(401).type("text/html; charset=utf-8")
-        .header("content-security-policy", page.policy)
-        .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
-        .send(page.html);
+      const next = safeAccessNext(raw);
+      sendPasscodePage(request, reply, { action: siteIdUnlockPath(access.id), ...(next ? { next } : {}) });
       return true;
     };
     if (canonical) {
       if (!canonical[1]) throw new AppError("WEB_SITE_NOT_FOUND");
       // A UUID address is the site id; anything else resolves as a current or retired slug.
       canonicalSiteId = await sites.publishedSiteIdByAddress(canonical[1]);
-      if (await passcodeGate(canonicalSiteId)) return;
       address = webApplicationPath(canonicalSiteId);
       suffix = canonical[2] ?? "";
       if (suffix && suffix !== "/") {
@@ -91,14 +88,16 @@ export function registerPublicAppGateway(
         binding = await backends.store.publicBindingForSite(canonicalSiteId);
         backendId = binding.backend.id;
       } else {
-        entry = await sites.publicApplication(canonicalSiteId);
+        entry = await sites.publicEntry({ id: canonicalSiteId });
         if (!entry.backendId) {
           if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
+          if (passcodeGate(entry.access)) return;
+          const releasePath = releaseAccessPath(config.jwtSecret, entry.access, entry.releaseId);
           reply.header("content-security-policy", [
-            "default-src 'none'", `style-src 'sha256-${hash(style)}'`, `frame-src ${publicUrl.origin}${entry.releasePath}`,
+            "default-src 'none'", `style-src 'sha256-${hash(style)}'`, `frame-src ${publicUrl.origin}${releasePath}`,
             "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "object-src 'none'",
           ].join("; "));
-          return reply.type("text/html; charset=utf-8").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(entry.title)}</title><style>${style}</style></head><body><iframe title="${escapeHtml(entry.title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(entry.path)}"></iframe></body></html>`);
+          return reply.type("text/html; charset=utf-8").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(entry.title)}</title><style>${style}</style></head><body><iframe title="${escapeHtml(entry.title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(releasePath + entry.entryPath + search)}"></iframe></body></html>`);
         }
         backendId = entry.backendId;
       }
@@ -114,30 +113,38 @@ export function registerPublicAppGateway(
       const current = await backends.store.findById(backendId);
       retiredAlias = (current?.hostLabel ?? current?.id) !== label.data;
     }
-    const { backend, siteId } = binding ?? await backends.store.publicBinding(backendId);
+    const { backend, siteId, passcodeHash } = binding ?? await backends.store.publicBinding(backendId);
     if (canonical && siteId !== canonicalSiteId) throw new AppError("WEB_SITE_NOT_FOUND");
-    if (!canonical && await passcodeGate(siteId)) return;
     if (backend.runtimeMode !== "sandbox") {
       if (canonical && (!suffix || suffix === "/") && ["GET", "HEAD"].includes(request.method) && entry?.url)
-        return reply.redirect(entry.url);
+        return reply.redirect(`${entry.url}${search}`);
       throw new AppError("WEB_SITE_NOT_FOUND");
     }
+    if (passcodeGate({ id: siteId, passcodeHash })) return;
+    const assertLiveAccess = async () => {
+      const live = await backends.store.publicBinding(backend.id);
+      if (live.siteId !== siteId) throw new AppError("WEB_SITE_NOT_FOUND");
+      if (!hasSiteAccess(request.headers.cookie, accessOptions, { id: siteId, passcodeHash: live.passcodeHash })) throw new AppError("AUTH_REQUIRED");
+    };
     const endpoint = `${address}/_rpc`;
     if (!suffix || suffix === "/") {
       if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
       // A shell embedded by a hostile app must never bootstrap another app's session.
       if (request.headers["sec-fetch-dest"] && request.headers["sec-fetch-dest"] !== "document") throw new AppError("FORBIDDEN");
-      if (retiredAlias) return reply.redirect(`${webApplicationPath(siteId)}${new URL(raw, publicUrl).search}`);
+      if (retiredAlias) return reply.redirect(`${webApplicationPath(siteId)}${search}`);
+      entry ??= await sites.publicEntry({ id: siteId });
+      if (entry.backendId !== backend.id || entry.access.id !== siteId) throw new AppError("WEB_SITE_NOT_FOUND");
+      if (passcodeGate(entry.access)) return;
+      await assertLiveAccess();
       const visitor = visitorOf(request) ?? randomToken(32);
       if (!visitorOf(request)) reply.header("set-cookie", `${cookieName}=${visitor}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${visitorSessionSeconds}${publicUrl.protocol === "https:" ? "; Secure" : ""}`);
-      entry ??= await sites.applicationEntry(backend.ownerId, siteId);
-      await backends.store.publicBinding(backend.id);
-      const packet = { path: entry.path, endpoint,
+      const releasePath = releaseAccessPath(config.jwtSecret, entry.access, entry.releaseId);
+      const packet = { path: releasePath + entry.entryPath + search, endpoint,
         capability: sessions.capability(backend.id, siteId, visitor) };
       reply.header("content-security-policy", [
         "default-src 'none'", `script-src 'sha256-${hash(publicAppShellScript)}'`,
         // The frame's WindowProxy survives navigation; only this release may load into it.
-        `style-src 'sha256-${hash(style)}'`, `frame-src ${publicUrl.origin}${entry.releasePath}`, "connect-src 'self'",
+        `style-src 'sha256-${hash(style)}'`, `frame-src ${publicUrl.origin}${releasePath}`, "connect-src 'self'",
         "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "object-src 'none'",
       ].join("; "));
       return reply.type("text/html; charset=utf-8").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(entry.title)}</title><style>${style}</style></head><body><iframe title="${escapeHtml(entry.title)}" sandbox="allow-scripts allow-downloads allow-forms" referrerpolicy="no-referrer"></iframe><script type="application/json" id="app-config">${safeJson(packet)}</script><script>${publicAppShellScript}</script></body></html>`);
@@ -193,9 +200,9 @@ export function registerPublicAppGateway(
     }
     validatePublicAppUrl(url, backend.projectId);
     const path = `${url.pathname.slice("/appwrite/v1".length)}${url.search}`;
-    const response = upload ? await forwardVisitorUpload(backends, backend.id, path, headers, upload)
+    const response = upload ? await forwardVisitorUpload(backends, assertLiveAccess, path, headers, upload)
       : await backends.requiredClient().forward(path, { method, headers, ...(body !== undefined ? { body } : {}) });
-    return sendVisitorResponse(reply, response, method, url, backend.id, backend.projectId, visitor, previous, sessions, backends);
+    return sendVisitorResponse(reply, response, method, url, backend.id, backend.projectId, visitor, previous, sessions, assertLiveAccess);
     } catch (error) {
       // A visitor opening a missing address gets the branded page; RPCs and assets keep the JSON error.
       const wantsPage = ["GET", "HEAD"].includes(request.method) && !raw.includes("/_rpc")
@@ -221,13 +228,13 @@ export function registerPublicAppGateway(
 }
 
 async function forwardVisitorUpload(
-  backends: WebSiteBackendService, backendId: string, path: string, headers: Headers,
+  backends: WebSiteBackendService, assertLiveAccess: () => Promise<void>, path: string, headers: Headers,
   upload: { data: Buffer; fileId: string; name: string; mime: string },
 ): Promise<Response> {
   const chunkBytes = 5 * 1024 * 1024;
   let fileId = upload.fileId;
   for (let offset = 0; offset < upload.data.length; offset += chunkBytes) {
-    await backends.store.publicBinding(backendId);
+    await assertLiveAccess();
     const end = Math.min(offset + chunkBytes, upload.data.length);
     const form = new FormData();
     form.set("fileId", fileId);
@@ -247,7 +254,7 @@ async function forwardVisitorUpload(
 async function sendVisitorResponse(
   reply: FastifyReply, response: Response, method: string, url: URL, backendId: string, projectId: string,
   visitor: string, previous: Awaited<ReturnType<WebSiteVisitorSessions["read"]>>,
-  sessions: WebSiteVisitorSessions, backends: WebSiteBackendService,
+  sessions: WebSiteVisitorSessions, assertLiveAccess: () => Promise<void>,
 ): Promise<FastifyReply> {
   if (!response.ok) {
     await response.body?.cancel();
@@ -260,7 +267,7 @@ async function sendVisitorResponse(
     throw new AppError("WEB_SITE_BACKEND_UNAVAILABLE");
   }
   const data = await readResponse(response);
-  await backends.store.publicBinding(backendId);
+  await assertLiveAccess();
   const cookieNames = new Set([`a_session_${projectId}`, `a_session_${projectId}_legacy`]);
   const updated = response.headers.getSetCookie().map(value => value.split(";", 1)[0] ?? "")
     .filter(value => cookieNames.has(value.slice(0, value.indexOf("="))));

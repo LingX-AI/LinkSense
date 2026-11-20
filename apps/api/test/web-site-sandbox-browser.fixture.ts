@@ -40,13 +40,13 @@ export async function createSandboxBrowserFixture() {
     publicBinding: async id => {
       const backend = find(id);
       if (disabled.has(backend.name)) throw new AppError("WEB_SITE_NOT_FOUND");
-      return { backend, siteId: `40000000-0000-4000-8000-00000000000${rows.indexOf(backend) + 1}` };
+      return { backend, siteId: `40000000-0000-4000-8000-00000000000${rows.indexOf(backend) + 1}`, passcodeHash: null };
     },
     publicBindingForSite: async id => {
       const index = rows.findIndex((_row, i) => id === `40000000-0000-4000-8000-00000000000${i + 1}`);
       const backend = rows[index];
       if (!backend || disabled.has(backend.name)) throw new AppError("WEB_SITE_NOT_FOUND");
-      return { backend, siteId: id };
+      return { backend, siteId: id, passcodeHash: null };
     },
     source: async () => { throw new Error("Unused fixture operation"); },
   };
@@ -91,13 +91,6 @@ export async function createSandboxBrowserFixture() {
   }, config);
   const app = Fastify();
   registerPublicAppGateway(app, backends, {
-    publicAccess: async address => {
-      const index = rows.findIndex((row, item) =>
-        address === `40000000-0000-4000-8000-00000000000${item + 1}` || address === row.name);
-      const row = rows[index];
-      if (!row || disabled.has(row.name)) throw new AppError("WEB_SITE_NOT_FOUND");
-      return { id: `40000000-0000-4000-8000-00000000000${index + 1}`, slug: row.name, passcodeHash: null };
-    },
     publishedSiteIdByAddress: async address => {
       const index = rows.findIndex((row, item) =>
         address === `40000000-0000-4000-8000-00000000000${item + 1}` || address === row.name);
@@ -105,17 +98,14 @@ export async function createSandboxBrowserFixture() {
       if (!row || disabled.has(row.name)) throw new AppError("WEB_SITE_NOT_FOUND");
       return `40000000-0000-4000-8000-00000000000${index + 1}`;
     },
-    publicApplication: async id => {
-      const row = rows.find((_item, index) => id === `40000000-0000-4000-8000-00000000000${index + 1}`);
+    publicEntry: async address => {
+      const index = rows.findIndex((item, offset) => "id" in address
+        ? address.id === `40000000-0000-4000-8000-00000000000${offset + 1}`
+        : address.slug === item.name);
+      const row = rows[index];
       if (!row || disabled.has(row.name)) throw new AppError("WEB_SITE_NOT_FOUND");
-      const releasePath = `/web/${row.name}/_releases/40000000-0000-4000-8000-000000000001/`;
-      return { title: row.name, path: `${releasePath}index.html`, releasePath, backendId: row.id };
-    },
-    applicationEntry: async (_owner, id) => {
-      const row = rows.find((_item, index) => id === `40000000-0000-4000-8000-00000000000${index + 1}`);
-      if (!row) throw new AppError("WEB_SITE_NOT_FOUND");
-      const releasePath = `/web/${row.name}/_releases/40000000-0000-4000-8000-000000000001/`;
-      return { title: row.name, path: `${releasePath}index.html`, releasePath };
+      return { title: row.name, access: { id: `40000000-0000-4000-8000-00000000000${index + 1}`, slug: row.name, passcodeHash: null },
+        releaseId: "40000000-0000-4000-8000-000000000001", entryPath: "index.html", backendId: row.id };
     },
   }, sessionStore, config);
   app.setErrorHandler((error, _request, reply) => {

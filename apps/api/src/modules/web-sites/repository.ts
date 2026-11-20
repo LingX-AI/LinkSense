@@ -94,10 +94,10 @@ export class WebSiteRepository {
     return this.withRelease(site, releaseId);
   }
 
-  async publicSiteById(id: string): Promise<SiteAndRelease> {
+  async publicSiteById(id: string, releaseId?: string): Promise<SiteAndRelease> {
     const site = await this.prisma.webSite.findFirst({ where: { id, status: "published" } });
     if (!site || !await this.prisma.user.count({ where: { id: site.ownerId, status: "active" } })) throw new AppError("WEB_SITE_NOT_FOUND");
-    return this.withRelease(site);
+    return this.withRelease(site, releaseId);
   }
 
   private async withRelease(site: WebSite, releaseId = site.currentReleaseId): Promise<SiteAndRelease> {
@@ -161,6 +161,7 @@ export class WebSiteRepository {
     try {
       await this.prisma.$transaction(async tx => {
         const site = await lockSite(tx, ownerId, id);
+        if (analytics?.enabled && (input.status ?? site.status) !== "published") throw new AppError("WEB_SITE_ANALYTICS_UNPUBLISHED");
         if (input.status === "published" && site.backendId) {
           await lockPublicationBackend(tx, ownerId, site.backendId, backendLease);
         }
@@ -231,8 +232,8 @@ async function lockSource(tx: Prisma.TransactionClient, ownerId: string, convers
   if (!source || !await tx.conversationFile.count({ where: { id: fileId, conversationId, kind: "artifact", status: "registered", downloadable: true, mimeType: "text/html" } })) throw new AppError("WEB_SITE_SOURCE_UNAVAILABLE");
   return source;
 }
-async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string): Promise<{ id: string; backendId: string | null }> {
-  const rows = await tx.$queryRaw<Array<{ id: string; backendId: string | null }>>(Prisma.sql`SELECT id, backend_id AS "backendId" FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`);
+async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string): Promise<{ id: string; backendId: string | null; status: string }> {
+  const rows = await tx.$queryRaw<Array<{ id: string; backendId: string | null; status: string }>>(Prisma.sql`SELECT id, backend_id AS "backendId", status FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`);
   if (!rows[0]) throw new AppError("WEB_SITE_NOT_FOUND");
   return rows[0];
 }

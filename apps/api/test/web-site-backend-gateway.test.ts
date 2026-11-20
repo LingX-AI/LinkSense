@@ -1,7 +1,8 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerWebSiteBackendGateway } from "../src/modules/web-site-backends/gateway.js";
-import { normalizeError } from "../src/lib/errors.js";
+import { sendAppError } from "../src/lib/http.js";
+import { hashPassword } from "../src/lib/password.js";
 import { sha256 } from "../src/modules/web-sites/resources.js";
 import { appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { backendFixture, backendId } from "./web-site-backends.fixture.js";
@@ -12,11 +13,10 @@ function setup(appsBaseUrl?: string) {
   const fixture = backendFixture(appsBaseUrl);
   const app = Fastify();
   open.push(app);
-  registerWebSiteBackendGateway(app, fixture.service, fixture.sites);
-  app.setErrorHandler((error, _request, reply) => {
-    const normalized = normalizeError(error);
-    return reply.code(normalized.code === "FORBIDDEN" ? 403 : 404).send({ error_code: normalized.code });
+  registerWebSiteBackendGateway(app, fixture.service, fixture.sites, {
+    accessSecret: fixture.config.jwtSecret, takeUnlockAttempt: async () => true,
   });
+  app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   app.get("/api/v1/platform", () => ({ private_platform: true }));
   const host = new URL(fixture.service.origin(fixture.row)).host;
   return { ...fixture, app, host };
@@ -62,6 +62,38 @@ describe("public application gateway", () => {
     expect((await fixture.app.inject({ url: "/appwrite/v1/account", headers: { host, origin } })).statusCode).toBe(200);
     expect(new Headers(fixture.fetcher.mock.calls[1]?.[1]?.headers).get("origin")).toBe(origin);
     expect((await fixture.app.inject({ url: "/", headers: { host: `${appHostLabel(backendId)}.apps.example.net` } })).statusCode).toBe(404);
+  });
+
+  it("requires a host-local unlock for legacy pages and Appwrite requests", async () => {
+    const fixture = setup();
+    fixture.site.row.site.passcodeHash = await hashPassword("sunrise");
+    const { app, host, fetcher } = fixture;
+    const page = await app.inject({ url: "/?view=today", headers: { host, "accept-language": "en-US" } });
+    expect(page.statusCode).toBe(401);
+    expect(page.body).toContain("This site is protected");
+    const endpoint = /action="([^"]+)"/u.exec(page.body)?.[1];
+    expect(endpoint).toBeDefined();
+    const backend = "/appwrite/v1/account";
+    expect((await app.inject({ url: backend, headers: { host } })).statusCode).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+    if (!endpoint) throw new Error("Missing unlock form");
+    const unlocked = await app.inject({
+      method: "POST", url: endpoint,
+      headers: { host, origin: "null", "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({ passcode: "sunrise", next: "/?view=today" }).toString(),
+    });
+    expect(unlocked.statusCode).toBe(303);
+    expect(unlocked.headers.location).toBe("/?view=today");
+    const setCookie = String(unlocked.headers["set-cookie"]);
+    expect(setCookie).toMatch(/^__Host-/u);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).not.toContain("Domain=");
+    const cookie = setCookie.split(";")[0]!;
+    expect((await app.inject({ url: "/", headers: { host, cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ url: backend, headers: { host, cookie } })).statusCode).toBe(200);
+    expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).has("cookie")).toBe(false);
+    fixture.site.row.site.passcodeHash = await hashPassword("sunset");
+    expect((await app.inject({ url: backend, headers: { host, cookie } })).statusCode).toBe(401);
   });
 
   it("keeps an early short host usable when its backend still has a null label", async () => {

@@ -81,7 +81,7 @@ describe("SVG sprites in private and published HTML", () => {
     const f = fixture();
     f.bundle({ "index.html": '<svg><use href="./icons.svg#star"></use><use href="./icons.svg#star"></use></svg>', "icons.svg": '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="paint"><stop stop-color="red"/></linearGradient></defs><symbol id="star" viewBox="0 0 10 10"><path id="shape" fill="url(#paint)" d="M0 0h10v10z"/><use href="#shape"/></symbol></svg>' });
     const preview = await f.service.open(ownerId, taskId, fileId);
-    const published = await new WebSiteService(f.store, f.storage).resource("sample", releaseId, "index.html");
+    const published = await new WebSiteService(f.store, f.storage).resource({ slug: "sample" }, releaseId, "index.html", () => {});
     expect(preview.html).not.toContain('href="./icons.svg#');
     expect(preview.html).toMatch(/href="#ls-svg-[^"]+-star"/u);
     expect(preview.html).toMatch(/url\(#ls-svg-[^)]+-paint\)/u);

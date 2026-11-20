@@ -3,6 +3,8 @@ import { generatedWebSiteBackendHostLabel } from "@linksense/shared";
 import { Prisma, type PrismaClient, type WebSiteBackend } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 
+type PublicBinding = { backend: WebSiteBackend; siteId: string; passcodeHash: string | null };
+
 export class WebSiteBackendRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -84,20 +86,20 @@ export class WebSiteBackendRepository {
     }
   }
 
-  async publicBinding(id: string): Promise<{ backend: WebSiteBackend; siteId: string }> {
+  async publicBinding(id: string): Promise<PublicBinding> {
     return this.resolvePublicBinding({ backendId: id });
   }
 
-  async publicBindingForSite(siteId: string): Promise<{ backend: WebSiteBackend; siteId: string }> {
+  async publicBindingForSite(siteId: string): Promise<PublicBinding> {
     return this.resolvePublicBinding({ id: siteId });
   }
 
-  private async resolvePublicBinding(where: { id: string } | { backendId: string }): Promise<{ backend: WebSiteBackend; siteId: string }> {
-    const site = await this.prisma.webSite.findFirst({ where: { ...where, status: "published" }, select: { id: true, ownerId: true, backendId: true } });
+  private async resolvePublicBinding(where: { id: string } | { backendId: string }): Promise<PublicBinding> {
+    const site = await this.prisma.webSite.findFirst({ where: { ...where, status: "published" }, select: { id: true, ownerId: true, backendId: true, passcodeHash: true } });
     if (!site?.backendId || !await this.prisma.user.count({ where: { id: site.ownerId, status: "active" } })) throw new AppError("WEB_SITE_NOT_FOUND");
     const backend = await this.owned(site.ownerId, site.backendId);
     if (backend.status !== "ready") throw new AppError("WEB_SITE_BACKEND_UNAVAILABLE");
-    return { backend, siteId: site.id };
+    return { backend, siteId: site.id, passcodeHash: site.passcodeHash };
   }
 
   async source(ownerId: string, fileId: string): Promise<{ objectKey: string; size: number; checksum: string | null }> {

@@ -136,7 +136,7 @@ describe("self-hosted Appwrite backend", () => {
     await expect(fixture.service.inspect(ownerId, backendId)).resolves.toMatchObject({ origin, endpoint: `${origin}/appwrite/v1` });
     await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId)).resolves.toMatchObject({ origin });
     expect((await fixture.sites.list(ownerId, { limit: 20 })).items[0]?.url).toBe(origin);
-    expect((await fixture.sites.publicEntry("sample")).url).toBe(origin);
+    expect((await fixture.sites.publicEntry({ slug: "sample" })).url).toBe(origin);
     expect(fixture.fetcher).toHaveBeenCalledOnce();
     expect(fixture.fetcher.mock.calls[0]?.[1]?.method).toBe("GET");
   });
@@ -384,7 +384,7 @@ describe("self-hosted Appwrite backend", () => {
     expect(first.url).toBe(`https://${appHostLabel(backendId)}.apps.example.net`);
     expect(second.url).toBe(first.url);
     expect(second.backend_id).toBe(backendId);
-    const entry = await fixture.sites.publicEntry("sample");
+    const entry = await fixture.sites.publicEntry({ slug: "sample" });
     expect(entry.url).toBe(first.url);
   });
 
@@ -469,7 +469,7 @@ describe("self-hosted Appwrite backend", () => {
     const sites = new WebSiteService(fixture.site.store, fixture.site.storage, disabled);
     const listed = await sites.list(ownerId, { limit: 20 });
     expect(listed.items[0]).toMatchObject({ backend_id: backendId, url_path: `/app/s/${siteId}` });
-    await expect(sites.publicEntry("sample")).rejects.toThrow("WEB_SITE_BACKEND_NOT_CONFIGURED");
+    await expect(sites.publicEntry({ slug: "sample" })).rejects.toThrow("WEB_SITE_BACKEND_NOT_CONFIGURED");
     fixture.site.store.update.mockImplementation(async (_owner, _id, input) => {
       if (input.status) fixture.site.row.site.status = input.status;
       return fixture.site.row;

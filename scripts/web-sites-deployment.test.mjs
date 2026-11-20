@@ -14,6 +14,16 @@ for (const file of ["deploy/nginx/default.conf.template", "deploy/nginx/producti
     assert.match(block, /add_header Cache-Control "no-store" always;/u);
     assert.doesNotMatch(block, /add_header (?:Content-Security-Policy|X-Frame-Options)/u);
     assert.doesNotMatch(block, /try_files/u);
+    const protectedLocation = block.indexOf("location ^~ /web/_protected/");
+    const protectedProxy = block.indexOf("proxy_pass http:", protectedLocation);
+    assert(protectedLocation >= 0 && protectedProxy > protectedLocation);
+    const protectedOptions = block.slice(protectedLocation, protectedProxy);
+    assert.match(protectedOptions, /access_log off;/u);
+    assert.match(protectedOptions, /error_log \/dev\/null;/u);
+    const target = block.slice(protectedProxy).match(/^proxy_pass (http:[^;]+);/u)?.[1];
+    assert(target);
+    assert(block.indexOf(`proxy_pass ${target};`, protectedProxy + 1) > protectedProxy);
+    if (file.endsWith("production-gateway.conf.template")) assert.match(protectedOptions, /return 503;/u);
     const preview = config.slice(config.indexOf("location ^~ /html-preview/"), begin);
     assert.match(preview, /access_log off;/u);
     assert.match(preview, /proxy_pass http:/u);

@@ -791,9 +791,10 @@ export async function verifyPackagedDesktopGateway(input: {
       description: "", slug: `mac-${randomUUID()}`,
     });
     assert.equal(publishedWebsite.file_count, websiteAssets.length);
-    assert.match((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "index.html")).data.toString(),
+    const publishedAddress = { slug: publishedWebsite.slug };
+    assert.match((await input.websites.resource(publishedAddress, publishedWebsite.release_id, "index.html", () => {})).data.toString(),
       /href="\.\/assets\/theme\.css"/u);
-    assert.equal((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "assets/theme.css")).data.toString(), websiteCss);
+    assert.equal((await input.websites.resource(publishedAddress, publishedWebsite.release_id, "assets/theme.css", () => {})).data.toString(), websiteCss);
 
     const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
       submission(interruptApprovalPrompt, "desktop-interrupt-approval"), {});

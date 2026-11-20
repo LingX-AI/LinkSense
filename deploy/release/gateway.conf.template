@@ -69,6 +69,12 @@ server {
   }
 
   location ^~ /web/ {
+    location ^~ /web/_protected/ {
+      access_log off;
+      error_log /dev/null;
+      proxy_pass http://linksense_api;
+    }
+
     add_header Cache-Control "no-store" always;
     proxy_pass http://linksense_api;
     proxy_http_version 1.1;

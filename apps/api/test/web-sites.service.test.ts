@@ -75,6 +75,23 @@ describe("website publishing service", () => {
     await expect(siteFixture().service.update(ownerId, siteId, { analytics: true }))
       .rejects.toMatchObject({ code: "WEB_SITE_ANALYTICS_NOT_CONFIGURED" });
   });
+  it("saves unrelated metadata when provisioning analytics fails", async () => {
+    const fixture = siteFixture();
+    const ensureSite = vi.fn(async () => { throw new AppError("WEB_SITE_ANALYTICS_UNAVAILABLE"); });
+    const service = new WebSiteService(fixture.store, fixture.storage, undefined,
+      { ensureSite } as unknown as WebSiteAnalytics);
+    fixture.store.update.mockImplementation(async (_owner, _id, settings) => {
+      if (settings.name) fixture.row.site.name = settings.name;
+      if (settings.slug) fixture.row.site.slug = settings.slug;
+      return fixture.row;
+    });
+    await expect(service.update(ownerId, siteId, { name: "Renamed", slug: "renamed", analytics: true }))
+      .rejects.toMatchObject({ code: "WEB_SITE_ANALYTICS_UNAVAILABLE" });
+    expect((await service.list(ownerId, { limit: 1 })).items[0]).toMatchObject({
+      name: "Renamed", slug: "renamed", analytics_enabled: false,
+    });
+    expect(ensureSite).toHaveBeenCalledWith({ name: "Renamed", domain: `${siteId}.linksense.invalid` });
+  });
   it("injects the analytics tracker into published HTML but never duplicates it", async () => {
     const fixture = siteFixture();
     fixture.row.site.analyticsEnabled = true;
@@ -82,7 +99,7 @@ describe("website publishing service", () => {
     const service = new WebSiteService(fixture.store, fixture.storage, undefined,
       { ensureSite: vi.fn(), dashboardUrl: () => "http://stats.example.test/sites/7",
         scriptTag: () => '<script data-linksense-analytics="1"></script>' } as unknown as WebSiteAnalytics);
-    const injected = await service.resource("sample", releaseId, "index.html");
+    const injected = await service.resource({ slug: "sample" }, releaseId, "index.html", () => {});
     expect(injected.data.toString()).toContain("data-linksense-analytics");
     expect(injected.mimeType).toBe("text/html");
     const html = Buffer.from(`<html><head>${injected.data.toString()}</head></html>`);
@@ -90,7 +107,7 @@ describe("website publishing service", () => {
     const file = fixture.manifest.files[0]!;
     fixture.manifest.files[0] = { ...file, size_bytes: html.length, checksum_sha256: sha256(html) };
     fixture.row.release.manifestJson = fixture.manifest;
-    const again = await service.resource("sample", releaseId, "index.html");
+    const again = await service.resource({ slug: "sample" }, releaseId, "index.html", () => {});
     expect(again.data.toString().match(/data-linksense-analytics/gu)).toHaveLength(1);
   });
   it("allows the configured analytics origin in the published resource policy", () => {
@@ -169,17 +186,17 @@ describe("website publishing service", () => {
   });
   it("checks access on every resource request, including known old release URLs", async () => {
     const fixture = siteFixture();
-    await expect(fixture.service.resource("sample", releaseId, "index.html")).resolves.toMatchObject({ mimeType: "text/html" });
+    await expect(fixture.service.resource({ slug: "sample" }, releaseId, "index.html", () => {})).resolves.toMatchObject({ mimeType: "text/html" });
     expect(fixture.store.publicSite).toHaveBeenCalledWith("sample", releaseId);
     fixture.store.publicSite.mockRejectedValue(new AppError("WEB_SITE_NOT_FOUND"));
-    await expect(fixture.service.resource("sample", releaseId, "index.html")).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
+    await expect(fixture.service.resource({ slug: "sample" }, releaseId, "index.html", () => {})).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
     expect(fixture.storage.getObjectStream).toHaveBeenCalledTimes(1);
   });
   it("rejects unlisted paths and corrupt stored content", async () => {
     const fixture = siteFixture();
-    await expect(fixture.service.resource("sample", releaseId, "../../index.html")).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
+    await expect(fixture.service.resource({ slug: "sample" }, releaseId, "../../index.html", () => {})).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
     fixture.objects.set("original/index.html", Buffer.alloc(fixture.html.length));
-    await expect(fixture.service.resource("sample", releaseId, "index.html")).rejects.toMatchObject({ code: "WEB_SITE_BUNDLE_INVALID" });
+    await expect(fixture.service.resource({ slug: "sample" }, releaseId, "index.html", () => {})).rejects.toMatchObject({ code: "WEB_SITE_BUNDLE_INVALID" });
   });
   it("downloads all files and allows owner download for a disabled site with deleted source task", async () => {
     const fixture = siteFixture();
