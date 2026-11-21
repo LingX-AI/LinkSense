@@ -188,12 +188,17 @@ func (d *Desktop) openMainWindow() {
 		// Keep the existing completion feed running after Close to Menu Bar.
 		page.BackgroundThrottling = mygo.ThrottlingOff
 	}
-	win := mygo.NewWindow(mygo.WindowOptions{
+	options := mygo.WindowOptions{
 		Title: "LinkSense", URL: "/",
 		Width: 1200, Height: 800, MinWidth: 720, MinHeight: 540,
 		StateKey: "desktop-main",
 		Page:     page,
-	})
+	}
+	if runtime.GOOS == "darwin" {
+		// Keep the native traffic lights and let the shared UI own the top area.
+		options.TitleBarStyle = mygo.TitleBarHidden
+	}
+	win := mygo.NewWindow(options)
 	d.mu.Lock()
 	d.window = win
 	d.mu.Unlock()

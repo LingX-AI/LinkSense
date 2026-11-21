@@ -23,16 +23,17 @@ import (
 )
 
 var nativeWhitebox struct {
-	desktop    *Desktop
-	store      *memoryCredentialStore
-	server     *httptest.Server
-	dataRoot   string
-	logins     atomic.Int32
-	refresh    atomic.Int32
-	protocol   atomic.Int32
-	cloud      atomic.Pointer[cloudWhitebox]
-	browser    atomic.Pointer[browserUseWhitebox]
-	completion atomic.Bool
+	desktop       *Desktop
+	store         *memoryCredentialStore
+	server        *httptest.Server
+	dataRoot      string
+	logins        atomic.Int32
+	refresh       atomic.Int32
+	protocol      atomic.Int32
+	cloud         atomic.Pointer[cloudWhitebox]
+	browser       atomic.Pointer[browserUseWhitebox]
+	completion    atomic.Bool
+	bootstrapFail atomic.Bool
 }
 
 // The real platform WebView runs on the main thread; fixtures never use an account or a GUI automation permission.
@@ -178,6 +179,11 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 	}
 	switch r.URL.Path {
 	case "/api/v1/system/bootstrap":
+		if nativeWhitebox.bootstrapFail.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "FIXTURE_BOOTSTRAP_FAILURE"})
+			return
+		}
 		data = map[string]any{"initialized": true, "system_name": "LinkSense", "default_language": "en-US"}
 	case "/api/v1/auth/login", desktopLoginExchangePath, "/api/v1/auth/refresh":
 		if r.URL.Path == "/api/v1/auth/refresh" {

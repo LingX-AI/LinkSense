@@ -98,6 +98,22 @@ in the background, it shows task and automation results without task names
 or content. Clicking a notification opens the task only on the matching
 server and account, with the same unsaved-change prompt as in-app navigation.
 
+### Window chrome
+
+The macOS main window uses mygo's `TitleBarHidden` style, so the shared Web
+page fills the window while the native red/yellow/green controls stay at the
+top left. Sidebar and settings lockups start at the reported controls bottom
+(`--mygo-titlebar-controls-bottom`) and shrink only when the remaining header
+height is smaller; other top-area controls reserve the reported horizontal
+inset (`--mygo-titlebar-inset-left`). Otherwise unused surfaces are
+`--app-region: drag`, and interactive elements keep their events.
+
+Every added rule is scoped to `html[data-desktop-platform="darwin"]`, which
+the desktop adapter sets from the native platform before host info resolves.
+A markerless Web layout and the Windows host keep their original cascades,
+geometry, and drag behavior. The title-bar values are zero in full screen, so
+no phantom inset remains.
+
 To enable **Check for updates**, supply both
 `LINKSENSE_DESKTOP_UPDATE_FEED` (the target's full update manifest URL) and
 `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` (the base64 Ed25519 public key) at build

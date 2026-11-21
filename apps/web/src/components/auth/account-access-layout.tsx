@@ -65,7 +65,7 @@ export function AccountAccessLayout({
         </p>
       </aside>
       <div className="flex min-h-[calc(100dvh-2rem)] min-w-0 flex-col lg:min-h-[calc(100dvh-3rem)]">
-        <div className="flex min-h-12 shrink-0 justify-end">
+        <div className="account-access-top-row flex min-h-12 shrink-0 justify-end">
           <LanguageSwitcher />
         </div>
         <div className="flex flex-1 items-center justify-center px-2 py-8 sm:px-8">

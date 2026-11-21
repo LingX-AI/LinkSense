@@ -279,7 +279,7 @@ export function SettingsShell() {
   const navigation = (
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
-        <div className="-mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
+        <div className="settings-brand-bar -mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
           <ProductLogo
             productName={productName}
             className="sidebar-brand-logo min-w-0"

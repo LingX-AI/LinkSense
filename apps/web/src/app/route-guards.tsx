@@ -190,7 +190,10 @@ function PublicFailureScreen({
   const productName = useProductName()
 
   return (
-    <main className="flex h-svh flex-col overflow-y-auto bg-[var(--app-canvas)] px-5 py-10">
+    <main
+      data-slot="public-failure-screen"
+      className="flex h-svh flex-col overflow-y-auto bg-[var(--app-canvas)] px-5 py-10"
+    >
       <section className="my-auto w-full max-w-md shrink-0 self-center px-2 py-8 text-center sm:px-8">
         <ProductLogo
           productName={productName}

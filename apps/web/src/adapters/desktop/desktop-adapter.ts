@@ -49,8 +49,12 @@ const desktopWorkspaceNoticeSchema = z.strictObject({
 })
 
 export type DesktopWorkspaceUsage = z.infer<typeof desktopWorkspaceUsageSchema>
-export type DesktopWorkspaceCleanup = z.infer<typeof desktopWorkspaceCleanupSchema>
-export type DesktopWorkspaceNotice = z.infer<typeof desktopWorkspaceNoticeSchema>
+export type DesktopWorkspaceCleanup = z.infer<
+  typeof desktopWorkspaceCleanupSchema
+>
+export type DesktopWorkspaceNotice = z.infer<
+  typeof desktopWorkspaceNoticeSchema
+>
 
 export type DesktopNotificationResult =
   "shown" | "denied" | "unsupported" | "cancelled" | "failed"
@@ -221,6 +225,13 @@ export function subscribeDesktopNavigation(
 
 export async function initializeDesktopHost(): Promise<null> {
   if (!isDesktopHost()) return null
+  // Mark the native platform before the bridge call so CSS and the router
+  // error screen never wait for host info to resolve.
+  const nativePlatform = window.mygo?.platform
+  if (nativePlatform) {
+    document.documentElement.dataset.desktopPlatform =
+      nativePlatform === "darwin" ? "darwin" : "windows"
+  }
   installDesktopNotificationClickBridge()
   hostInfo = hostInfoSchema.parse(await Desktop.info())
   document.documentElement.dataset.desktopPlatform = hostInfo.platform

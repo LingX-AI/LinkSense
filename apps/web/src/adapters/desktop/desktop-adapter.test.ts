@@ -103,6 +103,14 @@ describe("desktop host boundary", () => {
     expect(native.openExternal).toHaveBeenCalledWith("https://example.com")
   })
 
+  it("marks the native platform before bridge info resolves", async () => {
+    native.isDesktop = true
+    vi.stubGlobal("mygo", { platform: "darwin" })
+    native.info.mockRejectedValueOnce(new Error("bridge unavailable"))
+    await expect(initializeDesktopHost()).rejects.toThrow()
+    expect(document.documentElement.dataset.desktopPlatform).toBe("darwin")
+  })
+
   it("rejects an unsupported bridge rather than making an API request", async () => {
     native.isDesktop = true
     native.info.mockResolvedValue({

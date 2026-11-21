@@ -1134,6 +1134,60 @@
   background-repeat: no-repeat;
 }
 
+/* macOS hidden title bar only. MyGo processes --app-region: drag on every
+   host, so the shared Web and Windows layouts stay out of this block. */
+html[data-desktop-platform="darwin"] .sidebar-brand-bar,
+html[data-desktop-platform="darwin"] .conversation-top-bar,
+html[data-desktop-platform="darwin"] .app-top-bar,
+html[data-desktop-platform="darwin"] [data-slot="page-top-bar"],
+html[data-desktop-platform="darwin"] .settings-navigation-header,
+html[data-desktop-platform="darwin"] .settings-mobile-header {
+  --app-region: drag;
+}
+
+html[data-desktop-platform="darwin"] [data-slot="account-access-layout"],
+html[data-desktop-platform="darwin"] [data-slot="application-load-error"],
+html[data-desktop-platform="darwin"] [data-slot="public-failure-screen"],
+html[data-desktop-platform="darwin"] .page-state-loading-fullscreen {
+  --app-region: drag;
+}
+
+html[data-desktop-platform="darwin"] [data-slot="account-access-layout"] > *,
+html[data-desktop-platform="darwin"] [data-slot="application-load-error"] > *,
+html[data-desktop-platform="darwin"] [data-slot="public-failure-screen"] > * {
+  --app-region: no-drag;
+}
+
+html[data-desktop-platform="darwin"] .account-access-top-row {
+  --app-region: drag;
+}
+
+/* The lockup crosses the traffic-light x-range. Start it at the reported
+   control boundary and cap it to the remaining header height; otherwise it
+   keeps its natural centered position, including in full screen. */
+html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-link,
+html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
+  align-self: flex-start;
+  margin-top: max(
+    calc((var(--conversation-top-bar-height) - 24px) / 2),
+    var(--mygo-titlebar-controls-bottom, 0px)
+  );
+}
+
+html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-logo,
+html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
+  height: min(
+    24px,
+    max(
+      0px,
+      calc(
+        var(--conversation-top-bar-height) -
+          var(--mygo-titlebar-controls-bottom, 0px)
+      )
+    )
+  );
+}
+
 .sidebar-resize-handle {
   position: absolute;
   top: var(--app-safe-area-top);
@@ -1202,6 +1256,18 @@
 
   .app-shell[data-sidebar-collapsed="true"] .conversation-top-bar {
     padding-left: 52px;
+  }
+
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    .app-top-bar,
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    .conversation-top-bar,
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    [data-slot="page-top-bar"] {
+    padding-left: calc(52px + var(--mygo-titlebar-inset-left, 0px));
   }
 
   .app-shell[data-sidebar-collapsed="true"]
@@ -1379,6 +1445,11 @@
   left: 10px;
   z-index: 50;
   color: var(--app-muted);
+}
+
+html[data-desktop-platform="darwin"] .mobile-shell-trigger,
+html[data-desktop-platform="darwin"] .desktop-sidebar-trigger {
+  left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
 }
 
 .app-main:has([data-slot="page-top-bar"]) > .desktop-sidebar-trigger,
@@ -10513,6 +10584,12 @@ button.annotation-hover-file:focus-visible {
   .conversation-workspace:has(.conversation-welcome) > .conversation-top-bar {
     padding-left: 52px;
   }
+
+  html[data-desktop-platform="darwin"]
+    .conversation-workspace:has(.conversation-welcome)
+    > .conversation-top-bar {
+    padding-left: calc(52px + var(--mygo-titlebar-inset-left, 0px));
+  }
 }
 
 .public-shell {
@@ -11752,6 +11829,10 @@ button.annotation-hover-file:focus-visible {
     padding: 8px 10px;
   }
 
+  html[data-desktop-platform="darwin"] .settings-mobile-header {
+    padding-left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
   .settings-navigation-header {
     padding-top: 8px;
   }
@@ -11876,6 +11957,10 @@ button.annotation-hover-file:focus-visible {
     padding-inline: 10px;
   }
 
+  html[data-desktop-platform="darwin"] .app-top-bar {
+    padding-left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
   .conversation-column {
     --conversation-bottom-stack-clearance: 26px;
     --conversation-bottom-stack-fallback: 206px;
@@ -11931,6 +12016,14 @@ button.annotation-hover-file:focus-visible {
   .conversation-top-bar {
     padding-right: 10px;
     padding-left: 48px;
+  }
+
+  html[data-desktop-platform="darwin"] .conversation-top-bar {
+    padding-left: calc(48px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
+  html[data-desktop-platform="darwin"] [data-slot="page-top-bar"] {
+    padding-left: calc(56px + var(--mygo-titlebar-inset-left, 0px));
   }
 
   .conversation-top-overlay-stack {
