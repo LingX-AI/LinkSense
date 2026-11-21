@@ -96,6 +96,7 @@ export function ConversationSiteCard({ site }: { site: ConversationWebSite }) {
           className={buttonVariants({ variant: "ghost", size: "sm" })}
           to={webSiteManagementPath()}
         >
+          <GlobeIcon data-icon="inline-start" aria-hidden="true" />
           {t("webSites.title")}
         </Link>
       </div>
