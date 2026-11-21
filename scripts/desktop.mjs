@@ -213,7 +213,7 @@ async function main() {
     await run("go", desktopTestArguments());
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
-        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/desktop-devices", "src/features/desktop-execution", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
         "src/features/applications/application-annotation-bridge.test.ts",
         "src/features/applications/application-annotation-native-runtime.test.ts",
         "src/features/applications/application-annotation-preload-install.test.ts",
@@ -221,6 +221,7 @@ async function main() {
         "src/components/media/html-preview/html-preview-selection.test.ts",
         "src/components/media/html-preview/html-preview-annotations.test.ts",
         "src/app/auth-context.test.tsx", "src/app/route-guards.account-switch.test.tsx",
+        "src/pages/conversation-execution-target.test.tsx",
         "src/features/knowledge-bases/knowledge-base-api.test.ts",
         "src/features/knowledge-bases/knowledge-base-events.test.ts",
         "src/features/connections/use-connection-authorization.test.tsx"],
