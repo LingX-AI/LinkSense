@@ -358,29 +358,42 @@ const workspaceControlRequest = z.strictObject({ request_id: uuidSchema, owner_i
 export const desktopRuntimeControlCancelSchema = z.strictObject({
   type: z.literal("workspace.cancel"), request_id: uuidSchema,
 });
+// Application-update admission is native-only and not account scoped. Go sends
+// one request id with acquire, holds the gate until a matching release, and
+// never exposes these frames to the WebView or the network.
+const updateControlRequest = z.strictObject({ request_id: uuidSchema });
 export const desktopRuntimeControlInputSchema = z.discriminatedUnion("type", [
   workspaceControlRequest.extend({ type: z.literal("workspace.usage") }),
   workspaceControlRequest.extend({ type: z.literal("workspace.cleanup") }),
   desktopRuntimeControlCancelSchema,
+  updateControlRequest.extend({ type: z.literal("update.acquire") }),
+  updateControlRequest.extend({ type: z.literal("update.release") }),
 ]);
-const workspaceControlResult = z.strictObject({ request_id: uuidSchema });
+const controlResult = z.strictObject({ request_id: uuidSchema });
+export const desktopUpdateAdmissionErrorSchema = z.enum(["DESKTOP_UPDATE_BUSY", "DESKTOP_RUNTIME_UNAVAILABLE"]);
 export const desktopRuntimeControlOutputSchema = z.union([
-  workspaceControlResult.extend({
+  controlResult.extend({
     type: z.literal("workspace.usage.result"), ok: z.literal(true), usage: desktopWorkspaceUsageSchema,
   }),
-  workspaceControlResult.extend({
+  controlResult.extend({
     type: z.literal("workspace.usage.result"), ok: z.literal(false), error_code: z.literal("DESKTOP_WORKSPACE_UNAVAILABLE"),
   }),
-  workspaceControlResult.extend({
+  controlResult.extend({
     type: z.literal("workspace.cleanup.result"), ok: z.literal(true), cleanup: desktopWorkspaceCleanupSchema,
   }),
-  workspaceControlResult.extend({
+  controlResult.extend({
     type: z.literal("workspace.cleanup.result"), ok: z.literal(false),
     error_code: z.enum(["DESKTOP_WORKSPACE_UNAVAILABLE", "DESKTOP_WORKSPACE_CLEANUP_FAILED"]),
   }),
+  controlResult.extend({ type: z.literal("update.acquire.result"), ok: z.literal(true) }),
+  controlResult.extend({
+    type: z.literal("update.acquire.result"), ok: z.literal(false), error_code: desktopUpdateAdmissionErrorSchema,
+  }),
 ]);
 export type DesktopRuntimeControlInput = z.infer<typeof desktopRuntimeControlInputSchema>;
-export type DesktopWorkspaceControlRequest = Exclude<DesktopRuntimeControlInput, { type: "workspace.cancel" }>;
+export type DesktopWorkspaceControlRequest = Extract<DesktopRuntimeControlInput, {
+  type: "workspace.usage" | "workspace.cleanup"
+}>;
 export type DesktopRuntimeControlOutput = z.infer<typeof desktopRuntimeControlOutputSchema>;
 export type DesktopWorkspaceUsage = z.infer<typeof desktopWorkspaceUsageSchema>;
 export type DesktopWorkspaceCleanup = z.infer<typeof desktopWorkspaceCleanupSchema>;

@@ -36,6 +36,7 @@ export class DesktopSupervisor {
   private cleanupControl: Promise<void> | undefined
   private cleanupRequestId: string | undefined
   private cleanupAbort: AbortController | undefined
+  private updateRequestId: string | undefined
   private stopping = false
 
   constructor(private readonly options: DesktopSupervisorOptions) {}
@@ -93,6 +94,14 @@ export class DesktopSupervisor {
       if (this.cleanupAbort !== undefined && this.cleanupRequestId === input.request_id) {
         this.cleanupAbort.abort()
       }
+      return
+    }
+    if (input.type === "update.acquire") {
+      this.acquireUpdateAdmission(input.request_id)
+      return
+    }
+    if (input.type === "update.release") {
+      this.releaseUpdateAdmission(input.request_id)
       return
     }
     const failure = (): DesktopRuntimeControlOutput => input.type === "workspace.usage"
@@ -155,6 +164,46 @@ export class DesktopSupervisor {
         }
       })
     if (input.type === "workspace.cleanup") this.cleanupControl = task
+  }
+
+  /**
+   * Take update admission in the same synchronous tick as a link frame. A
+   * start, recovery, release or cleanup that already reached this tick wins;
+   * once taken, provider maintenance blocks every later admission path before
+   * it can create a worker or touch a workspace. Stop and seal keep their
+   * existing idempotent journal bookkeeping and cannot start a worker.
+   * Ownership is bound to the request id so a stale release cannot open
+   * another holder's gate.
+   */
+  private acquireUpdateAdmission(requestId: string): void {
+    if (this.stopping) {
+      this.writeControl({
+        type: "update.acquire.result", request_id: requestId, ok: false,
+        error_code: "DESKTOP_RUNTIME_UNAVAILABLE",
+      })
+      return
+    }
+    if (this.updateRequestId !== undefined || (this.current?.turns.isBusy() ?? false) ||
+        !this.options.provider.beginMaintenance()) {
+      this.writeControl({
+        type: "update.acquire.result", request_id: requestId, ok: false, error_code: "DESKTOP_UPDATE_BUSY",
+      })
+      return
+    }
+    this.updateRequestId = requestId
+    this.writeControl({ type: "update.acquire.result", request_id: requestId, ok: true })
+  }
+
+  private releaseUpdateAdmission(requestId: string): void {
+    if (this.updateRequestId !== requestId) return
+    this.updateRequestId = undefined
+    this.options.provider.endMaintenance()
+  }
+
+  private writeControl(output: DesktopRuntimeControlOutput): void {
+    void this.options.write(desktopRuntimeControlOutputSchema.parse(output)).catch(() => {
+      if (!this.stopping) this.options.fail()
+    })
   }
 
   private async stop(): Promise<void> {

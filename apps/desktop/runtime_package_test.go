@@ -21,6 +21,11 @@ import (
 	"github.com/coder/websocket"
 )
 
+// updateAdmissionProbeRuntime publishes the supervisor to the opt-in update
+// admission whitebox while this real device turn runs. It is nil in a plain
+// packaged smoke, whose probe is a no-op.
+var updateAdmissionProbeRuntime atomic.Pointer[runtimeSupervisor]
+
 func TestPackagedRuntimeSupervisor(t *testing.T) {
 	runtimeRoot := os.Getenv("LINKSENSE_DESKTOP_RUNTIME_DIST")
 	if !filepath.IsAbs(runtimeRoot) {
@@ -245,6 +250,9 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 					rejectModel(w, "direct system automation was not denied", http.StatusBadRequest)
 					return
 				}
+				// The turn is in flight here; the opt-in whitebox asks the
+				// native gate and the packaged runner for admission.
+				probeUpdateAdmissionDuringTurn(t)
 				close(modelWaiting)
 				select {
 				case <-r.Context().Done():
@@ -503,6 +511,7 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := superviseRuntime(dataRoot, runtimeRoot, origin.String())
+	updateAdmissionProbeRuntime.Store(runtime)
 	defer runtime.close()
 	readiness := time.Now().Add(30 * time.Second)
 	for !runtime.ready.Load() && time.Now().Before(readiness) {

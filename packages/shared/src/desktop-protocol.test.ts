@@ -65,4 +65,30 @@ describe("desktop workspace control", () => {
       { type: "workspace.cleanup.result", request_id: request, ok: false, error_code: "FORBIDDEN" },
     ]) expect(desktopRuntimeControlOutputSchema.safeParse(output).success).toBe(false);
   });
+
+  it("accepts only request-id-bound update admission controls without an account", () => {
+    for (const type of ["update.acquire", "update.release"] as const) {
+      expect(desktopRuntimeControlInputSchema.parse({ type, request_id: request })).toEqual({ type, request_id: request });
+      expect(desktopRuntimeControlInputSchema.safeParse({ type, request_id: request, owner_id: owner }).success).toBe(false);
+      expect(desktopRuntimeControlInputSchema.safeParse({ type }).success).toBe(false);
+    }
+  });
+
+  it("round-trips update admission results and rejects ambiguous errors", () => {
+    expect(desktopRuntimeControlOutputSchema.parse({
+      type: "update.acquire.result", request_id: request, ok: true,
+    })).toEqual({ type: "update.acquire.result", request_id: request, ok: true });
+    for (const error_code of ["DESKTOP_UPDATE_BUSY", "DESKTOP_RUNTIME_UNAVAILABLE"] as const) {
+      expect(desktopRuntimeControlOutputSchema.parse({
+        type: "update.acquire.result", request_id: request, ok: false, error_code,
+      })).toEqual({ type: "update.acquire.result", request_id: request, ok: false, error_code });
+    }
+    for (const output of [
+      { type: "update.acquire.result", request_id: request, ok: true, error_code: "DESKTOP_UPDATE_BUSY" },
+      { type: "update.acquire.result", request_id: request, ok: false, error_code: "FORBIDDEN" },
+      { type: "update.acquire.result", request_id: request, ok: false },
+      { type: "update.release.result", request_id: request, ok: true },
+      { type: "update.acquire.result", request_id: request, ok: true, path: "/Applications" },
+    ]) expect(desktopRuntimeControlOutputSchema.safeParse(output).success).toBe(false);
+  });
 });

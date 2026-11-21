@@ -26,6 +26,10 @@ type runtimeSupervisor struct {
 	done   chan struct{}
 	ready  atomic.Bool
 	pipe   atomic.Pointer[runtimePipe]
+
+	// update holds the native application-update reservation, if any. While it
+	// is set, no current or future runtime generation may admit work.
+	update updateAdmission
 }
 
 const (
@@ -47,6 +51,12 @@ func superviseRuntime(dataRoot, runtimeRoot, serverOrigin string) *runtimeSuperv
 			return
 		}
 		for attempt := 0; attempt < 4 && ctx.Err() == nil; attempt++ {
+			// An update reservation outlives the runner process it may have
+			// been acknowledged by: no replacement generation may start until
+			// that exact reservation is finished.
+			if !supervisor.waitForUpdateAdmission(ctx) {
+				return
+			}
 			if err := supervisor.run(ctx, dataRoot, runtimeRoot, serverOrigin); err != nil && ctx.Err() == nil {
 				log.Printf("DESKTOP_RUNTIME_STOPPED attempt=%d", attempt+1)
 			}
@@ -171,11 +181,13 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serv
 	}
 	timer.Reset(runtimeHealthTimeout)
 	pipe := &runtimePipe{input: input, done: make(chan struct{})}
+	// The supervisor only starts a child after waitForUpdateAdmission saw no
+	// reservation, and an acquisition needs an already-published pipe. The
+	// store cannot cross a reservation, so no publish recheck is needed.
 	s.pipe.Store(pipe)
 	s.ready.Store(true)
 	defer func() {
-		s.ready.Store(false)
-		s.pipe.Store(nil)
+		s.unpublishRuntimePipe(pipe)
 		close(pipe.done)
 	}()
 	for {
@@ -218,6 +230,7 @@ type runtimePipe struct {
 	mu       sync.Mutex
 	link     atomic.Pointer[runtimeLink]
 	requests map[string]*pendingWorkspaceRequest
+	update   *pendingUpdateRequest
 }
 
 type runtimeLink struct {
@@ -285,6 +298,8 @@ func (pipe *runtimePipe) deliver(raw string) bool {
 	switch header.Type {
 	case workspaceUsageResultType, workspaceCleanupResultType:
 		return pipe.deliverWorkspaceResult(raw, header.Type)
+	case updateAcquireResultType:
+		return pipe.deliverUpdateAdmissionResult(raw)
 	}
 	var message runtimePipeMessage
 	decoder := json.NewDecoder(strings.NewReader(raw))
@@ -312,6 +327,36 @@ func (pipe *runtimePipe) deliver(raw string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (s *runtimeSupervisor) waitForUpdateAdmission(ctx context.Context) bool {
+	for {
+		s.update.mu.Lock()
+		if s.update.reservation == nil {
+			s.update.mu.Unlock()
+			return true
+		}
+		changed := s.update.changed
+		if changed == nil {
+			changed = make(chan struct{})
+			s.update.changed = changed
+		}
+		s.update.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return false
+		case <-changed:
+		}
+	}
+}
+
+func (s *runtimeSupervisor) unpublishRuntimePipe(pipe *runtimePipe) {
+	s.update.mu.Lock()
+	defer s.update.mu.Unlock()
+	s.ready.Store(false)
+	if s.pipe.Load() == pipe {
+		s.pipe.Store(nil)
 	}
 }
 

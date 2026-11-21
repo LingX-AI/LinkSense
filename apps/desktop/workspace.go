@@ -183,7 +183,7 @@ func (s *runtimeSupervisor) workspaceRequest(
 	if pipe == nil || !s.ready.Load() || account == nil {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 	}
-	requestID, err := randomWorkspaceRequestID()
+	requestID, err := randomControlRequestID()
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +489,7 @@ func desktopOriginKey(raw string) string {
 	return scheme + "://" + host
 }
 
-func randomWorkspaceRequestID() (string, error) {
+func randomControlRequestID() (string, error) {
 	value := randomLoginBytes()[:16]
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80

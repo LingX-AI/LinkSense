@@ -234,3 +234,162 @@ it("bounds concurrent usage requests without delaying link frames", async () => 
   await running
   await close()
 })
+
+it("lets a start already in asynchronous preparation win over update admission", async () => {
+  const { provider, supervisor, writes, fail, close } = await fixture()
+  const entered = deferred<void>()
+  const preparation = deferred<void>()
+  vi.spyOn(provider, "prepareOwnerFilesystem").mockImplementation(async () => {
+    entered.resolve()
+    await preparation.promise
+    throw new Error("fixture preparation stopped")
+  })
+  const input = pipeInput()
+  const running = supervisor.run(input)
+  const owner = randomUUID()
+  const linkId = randomUUID()
+  input.push(linkOpen(owner, linkId))
+  input.push({ type: "link.frame", link_id: linkId, frame: startCommand(owner) })
+  // The session is reserved before preparation reaches this await, so update
+  // admission must lose without waiting for the disk work to finish.
+  await entered.promise
+  input.push({ type: "update.acquire", request_id: randomUUID() })
+  await vi.waitFor(() => expect(messagesOfType(writes, "update.acquire.result")).toHaveLength(1))
+  expect(messagesOfType(writes, "update.acquire.result")[0]).toMatchObject({
+    ok: false, error_code: "DESKTOP_UPDATE_BUSY",
+  })
+  expect(provider.isMaintenanceActive()).toBe(false)
+  preparation.resolve()
+  await vi.waitFor(() => expect(commandResults(writes)).toHaveLength(1))
+  input.end()
+  await running
+  expect(fail).not.toHaveBeenCalled()
+  await close()
+})
+
+it("holds update admission across link replacement and blocks starts, recovery and cleanup", async () => {
+  const { provider, supervisor, writes, fail, close } = await fixture()
+  const acquire = vi.spyOn(provider, "acquire")
+  const prune = vi.spyOn(provider, "pruneWorkspaces")
+  const input = pipeInput()
+  const running = supervisor.run(input)
+  const owner = randomUUID()
+  const requestId = randomUUID()
+  input.push({ type: "update.acquire", request_id: requestId })
+  await vi.waitFor(() => expect(messagesOfType(writes, "update.acquire.result")).toHaveLength(1))
+  expect(messagesOfType(writes, "update.acquire.result")[0]).toEqual({
+    type: "update.acquire.result", request_id: requestId, ok: true,
+  })
+  expect(provider.isMaintenanceActive()).toBe(true)
+
+  const firstLink = randomUUID()
+  input.push(linkOpen(owner, firstLink))
+  input.push({ type: "link.frame", link_id: firstLink, frame: startCommand(owner) })
+  input.push({ type: "link.frame", link_id: firstLink, frame: inspectCommand(owner) })
+  input.push({ type: "link.frame", link_id: firstLink, frame: {
+    type: "command", id: randomUUID(), owner_id: owner, conversation_id: randomUUID(),
+    runtime_generation: randomUUID(), turn_id: randomUUID(), operation: "turn.drain",
+    expires_at: new Date(Date.now() + 30_000).toISOString(),
+  } })
+  await vi.waitFor(() => expect(commandResults(writes)).toHaveLength(3))
+  for (const result of commandResults(writes)) {
+    expect(result).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+  }
+  expect(acquire).not.toHaveBeenCalled()
+
+  // Workspace cleanup shares the same maintenance gate; it must report busy
+  // and leave the update hold intact.
+  input.push({ type: "workspace.cleanup", request_id: randomUUID(), owner_id: owner })
+  await vi.waitFor(() => expect(writes).toContainEqual(expect.objectContaining({
+    type: "workspace.cleanup.result", ok: true, cleanup: expect.objectContaining({ status: "busy" }),
+  })))
+  expect(prune).not.toHaveBeenCalled()
+  expect(provider.isMaintenanceActive()).toBe(true)
+  expect(provider.beginMaintenance()).toBe(false)
+
+  // A device reconnect replaces the link, never the admission hold.
+  input.push({ type: "link.close", link_id: firstLink })
+  const secondLink = randomUUID()
+  input.push(linkOpen(owner, secondLink))
+  input.push({ type: "link.frame", link_id: secondLink, frame: startCommand(owner) })
+  await vi.waitFor(() => expect(commandResults(writes)).toHaveLength(4))
+  expect(commandResults(writes)[3]).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+  expect(acquire).not.toHaveBeenCalled()
+
+  // A second acquire and a stale release cannot change the holder.
+  input.push({ type: "update.acquire", request_id: randomUUID() })
+  input.push({ type: "update.release", request_id: randomUUID() })
+  input.push({ type: "update.acquire", request_id: randomUUID() })
+  await vi.waitFor(() => expect(messagesOfType(writes, "update.acquire.result")).toHaveLength(3))
+  expect(messagesOfType(writes, "update.acquire.result").slice(1)).toEqual([
+    expect.objectContaining({ ok: false, error_code: "DESKTOP_UPDATE_BUSY" }),
+    expect.objectContaining({ ok: false, error_code: "DESKTOP_UPDATE_BUSY" }),
+  ])
+  expect(provider.isMaintenanceActive()).toBe(true)
+
+  input.push({ type: "update.release", request_id: requestId })
+  await vi.waitFor(() => expect(provider.isMaintenanceActive()).toBe(false))
+  // Releasing twice is harmless and does not fail the supervisor.
+  input.push({ type: "update.release", request_id: requestId })
+  const nextRequest = randomUUID()
+  input.push({ type: "update.acquire", request_id: nextRequest })
+  await vi.waitFor(() => expect(messagesOfType(writes, "update.acquire.result")).toHaveLength(4))
+  expect(messagesOfType(writes, "update.acquire.result")[3]).toEqual({
+    type: "update.acquire.result", request_id: nextRequest, ok: true,
+  })
+  input.push({ type: "update.release", request_id: nextRequest })
+  await vi.waitFor(() => expect(provider.isMaintenanceActive()).toBe(false))
+
+  // The same gate admits the existing workspace cleanup once update releases.
+  const cleanupRequest = randomUUID()
+  input.push({ type: "workspace.cleanup", request_id: cleanupRequest, owner_id: owner })
+  await vi.waitFor(() => expect(writes).toContainEqual(expect.objectContaining({
+    type: "workspace.cleanup.result", request_id: cleanupRequest, ok: true,
+    cleanup: expect.objectContaining({ status: "completed" }),
+  })))
+  expect(prune).toHaveBeenCalledOnce()
+  expect(provider.isMaintenanceActive()).toBe(false)
+
+  input.end()
+  await running
+  expect(fail).not.toHaveBeenCalled()
+  await close()
+})
+
+it("keeps Stop available while update admission is held and preserves its retry outcome", async () => {
+  const { provider, supervisor, writes, fail, close } = await fixture()
+  const input = pipeInput()
+  const running = supervisor.run(input)
+  const owner = randomUUID()
+  const conversationId = randomUUID()
+  const requestId = randomUUID()
+  input.push({ type: "update.acquire", request_id: requestId })
+  await vi.waitFor(() => expect(messagesOfType(writes, "update.acquire.result")).toHaveLength(1))
+  const linkId = randomUUID()
+  input.push(linkOpen(owner, linkId))
+  const stop = {
+    type: "command", id: randomUUID(), owner_id: owner, conversation_id: conversationId,
+    runtime_generation: randomUUID(), turn_id: randomUUID(), operation: "turn.interrupt",
+    expires_at: new Date(Date.now() + 30_000).toISOString(),
+  }
+  input.push({ type: "link.frame", link_id: linkId, frame: stop })
+  // Stop is not workspace admission. Sealing an unstarted turn needs the
+  // preparation that exclusivity excludes, so the first attempt is uncertain
+  // for an idempotent retry; the update hold must remain untouched.
+  await vi.waitFor(() => expect(commandResults(writes)).toHaveLength(1))
+  expect(commandResults(writes)[0]).toMatchObject({ operation: "turn.interrupt", ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" })
+  expect(provider.isMaintenanceActive()).toBe(true)
+
+  input.push({ type: "update.release", request_id: requestId })
+  await vi.waitFor(() => expect(provider.isMaintenanceActive()).toBe(false))
+  input.push({ type: "link.frame", link_id: linkId, frame: { ...stop, id: randomUUID() } })
+  await vi.waitFor(() => expect(commandResults(writes)).toHaveLength(2))
+  expect(commandResults(writes)[1]).toMatchObject({
+    operation: "turn.interrupt", ok: true, result: { code: "TURN_INTERRUPT_REQUESTED" },
+  })
+
+  input.end()
+  await running
+  expect(fail).not.toHaveBeenCalled()
+  await close()
+})
