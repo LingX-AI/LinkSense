@@ -105,3 +105,13 @@ func ShowWindow() string { return In(i18n.Locale()).ShowWindow() }
 func (msgs Messages) ShowWindow() string {
 	return Catalog.Format(msgs.locale, "showWindow", nil)
 }
+
+// DesktopUpdates says "桌面更新…"
+// in the language the app shows.
+func DesktopUpdates() string { return In(i18n.Locale()).DesktopUpdates() }
+
+// DesktopUpdates says "桌面更新…"
+// in the language of msgs.
+func (msgs Messages) DesktopUpdates() string {
+	return Catalog.Format(msgs.locale, "desktopUpdates", nil)
+}

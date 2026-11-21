@@ -21,12 +21,35 @@ export interface DesktopNotificationClick {
   conversationId: string;
 }
 
+/**
+ * DesktopUpdateChannel is the update feed the app follows. It is a named
+ * string so the generated client exposes the stable/beta union.
+ */
+export type DesktopUpdateChannel = "stable" | "beta";
+
+/**
+ * DesktopUpdateResult is the only update state the WebView receives: a
+ * validated status, version, bounded plain-text release notes, capabilities
+ * and real byte counts, never a URL, an upstream error or renderable HTML.
+ */
 export interface DesktopUpdateResult {
   state: DesktopUpdateState;
   version?: string;
+  notes?: string;
+  channel?: DesktopUpdateChannel;
+  betaAvailable?: boolean;
+  /**
+   * InstallAvailable means this build may install in place; DownloadAvailable
+   * means the build configured a fixed manual installer page.
+   */
+  installAvailable?: boolean;
+  downloadAvailable?: boolean;
+  downloaded?: number;
+  total?: number;
+  revision?: number;
 }
 
-export type DesktopUpdateState = "available" | "current" | "unavailable" | "failed";
+export type DesktopUpdateState = "idle" | "checking" | "available" | "current" | "unavailable" | "failed" | "busy" | "downloading" | "staged" | "install_failed";
 
 export type DeviceConnectionState = "unpaired" | "connecting" | "online" | "offline" | "revoked";
 
@@ -89,16 +112,21 @@ export const Desktop = {
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
+  getUpdateState: bind<[], DesktopUpdateResult>("Desktop.GetUpdateState", () => []),
   info: bind<[], HostInfo>("Desktop.Info", () => []),
+  installUpdate: bind<[number], DesktopUpdateResult>("Desktop.InstallUpdate", (revision: number) => [revision]),
   /**
    * NotificationsSupported reports whether this build can show notifications,
    * as MyGo reports it for packaged apps.
    */
   notificationsSupported: bind<[], boolean>("Desktop.NotificationsSupported", () => []),
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
+  openUpdateInstaller: bind<[], void>("Desktop.OpenUpdateInstaller", () => []),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
+  restartAfterUpdate: bind<[], void>("Desktop.RestartAfterUpdate", () => []),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
+  setUpdateChannel: bind<[string], DesktopUpdateResult>("Desktop.SetUpdateChannel", (channel: string) => [channel]),
   /**
    * ShowCompletionNotification shows one task-completion notification. It uses
    * only the app name and localized status; task content stays in the app.
@@ -126,4 +154,5 @@ export const Desktop = {
 export const events = {
   desktopNotificationClick: event<DesktopNotificationClick>("desktop:notification-click"),
   desktopNavigate: event<string>("desktop:navigate"),
+  desktopUpdateChanged: event<DesktopUpdateResult>("desktop:update-changed"),
 } as const;

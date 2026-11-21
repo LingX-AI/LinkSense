@@ -60,6 +60,7 @@ func (d *Desktop) installShell(dataRoot string) {
 	} else {
 		log.Print("DESKTOP_PREFERENCES_SAVE_FAILED")
 	}
+	d.preferencesWritable = canSave
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID: "linksense-main", Icon: trayIcon, ToolTip: "LinkSense",
 	})
@@ -95,6 +96,7 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	app := mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
+			{ID: "desktop-updates", Label: tx.DesktopUpdates(), Click: openSettings},
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
 			mygo.Separator(),

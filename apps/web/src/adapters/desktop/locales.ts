@@ -31,6 +31,10 @@ export interface Messages {
    * `显示 LinkSense`
    */
   showWindow(): string;
+  /**
+   * `桌面更新…`
+   */
+  desktopUpdates(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -52,6 +56,7 @@ const catalog = createCatalog<Messages>({
     "preferences": [],
     "quit": [],
     "showWindow": [],
+    "desktopUpdates": [],
   },
   messages: {
     "zh-CN": {
@@ -62,6 +67,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "偏好设置…",
       "quit": "退出",
       "showWindow": "显示 LinkSense",
+      "desktopUpdates": "桌面更新…",
     },
     "en-US": {
       "buildConfigurationTitle": "Unable to start LinkSense",
@@ -71,6 +77,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "Preferences…",
       "quit": "Quit",
       "showWindow": "Show LinkSense",
+      "desktopUpdates": "Desktop updates…",
     },
     "es-ES": {
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
@@ -80,6 +87,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "Preferencias…",
       "quit": "Salir",
       "showWindow": "Mostrar LinkSense",
+      "desktopUpdates": "Actualizaciones de escritorio…",
     },
     "fr-FR": {
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
@@ -89,6 +97,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "Préférences…",
       "quit": "Quitter",
       "showWindow": "Afficher LinkSense",
+      "desktopUpdates": "Mises à jour de l’application…",
     },
     "ja-JP": {
       "buildConfigurationTitle": "LinkSense を起動できません",
@@ -98,6 +107,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "環境設定…",
       "quit": "終了",
       "showWindow": "LinkSense を表示",
+      "desktopUpdates": "デスクトップの更新…",
     },
     "pt-BR": {
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
@@ -107,6 +117,7 @@ const catalog = createCatalog<Messages>({
       "preferences": "Preferências…",
       "quit": "Sair",
       "showWindow": "Mostrar o LinkSense",
+      "desktopUpdates": "Atualizações do aplicativo…",
     },
   },
 });

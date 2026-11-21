@@ -16,13 +16,10 @@ func main() {
 	mygo.App.SetName("LinkSense")
 	desktop := &Desktop{}
 	mygo.App.OnNotificationClick(desktop.handleNotificationClick)
-	defer desktop.cancelSignIn()
-	defer func() {
-		if desktop.localRuntime != nil {
-			desktop.localRuntime.close()
-		}
-	}()
-	defer desktop.closeDevice()
+	mygo.App.OnBeforeQuit(desktop.beforeQuit)
+	mygo.App.OnQuitCanceled(desktop.updateQuitCanceled)
+	mygo.App.OnQuit(desktop.shutdown)
+	defer desktop.shutdown()
 	mygo.Bind(desktop)
 	mygo.Use(fetch.New(fetch.Options{
 		Client: &http.Client{
@@ -62,6 +59,7 @@ func main() {
 			desktop.openMainWindow()
 			if runtime.GOOS == "darwin" {
 				desktop.installShell(root)
+				desktop.startUpdates()
 			}
 			return
 		}

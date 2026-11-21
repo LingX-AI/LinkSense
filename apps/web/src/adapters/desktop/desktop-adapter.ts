@@ -16,13 +16,67 @@ const hostInfoSchema = z.strictObject({
   version: z.string().min(1),
 })
 
-const desktopUpdateSchema = z.discriminatedUnion("state", [
-  z.strictObject({
-    state: z.literal("available"),
-    version: z.string().min(1).max(80),
-  }),
-  z.strictObject({ state: z.enum(["current", "unavailable", "failed"]) }),
-])
+const desktopUpdateStates = [
+  "idle",
+  "checking",
+  "available",
+  "current",
+  "unavailable",
+  "failed",
+  "busy",
+  "downloading",
+  "staged",
+  "install_failed",
+] as const
+
+export const desktopUpdateChannelSchema = z.enum(["stable", "beta"])
+export const desktopUpdateRevisionSchema = z.number().int().nonnegative()
+
+export type DesktopUpdateState = (typeof desktopUpdateStates)[number]
+export type DesktopUpdateChannel = z.infer<typeof desktopUpdateChannelSchema>
+
+const MAX_DESKTOP_UPDATE_NOTES_BYTES = 4096
+
+const desktopUpdateNotesSchema = z
+  .string()
+  .refine(
+    (notes) =>
+      new TextEncoder().encode(notes).length <= MAX_DESKTOP_UPDATE_NOTES_BYTES,
+    { message: "DESKTOP_UPDATE_NOTES_TOO_LONG" }
+  )
+
+// Native results carry only stable status fields. Notes are bounded plain
+// text from the verified candidate; the UI never parses them as HTML, links,
+// Markdown, or image sources. An unexpected field fails the parse.
+const desktopUpdateResultSchema = z
+  .strictObject({
+    state: z.enum(desktopUpdateStates),
+    version: z.string().min(1).max(80).optional(),
+    notes: desktopUpdateNotesSchema.optional(),
+    channel: desktopUpdateChannelSchema.optional(),
+    betaAvailable: z.boolean().optional(),
+    installAvailable: z.boolean().optional(),
+    downloadAvailable: z.boolean().optional(),
+    downloaded: z.number().int().nonnegative().optional(),
+    total: z.number().int().nonnegative().optional(),
+    revision: desktopUpdateRevisionSchema.optional(),
+  })
+  .superRefine((result, context) => {
+    // The legacy check contract always named the offered version.
+    if (result.state === "available" && result.version === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "DESKTOP_UPDATE_VERSION_REQUIRED",
+        path: ["version"],
+      })
+    }
+  })
+
+export type DesktopUpdateResult = z.infer<typeof desktopUpdateResultSchema>
+
+function requireMacUpdateHost(): void {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+}
 
 const desktopNotificationClickSchema = z.strictObject({
   userId: z.uuid(),
@@ -59,9 +113,62 @@ export type DesktopWorkspaceNotice = z.infer<
 export type DesktopNotificationResult =
   "shown" | "denied" | "unsupported" | "cancelled" | "failed"
 
-export async function checkDesktopUpdate() {
+export async function checkDesktopUpdate(): Promise<DesktopUpdateResult> {
   if (!isDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  return desktopUpdateSchema.parse(await Desktop.checkForUpdate())
+  return desktopUpdateResultSchema.parse(await Desktop.checkForUpdate())
+}
+
+/** Read the native authoritative update snapshot on macOS. */
+export async function getDesktopUpdateState(): Promise<DesktopUpdateResult> {
+  requireMacUpdateHost()
+  return desktopUpdateResultSchema.parse(await Desktop.getUpdateState())
+}
+
+/**
+ * Ask the native host to install the exact candidate the page rendered. The
+ * revision fences late candidates; the page never edits or supplies a feed.
+ */
+export async function installDesktopUpdate(
+  revision: number
+): Promise<DesktopUpdateResult> {
+  requireMacUpdateHost()
+  return desktopUpdateResultSchema.parse(
+    await Desktop.installUpdate(desktopUpdateRevisionSchema.parse(revision))
+  )
+}
+
+/** Persist the stable/beta choice in native preferences. */
+export async function setDesktopUpdateChannel(
+  channel: DesktopUpdateChannel
+): Promise<DesktopUpdateResult> {
+  requireMacUpdateHost()
+  return desktopUpdateResultSchema.parse(
+    await Desktop.setUpdateChannel(desktopUpdateChannelSchema.parse(channel))
+  )
+}
+
+export async function restartDesktopAfterUpdate(): Promise<void> {
+  requireMacUpdateHost()
+  await Desktop.restartAfterUpdate()
+}
+
+/**
+ * Ask the host to open its configured installer page in the system browser.
+ * The page supplies no URL and cannot redirect the host elsewhere.
+ */
+export async function openDesktopUpdateInstaller(): Promise<void> {
+  requireMacUpdateHost()
+  await Desktop.openUpdateInstaller()
+}
+
+export function subscribeDesktopUpdateChanged(
+  listener: (result: DesktopUpdateResult) => void
+): () => void {
+  if (!isMacDesktopHost()) return () => undefined
+  return events.desktopUpdateChanged.on((value) => {
+    const parsed = desktopUpdateResultSchema.safeParse(value)
+    if (parsed.success) listener(parsed.data)
+  })
 }
 
 /**
@@ -78,9 +185,7 @@ export async function readDesktopWorkspaceUsage(): Promise<DesktopWorkspaceUsage
 /** One click applies the existing 14-day/10-GiB retention policy. */
 export async function cleanupDesktopWorkspaces(): Promise<DesktopWorkspaceCleanup> {
   if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  return desktopWorkspaceCleanupSchema.parse(
-    await Desktop.cleanupWorkspaces()
-  )
+  return desktopWorkspaceCleanupSchema.parse(await Desktop.cleanupWorkspaces())
 }
 
 /**

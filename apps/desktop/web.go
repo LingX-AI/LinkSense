@@ -35,9 +35,12 @@ type Desktop struct {
 	login         *browserLoginAttempt
 	openBrowser   func(string) error
 	localRuntime  *runtimeSupervisor
+	updates       *desktopUpdates
+	shutdownOnce  sync.Once
 	// The window and application lifecycle callbacks use these only on the main thread.
-	closeToTray bool
-	quitting    bool
+	closeToTray         bool
+	quitting            bool
+	preferencesWritable bool
 }
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {
@@ -55,6 +58,28 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 		if d.localRuntime != nil {
 			d.localRuntime.dropWorkspaceRequests()
 		}
+	})
+	if runtime.GOOS == "darwin" && desktopUpdateFeed != "" {
+		// Only C's self-hosted URL-directory workflow gets the in-place
+		// lifecycle. Legacy package feeds keep CheckForUpdate and can never
+		// stage an install; Windows keeps the same check-only bridge.
+		d.updates = newDesktopUpdates(d)
+	}
+}
+
+// shutdown is idempotent because App.OnQuit runs it synchronously (also on
+// session end, which may skip main's defers) and main defers it as well.
+func (d *Desktop) shutdown() {
+	d.shutdownOnce.Do(func() {
+		if d.updates != nil {
+			d.updates.shutdown()
+		}
+		// Preserve the existing order: device, runtime, pending sign-in.
+		d.closeDevice()
+		if d.localRuntime != nil {
+			d.localRuntime.close()
+		}
+		d.cancelSignIn()
 	})
 }
 

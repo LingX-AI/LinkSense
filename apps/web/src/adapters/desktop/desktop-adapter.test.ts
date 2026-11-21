@@ -13,6 +13,13 @@ const native = vi.hoisted(() => ({
   workspaceUsage: vi.fn(),
   cleanupWorkspaces: vi.fn(),
   workspaceNotice: vi.fn(),
+  getUpdateState: vi.fn(),
+  checkForUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  setUpdateChannel: vi.fn(),
+  restartAfterUpdate: vi.fn(),
+  openUpdateInstaller: vi.fn(),
+  onUpdateChanged: vi.fn(),
 }))
 vi.mock("mygo-runtime", () => ({ isMyGo: () => native.isDesktop }))
 vi.mock("@mygo-plugins/fetch", () => ({ fetch: native.request }))
@@ -26,27 +33,41 @@ vi.mock("./mygo", () => ({
     workspaceUsage: native.workspaceUsage,
     cleanupWorkspaces: native.cleanupWorkspaces,
     workspaceNotice: native.workspaceNotice,
+    getUpdateState: native.getUpdateState,
+    checkForUpdate: native.checkForUpdate,
+    installUpdate: native.installUpdate,
+    setUpdateChannel: native.setUpdateChannel,
+    restartAfterUpdate: native.restartAfterUpdate,
+    openUpdateInstaller: native.openUpdateInstaller,
   },
   events: {
     desktopNavigate: { on: native.onNavigate },
     desktopNotificationClick: { on: native.onNotificationClick },
+    desktopUpdateChanged: { on: native.onUpdateChanged },
   },
 }))
 
 import {
+  checkDesktopUpdate,
   cleanupDesktopWorkspaces,
   desktopNotificationRouteForUser,
   getDesktopPlatform,
   getDesktopServerUrl,
+  getDesktopUpdateState,
   hostFetch,
   initializeDesktopHost,
+  installDesktopUpdate,
   openDesktopExternal,
+  openDesktopUpdateInstaller,
   readDesktopWorkspaceNotice,
   readDesktopWorkspaceUsage,
+  restartDesktopAfterUpdate,
+  setDesktopUpdateChannel,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
   subscribeDesktopNavigation,
   subscribeDesktopNotificationClick,
+  subscribeDesktopUpdateChanged,
   supportsNativeDesktopNotifications,
 } from "./desktop-adapter"
 
@@ -332,5 +353,169 @@ describe("desktop host boundary", () => {
     await expect(cleanupDesktopWorkspaces()).rejects.toThrow(
       "DESKTOP_HOST_UNAVAILABLE"
     )
+  })
+})
+
+describe("desktop update lifecycle boundary", () => {
+  async function initializeHost(platform: "darwin" | "windows") {
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform,
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+  }
+
+  afterEach(() => {
+    native.isDesktop = false
+    vi.clearAllMocks()
+    delete document.documentElement.dataset.desktopPlatform
+  })
+
+  it("validates native snapshots and rejects unknown feed fields", async () => {
+    await initializeHost("darwin")
+    native.getUpdateState.mockResolvedValue({
+      state: "downloading",
+      version: "1.2.3",
+      notes: "Release notes <b>literal</b>",
+      channel: "beta",
+      betaAvailable: true,
+      installAvailable: true,
+      downloadAvailable: true,
+      downloaded: 10,
+      total: 100,
+      revision: 4,
+    })
+    await expect(getDesktopUpdateState()).resolves.toEqual({
+      state: "downloading",
+      version: "1.2.3",
+      notes: "Release notes <b>literal</b>",
+      channel: "beta",
+      betaAvailable: true,
+      installAvailable: true,
+      downloadAvailable: true,
+      downloaded: 10,
+      total: 100,
+      revision: 4,
+    })
+
+    native.getUpdateState.mockResolvedValueOnce({
+      state: "available",
+      version: "1.2.3",
+      releaseUrl: "https://outside.example.test",
+      revision: 5,
+    })
+    await expect(getDesktopUpdateState()).rejects.toThrow()
+    native.getUpdateState.mockResolvedValueOnce({
+      state: "available",
+      version: "1.2.3",
+      installerUrl: "https://outside.example.test",
+      revision: 6,
+    })
+    await expect(getDesktopUpdateState()).rejects.toThrow()
+    native.getUpdateState.mockResolvedValueOnce({
+      state: "available",
+      revision: 7,
+    })
+    await expect(getDesktopUpdateState()).rejects.toThrow()
+    native.getUpdateState.mockResolvedValueOnce({
+      state: "available",
+      version: "1.2.3",
+      notes: "x".repeat(4097),
+      revision: 8,
+    })
+    await expect(getDesktopUpdateState()).rejects.toThrow()
+  })
+
+  it("keeps the legacy check contract for older Mac responses", async () => {
+    await initializeHost("darwin")
+    native.checkForUpdate.mockResolvedValue({
+      state: "available",
+      version: "1.2.3",
+    })
+    await expect(checkDesktopUpdate()).resolves.toEqual({
+      state: "available",
+      version: "1.2.3",
+    })
+    native.checkForUpdate.mockResolvedValueOnce({ state: "available" })
+    await expect(checkDesktopUpdate()).rejects.toThrow()
+  })
+
+  it("fences installs by the exact revision and persists the channel", async () => {
+    await initializeHost("darwin")
+    native.installUpdate.mockResolvedValue({
+      state: "downloading",
+      downloaded: 0,
+      total: 50,
+      revision: 9,
+    })
+    await expect(installDesktopUpdate(9)).resolves.toMatchObject({
+      state: "downloading",
+      revision: 9,
+    })
+    expect(native.installUpdate).toHaveBeenCalledWith(9)
+    await expect(installDesktopUpdate(-1)).rejects.toThrow()
+    expect(native.installUpdate).toHaveBeenCalledOnce()
+
+    native.setUpdateChannel.mockResolvedValue({
+      state: "available",
+      version: "1.2.3",
+      channel: "beta",
+      betaAvailable: true,
+      downloadAvailable: true,
+      revision: 10,
+    })
+    await expect(setDesktopUpdateChannel("beta")).resolves.toMatchObject({
+      channel: "beta",
+    })
+    expect(native.setUpdateChannel).toHaveBeenCalledWith("beta")
+  })
+
+  it("restarts and opens the configured installer without accepting a URL", async () => {
+    await initializeHost("darwin")
+    native.restartAfterUpdate.mockResolvedValue(undefined)
+    native.openUpdateInstaller.mockResolvedValue(undefined)
+    await restartDesktopAfterUpdate()
+    expect(native.restartAfterUpdate).toHaveBeenCalledWith()
+    await openDesktopUpdateInstaller()
+    expect(native.openUpdateInstaller).toHaveBeenCalledWith()
+    expect(native.openExternal).not.toHaveBeenCalled()
+  })
+
+  it("delivers only validated update events and can unsubscribe", async () => {
+    await initializeHost("darwin")
+    let emit: (value: unknown) => void = () => undefined
+    const unsubscribe = vi.fn()
+    native.onUpdateChanged.mockImplementation(
+      (callback: (value: unknown) => void) => {
+        emit = callback
+        return unsubscribe
+      }
+    )
+    const listener = vi.fn()
+    const stop = subscribeDesktopUpdateChanged(listener)
+    emit({
+      state: "staged",
+      version: "1.2.3",
+      notes: "Release notes <b>literal</b>",
+      revision: 5,
+    })
+    emit({
+      state: "available",
+      version: "1.2.3",
+      releaseUrl: "https://outside.example.test",
+    })
+    emit("https://outside.example.test")
+    expect(listener).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledWith({
+      state: "staged",
+      version: "1.2.3",
+      notes: "Release notes <b>literal</b>",
+      revision: 5,
+    })
+    stop()
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })
