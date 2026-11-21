@@ -126,11 +126,18 @@ func (d *Desktop) checkCaller(ctx context.Context) error {
 	return nil
 }
 
+// desktopAppVersion returns the app bundle version MyGo reports, which is the
+// same source PairDevice registers as app_version. Unpackaged development
+// builds have none.
+func desktopAppVersion() string {
+	return mygo.App.Version()
+}
+
 func (d *Desktop) Info(ctx context.Context) (HostInfo, error) {
 	if err := d.checkCaller(ctx); err != nil {
 		return HostInfo{}, err
 	}
-	version := mygo.App.Version()
+	version := desktopAppVersion()
 	if version == "" {
 		version = "development"
 	}

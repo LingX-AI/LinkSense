@@ -52,6 +52,7 @@ const (
 	desktopToolOperationsHeader = "X-LinkSense-Desktop-Tool-Operations"
 	desktopAttachmentHeader     = "X-LinkSense-Desktop-Attachments"
 	desktopAttachmentVersion    = 1
+	desktopAppVersionHeader     = "X-LinkSense-Desktop-App-Version"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
@@ -125,6 +126,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 	dialContext, cancelDial := context.WithTimeout(connection.ctx, 10*time.Second)
 	headers := make(http.Header)
+	if runtime.GOOS == "darwin" {
+		if version, ok := desktopAppVersionHeaderValue(); ok {
+			headers.Set(desktopAppVersionHeader, version)
+		}
+	}
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
@@ -303,4 +309,23 @@ func deviceSocketError(err error) (bool, string) {
 	default:
 		return false, "RUNNER_UNAVAILABLE"
 	}
+}
+
+// desktopAppVersionHeaderValue returns the packaged application version only
+// when it matches the desktop registration app_version grammar
+// (1..40 ASCII characters from [A-Za-z0-9._+-]). Unpackaged development
+// builds report no version, so the optional header is omitted.
+func desktopAppVersionHeaderValue() (string, bool) {
+	version := desktopAppVersion()
+	if len(version) < 1 || len(version) > 40 {
+		return "", false
+	}
+	for i := 0; i < len(version); i++ {
+		c := version[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') &&
+			c != '.' && c != '_' && c != '+' && c != '-' {
+			return "", false
+		}
+	}
+	return version, true
 }
