@@ -15,6 +15,7 @@ import {
 import { userSchema, type AccessSession, type User } from "@/api/contracts"
 import {
   getAccessToken,
+  getAccessTokenSubject,
   setAccessToken,
   subscribeToAccessToken,
 } from "@/api/session"
@@ -37,20 +38,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthContextValue["status"]>("loading")
   const [user, setUser] = useState<User | null>(null)
   const accountResetPromiseRef = useRef<Promise<void> | null>(null)
+  const accountVersionRef = useRef(0)
+  const accountIdRef = useRef<string | null>(null)
+  const accountRoleRef = useRef<User["role"] | null>(null)
+  const resolvedTokenRef = useRef<string | null>(null)
+  const profileRequestRef = useRef<{
+    token: string | null
+    controller: AbortController
+    promise: Promise<void>
+  } | null>(null)
+
+  const clearAccountCaches = useCallback(async () => {
+    try {
+      await queryClient.cancelQueries({ predicate: isAccountScopedQuery })
+    } finally {
+      queryClient.removeQueries({ predicate: isAccountScopedQuery })
+      queryClient.getMutationCache().clear()
+    }
+  }, [queryClient])
 
   const resetAccountState = useCallback(() => {
     if (accountResetPromiseRef.current) {
       return accountResetPromiseRef.current
     }
 
+    const version = ++accountVersionRef.current
+    profileRequestRef.current?.controller.abort()
+    accountIdRef.current = null
+    accountRoleRef.current = null
+    resolvedTokenRef.current = null
+
     const resetPromise = (async () => {
       try {
-        await queryClient.cancelQueries({ predicate: isAccountScopedQuery })
+        await clearAccountCaches()
       } finally {
-        queryClient.removeQueries({ predicate: isAccountScopedQuery })
-        queryClient.getMutationCache().clear()
-        setUser(null)
-        setStatus("anonymous")
+        if (version === accountVersionRef.current) {
+          setUser(null)
+          setStatus("anonymous")
+        }
       }
     })()
     accountResetPromiseRef.current = resetPromise
@@ -67,29 +92,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     )
     return resetPromise
-  }, [queryClient])
+  }, [clearAccountCaches])
 
   const refreshUser = useCallback(
-    async (options?: { signal?: AbortSignal }) => {
-      const nextUser = await apiRequest("/me", {
-        schema: userSchema,
-        signal: options?.signal,
+    (options?: { signal?: AbortSignal }): Promise<void> => {
+      const token = getAccessToken()
+      const previous = profileRequestRef.current
+      if (
+        !options?.signal &&
+        previous?.token === token &&
+        !previous.controller.signal.aborted
+      ) {
+        return previous.promise
+      }
+      previous?.controller.abort()
+      const controller = new AbortController()
+      const version = ++accountVersionRef.current
+      const subject = getAccessTokenSubject(token)
+      const changesAccount =
+        accountIdRef.current !== null &&
+        (subject
+          ? subject !== accountIdRef.current
+          : token !== resolvedTokenRef.current)
+      if (changesAccount) {
+        setUser(null)
+        setStatus("loading")
+      }
+      const signal = options?.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal
+      const current = () =>
+        !signal.aborted &&
+        !controller.signal.aborted &&
+        version === accountVersionRef.current
+      const promise = (async () => {
+        try {
+          if (accountResetPromiseRef.current)
+            await accountResetPromiseRef.current
+          if (changesAccount) await clearAccountCaches()
+          if (!current()) return
+          const nextUser = await apiRequest("/me", {
+            schema: userSchema,
+            signal,
+          })
+          if (!current()) return
+          if (
+            accountIdRef.current &&
+            (accountIdRef.current !== nextUser.id ||
+              accountRoleRef.current !== nextUser.role) &&
+            !changesAccount
+          ) {
+            await clearAccountCaches()
+          }
+          if (!current()) return
+          if (nextUser.language) await setAppLanguage(nextUser.language)
+          if (!current()) return
+          accountIdRef.current = nextUser.id
+          accountRoleRef.current = nextUser.role
+          resolvedTokenRef.current = getAccessToken()
+          setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
+          setStatus("authenticated")
+        } catch (error) {
+          if (!current()) return
+          throw error
+        }
+      })().finally(() => {
+        if (profileRequestRef.current?.controller === controller)
+          profileRequestRef.current = null
       })
-      if (options?.signal?.aborted) return
-      if (nextUser.language) await setAppLanguage(nextUser.language)
-      if (options?.signal?.aborted) return
-      setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
-      setStatus("authenticated")
+      profileRequestRef.current = { token, controller, promise }
+      return promise
     },
-    []
+    [clearAccountCaches]
   )
 
   const acceptSession = useCallback(
     async (session: AccessSession) => {
       setAccessToken(session.access_token, session.access_token_expires_at)
+      if (getAccessToken() !== session.access_token) return
       if (session.user?.preferred_locale) {
         await setAppLanguage(session.user.preferred_locale)
       }
+      if (getAccessToken() !== session.access_token) return
       await refreshUser()
     },
     [refreshUser]
@@ -117,16 +201,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const restoreSession = async () => {
       attempt += 1
+      let expectedToken = getAccessToken()
       try {
-        if (getAccessToken()) {
+        if (expectedToken) {
           await refreshUser()
         } else {
           const session = await refreshSession()
           if (cancelled) return
+          const token = getAccessToken()
+          if (token && token !== session.access_token) return
+          expectedToken = session.access_token
           await acceptSession(session)
         }
       } catch (error) {
-        if (cancelled) return
+        if (cancelled || getAccessToken() !== expectedToken) return
 
         if (isDefinitiveAuthenticationError(error)) {
           setAccessToken(null)
@@ -154,6 +242,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true
+      profileRequestRef.current?.controller.abort()
+      accountVersionRef.current += 1
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
   }, [acceptSession, bootstrapInitialized, refreshUser, resetAccountState])
@@ -161,11 +251,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       subscribeToAccessToken((token) => {
-        if (!token && status === "authenticated") {
-          void resetAccountState()
+        if (!token) {
+          void resetAccountState().catch(() => {
+            if (!getAccessToken()) setStatus("error")
+          })
+          return
         }
+        void refreshUser()
+          .catch(async (error: unknown) => {
+            if (getAccessToken() !== token) return
+            if (isDefinitiveAuthenticationError(error)) {
+              setAccessToken(null)
+              await resetAccountState()
+            } else setStatus("error")
+          })
+          .catch(() => {
+            if (getAccessToken() === token) setStatus("error")
+          })
       }),
-    [resetAccountState, status]
+    [resetAccountState, refreshUser]
   )
 
   const effectiveStatus =
