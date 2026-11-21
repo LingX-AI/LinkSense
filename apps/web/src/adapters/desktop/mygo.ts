@@ -13,6 +13,42 @@ export interface CompletionNotificationInput {
 }
 
 /**
+ * ComputerPermissionKind is the closed set of macOS permissions the shared UI
+ * may inspect or guide. The WebView cannot name another platform permission,
+ * a path, a target or an external URL.
+ */
+export type ComputerPermissionKind = "accessibility" | "screenRecording";
+
+/**
+ * ComputerPermissionReason is the stable reason a call ended. None of these
+ * values asserts that the user denied a permission.
+ */
+export type ComputerPermissionReason = "checked" | "granted" | "closed" | "canceled" | "timedOut" | "unknown" | "failed" | "unsupported" | "notPackaged" | "invalidKind";
+
+/**
+ * ComputerPermissionResult is the only permission state the WebView receives.
+ * It contains no OS error, path, target or bundle identifier. A Guide that
+ * ends without a grant reports "closed", "canceled" or "timedOut", never a
+ * denial. For Screen Recording, macOS reports a switched-on permission only
+ * after the app starts again, so a still-notGranted result permits the UI to
+ * mention a restart only after the user confirms they enabled it; this bridge
+ * never restarts the app and never assumes the grant.
+ */
+export interface ComputerPermissionResult {
+  kind: ComputerPermissionKind;
+  status: ComputerPermissionStatus;
+  reason: ComputerPermissionReason;
+}
+
+/**
+ * ComputerPermissionStatus is the permission state reported by MyGo's
+ * permissionflow.Check. "notGranted" folds the plugin's Denied state: macOS
+ * does not distinguish "not asked" from "turned down" for Accessibility and
+ * Screen Recording, and a guide ending is never treated as a denial.
+ */
+export type ComputerPermissionStatus = "granted" | "notGranted" | "notDetermined" | "unknown";
+
+/**
  * DesktopNotificationClick names the account and conversation of a clicked
  * notification. The page checks the account before opening the conversation.
  */
@@ -115,11 +151,24 @@ export interface WorkspaceUsage {
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
   cancelSignIn: bind<[], void>("Desktop.CancelSignIn", () => []),
+  /**
+   * CheckComputerPermission reports the current permission without prompting or
+   * opening anything. It is the only permission read the shared UI needs for
+   * its status display.
+   */
+  checkComputerPermission: bind<[ComputerPermissionKind], ComputerPermissionResult>("Desktop.CheckComputerPermission", (kind: ComputerPermissionKind) => [kind]),
   checkForUpdate: bind<[], DesktopUpdateResult>("Desktop.CheckForUpdate", () => []),
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
   getUpdateState: bind<[], DesktopUpdateResult>("Desktop.GetUpdateState", () => []),
+  /**
+   * GuideComputerPermission uses MyGo's permissionflow.Guide: it opens the
+   * matching System Settings page and shows the plugin's draggable app panel.
+   * The plugin opens, follows and closes its own panel, and its context ends the
+   * wait. The WebView may not choose the app, a path or a URL.
+   */
+  guideComputerPermission: bind<[ComputerPermissionKind], ComputerPermissionResult>("Desktop.GuideComputerPermission", (kind: ComputerPermissionKind) => [kind]),
   info: bind<[], HostInfo>("Desktop.Info", () => []),
   installUpdate: bind<[number], DesktopUpdateResult>("Desktop.InstallUpdate", (revision: number) => [revision]),
   /**
@@ -127,6 +176,14 @@ export const Desktop = {
    * as MyGo reports it for packaged apps.
    */
   notificationsSupported: bind<[], boolean>("Desktop.NotificationsSupported", () => []),
+  /**
+   * OpenComputerPermissionSettings is the manual add fallback after
+   * GuideComputerPermission reports a failure. MyGo's Guide registers its panel
+   * classes before it opens System Settings, so a failure there leaves the user
+   * with no settings page; permissionflow.OpenSettings needs only the core
+   * frameworks and opens the plugin's own page for the same kind.
+   */
+  openComputerPermissionSettings: bind<[ComputerPermissionKind], void>("Desktop.OpenComputerPermissionSettings", (kind: ComputerPermissionKind) => [kind]),
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
   openUpdateInstaller: bind<[], void>("Desktop.OpenUpdateInstaller", () => []),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),

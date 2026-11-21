@@ -161,6 +161,7 @@ export async function stageDesktopDependencyNotices(target, destination, cwd = d
     "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}}|{{.Dir}}{{end}}{{end}}", ".",
   ], { cwd, capture: true, env: { GOOS, GOARCH, CGO_ENABLED: process.env.CGO_ENABLED || "0" } });
   await rm(destination, { recursive: true, force: true });
+  let mygoDirectory;
   for (const entry of new Set(modules.split(/\r?\n/u).filter(Boolean))) {
     const [name, directory] = entry.split("|");
     if (!directory) throw new Error(`Missing source directory for desktop dependency: ${name}`);
@@ -169,6 +170,16 @@ export async function stageDesktopDependencyNotices(target, destination, cwd = d
     const output = path.join(destination, name);
     await mkdir(output, { recursive: true });
     await stageDesktopNotice(licensePath, path.join(output, "LICENSE"));
+    if (name === "github.com/egoist/mygo") mygoDirectory = directory;
+  }
+  if (mygoDirectory) {
+    // MyGo's permissionflow plugin carries the PermissionFlow attribution in
+    // its own NOTICE.md. Keep it next to the module license when that plugin
+    // is linked into the desktop binary.
+    const notice = path.join(mygoDirectory, "plugins", "permissionflow", "NOTICE.md");
+    const output = path.join(destination, "github.com/egoist/mygo", "plugins", "permissionflow", "NOTICE.md");
+    await mkdir(path.dirname(output), { recursive: true });
+    await stageDesktopNotice(notice, output);
   }
 }
 
@@ -213,7 +224,7 @@ async function main() {
     await run("go", desktopTestArguments());
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
-        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/desktop-devices", "src/features/desktop-execution", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/desktop-devices", "src/features/desktop-execution", "src/features/desktop-computer-permissions", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
         "src/features/applications/application-annotation-bridge.test.ts",
         "src/features/applications/application-annotation-native-runtime.test.ts",
         "src/features/applications/application-annotation-preload-install.test.ts",

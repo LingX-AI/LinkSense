@@ -653,6 +653,33 @@ func main() {}
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("macOS packaging stages the pinned permissionflow attribution", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-permissionflow-notice-"));
+  const output = path.join(directory, "notices");
+  try {
+    await writeFile(path.join(directory, "go.mod"), `module fixture.test/desktop
+go 1.27.3
+require github.com/egoist/mygo v0.0.0
+replace github.com/egoist/mygo => ./mygo
+`);
+    await writeFile(path.join(directory, "main.go"), `package main
+import _ "github.com/egoist/mygo/plugins/permissionflow"
+func main() {}
+`);
+    const plugin = path.join(directory, "mygo", "plugins", "permissionflow");
+    await mkdir(plugin, { recursive: true });
+    await writeFile(path.join(directory, "mygo", "go.mod"), "module github.com/egoist/mygo\ngo 1.27.3\n");
+    await writeFile(path.join(directory, "mygo", "LICENSE"), "mygo license\n");
+    await writeFile(path.join(plugin, "permissionflow.go"), "package permissionflow\n");
+    await writeFile(path.join(plugin, "NOTICE.md"), "This package follows PermissionFlow.\n");
+    await stageDesktopDependencyNotices("darwin/arm64", output, directory);
+    assert.equal(
+      await readFile(path.join(output, "github.com/egoist/mygo/plugins/permissionflow/NOTICE.md"), "utf8"),
+      "This package follows PermissionFlow.\n",
+    );
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("desktop native locales have matching nonempty keys", async () => {
   const directory = path.resolve(import.meta.dirname, "../apps/desktop/locales");
   const locales = ["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"];
