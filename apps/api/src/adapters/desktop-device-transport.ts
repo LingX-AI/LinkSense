@@ -27,6 +27,11 @@ import { z } from "zod";
 import { decryptJson, encryptJson } from "../lib/crypto.js";
 import { AppError } from "../lib/errors.js";
 import {
+  desktopComputerDispatchAdmissionSchema,
+  type DesktopComputerDispatchAdmission,
+  type DesktopComputerDispatchAdmissionInput,
+} from "../modules/desktop-devices/computer-admission.js";
+import {
   desktopExecutionBindingSchema,
   RedisDesktopDeviceCoordinator,
   type DesktopExecutionBinding,
@@ -37,6 +42,7 @@ const envelopeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("dispatch"), binding: desktopExecutionBindingSchema, replyGatewayId: z.uuid(),
     frame: z.union([desktopExecutionCommandSchema, desktopExecutionCancelSchema]),
+    admission: desktopComputerDispatchAdmissionSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("reply"), binding: desktopExecutionBindingSchema, frame: desktopExecutionResultSchema,
@@ -74,7 +80,11 @@ type PendingReply = {
   resolve: (frame: DesktopExecutionResult) => void;
   reject: (error: Error) => void;
 };
-type ExecutionAuthority = (binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>;
+type ExecutionAuthority = (
+  binding: DesktopExecutionBinding,
+  command: DesktopExecutionCommand,
+  admission?: DesktopComputerDispatchAdmission,
+) => Promise<boolean>;
 type ExecutionCallback = (
   binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
   frame: DesktopExecutionCallback,
@@ -172,11 +182,21 @@ export class DesktopDeviceTransport {
     binding: DesktopExecutionBinding,
     raw: DesktopExecutionCommand,
     signal?: AbortSignal,
+    admission?: DesktopComputerDispatchAdmissionInput,
   ): Promise<DesktopExecutionResult> {
     const command = desktopExecutionCommandSchema.parse(raw);
+    const dispatchAdmission = admission === undefined
+      ? undefined : desktopComputerDispatchAdmissionSchema.parse(admission);
+    if (command.operation === "computer.execute" && command.body.request.kind !== "quiesce" &&
+        dispatchAdmission === undefined) {
+      throw new DesktopCommandUndeliveredError("FORBIDDEN");
+    }
     const expiresAt = dayjs(command.expires_at).valueOf();
     const lifetime = expiresAt - Date.now();
-    const request: Dispatch = { kind: "dispatch", binding, replyGatewayId: this.id, frame: command };
+    const request: Dispatch = {
+      kind: "dispatch", binding, replyGatewayId: this.id, frame: command,
+      ...(dispatchAdmission === undefined ? {} : { admission: dispatchAdmission }),
+    };
     if (lifetime <= 0 || lifetime > desktopExecutionLifetimeFor(command) || signal?.aborted ||
       Buffer.byteLength(JSON.stringify(command)) > desktopExecutionMaxFrameBytes) {
       throw new DesktopCommandUndeliveredError();
@@ -197,7 +217,10 @@ export class DesktopDeviceTransport {
         this.waiting.set(command.id, waiting);
         abort = () => {
           if (this.waiting.get(command.id) !== waiting) return;
-          const message: Dispatch = { ...request, frame: { type: "command.cancel", id: command.id } };
+          const message: Dispatch = {
+            kind: "dispatch", binding, replyGatewayId: this.id,
+            frame: { type: "command.cancel", id: command.id },
+          };
           void this.publish(message, expiresAt).catch(() =>
             this.logger.warn({ commandId: command.id }, "desktop command cancellation publication failed"));
           reject(new DesktopCommandUncertainError());
@@ -433,6 +456,13 @@ export class DesktopDeviceTransport {
       return;
     }
     if (pending) return;
+    if (frame.operation === "computer.execute" && frame.body.request.kind !== "quiesce" &&
+        !request.admission) {
+      // A computer action without its internal authorization permit must never
+      // reach the socket; quiescence remains exempt.
+      await this.reply(request, failure(frame, "FORBIDDEN"), true);
+      return;
+    }
     if (frame.operation === "user-input.respond" && !supportsDesktopUserInput(socket.toolOperations, frame.body.response)) {
       await this.reply(request, failure(frame, "USER_INPUT_REQUEST_UNAVAILABLE"), true);
       return;
@@ -464,7 +494,8 @@ export class DesktopDeviceTransport {
     }, remaining);
     const delivery: PendingDelivery = { request, command: frame, timer, expiresAt, lifetime: new AbortController(), state: "checking" };
     socket.pending.set(frame.id, delivery);
-    const authorized = await socket.verifyCredential() && await this.authorize(socket.binding, frame);
+    const authorized = await socket.verifyCredential() &&
+      await this.authorize(socket.binding, frame, request.admission);
     const current = authorized && await this.coordinator.mayDispatch(socket.binding, frame.id);
     if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
     if (current && frame.operation === "turn.interrupt") {
@@ -520,7 +551,7 @@ function sameBinding(a: DesktopExecutionBinding, b: DesktopExecutionBinding): bo
 function matchesResult(command: DesktopExecutionCommand, frame: DesktopExecutionResult): boolean {
   if (frame.operation !== command.operation) return false;
   if (!frame.ok || frame.operation === "turn.interrupt" || frame.operation === "turn.drain" ||
-      frame.operation === "user-input.respond" || frame.result === null) return true;
+      frame.operation === "user-input.respond" || frame.operation === "computer.execute" || frame.result === null) return true;
   return frame.result.conversationId === command.conversation_id && frame.result.projectionTurnId === command.turn_id;
 }
 

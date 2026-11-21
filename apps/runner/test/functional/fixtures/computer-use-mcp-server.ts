@@ -24,6 +24,7 @@ import {
   createComputerUseCoreMcpModule,
   type ComputerUseExecutor,
 } from "../../../src/mcp/core-services/computer-use-service.js";
+import { computerFixtureEnvironment } from "./fixture-environment.js";
 
 const [auditPath, requestedMode] = process.argv.slice(2);
 if (!auditPath || (requestedMode !== "default" && requestedMode !== "plan")) {
@@ -131,7 +132,7 @@ const imageModule: CoreMcpModuleDefinition = {
 
 const registry = createCoreMcpRegistry({
   mode,
-  environment: fixtureEnvironment(mode),
+  environment: computerFixtureEnvironment(mode),
   extraModules: [
     createComputerUseCoreMcpModule({ mode, target, executor }),
     imageModule,
@@ -158,26 +159,3 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   });
 });
 await server.connect(new StdioServerTransport());
-
-function fixtureEnvironment(collaborationMode: "default" | "plan"): NodeJS.ProcessEnv {
-  const token = "turn-token-00000000000000000000000000000000";
-  return {
-    LINKSENSE_COLLABORATION_MODE: collaborationMode,
-    LINKSENSE_CONVERSATION_ID: "01900000-0000-7000-8000-000000000001",
-    LINKSENSE_FILE_SERVICE_ENDPOINT: "http://127.0.0.1:9/register-artifact",
-    LINKSENSE_FILE_SERVICE_TOKEN: token,
-    LINKSENSE_FORM_SERVICE_ENDPOINT: "http://127.0.0.1:9/form",
-    LINKSENSE_FORM_SERVICE_TOKEN: token,
-    LINKSENSE_IMAGE_GENERATION_ENDPOINT: "http://127.0.0.1:9/generate",
-    LINKSENSE_IMAGE_GENERATION_TOKEN: token,
-    LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: "http://127.0.0.1:9/search",
-    LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: "200000",
-    LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: token,
-    LINKSENSE_SKILL_CREATOR_ENDPOINT: "http://127.0.0.1:9/skill",
-    LINKSENSE_SKILL_CREATOR_TOKEN: token,
-    LINKSENSE_WEB_SEARCH_ENDPOINT: "http://127.0.0.1:9/web-search",
-    LINKSENSE_WEB_SEARCH_TOKEN: "synthetic-web-search-token-000000000000000000000",
-    LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:9/current-user",
-    LINKSENSE_CURRENT_USER_TOKEN: token,
-  };
-}

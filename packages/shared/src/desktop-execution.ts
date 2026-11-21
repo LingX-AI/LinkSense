@@ -6,7 +6,8 @@ import { desktopArtifactPrepareSchema, desktopArtifactSingleGrantSchema, desktop
 import { connectionFailureCodeSchema } from "./connections.js";
 import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
 import { nativeUserInputResponseSchema, type NativeUserInputResponse } from "./conversation-forms.js";
-import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
+import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema, runnerNativeIdSchema } from "./events.js";
+import { computerActInputSchema, computerActResultSchema, computerFailureCodeSchema, computerObservationSchema, computerStatusResultSchema } from "./computer-use.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
 import { runnerKnowledgeBaseSelectionSchema } from "./runner.js";
@@ -39,6 +40,10 @@ export function desktopCommandCapacity(operation: DesktopExecutionCommand["opera
 // Leave room for lifecycle callbacks while tool requests wait on providers.
 export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
+/** Bound whole status/observe/act round trips, including the bounded effect wait. */
+export const desktopComputerExecuteLifetimeMs = 25_000;
+/** Control-only quiescence gets a short deadline independent of grant expiry. */
+export const desktopComputerQuiesceLifetimeMs = 5_000;
 export const desktopAttachmentTransferLifetimeMs = 4 * 60_000;
 // Reserve time for worker readiness and native admission after the last file.
 export const desktopAttachmentStartupReserveMs = 30_000;
@@ -69,7 +74,17 @@ export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
 export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
-export const desktopNegotiatedOperationSchema = z.enum([...desktopToolOperationSchema.options, "approval.respond"]);
+/**
+ * M1b fixture-only operation. It is a negotiated tool request but deliberately
+ * not part of the closed pre-existing tool-operation enum, so old negotiation
+ * lists, defaults, and cloud behavior stay the same.
+ */
+export const desktopComputerExecuteOperation = "computer.execute" as const;
+export const desktopToolRequestOperationSchema = z.enum([...desktopToolOperationSchema.options, desktopComputerExecuteOperation]);
+export type DesktopToolRequestOperation = z.infer<typeof desktopToolRequestOperationSchema>;
+/** Command operations, including the additive M1b fixture operation. */
+export const desktopExecutionCommandOperationSchema = z.enum([...desktopExecutionOperation.options, desktopComputerExecuteOperation]);
+export const desktopNegotiatedOperationSchema = z.enum([...desktopToolRequestOperationSchema.options, "approval.respond"]);
 export type DesktopNegotiatedOperation = z.infer<typeof desktopNegotiatedOperationSchema>;
 export function supportsDesktopUserInput(
   operations: readonly DesktopNegotiatedOperation[],
@@ -78,7 +93,8 @@ export function supportsDesktopUserInput(
   return response && "method" in response ? operations.includes("approval.respond")
     : operations.includes("browser.execute") || operations.includes("artifact.prepare");
 }
-export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
+export function desktopToolLifetimeFor(operation: DesktopToolRequestOperation): number {
+  if (operation === desktopComputerExecuteOperation) return desktopComputerExecuteLifetimeMs;
   if (operation === "artifact.prepare" || operation === "artifact.multipart" || operation === "artifact.website") return 10_000;
   if (operation === "connection.execute") return 58_000;
   if (operation === "browser.execute") return 34_000;
@@ -91,6 +107,50 @@ export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend
   tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
   tool_operations: toolOperations.optional(),
 });
+
+const computerExecuteStatusRequest = z.strictObject({ kind: z.literal("status") });
+const computerExecuteObserveRequest = z.strictObject({ kind: z.literal("observe") });
+const computerExecuteActRequest = z.strictObject({
+  kind: z.literal("act"),
+  native_call_id: runnerNativeIdSchema,
+  input: computerActInputSchema,
+});
+/**
+ * Host policy chooses the target, session, selection, and holder; none of them
+ * is accepted from the model or from this tool request body.
+ */
+export const computerExecuteInputSchema = z.discriminatedUnion("kind", [
+  computerExecuteStatusRequest,
+  computerExecuteObserveRequest,
+  computerExecuteActRequest,
+]);
+export type ComputerExecuteInput = z.infer<typeof computerExecuteInputSchema>;
+/** Server -> Mac command request. Quiescence exists only on this control path. */
+export const desktopComputerExecuteBodySchema = z.strictObject({
+  session_id: uuidSchema,
+  selection_id: uuidSchema,
+  // Read-only status never acquires an occupancy holder; every other kind must
+  // carry the holder the first authorized observe bound.
+  holder_id: uuidSchema.nullable(),
+  request: z.discriminatedUnion("kind", [
+    computerExecuteStatusRequest,
+    computerExecuteObserveRequest,
+    computerExecuteActRequest,
+    z.strictObject({ kind: z.literal("quiesce") }),
+  ]),
+}).refine(body => body.request.kind === "status" ? body.holder_id === null : body.holder_id !== null, {
+  path: ["holder_id"], error: "desktop_computer_holder_required",
+});
+export type DesktopComputerExecuteBody = z.infer<typeof desktopComputerExecuteBodySchema>;
+/** Identical typed result under command.result `result` and tool.result `data`. */
+export const computerExecuteResultSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("status"), result: computerStatusResultSchema }),
+  z.strictObject({ kind: z.literal("observe"), result: computerObservationSchema }),
+  z.strictObject({ kind: z.literal("act"), result: computerActResultSchema }),
+  z.strictObject({ kind: z.literal("quiesce"), result: z.strictObject({ quiesced: z.literal(true) }) }),
+  z.strictObject({ kind: z.literal("failure"), error: computerFailureCodeSchema }),
+]);
+export type ComputerExecuteResult = z.infer<typeof computerExecuteResultSchema>;
 
 const command = z.strictObject({
   type: z.literal("command"),
@@ -126,6 +186,7 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
   command.extend({ operation: z.literal("turn.interrupt") }),
   command.extend({ operation: z.literal("turn.drain") }),
   command.extend({ operation: z.literal("user-input.respond"), body: desktopUserInputResponseSchema }),
+  command.extend({ operation: z.literal("computer.execute"), body: desktopComputerExecuteBodySchema }),
 ]).refine(frame => frame.operation !== "turn.start" || frame.turn_id === frame.body.credentials.turn_id, {
   path: ["body", "credentials", "turn_id"], error: "desktop_turn_scope_mismatch",
 }).refine(frame => frame.operation !== "turn.start" || Boolean(frame.body.input || frame.body.attachments?.length), {
@@ -172,7 +233,7 @@ export const desktopExecutionTerminalSchema = z.strictObject({
 export const desktopExecutionResultSchema = z.union([
   receipt.extend({
     ok: z.literal(false),
-    operation: desktopExecutionOperation,
+    operation: desktopExecutionCommandOperationSchema,
     error_code: z.enum(["RUNNER_UNAVAILABLE", "RUNNER_OPERATION_UNCERTAIN", "FORBIDDEN", "USER_INPUT_REQUEST_UNAVAILABLE", "ATTACHMENT_UPLOAD_INVALID"]),
   }),
   receipt.extend({
@@ -194,6 +255,11 @@ export const desktopExecutionResultSchema = z.union([
     ok: z.literal(true),
     operation: z.literal("user-input.respond"),
     result: desktopUserInputReceiptSchema,
+  }),
+  receipt.extend({
+    ok: z.literal(true),
+    operation: z.literal("computer.execute"),
+    result: computerExecuteResultSchema,
   }),
   receipt.extend({
     ok: z.literal(true),
@@ -232,10 +298,12 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("artifact.prepare"), body: desktopArtifactPrepareSchema }),
   request.extend({ operation: z.literal("artifact.multipart"), body: desktopArtifactPrepareSchema }),
   request.extend({ operation: z.literal("artifact.website"), body: desktopWebsiteArtifactPrepareSchema }),
+  // Quiescence is control-only and can never be requested as a tool.
+  request.extend({ operation: z.literal("computer.execute"), body: computerExecuteInputSchema }),
 ]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
-  operation: desktopToolOperationSchema,
+  operation: desktopToolRequestOperationSchema,
 });
 export const desktopExecutionCallbackSchema = z.union([
   desktopToolRequestSchema,
@@ -283,7 +351,8 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("artifact.prepare"), data: desktopArtifactSingleGrantSchema }),
   toolResult.extend({ operation: z.literal("artifact.multipart"), data: desktopArtifactUploadGrantSchema }),
   toolResult.extend({ operation: z.literal("artifact.website"), data: desktopArtifactUploadGrantSchema }),
-  toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
+  toolResult.extend({ operation: z.literal("computer.execute"), data: computerExecuteResultSchema }),
+  toolResult.extend({ operation: desktopToolRequestOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([
   desktopToolResultSchema,

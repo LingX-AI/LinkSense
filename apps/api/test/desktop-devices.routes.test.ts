@@ -477,7 +477,7 @@ describe("desktop execution transport", () => {
     socket.on("message", messages);
     first.authority.mockResolvedValue(false);
     await expect(second.execution.send(binding, command)).resolves.toMatchObject({ ok: false, error_code: "FORBIDDEN" });
-    expect(first.authority).toHaveBeenCalledWith(binding, command);
+    expect(first.authority).toHaveBeenCalledWith(binding, command, undefined);
     expect(messages).not.toHaveBeenCalled();
   });
 

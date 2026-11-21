@@ -5,6 +5,7 @@ import {
   desktopRunCredentialsSchema,
   desktopRunTokenSchema,
   reasoningEffortSchema,
+  runnerNativeIdSchema,
   type DesktopModelPurpose,
   type DesktopRunCredentials,
   type ReasoningEffort,
@@ -190,6 +191,19 @@ export class DesktopRunLeases {
     const turn = runIdSchema.parse(turnId);
     const request = runIdSchema.parse(requestId);
     return await this.redis.set(`linksense:desktop-tool:${turn}:${request}`, "1", "PX", leaseTtlMs, "NX") === "OK";
+  }
+
+  /**
+   * Claims one opaque native action ID per authorized turn. Unlike a tool
+   * request UUID, the same native call ID cannot be dispatched again under a
+   * new transport request. The bounded digest keeps the key length fixed.
+   */
+  async claimComputerNativeCall(turnId: string, nativeCallId: string): Promise<boolean> {
+    const turn = runIdSchema.parse(turnId);
+    const nativeCall = runnerNativeIdSchema.parse(nativeCallId);
+    return await this.redis.set(
+      `linksense:desktop-native-call:${turn}:${sha256(nativeCall)}`, "1", "PX", leaseTtlMs, "NX",
+    ) === "OK";
   }
 
   async pauseArtifactPublication(turnId: string): Promise<() => Promise<void>> {

@@ -2,6 +2,7 @@ import {
   desktopRunTokenSchema,
   localComputerGrantLimit,
   localComputerGrantSchema,
+  uuidSchema,
 } from "@linksense/shared";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
@@ -31,7 +32,11 @@ type Authority = {
   leases: Pick<DesktopRunLeases, "fenceRunBinding">;
   connections: Pick<DesktopDeviceCoordinator, "isCurrentConnection">;
 };
-type GrantBinding = Pick<DesktopRunScope, "ownerId" | "deviceId" | "conversationId"> & { sessionId: string };
+type GrantBinding = Pick<DesktopRunScope, "ownerId" | "deviceId" | "conversationId"> & {
+  sessionId: string;
+  /** Set by the dispatch recheck to require the original grant, not a newer one. */
+  grantId?: string;
+};
 
 /**
  * Internal dispatch-time authorization for a local `computer.observe`/`computer.act` action.
@@ -113,6 +118,70 @@ export async function authorizeLocalComputerAction(
   });
 }
 
+export type LocalComputerDispatchAdmission = {
+  scope: DesktopRunScope;
+  sessionId: string;
+  grantId: string;
+  capability: LocalComputerActionCapability;
+  bundleId: string;
+  expiresAt: Date;
+};
+
+/**
+ * Send-side recheck for one already queued computer command.
+ *
+ * The initial `authorizeLocalComputerAction` decision can be overtaken while
+ * the command waits in encrypted Redis. This reuses the same conversation lock,
+ * session/grant tables, capability, and application scope in real PostgreSQL,
+ * and it requires the original session and grant IDs rather than the latest
+ * active grant. A revoked/expired/stopped session, a revoked/expired original
+ * grant, or a replacement grant therefore denies dispatch. It is a revocation
+ * check, not a second permission plane: the run bearer and route authorization
+ * remain the entry gate, and the existing transport/device checks still run.
+ */
+export async function verifyLocalComputerDispatch(
+  prisma: PrismaClient,
+  input: LocalComputerDispatchAdmission,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const scope = desktopRunScopeSchema.safeParse(input.scope);
+  const target = localComputerGrantSchema.shape.target.safeParse({ bundle_id: input.bundleId });
+  const sessionId = uuidSchema.safeParse(input.sessionId);
+  const grantId = uuidSchema.safeParse(input.grantId);
+  if (!scope.success || !target.success || !sessionId.success || !grantId.success ||
+      (input.capability !== "computer.observe" && input.capability !== "computer.act") ||
+      !(input.expiresAt instanceof Date) || !Number.isFinite(input.expiresAt.getTime())) {
+    throw new AppError("FORBIDDEN");
+  }
+  const { ownerId, deviceId, conversationId, runtimeGeneration, turnId } = scope.data;
+  return prisma.$transaction(async tx => {
+    const { codexThreadId } = await lockDesktopConversation(tx, {
+      ownerId, deviceId, conversationId, runtimeGeneration,
+    });
+    const at = now();
+    if (input.expiresAt.getTime() <= at.getTime()) throw new AppError("FORBIDDEN");
+    if (await tx.applicationExternalSession.findFirst({ where: { conversationId }, select: { id: true } })) {
+      throw new AppError("FORBIDDEN");
+    }
+    const collaborationMode = await readCollaborationMode(tx, {
+      ownerId, conversationId, runtimeGeneration, turnId, codexThreadId,
+    });
+    // Plan turns stay read-only, matching the initial authorization decision.
+    if (input.capability === "computer.act" && collaborationMode !== "default") throw new AppError("FORBIDDEN");
+    const session = await tx.localComputerSession.findFirst({
+      where: {
+        id: sessionId.data, ownerId, deviceId, conversationId, runtimeGeneration,
+        status: "active", grantScope: "session", endedAt: null, expiresAt: { gt: at },
+      },
+      select: { id: true, expiresAt: true },
+    });
+    if (!session?.expiresAt) throw new AppError("FORBIDDEN");
+    await readGrant(tx, {
+      ownerId, deviceId, conversationId, sessionId: session.id, grantId: grantId.data,
+    }, input.capability, target.data.bundle_id, at, session.expiresAt);
+  });
+}
+
 async function readCollaborationMode(
   tx: Prisma.TransactionClient,
   binding: Pick<DesktopRunScope, "ownerId" | "conversationId" | "runtimeGeneration" | "turnId"> & {
@@ -160,6 +229,7 @@ async function readGrant(
     where: {
       ownerId: binding.ownerId, deviceId: binding.deviceId, conversationId: binding.conversationId,
       sessionId: binding.sessionId, scope: "session", capability, revokedAt: null,
+      ...(binding.grantId === undefined ? {} : { id: binding.grantId }),
       expiresAt: { gt: at, lte: sessionExpiresAt },
       targetJson: { path: ["bundle_id"], equals: bundleId },
     },

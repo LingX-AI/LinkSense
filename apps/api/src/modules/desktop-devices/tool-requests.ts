@@ -1,7 +1,8 @@
 import {
+  computerExecuteResultSchema,
   desktopConnectionTextPageBytes, desktopExecutionMaxFrameBytes, desktopToolErrorSchema, desktopToolResultSchema,
   isWorkspaceInput, browserUseFailure, browserUseReadOnly,
-  type DesktopConnectionRequestBody, type DesktopToolRequest, type DesktopToolResult, type WorkspaceResult,
+  type ComputerExecuteResult, type DesktopConnectionRequestBody, type DesktopToolRequest, type DesktopToolResult, type WorkspaceResult,
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
@@ -25,6 +26,12 @@ type ToolRequestServices = {
   connections?: Pick<ConnectionService, "executeScoped">;
   browserUse?: Pick<DesktopBrowserUse, "execute">;
   artifacts?: Pick<DesktopArtifacts, "prepare">;
+  /** Fixture-only injection; production never supplies this operation. */
+  computerExecute?: (input: {
+    scope: DesktopRunScope;
+    request: Extract<DesktopToolRequest, { operation: "computer.execute" }>;
+    signal: AbortSignal;
+  }) => Promise<ComputerExecuteResult>;
 };
 
 export async function executeDesktopTool(
@@ -42,6 +49,7 @@ export async function executeDesktopTool(
   }
   let recheckResource: (() => Promise<void>) | undefined;
   let browserMutationMayHaveRun = false;
+  let computerMutationMayHaveRun = false;
   const artifact = frame.operation === "artifact.prepare" || frame.operation === "artifact.multipart" || frame.operation === "artifact.website";
   let result: DesktopToolResult;
   try {
@@ -63,6 +71,14 @@ export async function executeDesktopTool(
         (browser.data.result.ok || browser.data.result.code === "RUNNER_OPERATION_UNCERTAIN");
       recheckResource = browser.assertCurrent;
       data = browser.data;
+    } else if (frame.operation === "computer.execute") {
+      if (!services.computerExecute) throw new AppError("RUNNER_UNAVAILABLE");
+      data = await services.computerExecute({ scope, request: frame, signal });
+      // Only an act that may have reached the Mac must suppress a retry after a
+      // later authorization failure; pre-dispatch denials stay retryable.
+      const executed = computerExecuteResultSchema.safeParse(data);
+      computerMutationMayHaveRun = frame.body.kind === "act" && executed.success &&
+        (executed.data.kind !== "failure" || executed.data.error === "RUNNER_OPERATION_UNCERTAIN");
     } else if (artifact) {
       if (!services.artifacts) throw new AppError("RUNNER_UNAVAILABLE");
       data = await services.artifacts.prepare(scope, frame.body, signal, authorize, frame.operation !== "artifact.prepare");
@@ -78,25 +94,29 @@ export async function executeDesktopTool(
       result = frame.operation === "browser.execute"
         ? { ...base, operation: frame.operation, ok: true, data: { result: browserUseFailure("BROWSER_USE_COMMAND_FAILED") } }
         : { ...base, ok: false, error_code: artifact ? "RUNNER_UNAVAILABLE"
-          : frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID" : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
+          : frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID"
+          : frame.operation === "computer.execute" ? "RUNNER_UNAVAILABLE"
+          : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
     }
   } catch (error) {
     const errorCode = error instanceof AppError ? error.code : undefined;
     const code = desktopToolErrorSchema.safeParse(errorCode);
     result = {
       ...base, ok: false,
-      error_code: browserMutationMayHaveRun ? "RUNNER_OPERATION_UNCERTAIN"
+      error_code: browserMutationMayHaveRun || computerMutationMayHaveRun ? "RUNNER_OPERATION_UNCERTAIN"
         : code.success ? code.data : errorCode === "AUTH_REQUIRED" || errorCode === "ACCESS_DENIED"
         ? "FORBIDDEN" : "RUNNER_OPERATION_UNCERTAIN",
     };
   }
   const reason = !result.ok ? result.error_code
-    : result.operation === "browser.execute" && !result.data.result.ok ? result.data.result.code : undefined;
+    : result.operation === "browser.execute" && !result.data.result.ok ? result.data.result.code
+    : computerToolFailureReason(result);
   try {
     await services.audit.write({
       actorId: scope.ownerId, action: "desktop_tool_requested", targetId: frame.id,
       targetType: frame.operation === "web.search" ? "web_search" : frame.operation === "browser.execute" ? "browser_use"
         : frame.operation === "connection.execute" ? "connection"
+        : frame.operation === "computer.execute" ? "local_computer"
         : artifact ? "conversation_file" : "knowledge_base",
       result: reason ? "failed" : "success",
       metadata: {
@@ -113,6 +133,17 @@ export async function executeDesktopTool(
       try {
         await authorize();
         await recheckResource?.();
+        signal.throwIfAborted();
+      } catch {
+        return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
+      }
+      return result;
+    }
+    if (computerMutationMayHaveRun) {
+      // A successful act must not be reported as retryable just because the run
+      // fenced or expired before the response was projected.
+      try {
+        await authorize();
         signal.throwIfAborted();
       } catch {
         return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
@@ -140,6 +171,13 @@ export async function executeDesktopTool(
     await authorize();
   }
   return result;
+}
+
+function computerToolFailureReason(result: Extract<DesktopToolResult, { ok: true }>): string | undefined {
+  if (result.operation !== "computer.execute") return undefined;
+  if (result.data.kind === "failure") return result.data.error;
+  // An act that reached the Mac but failed or lost proof is never audited as success.
+  return result.data.kind === "act" && !result.data.result.ok ? result.data.result.error : undefined;
 }
 
 function pageWorkspaceText(
@@ -185,7 +223,7 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" | "artifact.website" }>,
+  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" | "artifact.website" | "computer.execute" }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {

@@ -514,3 +514,36 @@ it("keeps lifecycle callbacks available when the search lane is full", async () 
   }
   expect((await pending).at(-1)).toMatchObject({ status: "fulfilled", value: { ok: false, error_code: "RUNNER_UNAVAILABLE" } })
 })
+
+it("never treats the fixture computer.execute command as a turn interrupt", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-computer-command-"))
+  const provider = new DesktopWorkerProvider({ dataRoot: root, runtimeRoot: root, controlToken: "a".repeat(64) }, logger)
+  const acquire = vi.spyOn(provider, "acquire")
+  const request = vi.spyOn(provider, "request")
+  const workerLost = vi.fn()
+  const turns = new DesktopTurns(provider, root, "https://server.example.test", workerLost, logger)
+  const scope = {
+    owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID(),
+  }
+  const command = desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", id: randomUUID(), operation: "computer.execute",
+    expires_at: new Date(Date.now() + 30_000).toISOString(),
+    body: {
+      session_id: randomUUID(), selection_id: randomUUID(), holder_id: null,
+      request: { kind: "status" },
+    },
+  })
+  try {
+    await expect(turns.execute(command, AbortSignal.timeout(2_000))).resolves.toEqual({
+      type: "command.result", id: command.id, operation: "computer.execute",
+      ok: false, error_code: "RUNNER_UNAVAILABLE",
+    })
+    expect(acquire).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})

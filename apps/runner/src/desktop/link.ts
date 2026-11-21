@@ -5,7 +5,7 @@ import {
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
-  type DesktopNegotiatedOperation, type DesktopToolOperation, type DesktopToolRequest, type DesktopToolResult,
+  type DesktopNegotiatedOperation, type DesktopToolRequestOperation, type DesktopToolRequest, type DesktopToolResult,
 } from "@linksense/shared"
 import type { z } from "zod"
 import type { DesktopRuntimeRun, DesktopTurns } from "./turns.js"
@@ -18,8 +18,8 @@ type Waiting = {
   resolve: (ack: DesktopExecutionAck) => void
 }
 export type DesktopToolInvocation = {
-  [Operation in DesktopToolOperation]: Pick<Extract<DesktopToolRequest, { operation: Operation }>, "operation" | "body">
-}[DesktopToolOperation]
+  [Operation in DesktopToolRequestOperation]: Pick<Extract<DesktopToolRequest, { operation: Operation }>, "operation" | "body">
+}[DesktopToolRequestOperation]
 const maxRecentCommands = 1024
 
 export class DesktopLink {

@@ -12,7 +12,7 @@ import type { DesktopDeviceCoordinator } from "../../src/modules/desktop-devices
 import { isDesktopRunActive, lockDesktopConversation } from "../../src/modules/desktop-credentials/run-authority.js";
 import { DesktopRunLeases, type DesktopRunScope } from "../../src/modules/desktop-credentials/run-leases.js";
 import {
-  authorizeLocalComputerAction, type LocalComputerActionCapability,
+  authorizeLocalComputerAction, verifyLocalComputerDispatch, type LocalComputerActionCapability,
 } from "../../src/modules/local-computer/authorization.js";
 import { localComputerRoutes } from "../../src/modules/local-computer/routes.js";
 import { LocalComputerService } from "../../src/modules/local-computer/service.js";
@@ -145,7 +145,7 @@ export async function verifyLocalComputerSessions(input: {
     assert.deepEqual(observePermit.scope, authorizationScope);
     await assert.rejects(authorize(authorizationScope, "computer.act", "com.example.Fixture"), { code: "FORBIDDEN" });
     status(await inject("POST", authorizationPermissions, actGrant));
-    await assert.doesNotReject(authorize(authorizationScope, "computer.act", "com.example.Fixture"));
+    const actPermit = await authorize(authorizationScope, "computer.act", "com.example.Fixture");
     await assert.rejects(authorize(authorizationScope, "computer.observe", "com.example.Other"), { code: "FORBIDDEN" });
     // Missing and wrong run bearers are rejected by the real lease verification.
     await assert.rejects(authorize(authorizationScope, "computer.observe", "com.example.Fixture", ""), { code: "AUTH_REQUIRED" });
@@ -272,6 +272,17 @@ export async function verifyLocalComputerSessions(input: {
     status(await inject("POST", authorizationPermissions, {
       action: "revoke", session_id: authorizationSessionId, grant_id: actGrant.grant_id,
     }));
+    // A command queued under the original permit must not be admitted after the
+    // exact grant is revoked, and a replacement grant cannot revive that permit.
+    await assert.rejects(verifyLocalComputerDispatch(prisma, actPermit, () => new Date(authorizationNow)), { code: "FORBIDDEN" });
+    const replacementActGrant = { ...actGrant, grant_id: randomUUID() };
+    status(await inject("POST", authorizationPermissions, replacementActGrant));
+    await assert.rejects(verifyLocalComputerDispatch(prisma, actPermit, () => new Date(authorizationNow)), { code: "FORBIDDEN" });
+    const replacementActPermit = await authorize(authorizationScope, "computer.act", "com.example.Fixture");
+    await assert.doesNotReject(verifyLocalComputerDispatch(prisma, replacementActPermit, () => new Date(authorizationNow)));
+    status(await inject("POST", authorizationPermissions, {
+      action: "revoke", session_id: authorizationSessionId, grant_id: replacementActGrant.grant_id,
+    }));
     await assert.rejects(authorize(authorizationScope, "computer.act", "com.example.Fixture"), { code: "FORBIDDEN" });
     await assert.doesNotReject(authorize(authorizationScope, "computer.observe", "com.example.Fixture"));
     await assert.rejects(
@@ -325,8 +336,11 @@ export async function verifyLocalComputerSessions(input: {
       }, () => new Date(finalCheckNow)),
       { code: "FORBIDDEN" },
     );
+    const preStopPermit = await authorize(authorizationScope, "computer.observe", "com.example.Fixture");
     assert.deepEqual(status(await inject("DELETE", `${authorizationPath}?session_id=${authorizationSessionId}`)), empty);
     await assert.rejects(authorize(authorizationScope, "computer.observe", "com.example.Fixture"), { code: "FORBIDDEN" });
+    // The same queued permit is denied once its exact session is stopped.
+    await assert.rejects(verifyLocalComputerDispatch(prisma, preStopPermit, () => new Date(authorizationNow)), { code: "FORBIDDEN" });
     await authorizationLeases.discardUndelivered(authorizationTurnId, authorizationRunToken);
     await input.connections.disconnect(deviceId, connectionId);
     await input.connections.disconnect(deviceId, replacementConnectionId);

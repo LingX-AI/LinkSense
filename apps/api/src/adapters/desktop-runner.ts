@@ -23,7 +23,7 @@ type TurnScope = ConversationScope & { turnId: string; runtimeGeneration?: strin
 type StartCommand = Extract<DesktopExecutionCommand, { operation: "turn.start" }>;
 type UserInputCommand = Extract<DesktopExecutionCommand, { operation: "user-input.respond" }>;
 type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<UserInputCommand, "operation" | "body"> |
-  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start" | "user-input.respond"> };
+  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start" | "user-input.respond" | "computer.execute"> };
 
 export class DesktopRunner {
   constructor(

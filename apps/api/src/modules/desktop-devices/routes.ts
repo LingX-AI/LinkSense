@@ -52,6 +52,8 @@ export async function registerDesktopDeviceRoutes(
     nativeApprovals?: boolean;
     artifactTools?: boolean;
     websiteArtifacts?: boolean;
+    /** Fixture-only negotiation gate; app.ts never enables it. */
+    computerExecute?: boolean;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -187,7 +189,9 @@ export async function registerDesktopDeviceRoutes(
               ? options.artifactTools && offered.has("artifact.prepare")
               : operation === "artifact.website"
                 ? options.artifactTools && options.websiteArtifacts === true && offered.has("artifact.prepare")
-                : options.knowledgeTools)));
+                : operation === "computer.execute"
+                  ? options.computerExecute === true
+                  : options.knowledgeTools)));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);

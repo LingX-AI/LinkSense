@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  ComputerUseFailureError,
   createComputerUseCoreMcpModule,
   type ComputerUseExecutor,
   type ComputerUseTarget,
@@ -181,11 +182,29 @@ describe("computer_use Core MCP module", () => {
     expect(executor.act).toHaveBeenCalledTimes(1)
   })
 
+  it.each(["DEVICE_BUSY", "COMPUTER_TARGET_CHANGED"] as const)(
+    "preserves the stable %s failure from the executor",
+    async code => {
+      const executor = fakeExecutor({
+        status: vi.fn(async () => { throw new ComputerUseFailureError(code) }),
+        observe: vi.fn(async () => { throw new ComputerUseFailureError(code) }),
+      })
+      for (const toolName of ["computer_status", "computer_observe"] as const) {
+        const result = await toolFor(executor).callTool({
+          toolName,
+          argumentsValue: {},
+          signal: signal(),
+        })
+        expect(result.isError).toBe(true)
+        expect(JSON.stringify(result.content)).toContain(code)
+      }
+    },
+  )
+
   it.each([
     ["RUNNER_OPERATION_UNCERTAIN", "Do not repeat it"],
     ["COMPUTER_STALE_REF", "observe the current state first"],
-  ] as const)("reports %s once without retrying", async (code, guidance) => {
-    const executor = fakeExecutor({
+  ] as const)("reports %s once without retrying", async (code, guidance) => {    const executor = fakeExecutor({
       act: vi.fn(async () => ({ ok: false as const, error: code, waited_ms: 0 })),
     })
     const result = await toolFor(executor).callTool({

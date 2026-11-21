@@ -58,6 +58,10 @@ type deviceConnection struct {
 	status  DeviceConnectionStatus
 	runtime *runtimeSupervisor
 	link    atomic.Pointer[runtimeLink]
+	// computer is the explicit test-injected fixture host for computer.execute.
+	// Production leaves it nil, so the operation is never offered and any
+	// unexpected computer command is rejected instead of entering the runtime.
+	computer *m1bComputerHost
 }
 
 const (
@@ -251,7 +255,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			headers.Set(desktopAttachmentHeader, strconv.Itoa(desktopAttachmentVersion))
 		}
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
-		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond")
+		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
+		if connection.computer != nil {
+			operations += "," + m1bComputerOperation
+		}
+		headers.Set(desktopToolOperationsHeader, operations)
 	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,
@@ -321,12 +329,33 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	// Execution readiness exists only for an accepted execution_protocol_version
 	// with a live link; a presence-only server stays online without it.
 	connection.setOnline(link != nil)
-	heartbeatContext, stopHeartbeat := context.WithCancel(connection.ctx)
+	// The per-socket context cancels computer work immediately when this
+	// socket/read/link generation ends, before the deferred heartbeat join.
+	socketContext, socketCancel := context.WithCancel(connection.ctx)
+	heartbeatContext, stopHeartbeat := context.WithCancel(socketContext)
 	keepaliveDone := make(chan struct{})
 	defer func() {
 		stopHeartbeat()
 		<-keepaliveDone
 	}()
+	// A fixture executor is armed only for the exact ready generation that
+	// negotiated the operation. Its token serializes this host across
+	// connection changes; release is token-scoped so an old socket cannot
+	// release a newer one.
+	computer := &m1bComputerLink{
+		connection: connection, socket: socket, linkID: ready.ConnectionID, ctx: socketContext,
+		live: func() bool {
+			return link != nil && runtimeLinkLive(link) && (link.current == nil || link.current()) &&
+				connection.runtime != nil && connection.runtime.ready.Load()
+		},
+	}
+	if connection.computer != nil && link != nil && hasM1BComputerOperation(ready.ToolOperations) {
+		computer.host = connection.computer
+		computer.token = connection.computer.open()
+		defer connection.computer.release(computer.token)
+	}
+	// Registered after the keepalive join defer so it runs first.
+	defer socketCancel()
 	go func() {
 		defer close(keepaliveDone)
 		ticker := time.NewTicker(15 * time.Second)
@@ -400,6 +429,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			return true, "AUTH_REQUIRED"
 		}
 		if decodeDevicePong(data) {
+			continue
+		}
+		// The fixture operation is consumed here, before the runtime pipe.
+		// Unknown computer-prefixed commands are rejected rather than falling
+		// through to DesktopTurns as an unrecognized command.
+		if interceptM1BComputerFrame(computer, data) {
 			continue
 		}
 		if link == nil || !isDesktopExecutionInput(data) {

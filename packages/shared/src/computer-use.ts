@@ -75,6 +75,8 @@ export const computerFailureCodes = [
   "COMPUTER_TIMEOUT",
   "COMPUTER_INVALID",
   "COMPUTER_ACTION_FAILED",
+  "DEVICE_BUSY",
+  "COMPUTER_TARGET_CHANGED",
   "RUNNER_OPERATION_UNCERTAIN",
 ] as const;
 export const computerFailureCodeSchema = z.enum(computerFailureCodes);

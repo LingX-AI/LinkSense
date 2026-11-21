@@ -12,6 +12,7 @@ import {
   localComputerGrantSchema,
   type ComputerActInput,
   type ComputerActResult,
+  type ComputerFailureCode,
   type ComputerObservation,
   type ComputerStatusResult,
 } from "@linksense/shared";
@@ -30,6 +31,14 @@ import {
 
 /** Chosen by the host for one task; never accepted from the model. */
 export type ComputerUseTarget = Readonly<{ bundleId: string }>;
+
+/** Preserves a bounded failure code through the executor boundary. */
+export class ComputerUseFailureError extends Error {
+  constructor(readonly code: ComputerFailureCode) {
+    super(code);
+    this.name = "ComputerUseFailureError";
+  }
+}
 
 export type ComputerUseExecutor = {
   status(input: {
@@ -115,10 +124,11 @@ async function status(
     } catch {
       return failureToolResult(computerFailure("COMPUTER_UNAVAILABLE"));
     }
-  } catch {
+  } catch (error) {
     call.signal.throwIfAborted();
     return failureToolResult(
-      computerFailure(deadline.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE"),
+      computerFailure(error instanceof ComputerUseFailureError
+        ? error.code : deadline.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE"),
     );
   }
 }
@@ -146,10 +156,11 @@ async function observe(
     } catch {
       return failureToolResult(computerFailure("COMPUTER_UNAVAILABLE"));
     }
-  } catch {
+  } catch (error) {
     call.signal.throwIfAborted();
     return failureToolResult(
-      computerFailure(deadline.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE"),
+      computerFailure(error instanceof ComputerUseFailureError
+        ? error.code : deadline.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE"),
     );
   }
 }

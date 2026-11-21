@@ -136,6 +136,16 @@ export class DesktopTurns {
           "/user-input/respond", signal, { ...command.body, ownerId: command.owner_id }))
         return { ...envelope, operation: command.operation, ok: true, result }
       }
+      if (command.operation === "computer.execute") {
+        // The Mac bridge intercepts this fixture operation before the runtime
+        // pipe. If it ever reaches this closed turn runtime it must never fall
+        // through as a turn interrupt.
+        return { ...envelope, ok: false, error_code: "RUNNER_UNAVAILABLE" }
+      }
+      // Only the closed pre-existing turn.interrupt command may reach the
+      // generic interrupt path; a newly added operation fails this assignment.
+      const interrupt: "turn.interrupt" = command.operation
+      void interrupt
       if (!sameTurn?.worker || !sameTurn.run) {
         if (sameTurn) {
           sameTurn.interrupted = true

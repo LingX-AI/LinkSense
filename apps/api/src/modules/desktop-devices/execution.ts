@@ -13,6 +13,9 @@ import { DesktopAttachments } from "../files/desktop-attachments.js";
 import { registerDesktopAttachmentRoute } from "../files/desktop-attachment-route.js";
 import { reserveDesktopArtifactSlot, reserveDesktopAttachmentSlot } from "../files/desktop-attachment-slots.js";
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
+import { authorizeLocalComputerAction, verifyLocalComputerDispatch } from "../local-computer/authorization.js";
+import { LocalComputerGuiOccupancy } from "../local-computer/occupancy.js";
+import { DesktopComputerFixtureBindings, type DesktopComputerExecuteFactory, type DesktopComputerExecuteFixture } from "./computer-execute.js";
 import type { RedisDesktopDeviceCoordinator } from "./coordinator.js";
 import { registerDesktopBrowserScreenshotRoute, type DesktopBrowserUse } from "./browser-use.js";
 import { assertDesktopKnowledgeAssetCurrent } from "./knowledge-publication.js";
@@ -29,6 +32,8 @@ export async function registerDesktopExecution(
   services: ExecutionServices & {
     connections?: Pick<ConnectionService, "executeScoped">;
     browserUse?: DesktopBrowserUse;
+    /** Fixture-only injection; app.ts never supplies it. */
+    computerExecute?: DesktopComputerExecuteFactory;
   },
   coordinator: RedisDesktopDeviceCoordinator,
   leases: DesktopRunLeases,
@@ -75,10 +80,33 @@ export async function registerDesktopExecution(
     turnId: frame.turn_id,
     runtimeGeneration: frame.runtime_generation,
   });
-  const transport = new DesktopDeviceTransport(redis.client, (binding, command) => {
+  let computerExecute: DesktopComputerExecuteFixture | undefined;
+  const transport = new DesktopDeviceTransport(redis.client, async (binding, command, admission) => {
     const scope = {
       deviceId: binding.deviceId, connectionId: binding.connectionId, ownerId: command.owner_id, ...turnScope(command),
     };
+    if (command.operation === "computer.execute") {
+      if (command.body.request.kind === "quiesce") {
+        // Quiescence must be able to stop input whose grant or session was
+        // already revoked or expired. It still requires the live authenticated
+        // device binding; the fixture route separately checks the exact bound
+        // connection/gateway, and the transport verifies the credential.
+        return coordinator.isCurrentConnection(binding.deviceId, binding.connectionId);
+      }
+      if (!computerExecute || !admission) return false;
+      // Reads and acts must never dispatch after the turn became terminal, the
+      // run was revoked, or the original grant/session was revoked while the
+      // command waited in Redis. This lifecycle check is not authentication;
+      // the route's authorizeLocalComputerAction remains the entry decision,
+      // and admit rechecks the exact session/application/capability/grant in
+      // PostgreSQL. Quiescence is the only control that outlives this.
+      if (!await isDesktopRunActive(prisma, coordinator, scope, "use")) return false;
+      return await computerExecute.admit({
+        scope, request: command.body.request,
+        sessionId: command.body.session_id, selectionId: command.body.selection_id,
+        holderId: command.body.holder_id, admission,
+      });
+    }
     return command.operation === "user-input.respond"
       ? leases.isActiveToolScope(scope)
       : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
@@ -92,6 +120,12 @@ export async function registerDesktopExecution(
           webSearchSettings: services.webSearchSettings, knowledgeSearch: services.knowledgeSearch,
           ...(services.connections ? { connections: services.connections } : {}),
           ...(services.browserUse ? { browserUse: services.browserUse } : {}),
+          ...(computerExecute ? {
+            computerExecute: input => {
+              if (!computerExecute) throw new AppError("RUNNER_UNAVAILABLE");
+              return computerExecute.execute(input);
+            },
+          } : {}),
           checkPublication: async (tx, source) => {
             signal.throwIfAborted();
             await assertDesktopKnowledgeAssetCurrent(prisma, tx, scope, source);
@@ -141,6 +175,21 @@ export async function registerDesktopExecution(
       return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true, data: { accepted_delivery_ids: accepted } };
     },
   );
+  const computerExecuteFactory = services.computerExecute;
+  if (computerExecuteFactory) {
+    // The joined fixture lane owns the synthetic selection policy and keeps the
+    // returned instance for explicit observe/act/quiesce fixture access.
+    computerExecute = computerExecuteFactory({
+      authorize: input => authorizeLocalComputerAction(prisma, {
+        leases, connections: coordinator,
+      }, input),
+      bindings: new DesktopComputerFixtureBindings(redis.client),
+      occupancy: new LocalComputerGuiOccupancy(redis.client),
+      transport,
+      claimNativeCall: (turnId, nativeCallId) => leases.claimComputerNativeCall(turnId, nativeCallId),
+      verifyDispatch: input => verifyLocalComputerDispatch(prisma, input),
+    });
+  }
   services.runner.useDesktopRunner(new DesktopRunner(({ ownerId, conversationId }) => prisma.conversation.findFirst({
     where: { id: conversationId, ownerId, archiveStatus: "active", executionTarget: "local" },
     select: { desktopDeviceId: true, runtimeGeneration: true },
