@@ -23,6 +23,7 @@ import { useBootstrap } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
 import { z } from "zod"
 import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
+import { resumeDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
 const AUTH_RESTORE_MAX_ATTEMPTS = 3
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthContextValue["status"]>("loading")
   const [user, setUser] = useState<User | null>(null)
   const accountResetPromiseRef = useRef<Promise<void> | null>(null)
+  const resumedDesktopOwnerRef = useRef<string | null>(null)
 
   const resetAccountState = useCallback(() => {
     if (accountResetPromiseRef.current) {
@@ -172,6 +174,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     [resetAccountState, status]
   )
+
+  // Resume the Mac's stored device credential only after a verified Web
+  // session names the owner. The native host fences the owner and sign-out
+  // again; this never pairs a device or retries beyond one native call.
+  useEffect(() => {
+    if (status !== "authenticated" || !user?.id) {
+      resumedDesktopOwnerRef.current = null
+      return
+    }
+    if (resumedDesktopOwnerRef.current === user.id) return
+    resumedDesktopOwnerRef.current = user.id
+    void resumeDesktopDeviceForAuthRestore(user.id).catch(() => {
+      if (resumedDesktopOwnerRef.current === user.id) {
+        resumedDesktopOwnerRef.current = null
+      }
+    })
+  }, [status, user?.id])
 
   const effectiveStatus =
     bootstrap && !bootstrap.initialized ? "anonymous" : status

@@ -30,6 +30,7 @@ import {
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
+import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
 import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
 import {
   personalizationSettingsSchema,
@@ -287,6 +288,19 @@ export function SettingsGeneralPage() {
             }
           >
             <LocalWorkspaceSettings key={user.id} />
+          </SettingsCard>
+        )}
+        {isMacDesktopHost() && user && (
+          <SettingsCard
+            header={
+              <SettingsSectionHeader
+                id="desktop-devices-heading"
+                title={t("desktopDevices.title")}
+                description={t("desktopDevices.description")}
+              />
+            }
+          >
+            <DesktopDevicesSettings key={user.id} ownerId={user.id} />
           </SettingsCard>
         )}
       </div>

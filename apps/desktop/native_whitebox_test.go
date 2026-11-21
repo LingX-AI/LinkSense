@@ -111,6 +111,12 @@ func TestMain(m *testing.M) {
 }
 
 func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
+	// device_journey_whitebox_test.go installs its synthetic API only for the
+	// duration of its own test; every other whitebox test sees the legacy
+	// fixture unchanged.
+	if serveDeviceJourneyWhitebox(w, r) {
+		return
+	}
 	serveWhiteboxAPI(w, r, refreshCookieName, strings.Repeat("a", 64))
 }
 

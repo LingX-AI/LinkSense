@@ -66,6 +66,7 @@ import {
   coreMcpServerKey,
   desktopApprovalRequestSchema,
   type ConversationCollaborationMode,
+  type ConversationExecutionTarget,
   type ConversationUserInputResponse,
   type DesktopApprovalRequest,
   type SideChatReference,
@@ -75,6 +76,8 @@ import { toast } from "sonner"
 import dayjs from "dayjs"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import { readDesktopDeviceStatus } from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -84,6 +87,14 @@ import {
   type ConversationInterruptTarget,
 } from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
+import { DesktopExecutionTargetBadge } from "@/features/desktop-execution/desktop-execution-target-badge"
+import { DesktopExecutionTargetPicker } from "@/features/desktop-execution/desktop-execution-target-picker"
+import {
+  desktopExecutionFreshDeviceCheck,
+  desktopExecutionLocalDeviceId,
+  shouldOfferDesktopExecutionTarget,
+} from "@/features/desktop-execution/desktop-execution-target"
+import { useDesktopExecutionDevice } from "@/features/desktop-execution/use-desktop-execution-device"
 import { withRequiredConversationCapabilities } from "@/features/conversations/conversation-capability-selection"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
@@ -419,6 +430,7 @@ type ComposerSubmission = Readonly<{
   referenceId?: string
   taskReferences?: { id: string; title: string }[]
   waitForDesktopAttachmentStart?: boolean
+  localDeviceId?: string
 }>
 
 type PlanReviewActionSubmission =
@@ -614,6 +626,8 @@ export function ConversationPage({
   const { t } = useTranslation()
   const productName = useProductName()
   const { user, refreshUser } = useAuth()
+  const [executionTarget, setExecutionTarget] =
+    useState<ConversationExecutionTarget>("cloud")
   const personalizationQuery = usePersonalization()
   const navigate = useNavigate()
   const location = useLocation()
@@ -871,6 +885,7 @@ export function ConversationPage({
     currentRouteConversationId
   )
   const routeEpochRef = useRef(0)
+  const executionOwnerIdRef = useRef(user?.id)
   const ensureConversationPromiseRef = useRef<{
     epoch: number
     promise: Promise<string>
@@ -882,6 +897,7 @@ export function ConversationPage({
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
+    executionOwnerIdRef.current = user?.id
     const previousRouteConversationId = routeConversationIdRef.current
     if (previousRouteConversationId !== currentRouteConversationId) {
       setError(null)
@@ -895,7 +911,12 @@ export function ConversationPage({
     }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
-  }, [currentRouteConversationId, location.key, newTaskResetVersion])
+  }, [
+    currentRouteConversationId,
+    location.key,
+    newTaskResetVersion,
+    user?.id,
+  ])
 
   useEffect(() => {
     if (isNew && surfaceActive && showComposer && !readOnly) {
@@ -1311,6 +1332,11 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  // Only a fresh task can choose local here; an existing local task's route is
+  // owned by the backend, so this page does not need to poll device status.
+  const executionDeviceAvailability = useDesktopExecutionDevice(
+    isMacDesktopHost() && isNew ? user?.id : undefined
+  )
   const canShowSiteDeliveries = Boolean(
     user &&
     conversationId &&
@@ -1546,7 +1572,13 @@ export function ConversationPage({
       !readOnly &&
       !turnExecutionActive &&
       !modelPreferenceMutation.isPending &&
-      !modelPreferenceQuery.isPending,
+      !modelPreferenceQuery.isPending &&
+      // A local draft or local task must never reserve or warm a cloud runner.
+      (isNew
+        ? executionTarget === "cloud"
+        : conversation
+          ? conversation.execution_target !== "local"
+          : false),
   })
 
   const startNewTaskFromComposer = useCallback(() => {
@@ -1572,6 +1604,7 @@ export function ConversationPage({
     resetNewProject()
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
+    setExecutionTarget("cloud")
     setSelectedCapabilityIds([])
     setSelectedKnowledgeBaseIds([])
     setTaskReferenceSelection({ scope: conversationId, items: [] })
@@ -2966,6 +2999,7 @@ export function ConversationPage({
     initialKnowledgeBaseIds = selectedKnowledgeBaseIds,
     initialTaskReferences = taskReferences,
     initialCollaborationMode = collaborationMode,
+    initialLocalDeviceId,
   }: {
     suppressEmptyStateUntilFirstMessage?: boolean
     initialInput?: string
@@ -2973,27 +3007,96 @@ export function ConversationPage({
     initialKnowledgeBaseIds?: string[]
     initialTaskReferences?: ComposerSubmission["taskReferences"]
     initialCollaborationMode?: ConversationCollaborationMode
+    initialLocalDeviceId?: string
   } = {}) => {
     if (routeConversationIdRef.current) return routeConversationIdRef.current
     const routeEpoch = routeEpochRef.current
     if (ensureConversationPromiseRef.current?.epoch === routeEpoch) {
       return ensureConversationPromiseRef.current.promise
     }
+    // The target is fixed when the conversation is created. A locked
+    // submission id wins over the current picker so a rapid target change
+    // cannot silently create the task somewhere else.
+    const localDeviceId =
+      initialLocalDeviceId ??
+      (isNew
+        ? desktopExecutionLocalDeviceId(
+            executionTarget,
+            executionDeviceAvailability
+          )
+        : undefined)
+    if (isNew && executionTarget === "local" && !localDeviceId) {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_DEVICE_UNAVAILABLE",
+        messageKey: "desktopExecution.deviceUnavailable",
+      })
+    }
+    const creationOwnerId = executionOwnerIdRef.current
     const creation = (async () => {
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
       }
-      const prewarmedConversationId = claimPrewarm()
+      if (localDeviceId) {
+        // The polled status can be up to one interval stale and TanStack keeps
+        // its last data through a failed refetch. Read the native status again
+        // inside this single in-flight creation before posting.
+        let freshStatus
+        try {
+          freshStatus = await readDesktopDeviceStatus()
+        } catch {
+          throw new ApiError({
+            status: 503,
+            errorCode: "DESKTOP_EXECUTION_DEVICE_STATUS_UNAVAILABLE",
+            messageKey: "desktopExecution.deviceStatusUnavailable",
+          })
+        }
+        const freshCheck = desktopExecutionFreshDeviceCheck(
+          localDeviceId,
+          freshStatus
+        )
+        if (freshCheck !== "ready") {
+          throw new ApiError({
+            status: 409,
+            errorCode:
+              freshCheck === "changed"
+                ? "DESKTOP_EXECUTION_DEVICE_CHANGED"
+                : "DESKTOP_EXECUTION_DEVICE_UNAVAILABLE",
+            messageKey:
+              freshCheck === "changed"
+                ? "desktopExecution.deviceChanged"
+                : "desktopExecution.deviceUnavailable",
+          })
+        }
+        // Do not create a conversation for a page the user already left or an
+        // account that changed while the native read was in flight.
+        if (
+          routeEpochRef.current !== routeEpoch ||
+          executionOwnerIdRef.current !== creationOwnerId
+        ) {
+          throw new ApiError({
+            status: 409,
+            errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+            messageKey: "desktopExecution.deviceChanged",
+          })
+        }
+      }
+      const prewarmedConversationId = localDeviceId ? null : claimPrewarm()
       const createdConversation = await apiRequest("/conversations", {
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
           project_id: newProjectId,
-          ...(prewarmedConversationId
+          ...(localDeviceId
             ? {
-                prewarmed_conversation_id: prewarmedConversationId,
+                execution_target: "local",
+                desktop_device_id: localDeviceId,
               }
-            : {}),
+            : prewarmedConversationId
+              ? {
+                  prewarmed_conversation_id: prewarmedConversationId,
+                }
+              : {}),
         },
         schema: conversationSchema,
       })
@@ -3346,6 +3449,7 @@ export function ConversationPage({
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
         initialTaskReferences: submission.taskReferences ?? [],
         initialCollaborationMode: submission.collaborationMode,
+        initialLocalDeviceId: submission.localDeviceId,
       })
       sendSubmissionConversationIdRef.current = id
       if (submission.optimisticId) {
@@ -3776,6 +3880,7 @@ export function ConversationPage({
         initialCapabilityIds: requestedCapabilityIds,
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
         initialCollaborationMode: "default",
+        initialLocalDeviceId: submission.localDeviceId,
       })
       goalStartSubmissionConversationIdRef.current = id
       setOptimisticGoal((current) => {
@@ -5341,6 +5446,30 @@ export function ConversationPage({
       attachmentOperationPending
     )
       return
+    const localExecutionRequired =
+      isNew && isMacDesktopHost() && executionTarget === "local"
+    if (
+      localExecutionRequired &&
+      executionDeviceAvailability.kind !== "ready"
+    ) {
+      // Keep the draft and the selected target; never fall back to cloud.
+      // An existing local task is routed by the backend and is not gated here.
+      setError(
+        t(
+          executionDeviceAvailability.kind === "unavailable" &&
+            executionDeviceAvailability.reason === "status_unavailable"
+            ? "desktopExecution.deviceStatusUnavailable"
+            : "desktopExecution.deviceUnavailable"
+        )
+      )
+      return
+    }
+    const localDeviceId = isNew
+      ? desktopExecutionLocalDeviceId(
+          executionTarget,
+          executionDeviceAvailability
+        )
+      : undefined
     const submission: ComposerSubmission = {
       input,
       ...(!goalMode &&
@@ -5350,12 +5479,15 @@ export function ConversationPage({
         ? { taskReferences: [...taskReferences] }
         : {}),
       ...(sideChatReference ? { referenceId: sideChatReference.id } : {}),
+      ...(localDeviceId ? { localDeviceId } : {}),
       capabilityIds: [...selectedCapabilityIds],
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
       attachments: [...attachments],
       collaborationMode,
       waitForDesktopAttachmentStart:
-        conversation?.execution_target === "local" && attachments.length > 0,
+        (conversation?.execution_target === "local" ||
+          Boolean(localDeviceId)) &&
+        attachments.length > 0,
     }
     setAttachmentUpdateConversationId(null)
     setError(null)
@@ -6373,6 +6505,14 @@ export function ConversationPage({
               ? t("nav.newConversation")
               : displayConversation.title || t("conversation.untitled")}
           </h1>
+          {!isNew &&
+            isMacDesktopHost() &&
+            displayConversation.execution_target && (
+              <DesktopExecutionTargetBadge
+                target={displayConversation.execution_target}
+                className="shrink-0"
+              />
+            )}
           {displayConversation.application && (
             <HoverCard>
               <HoverCardTrigger
@@ -6930,6 +7070,28 @@ export function ConversationPage({
                   }
                 />
               )
+            }
+            executionTargetPicker={
+              shouldOfferDesktopExecutionTarget({
+                isNew,
+                showComposer: showConversationComposer,
+                hasUser: Boolean(user),
+                isMacDesktopHost: isMacDesktopHost(),
+                embedded,
+                development,
+                isApplicationConversation,
+              }) ? (
+                <DesktopExecutionTargetPicker
+                  value={executionTarget}
+                  onValueChange={setExecutionTarget}
+                  availability={executionDeviceAvailability}
+                  disabled={
+                    sendMutation.isPending ||
+                    goalStartMutation.isPending ||
+                    attachmentOperationPending
+                  }
+                />
+              ) : undefined
             }
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}

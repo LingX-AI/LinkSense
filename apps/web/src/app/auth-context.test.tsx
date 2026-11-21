@@ -23,6 +23,7 @@ import { useAuth } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
 import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
+import { resumeDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
@@ -54,6 +55,10 @@ vi.mock("@/i18n", () => ({
 
 vi.mock("@/adapters/desktop/desktop-adapter", () => ({
   clearDesktopSession: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("@/adapters/desktop/desktop-device-adapter", () => ({
+  resumeDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
 }))
 
 const user: User = {
@@ -161,6 +166,9 @@ describe("AuthProvider session restoration", () => {
     vi.mocked(setAccessToken).mockClear()
     vi.mocked(setAppLanguage).mockClear()
     vi.mocked(clearDesktopSession).mockReset().mockResolvedValue(undefined)
+    vi.mocked(resumeDesktopDeviceForAuthRestore)
+      .mockReset()
+      .mockResolvedValue(null)
   })
 
   afterEach(() => {
@@ -179,6 +187,20 @@ describe("AuthProvider session restoration", () => {
     expect(apiRequest).toHaveBeenCalledWith("/me", expect.any(Object))
     expect(refreshSession).not.toHaveBeenCalled()
     expect(setAccessToken).not.toHaveBeenCalledWith(null)
+  })
+
+  it("resumes the paired Mac after the Web session is verified", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValue(user)
+
+    renderAuthProvider()
+
+    await expectAuthStatus("authenticated")
+    await waitFor(() =>
+      expect(resumeDesktopDeviceForAuthRestore).toHaveBeenCalledExactlyOnceWith(
+        user.id
+      )
+    )
   })
 
   it("clears native credentials before completing local sign-out when the API is unreachable", async () => {
