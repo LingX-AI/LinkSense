@@ -187,6 +187,10 @@ async function main() {
     await run(pnpm, ["--filter", "@linksense/web", "build"], {
       cwd: root, env: { LINKSENSE_DESKTOP_BUILD: "1" },
     });
+    if ((process.env.LINKSENSE_DESKTOP_BUILD_TARGET ?? `${process.platform}/`).startsWith("darwin/")) {
+      const { buildDesktopAnnotationPreload } = await import("./desktop-preload.mjs");
+      await buildDesktopAnnotationPreload(root);
+    }
     return;
   }
   if (mode === "test") {
@@ -196,6 +200,12 @@ async function main() {
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
         "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/features/applications/application-annotation-bridge.test.ts",
+        "src/features/applications/application-annotation-native-runtime.test.ts",
+        "src/features/applications/application-annotation-preload-install.test.ts",
+        "src/features/applications/application-annotation-preview.desktop.test.tsx",
+        "src/components/media/html-preview/html-preview-selection.test.ts",
+        "src/components/media/html-preview/html-preview-annotations.test.ts",
         "src/app/auth-context.test.tsx", "src/app/route-guards.account-switch.test.tsx",
         "src/features/knowledge-bases/knowledge-base-api.test.ts",
         "src/features/knowledge-bases/knowledge-base-events.test.ts",
@@ -243,6 +253,7 @@ async function main() {
       const signing = team ? ["-sign", identity, "-o", outputRoot] : ["-sign", "-", "-skip-notarize"];
       await run("go", ["tool", "mygo", "build", "-platform", target, ...signing], {
         env: {
+          LINKSENSE_DESKTOP_BUILD_TARGET: target,
           LINKSENSE_DESKTOP_MACOS_RELEASE: team ? "1" : "0",
           MYGO_LDFLAGS: `${process.env.MYGO_LDFLAGS ?? ""} -X main.desktopServerURL=${server} ${updateFlags}`.trim(),
         },
@@ -251,6 +262,14 @@ async function main() {
       const app = path.join(output, "LinkSense.app");
       const runtimePath = target.startsWith("darwin") ? path.join(app, "Contents", "Resources", "runtime")
         : path.join(output, "runtime");
+      if (target.startsWith("darwin/")) {
+        const { desktopAnnotationPreloadOutput } = await import("./desktop-preload.mjs");
+        const preload = desktopAnnotationPreloadOutput(root);
+        const packaged = path.join(path.dirname(runtimePath), path.basename(preload));
+        if (!(await readFile(packaged)).equals(await readFile(preload))) {
+          throw new Error("Packaged Mac annotation preload does not match the build");
+        }
+      }
       await verifyDesktopPackageManifest(runtimePath, manifestBytes);
       if (process.platform === "darwin" && target.startsWith("darwin/")) await verifyMacosBundlePermissions(app);
       // Developer ID signing rewrites Mach-O bytes; the sealed bundle and its code signatures replace the pre-sign hashes.

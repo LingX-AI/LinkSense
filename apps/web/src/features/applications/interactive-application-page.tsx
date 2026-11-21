@@ -220,7 +220,6 @@ function InteractiveApplicationRuntime({
       ? new URL(runtimeToken.data.runtime_url, desktopServer).href
       : runtimeToken.data.runtime_url
     : undefined
-  // shortcut: desktop application annotations need a cross-origin bridge; complete in P1-10 before M1.
   const frameSource = annotationSession?.source ?? runtimeSource
   const onAnnotationActiveChange = annotation?.onActiveChange
   const annotationRuntime = useRef({

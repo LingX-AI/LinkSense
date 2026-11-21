@@ -13,6 +13,13 @@ Use the repository's Node/pnpm versions and Go's automatic toolchain selection.
 The Go module pins Go 1.27.3 and mygo 0.10.0. The frontend uses the matching
 official `mygo-runtime` and `@mygo-plugins/fetch` packages.
 
+Before starting a macOS integration, have Claude Code check the
+[MyGo docs](https://mygo.run/) and the
+[latest stable release](https://github.com/egoist/mygo/releases/latest).
+Verify the API against the version pinned here and keep the Go module and
+both frontend packages aligned on upgrade. Reuse MyGo's native features
+and plugins; add only the LinkSense behavior they do not cover.
+
 ```sh
 pnpm desktop:generate
 pnpm desktop:prepare

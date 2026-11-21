@@ -187,6 +187,13 @@ func (d *Desktop) openMainWindow() {
 	if runtime.GOOS == "darwin" {
 		// Keep the existing completion feed running after Close to Menu Bar.
 		page.BackgroundThrottling = mygo.ThrottlingOff
+		// The preload only activates in a direct child at the exact packaged
+		// origin and ticket path. It is not an IPC permission: window.mygo
+		// stays absent from iframes.
+		if preload := desktopApplicationAnnotationPreloadForWindow(d.server); preload != "" {
+			page.PreloadScript = preload
+			page.PreloadAllFrames = true
+		}
 	}
 	options := mygo.WindowOptions{
 		Title: "LinkSense", URL: "/",

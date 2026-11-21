@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { desktopBuildServerUrl, desktopCommandInvocation, desktopMacosReleaseTeam, desktopMacosSigningRequirement, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopDependencyNotices, stageDesktopMacosRelease, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { buildDesktopAnnotationPreload, desktopAnnotationPreloadOutput } from "./desktop-preload.mjs";
 
 test("release builds require an explicit, safe server origin", () => {
   assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
@@ -109,6 +110,45 @@ test("desktop targets cover both supported platforms and architectures", () => {
   assert.throws(() => validateDesktopTarget("linux/amd64"));
   assert.throws(() => validateDesktopTarget("../../other"));
 });
+
+test("the annotation preload is a Mac-only platform resource", () => {
+  assert.equal(
+    desktopAnnotationPreloadOutput("/repo"),
+    path.join("/repo", "apps/desktop/resources/darwin/application-annotation-preload.js"),
+  );
+});
+
+if (process.platform !== "win32") {
+  test("a restrictive umask cannot ship an unreadable annotation preload", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-preload-"));
+    const fixture = path.join(directory, "repo");
+    const web = path.join(fixture, "apps/web");
+    try {
+      const vite = await realpath(path.join(import.meta.dirname, "../apps/web/node_modules/vite"));
+      await mkdir(path.join(web, "src/features/applications"), { recursive: true });
+      await writeFile(path.join(web, "package.json"), "{}\n");
+      await mkdir(path.join(web, "node_modules"));
+      await symlink(vite, path.join(web, "node_modules/vite"), "dir");
+      await writeFile(path.join(web, "src/features/applications/application-annotation-preload.ts"),
+        'document.documentElement.dataset.annotationPreload = "ready";\n');
+      const output = desktopAnnotationPreloadOutput(fixture);
+      await mkdir(path.dirname(output), { recursive: true });
+      // A prior restrictive build leaves the generated bundle unreadable; Vite
+      // keeps its mode when it overwrites the file.
+      await writeFile(output, "stale preload\n", { mode: 0o600 });
+      const umask = process.umask(0o077);
+      try {
+        await buildDesktopAnnotationPreload(fixture);
+      } finally {
+        process.umask(umask);
+      }
+      assert.equal((await stat(output)).mode & 0o777, 0o644);
+      assert.match(await readFile(output, "utf8"), /annotationPreload/u);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test("Windows ARM64 uses supported test flags without weakening other targets", () => {
   assert.deepEqual(desktopTestArguments("win32", "arm64"), ["test", "-count=1", "./..."]);

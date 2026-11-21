@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { SelectoEvents, SelectoOptions } from "selecto"
+import type { ElementType, SelectoEvents, SelectoOptions } from "selecto"
 import type {
   getHtmlPreviewBoundingRect,
   HtmlPreviewRect,
@@ -85,7 +85,7 @@ type SelectoInstance = Readonly<{
     event: Name,
     listener: (event: SelectoEvents[Name]) => void
   ) => SelectoInstance
-  setSelectedTargets: (elements: readonly Element[]) => unknown
+  setSelectedTargets: (elements: ElementType[]) => unknown
   findSelectableTargets?: () => unknown
   destroy: () => void
 }>
@@ -96,22 +96,40 @@ export type SelectoConstructor = new (
 
 export type HtmlPreviewAnnotationController = Readonly<{
   refresh: () => void
+  isActive: () => boolean
   destroy: () => void
 }>
+
+export function htmlPreviewSelectionColor(ownerDocument: Document): string {
+  return window
+    .getComputedStyle(ownerDocument.documentElement)
+    .getPropertyValue("--app-selection")
+    .trim()
+}
+
+export function htmlPreviewAnnotationModeMessage(
+  enabled: boolean,
+  selectionColor: string
+) {
+  return { type: htmlPreviewAnnotationModeMessageType, enabled, selectionColor }
+}
+
+export function htmlPreviewSelectionClearMessage(selection: HtmlSelection) {
+  return {
+    type: htmlPreviewSelectionClearMessageType,
+    selectors: selection.elements.map((element) => element.selector),
+  }
+}
 
 export function postHtmlPreviewAnnotationMode(
   frame: HTMLIFrameElement,
   enabled: boolean
 ) {
   frame.contentWindow?.postMessage(
-    {
-      type: htmlPreviewAnnotationModeMessageType,
+    htmlPreviewAnnotationModeMessage(
       enabled,
-      selectionColor: window
-        .getComputedStyle(frame.ownerDocument.documentElement)
-        .getPropertyValue("--app-selection")
-        .trim(),
-    },
+      htmlPreviewSelectionColor(frame.ownerDocument)
+    ),
     "*"
   )
 }
@@ -121,10 +139,7 @@ export function postHtmlPreviewSelectionClear(
   selection: HtmlSelection
 ): void {
   frame.contentWindow?.postMessage(
-    {
-      type: htmlPreviewSelectionClearMessageType,
-      selectors: selection.elements.map((element) => element.selector),
-    },
+    htmlPreviewSelectionClearMessage(selection),
     "*"
   )
 }
@@ -168,11 +183,15 @@ export function htmlSelectionAnchor(
 export function installHtmlPreviewAnnotationController(
   targetWindow: Window,
   config: Readonly<{
-    blockApplicationEvents?: boolean
+    /** A predicate lets injected hosts stop blocking after a live route change. */
+    blockApplicationEvents?: boolean | (() => boolean)
     selectoConstructor?: SelectoConstructor
     modeMessageType: string
     selectionMessageType: string
     reportMessage: (message: unknown) => void
+    /** Stricter transport guard for injected hosts; defaults to the parent. */
+    acceptEvent?: (event: MessageEvent<unknown>) => boolean
+    messagePort?: MessagePort
     clearMessageType: string
     selectableAttribute: string
     selectedAttribute: string
@@ -257,7 +276,7 @@ export function installHtmlPreviewAnnotationController(
   const attributeSelector = (name: string) => `[${name}="${markerValue}"]`
   const selectableTargetSelector = attributeSelector(config.selectableAttribute)
   const markedElements = new Set<Element>()
-  let selectedElements: Element[] = []
+  let selectedElements: ElementType[] = []
   let dragSelection: HtmlPreviewRect | null = null
   let selecto: SelectoInstance | null = null
   let overlayRoot: HTMLElement | null = null
@@ -338,7 +357,7 @@ export function installHtmlPreviewAnnotationController(
     selecto?.findSelectableTargets?.()
   }
 
-  const normalizeSelectionTargets = (elements: readonly Element[]) => {
+  const normalizeSelectionTargets = (elements: readonly ElementType[]) => {
     const unique = [...new Set(elements)].filter(
       (element) =>
         element.isConnected &&
@@ -354,7 +373,7 @@ export function installHtmlPreviewAnnotationController(
       .slice(0, config.maximumSelectionCount)
   }
 
-  const updateSelectionMarkers = (nextElements: readonly Element[]) => {
+  const updateSelectionMarkers = (nextElements: readonly ElementType[]) => {
     for (const element of selectedElements) {
       if (
         !nextElements.includes(element) &&
@@ -572,7 +591,11 @@ export function installHtmlPreviewAnnotationController(
   const preventInteractiveActivation = (event: Event) => {
     // Live applications have JS click/submit handlers; cancelling only the
     // browser default (sufficient for static documents) would still run tasks.
-    if (config.blockApplicationEvents) {
+    const block =
+      typeof config.blockApplicationEvents === "function"
+        ? config.blockApplicationEvents()
+        : config.blockApplicationEvents === true
+    if (block) {
       event.preventDefault()
       event.stopImmediatePropagation()
       return
@@ -764,7 +787,7 @@ export function installHtmlPreviewAnnotationController(
         const candidate = target.closest(selectableTargetSelector)
         if (
           !candidate ||
-          selectedElements.includes(candidate) ||
+          selectedElements.some((element) => element === candidate) ||
           candidate.getAttribute(config.annotatedAttribute) === "true"
         )
           return []
@@ -823,9 +846,14 @@ export function installHtmlPreviewAnnotationController(
     postSelection()
   }
 
+  const acceptsEvent =
+    config.acceptEvent ??
+    ((messageEvent: MessageEvent<unknown>) =>
+      messageEvent.source === targetWindow.parent)
+
   const handleMessage = (event: MessageEvent<unknown>) => {
     if (
-      event.source !== targetWindow.parent ||
+      !acceptsEvent(event) ||
       typeof event.data !== "object" ||
       event.data === null
     ) {
@@ -881,15 +909,18 @@ export function installHtmlPreviewAnnotationController(
     } else disable()
   }
 
-  targetWindow.addEventListener("message", handleMessage)
+  if (config.messagePort) config.messagePort.addEventListener("message", handleMessage)
+  else targetWindow.addEventListener("message", handleMessage)
 
   return {
     refresh,
+    isActive: () => selecto !== null,
     destroy: () => {
       if (destroyed) return
       disable()
       destroyed = true
-      targetWindow.removeEventListener("message", handleMessage)
+      if (config.messagePort) config.messagePort.removeEventListener("message", handleMessage)
+      else targetWindow.removeEventListener("message", handleMessage)
     },
   }
 }

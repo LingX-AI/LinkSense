@@ -32,6 +32,7 @@ var nativeWhitebox struct {
 	protocol      atomic.Int32
 	cloud         atomic.Pointer[cloudWhitebox]
 	browser       atomic.Pointer[browserUseWhitebox]
+	annotation    atomic.Pointer[annotationWhitebox]
 	completion    atomic.Bool
 	bootstrapFail atomic.Bool
 }
@@ -57,6 +58,11 @@ func TestMain(m *testing.M) {
 	}
 	mygo.App.SetPath(mygo.PathUserData, dataRoot)
 	nativeWhitebox.dataRoot = dataRoot
+	// Keep the packaging input untouched: the annotation whitebox may point
+	// the platform resources at a freshly built preload elsewhere.
+	if resources := os.Getenv("LINKSENSE_DESKTOP_ANNOTATION_RESOURCES"); resources != "" {
+		mygo.App.SetPath(mygo.PathResources, resources)
+	}
 	nativeWhitebox.store = &memoryCredentialStore{}
 	nativeWhitebox.protocol.Store(1)
 	nativeWhitebox.server = httptest.NewServer(http.HandlerFunc(whiteboxAPI))
@@ -159,6 +165,11 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 	} else if r.Header.Get("x-linksense-desktop-protocol") != protocol || r.Header.Get("x-linksense-client-build") != strings.Repeat("0", 64) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "DESKTOP_UPDATE_REQUIRED"})
+		return
+	}
+	// Annotation API responses must pass the same desktop protocol/build gate
+	// and carry its response headers as the real server.
+	if annotation := nativeWhitebox.annotation.Load(); annotation != nil && annotation.serve(w, r) {
 		return
 	}
 	if cloud := nativeWhitebox.cloud.Load(); cloud != nil && cloud.serve(w, r) {

@@ -38,3 +38,26 @@
 - API 应用标注、内置开发 Skill 与运行时内容发布测试：3 个文件、40 项通过；用户指南内容更新后同步刷新内置运行时摘要，验证已有任务快照按摘要更新。
 - Web 类型检查、受影响文件 ESLint、Web/API 生产构建及差异空白检查通过。Web 构建仍有既有的大资源包提示。
 - 本次没有修改数据库或标注 API 数据结构，已有应用和 HTML 标注无需重建或重新发布。未运行浏览器自动化或真实模型端到端修改。
+
+## Mac 桌面跨源投递（P1-10）
+
+打包的 Mac 宿主使用 mygo 0.10.0 的 `PageOptions.PreloadScript` 与 `PreloadAllFrames`，在第一方页面脚本之前注入固定控制器，且只在 macOS 启用。控制器满足全部条件才安装：是原生窗口的直接子框架（`parent === window.top` 且不是顶层）、自身 `location.origin` 等于打包 API origin、路径符合 `/api/v1/interactive-app-runtime/<43 字符 ticket>/<页面>.html`，并且文档为 HTML。父窗口必须是真实可信的 `mygo://localhost` 顶层窗口；不接受通配符，也不通过消息传递控制器代码或凭据。
+
+宿主在选中 iframe 后只向该 frame 的精确 origin 发送初始化并转交一条全新的 `MessageChannel` 端口。初始化消息不含票据；子框架仅从自身 `location` 推导 ticket 和相对页面路径，在端口上回报 ready，宿主用共享 Zod schema 校验 ticket、路径和来源后才启用标注控件。
+
+同一文档内的路由变化（`history.pushState`/`replaceState`、前进后退及 hash）不会关闭该端口。子框架优先监听 Navigation API 的 `currententrychange`；该 API 不可用时，用保留原行为的历史方法包装器加 `popstate`/`hashchange` 事件检测，因为后两者单独无法观察 `pushState`/`replaceState`。变化时子框架沿既有端口报告当前页面路径；路径离开本 ticket 时报告 `null`，并立即停止拦截应用点击/提交。宿主保留待发送草稿、清除子框架标记并禁用发送；返回原页面（不重新加载 iframe）后恢复匹配和标记。发送前宿主还会在同一端口回读实时路径（1 秒上限，超时按不匹配处理），不匹配时不调用标注 API。`pagehide`、端口销毁或整页加载仍关闭端口并丢弃迟到报告，旧文档的迟到消息不能更新新文档。
+
+其他同源 frame、无效 ticket 或路径、其他 origin 以及嵌套 frame 都不会进入标注模式。iframe 内不存在 `window.mygo`，父窗口不直接访问子文档；同源浏览器预览继续使用原有控制器安装路径。
+
+### 验证（2026-11-21）
+
+本轮在隔离快照中使用临时 Web/预加载输出（`../web-dist-p110`、`../preload-p110`），未改动根进程可能仍在读取的打包输入。
+
+- 原生白盒：`umask 022; LINKSENSE_DESKTOP_WEB_DIST=<temp>/web-dist-p110 LINKSENSE_DESKTOP_ANNOTATION_RESOURCES=<temp>/preload-p110 GOTOOLCHAIN=go1.27.3 go test -tags desktop_whitebox -run '^TestNativeCrossOriginApplicationAnnotation$' -count=1 -timeout 180s -v ./...`（`apps/desktop`）通过，2.66s。覆盖：真实 Selecto 选区和元素识别；标注模式下捕获阶段点击与表单提交全部被抑制、退出后恢复；添加草稿、退出标注后标记保留；模式关闭且存在草稿时用 `history.pushState` 切页（无 focus、选区或桥接命令驱动），宿主显示页面已变化、禁用发送且没有发出任何 API 写请求；用 `pushState` 返回原页后不重新加载 iframe，草稿匹配、标记恢复、发送重新可用；整页导航仍保留草稿但禁用发送并在返回后恢复；同源其他 ticket/无效路径、未选中的同源 frame、其他 loopback origin 的 frame 和嵌套 frame 均不进入标注模式，选中 frame 的选区不受其他 frame 的模式命令影响；iframe 内 `window.mygo` 不存在；端口只回报自身 ticket 和页面路径，destroy 后页面恢复。
+- 该 WKWebView（`AppleWebKit/605.1.15`）日志显示 `Navigation API available: false`，因此原生用例实际覆盖的是 History 包装器路径；Navigation API 分支由带假 `currententrychange` 的 Vitest 覆盖，供较新 WebKit 使用。
+- 完整 `desktop_whitebox` 套件（同一临时输入）：`go test -tags desktop_whitebox -count=1 -timeout 300s ./...` 通过，34.556s。
+- Web 定向测试：`pnpm --filter @linksense/web exec vitest run --project components --maxWorkers=2` 选取 bridge、native runtime、preload install、runtime、desktop preview、preview 及 HTML 标注/选区共 7 个文件，70 项通过。新增回归覆盖同一文档 History 变化上报和恢复、发送前回读、错误 ticket/路径拒绝、端口不关闭、Navigation API 优先与 History 包装回退。
+- `pnpm --filter @linksense/web typecheck`、受影响文件 ESLint、`go test -race -count=1 ./...` 与 `go vet -tags desktop_whitebox ./...` 通过。
+- 原地语言切换由 React/i18n 集成测试覆盖（`application-annotation-preview.desktop.test.tsx` 确认 native runtime 只安装一次且未清理）。原生白盒不再用函数源码文本探测 `setAppLanguage`：当前没有同一页面内的语言控件，设置页路由会卸载预览，不能在不改变语义的情况下从原生 UI 触发原地切换。
+
+未验证：打包/签名/公证后的安装包（由发布流程单独校验预加载与包内文件一致）、用户真实应用页面、VoiceOver/输入法下的选区、其他 macOS/WebKit 版本以及 Windows（该预加载仅随 macOS 发布）。

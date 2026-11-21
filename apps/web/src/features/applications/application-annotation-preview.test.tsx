@@ -117,6 +117,13 @@ function select(
   if (!installed) throw new Error("Missing annotation runtime")
   act(() => installed[4](selectionMessage(text, top, selector)))
 }
+function reportReady(frame: HTMLIFrameElement | null, path: string) {
+  const installed = vi
+    .mocked(installApplicationAnnotationRuntime)
+    .mock.calls.findLast(([candidate]) => candidate === frame)
+  if (!installed) throw new Error("Missing annotation runtime")
+  act(() => installed[2](path))
+}
 async function fillPrompt(request: string) {
   await userEvent.click(
     await screen.findByRole("button", { name: /问 LinkSense/ })
@@ -410,5 +417,69 @@ describe("application annotation preview", () => {
     expect(
       screen.getByText("暂时无法标注此页面，请重新打开应用预览。")
     ).toBeInTheDocument()
+  })
+  it("keeps pending annotations across language updates without reinstalling", async () => {
+    const f = show()
+    await userEvent.click(screen.getByRole("button", { name: "标注" }))
+    await add(f.frameRef.current!, "修改按钮")
+    expect(
+      screen.getByRole("button", { name: "查看 1 条待发送标注" })
+    ).toBeVisible()
+    const installs = vi.mocked(installApplicationAnnotationRuntime).mock.calls
+      .length
+
+    await act(() => i18n.changeLanguage("en-US"))
+
+    expect(vi.mocked(installApplicationAnnotationRuntime)).toHaveBeenCalledTimes(
+      installs
+    )
+    expect(
+      screen.getByRole("button", { name: "View 1 pending annotations" })
+    ).toBeVisible()
+    await userEvent.click(
+      screen.getByRole("button", { name: "View 1 pending annotations" })
+    )
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Send" })
+    ).toBeEnabled()
+  })
+  it("retains drafts but disables submit when the preview page changes, and restores it on return", async () => {
+    const f = show()
+    await userEvent.click(screen.getByRole("button", { name: "标注" }))
+    await add(f.frameRef.current!, "修改按钮")
+    reportReady(f.frameRef.current, "details.html")
+
+    expect(
+      await screen.findByText(
+        "页面已更新，请清空并退出标注，待预览更新后重新选择。"
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "查看 1 条待发送标注" })
+    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "标注" })).toBeDisabled()
+    await userEvent.click(
+      screen.getByRole("button", { name: "查看 1 条待发送标注" })
+    )
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "发送" })
+    ).toBeDisabled()
+    await userEvent.keyboard("{Escape}")
+
+    reportReady(f.frameRef.current, "index.html")
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "页面已更新，请清空并退出标注，待预览更新后重新选择。"
+        )
+      ).toBeNull()
+    )
+    expect(screen.getByRole("button", { name: "标注" })).toBeEnabled()
+    await userEvent.click(
+      screen.getByRole("button", { name: "查看 1 条待发送标注" })
+    )
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "发送" })
+    ).toBeEnabled()
   })
 })
