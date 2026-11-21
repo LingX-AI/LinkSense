@@ -102,15 +102,34 @@ describe("buildTurnInput", () => {
     expect(routing?.value).toContain("request_user_form");
     expect(routing?.value).toContain("the linksense-public-site-builtin-2 Skill");
     expect(routing?.value).toContain("linksense-interactive-app-builder");
-    expect(routing?.value).toContain("explain what each option means");
-    expect(routing?.value).toContain("one-line description");
-    expect(routing?.value).toContain("Do not silently default");
+    expect(routing?.value).toContain("outcome-based radio choices with a one-line description each");
+    expect(routing?.value).toContain("not by default");
     expect(routing?.value).toContain("reuse confirmed answers");
     expect(routing?.value).toContain("only the next outcome-changing question");
     expect(routing?.value).toContain("A page and an automation may be combined");
-    expect(routing?.value).toContain("choosing a delivery shape alone does not authorize");
+    expect(routing?.value).toContain("preview and delivery choice are not consent");
     expect(routing?.value).toContain("page, data and reminder readiness separately");
     expect(buildTurnAdditionalContext(base, undefined, "plan")).not.toHaveProperty("linksense.deliverable-routing");
+  });
+
+  it("guides ordinary HTML delivery to a usable private preview without asking to publish first", () => {
+    const context = {
+      userInput: "做个文字解谜小游戏",
+      attachments: [],
+      priorityPlugins: [],
+      prioritySkills: [],
+    };
+    const output = buildTurnAdditionalContext(context);
+    const routing = output?.["linksense.deliverable-routing"]?.value;
+    const delivery = output?.["linksense.inline-html-preview"]?.value;
+
+    expect(routing).toContain("deliver a private preview without asking first");
+    expect(routing).toContain("Fix inaccessible previews or offer a usable fallback");
+    expect(routing).toContain("a link others can open");
+    expect(routing).toContain("Public publishing and schedule activation require explicit authorization");
+    expect(delivery).toContain("register_artifact");
+    expect(delivery).toContain("point to the preview card, not a workspace path");
+    expect(delivery).toContain("Source-only: deliver a download");
   });
 
   it.each(["linksense-public-site", "linksense-public-site-builtin-2"])(
@@ -134,7 +153,7 @@ describe("buildTurnInput", () => {
       expect(routing).toContain("dynamic applications");
       expect(routing).toContain("visitor accounts, persistent data, uploads or business APIs");
       expect(routing).toContain("self-hosted backend");
-      expect(routing).toContain("Preview requests do not authorize public publishing");
+      expect(routing).toContain("Public publishing and schedule activation require explicit authorization");
       expect(routing).toContain("LinkSense AI, tasks, knowledge bases, files, plugins, or organization sharing");
       expect(routing).not.toContain("configure_web_site_backend");
       expect(buildTurnInput(context, { plugins: [], skills: [] })).toBe(context.userInput);
@@ -659,12 +678,7 @@ describe("buildTurnInput", () => {
     expect(instructions).toContain("get_rich_output_catalog");
     expect(instructions).toContain("Comparisons/charts/file groups: call get_rich_output_catalog");
     expect(instructions).toContain("Short answers: prose");
-    expect(instructions).toContain(
-      "Current-conversation questions, choices, confirmation and feedback use request_user_form",
-    );
-    expect(instructions).toContain(
-      "preview forms are standalone demos only",
-    );
+    expect(instructions).toContain("Preview forms are standalone demos, not conversation input.");
     expect(instructions).not.toMatch(/tailwind|CDN|CSS framework|external stylesheet/i);
     expect(instructions).toContain("Use ordinary html fences for source examples; never preview an incomplete fragment");
     expect(instructions).not.toContain(

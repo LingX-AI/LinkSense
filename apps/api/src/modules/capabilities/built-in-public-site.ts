@@ -39,7 +39,9 @@ ${applicationIntentInstructions("this Skill", `${coreMcpServerKey}.request_user_
   Use ordinary outcome language in the user's language. For a water reminder,
   ask whether it must work after closing the page, with choices such as “yes”,
   “only while open” and “preview first, decide reminders later”.
-  Use a required form for unresolved publication, recipients or schedule activation.
+  Ask about publication only when the intended audience is unclear and affects
+  the outcome. Use a required form for necessary publication, recipient or
+  schedule decisions.
   For low-impact unknown details, explain a reversible assumption and build a draft.
   Resolve essential follow-up details only when needed; “ask once” is not a ban
   on asking a different necessary question. A chosen Web delivery is not itself
@@ -199,12 +201,13 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
    pass \`workspace_relative_path: artifacts/<site-name>/index.html\`,
    \`web_root_relative_path: artifacts/<site-name>\`, a concise
    \`display_name\`, and \`mime_type: text/html\`. The tool returns \`file_id\`.
-3. If the user only asked to see the result, deliver the registered HTML
-   preview. Do not publish. For a static site, mention its Publish as site action.
+3. Without publication authorization, lead with the registered HTML preview card,
+   not a workspace path. Do not publish. For source-only requests, deliver a
+   download. For a static site, mention its Publish as site action only if sharing helps.
    For a dynamic application, explain that this is a UI preview without working
-   visitor login or backend access. The generic HTML Publish as site action does not attach a dynamic backend;
-   invite the user to ask for publication in this conversation. Once authorized,
-   reuse the prepared \`backend_id\` and publish through the tool.
+   visitor login or backend access. The generic HTML Publish as site action does not attach a dynamic backend.
+   If sharing helps, invite the user to ask for publication in this conversation.
+   Once authorized, reuse the prepared \`backend_id\` and publish through the tool.
 4. For an authorized publication, choose a readable English slug before
    publishing if the user did not specify one: 3–80 lowercase letters, digits,
    and hyphens, for example \`water-reminder\`. Call
