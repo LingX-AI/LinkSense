@@ -17,6 +17,7 @@ import type {
   PrismaClient,
 } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { nextCalendarPeriodStart } from "../../lib/calendar-period.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -108,7 +109,7 @@ export class BillingStatementService {
     if (!periodStart.isBefore(currentMonth)) {
       return false;
     }
-    const periodEnd = periodStart.add(1, "month");
+    const periodEnd = nextCalendarPeriodStart(periodStart, "month", this.timeZone);
     const periodStartDate = periodStart.toDate();
     const periodEndDate = periodEnd.toDate();
     const displayNames = await this.loadDisplayNames();

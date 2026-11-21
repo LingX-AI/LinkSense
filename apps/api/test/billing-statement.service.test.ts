@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import { BillingStatementService } from "../src/modules/usage/billing-service.js";
 
 describe("BillingStatementService", () => {
+  it.each([
+    ["2026-03", "2026-03-01T05:00:00Z", "2026-04-01T04:00:00Z"],
+    ["2026-11", "2026-11-01T04:00:00Z", "2026-12-01T05:00:00Z"],
+  ])("bills %s up to the next local midnight across DST", async (month, start, end) => {
+    const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      billingStatement: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: statementId }) },
+      tokenUsageRecord: { findMany: vi.fn().mockResolvedValue([]) },
+      modelUsageRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const service = new BillingStatementService({ $transaction: async (operation: (transaction: typeof tx) => Promise<boolean>) => operation(tx) } as never,
+      { timeZone: "America/New_York", now: () => new Date("2027-01-02T00:00:00Z") });
+    await expect(service.generateStatement(month)).resolves.toBe(true);
+    expect(tx.tokenUsageRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { observedAt: { gte: new Date(start), lt: new Date(end) } } }));
+    expect(tx.billingStatement.create).toHaveBeenCalledWith({ data: expect.objectContaining({ periodStart: new Date(start), periodEndExclusive: new Date(end) }) });
+  });
+
   it("creates one immutable monthly line per model from both usage ledgers", async () => {
     const tx = {
       $executeRaw: vi.fn().mockResolvedValue(0),
@@ -111,6 +128,18 @@ describe("BillingStatementService", () => {
 
     await expect(service.generateStatement("2026-03")).resolves.toBe(false);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("preserves a pre-fix immutable DST statement instead of silently rewriting or recreating it", async () => {
+    const historical = { id: statementId, periodEndExclusive: new Date("2026-12-01T04:00:00Z") };
+    const tx = { $executeRaw: vi.fn().mockResolvedValue(0), billingStatement: { findUnique: vi.fn().mockResolvedValue(historical) } };
+    const service = new BillingStatementService({ $transaction: async (operation: (transaction: typeof tx) => Promise<boolean>) => operation(tx) } as never,
+      { timeZone: "America/New_York", now: () => new Date("2027-01-01T12:00:00Z") });
+    await expect(service.generateStatement("2026-11")).resolves.toBe(false);
+    expect(tx.billingStatement.findUnique).toHaveBeenCalledWith({
+      where: { periodStart_timeZone: { periodStart: new Date("2026-11-01T04:00:00Z"), timeZone: "America/New_York" } }, select: { id: true },
+    });
+    expect(historical.periodEndExclusive.toISOString()).toBe("2026-12-01T04:00:00.000Z");
   });
 });
 
