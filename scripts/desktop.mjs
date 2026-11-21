@@ -3,6 +3,16 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm } from "
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import {
+  desktopBuildLdflags,
+  desktopUpdateChildEnvironment,
+  desktopUpdateConfiguration,
+  desktopUpdateKeyFile,
+  requireDesktopReleaseUpdateSigning,
+  signDesktopUpdateManifest,
+  stageDesktopUpdatePrivateKey,
+  verifyDesktopUpdateArtifacts,
+} from "./desktop-update.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const desktop = path.join(root, "apps/desktop");
@@ -39,19 +49,19 @@ export function desktopBuildServerUrl(raw) {
   return `${url.origin}${explicitDefaultPort}`;
 }
 
-export function desktopUpdateBuildFlags(feed, publicKey) {
-  if (feed === undefined && publicKey === undefined) return "";
-  if (!feed || !publicKey || /[\s"'\\?#]/u.test(feed)) throw new Error("Desktop updates require a feed URL and public key");
-  const url = new URL(feed);
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.username || url.password || !(url.protocol === "https:" || (url.protocol === "http:" && loopback))) {
-    throw new Error("Desktop update feed must use HTTPS (or loopback HTTP)");
+export function desktopMygoBuildArguments(target, signing = {}) {
+  validateDesktopTarget(target);
+  if (!signing.identity) {
+    return ["tool", "mygo", "build", "-platform", target, "-sign", "-", "-skip-notarize"];
   }
-  const key = Buffer.from(publicKey, "base64");
-  if (key.length !== 32 || key.toString("base64") !== publicKey) {
-    throw new Error("Desktop update public key must be a base64 Ed25519 public key");
-  }
-  return `-X github.com/egoist/mygo.packageUpdateFeed=${url.href} -X github.com/egoist/mygo.packageUpdateKey=${publicKey}`;
+  if (!signing.outputRoot) throw new Error("A signed desktop build needs an output directory");
+  return ["tool", "mygo", "build", "-platform", target, "-sign", signing.identity, "-o", signing.outputRoot];
+}
+
+export function desktopChildEnvironment(environment) {
+  const child = { ...environment };
+  delete child.MYGO_UPDATER_PRIVATE_KEY;
+  return child;
 }
 
 export function desktopMacosReleaseTeam(target, server, identity, platform = process.platform, arch = process.arch) {
@@ -117,7 +127,7 @@ export function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd ?? desktop,
-      env: { ...process.env, GOTOOLCHAIN: goToolchain, ...options.env },
+      env: desktopChildEnvironment({ ...process.env, GOTOOLCHAIN: goToolchain, ...options.env }),
       stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
       shell: false,
     });
@@ -172,6 +182,10 @@ async function stageNotices(target) {
 }
 
 async function main() {
+  // Keep the signing key out of every child process. The build writes it to a
+  // private 0600 file and passes only that path to MyGo.
+  const environment = { ...process.env };
+  delete process.env.MYGO_UPDATER_PRIVATE_KEY;
   const mode = process.argv[2] ?? "dev";
   const { values } = parseArgs({
     args: process.argv.slice(3).filter(value => value !== "--"),
@@ -232,70 +246,94 @@ async function main() {
   }
   const server = desktopBuildServerUrl(values["server-url"] ?? process.env.LINKSENSE_DESKTOP_SERVER_URL);
   if (mode === "build") {
-    const updateFlags = desktopUpdateBuildFlags(
-      process.env.LINKSENSE_DESKTOP_UPDATE_FEED, process.env.LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY,
-    );
     const target = validateDesktopTarget(values.platform ?? desktopTarget());
+    const update = desktopUpdateConfiguration(environment, target);
     const identity = process.env.LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY;
     const team = values["macos-release"] ? desktopMacosReleaseTeam(target, server, identity) : undefined;
     if (!team && identity) throw new Error("LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY requires --macos-release");
-    if (team && updateFlags && new URL(process.env.LINKSENSE_DESKTOP_UPDATE_FEED).protocol !== "https:") {
+    if (team && update.legacyFeed && new URL(update.legacyFeed).protocol !== "https:") {
       throw new Error("--macos-release requires an HTTPS update feed");
     }
-    await stageNotices(target);
-    const { prepareDesktopResources, verifyDesktopPackageManifest, verifyDesktopRuntimeFiles,
-      verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } =
-      await import("./desktop-resources.mjs");
-    const { runtime, manifestBytes } = await prepareDesktopResources(target);
-    const build = path.join(desktop, "build");
-    await mkdir(build, { recursive: true });
-    const buildAndVerify = async (outputRoot) => {
-      const signing = team ? ["-sign", identity, "-o", outputRoot] : ["-sign", "-", "-skip-notarize"];
-      await run("go", ["tool", "mygo", "build", "-platform", target, ...signing], {
-        env: {
-          LINKSENSE_DESKTOP_BUILD_TARGET: target,
-          LINKSENSE_DESKTOP_MACOS_RELEASE: team ? "1" : "0",
-          MYGO_LDFLAGS: `${process.env.MYGO_LDFLAGS ?? ""} -X main.desktopServerURL=${server} ${updateFlags}`.trim(),
-        },
-      });
-      const output = path.join(outputRoot, target.replace("/", "-"));
-      const app = path.join(output, "LinkSense.app");
-      const runtimePath = target.startsWith("darwin") ? path.join(app, "Contents", "Resources", "runtime")
-        : path.join(output, "runtime");
-      if (target.startsWith("darwin/")) {
-        const { desktopAnnotationPreloadOutput } = await import("./desktop-preload.mjs");
-        const preload = desktopAnnotationPreloadOutput(root);
-        const packaged = path.join(path.dirname(runtimePath), path.basename(preload));
-        if (!(await readFile(packaged)).equals(await readFile(preload))) {
-          throw new Error("Packaged Mac annotation preload does not match the build");
-        }
+    const stagedKey = update.signedArtifacts
+      ? await stageDesktopUpdatePrivateKey(update.privateKey) : undefined;
+    const privateKeyFile = stagedKey?.file ?? (update.signedArtifacts ? update.privateKeyFile : undefined);
+    try {
+      if (privateKeyFile) await desktopUpdateKeyFile(privateKeyFile);
+      requireDesktopReleaseUpdateSigning(update, privateKeyFile, Boolean(team));
+      // The signed manifest may only exist after the real packaged runtime
+      // smoke; a cross-target build cannot run it.
+      const nativeSmoke = ["darwin", "win32"].includes(process.platform) && target === desktopTarget();
+      if (update.signedArtifacts && privateKeyFile && !nativeSmoke) {
+        throw new Error("Signing desktop update artifacts requires the packaged runtime smoke on the target platform");
       }
-      await verifyDesktopPackageManifest(runtimePath, manifestBytes);
-      if (process.platform === "darwin" && target.startsWith("darwin/")) await verifyMacosBundlePermissions(app);
-      // Developer ID signing rewrites Mach-O bytes; the sealed bundle and its code signatures replace the pre-sign hashes.
-      if (team) {
-        await verifySignedDesktopRuntime(app, runtimePath, runtime, team);
-        const images = (await readdir(output)).filter(file => file.endsWith(".dmg"));
-        if (images.length !== 1) throw new Error("MyGo must produce one release disk image");
-        for (const artifact of [app, path.join(output, images[0])]) {
-          await run("/usr/bin/xcrun", ["stapler", "validate", artifact]);
-        }
-      } else {
-        await verifyDesktopRuntimeFiles(runtimePath, runtime.files);
-      }
-      await verifyPackagedDesktopRuntime(runtimePath, target, runtime.versions);
-      if (["darwin", "win32"].includes(process.platform) && target === desktopTarget()) {
-        await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtimePath], { cwd: root });
-        const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn)$" : "^TestPackagedRuntimeSupervisor$";
-        await run("go", ["test", "-tags", "desktop_runtime_package", "-run", tests, "-count=1", "-timeout=100s", "./..."], {
-          env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtimePath },
+      const ldflags = desktopBuildLdflags(server, update, process.env.MYGO_LDFLAGS);
+      await stageNotices(target);
+      const { prepareDesktopResources, verifyDesktopPackageManifest, verifyDesktopRuntimeFiles,
+        verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } =
+        await import("./desktop-resources.mjs");
+      const { runtime, manifestBytes } = await prepareDesktopResources(target);
+      const build = path.join(desktop, "build");
+      await mkdir(build, { recursive: true });
+      const updateEnvironment = desktopUpdateChildEnvironment(update, privateKeyFile);
+      const buildAndVerify = async (outputRoot) => {
+        await run("go", desktopMygoBuildArguments(target, team ? { identity, outputRoot } : {}), {
+          env: {
+            LINKSENSE_DESKTOP_BUILD_TARGET: target,
+            LINKSENSE_DESKTOP_MACOS_RELEASE: team ? "1" : "0",
+            ...updateEnvironment,
+            MYGO_LDFLAGS: ldflags,
+          },
         });
-      } else if (target.startsWith("darwin/")) {
-        console.warn(`Built ${target} without native execution verification.`);
-      }
-    };
-    if (team) console.log(`Verified release output: ${await stageDesktopMacosRelease(build, buildAndVerify)}`);
-    else await buildAndVerify(build);
+        const output = path.join(outputRoot, target.replace("/", "-"));
+        const app = path.join(output, "LinkSense.app");
+        const runtimePath = target.startsWith("darwin") ? path.join(app, "Contents", "Resources", "runtime")
+          : path.join(output, "runtime");
+        if (target.startsWith("darwin/")) {
+          const { desktopAnnotationPreloadOutput } = await import("./desktop-preload.mjs");
+          const preload = desktopAnnotationPreloadOutput(root);
+          const packaged = path.join(path.dirname(runtimePath), path.basename(preload));
+          if (!(await readFile(packaged)).equals(await readFile(preload))) {
+            throw new Error("Packaged Mac annotation preload does not match the build");
+          }
+        }
+        await verifyDesktopPackageManifest(runtimePath, manifestBytes);
+        if (process.platform === "darwin" && target.startsWith("darwin/")) await verifyMacosBundlePermissions(app);
+        // Developer ID signing rewrites Mach-O bytes; the sealed bundle and its code signatures replace the pre-sign hashes.
+        if (team) {
+          await verifySignedDesktopRuntime(app, runtimePath, runtime, team);
+          const images = (await readdir(output)).filter(file => file.endsWith(".dmg"));
+          if (images.length !== 1) throw new Error("MyGo must produce one release disk image");
+          for (const artifact of [app, path.join(output, images[0])]) {
+            await run("/usr/bin/xcrun", ["stapler", "validate", artifact]);
+          }
+        } else {
+          await verifyDesktopRuntimeFiles(runtimePath, runtime.files);
+        }
+        await verifyPackagedDesktopRuntime(runtimePath, target, runtime.versions);
+        // MyGo signs the archive and manifest inside the verified stage. Check
+        // them, and the archive's bundle plist, before the stage is exposed.
+        const verifiedUpdate = update.signedArtifacts && privateKeyFile
+          ? await verifyDesktopUpdateArtifacts(output, update, app) : undefined;
+        if (nativeSmoke) {
+          await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtimePath], { cwd: root });
+          const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn)$" : "^TestPackagedRuntimeSupervisor$";
+          await run("go", ["test", "-tags", "desktop_runtime_package", "-run", tests, "-count=1", "-timeout=100s", "./..."], {
+            env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtimePath },
+          });
+        } else if (target.startsWith("darwin/")) {
+          console.warn(`Built ${target} without native execution verification.`);
+        }
+        // Publish the verified envelope only after that smoke. The raw MyGo
+        // manifest and artifacts are already in place for future delta builds.
+        if (verifiedUpdate) {
+          await signDesktopUpdateManifest(output, update, verifiedUpdate.manifestBytes, privateKeyFile);
+        }
+      };
+      if (team) console.log(`Verified release output: ${await stageDesktopMacosRelease(build, buildAndVerify)}`);
+      else await buildAndVerify(build);
+    } finally {
+      await stagedKey?.cleanup();
+    }
     return;
   }
   await stageNotices(desktopTarget());

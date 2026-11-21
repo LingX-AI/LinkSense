@@ -444,17 +444,17 @@ flowchart TB
 
 ### 5.10 应用内更新（自动更新）
 
-- **机制**：`mygo build` 对整包和增量签名，应用内嵌公钥。[`Updater.Check` 读取 manifest；`Update.Install` 下载、验签并暂存](https://github.com/egoist/mygo/blob/v0.10.0/updater.go)。增量失败可回退整包，进度随之重新开始。更新说明仍按不可信内容渲染。
-- **发布源**：`updates.github`（公开仓库 + `tagPrefix: desktop-v`）或自托管 `updates.url` + `updates.s3`（S3 兼容：R2 等）。建议主源用自托管对象存储 + CDN（国内可达），GitHub 作为内部/备用；`mygo build -upload` 直接上传 archives、deltas、manifest、install 脚本。需要账号鉴权或自定义渠道时用 `Updater.SetSource`（仍校验同一把更新公钥）。
-- **渠道**：`SetPrereleases` 对 GitHub 源生效；自托管源按 stable/beta 返回相应的 manifest，可用 `Updater.SetSource`。持久化用户选择；切换渠道不降级。
+- **机制**：`mygo build` 对整包和增量签名，应用内嵌公钥。[`Updater.Check` 读取 manifest；`Update.Install` 下载、验签并暂存](https://github.com/egoist/mygo/blob/v0.10.0/updater.go)。MyGo manifest 的版本号本身不受 archive/delta 签名保护，因此现代客户端读取 `${feed}.signed` 信封：base64 编码的 64 字节 Ed25519 签名、LF、未改写的 MyGo manifest 原始 JSON 字节；签名消息为 `LinkSense desktop update manifest v1\n` + 配置的原始 manifest URL + `\n` + 原始 JSON 字节，使用标准 Ed25519（无预哈希）。验证通过后才采用版本号，确认版本/工件关联，并把原始字节交给 MyGo，由 MyGo 继续完成 archive/delta 校验、暂存与重启替换；新路径不回退到未签名 manifest。增量失败可回退整包，进度随之重新开始。更新说明只按有界纯文本原样展示。
+- **发布源**：实现使用自托管 HTTPS `updates.url` 的 stable/beta 目录（`LINKSENSE_DESKTOP_UPDATE_URL` / `LINKSENSE_DESKTOP_UPDATE_BETA_URL`），由 mygo 按 `updates.publicKey` 签名并生成 archives、deltas 与未改写的 manifest。LinkSense 在包、MyGo 产物与真实打包运行时冒烟全部通过后，才用同一把私钥生成 `update-<target>.json.signed`；原始 manifest 保持原样，供后续 MyGo CLI delta 构建读取。发布**不使用** `mygo build -upload`：它在 LinkSense 后置校验之前上传，S3 manifest 可能立即可见；暂存区只做字节审核与 promote，先文件与原始 manifest、最后 `.signed` 信封。stable/beta 通过 `Updater.SetSource` 选择，仍校验同一把公钥。自托管源不跟随重定向，目录需直接提供 HTTPS 文件；GitHub/S3 直传留作后续，若启用必须复用同一后置校验与 signed-envelope-last 顺序。签名、校验、暂存与 promote 的单一流程见[桌面手册](../../apps/desktop/README.md#releasing-a-verified-candidate)，本文不重复文件清单与顺序。
+- **渠道**：自托管源由 `main.desktopUpdateFeed`/`main.desktopUpdateBetaFeed` 选择 stable/beta manifest，`main.desktopUpdateManifestKey` 注入与 MyGo 配置相同的 base64 公钥用于 `.signed` 验证；持久化用户选择；切换渠道不降级，beta 只在 stable 目录存在时附加。候选版本最长 40 字符，与 `desktop_devices.app_version` 及注册 schema 一致。`SetPrereleases` 的 GitHub 语义不用于该自托管发布路径。
 - **UI**：沿用设置页和菜单入口，复用 [mygo 更新原语](https://github.com/egoist/mygo/blob/v0.10.0/docs/updates.md#your-own-update-ui)。上游插件的 `OnInstalled` 在暂存后才触发，不能作为回合准入门控。
-- **安装位置**：`Enabled()` 只在应用可写时返回 true——macOS `/Applications` 或 `~/Applications`；Windows per-user 安装目录。只读位置或开发构建降级为“下载安装包”链接，不静默失败。
-- **升级范围**：应用二进制、内嵌前端、`resources` 里的 `agent-desktop` 与本地 runner 一起升级；Chrome/Edge 扩展独立更新（设置页重新下载）。客户端上报版本，API 对过旧版本给升级提示但不强制。
-- **与本地回合互斥**（M1 必须）：macOS 上 `Install` 开始下载与暂存；暂存完成后，进程退出即触发 `.app` 替换，`App.Relaunch` 只是重启入口。在调用 `Install` **之前**原子锁住本地任务准入并确认回合已结束，或由用户显式中断；安装失败解锁，安装已暂存则维持到退出。退出时等待本地 runner 停止，重启后不续跑旧回合。更新检查可在运行中进行。
-- **安全**：更新私钥只存密码管理器与 CI secrets，不进仓库；公钥固定在构建里；拒绝未签名、篡改与降级；只走 HTTPS；日志不打印密钥与签名内容。
-- **发布流程**：macOS runner 签名、公证及 staple → 预发布 → 内部验证 → 正式发布；保留最近 3 个版本供增量使用。Windows 发布留待后续。
-- **已知限制**：GitHub 源的检查受 60 次/小时/地址限制（自托管 `url` 无此限制）；delta 构建时需要能读取已发布 manifest，失败则本次不产 delta（整包更新仍可用）。
-- **UI 状态机**（已是最新 / 可更新 / 下载中 / 已暂存待退出 / 待回合结束 / 检查失败 / 只读安装位置）：下载后用 mygo 回调显示真实进度。`Update` 不公开预下载包大小，缺失时不估算。失败保留当前版本；只读安装位置降级为下载安装包。
+- **安装位置**：签名更新当前只在 macOS 启用，Windows 保持 legacy check-only。macOS `Enabled()` 只在应用可写时返回 true（`/Applications` 或 `~/Applications`）。可写安装执行应用内下载/暂存；只读安装不能调用 `Install`，构建配置了固定 HTTPS 安装页（`LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`）时显示该页，不显示版本号、不猜测 URL；未配置时只显示不可用。签名 `--macos-release` + update 目录必须提供该安装页；开发/测试 feed 可省略。本仓库旧 check-only 构建没有该变量，需一次性用已验证 DMG 桥接。
+- **升级范围**：应用二进制、内嵌前端、`resources` 里的 `agent-desktop` 与本地 runner 一起升级；Chrome/Edge 扩展独立更新（设置页重新下载）。应用版本在配对注册时随 `app_version` 上报；已配对会话目前不刷新该值，作为 P1-27 的跟进项处理，本文不定义服务端过期版本策略。
+- **与本地回合互斥**（M1 必须）：`Install` 前先取得本地运行时准入；若回合仍在运行，返回可重试的 busy，**不排队、不等待、不自动重放**。用户结束回合或显式中止后手动重试，此时才下载/暂存。暂存完成后，进程退出即触发 `.app` 替换，`App.Relaunch` 只是重启入口；安装失败释放准入，已暂存则维持到退出。退出时等待本地 runner 停止，重启后不续跑旧回合。更新检查可在运行中进行。
+- **安全**：更新私钥只存密码管理器与 CI secrets，不进仓库；私钥只在签名步骤从既有 0600 文件读入，不经环境或参数传播；公钥固定在构建里，同时用于 MyGo archive/delta 与 `.signed` 信封；`.signed` 缺失或验证失败时新客户端不回退到未签名 manifest，拒绝篡改与降级；更新目录与安装页只走 HTTPS（安装页禁止凭据、fragment），安装页不运行时拼接；日志不打印密钥与签名内容。
+- **发布流程**：候选版本的签名、公证及 staple、artifact 校验、打包运行时冒烟、`.signed` 生成、暂存审核与 promote 统一按[桌面手册：发布已验证候选](../../apps/desktop/README.md#releasing-a-verified-candidate)执行；本文只保留设计约束，不重复命令、文件名与顺序。发布阶段不调用 `mygo build -upload`；跨目标构建无法完成打包运行时冒烟时拒绝签名。Windows 发布留待后续。
+- **已知限制**：manifest 的 archive URL 绝对指向构建时目录；原始 manifest 仍按原样发布（供后续 MyGo CLI delta 构建读取），现代客户端只信任 `.signed`。暂存区只做字节审核与 promote，不是第二个更新源，指向暂存区不会改写 manifest。自托管 `url` 无 GitHub 60 次/小时限制；delta 构建需读取已发布 manifest，失败则本次不产 delta（整包仍可用）。只读安装不能查询版本，只能显示固定安装页；本仓库旧 check-only 安装需一次性已验证 DMG 桥接。
+- **UI 状态机**（已是最新 / 可更新 / 下载中 / 已暂存待退出 / busy（结束或中止回合后手动重试） / 检查失败 / 只读安装位置）：下载后用 mygo 回调显示真实进度。`Update` 不公开预下载包大小，缺失时不估算。失败保留当前版本；只读安装位置显示配置的安装页；busy 不自动重试。
 
 ### 5.11 内置浏览器（客户端自带）
 

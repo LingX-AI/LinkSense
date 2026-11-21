@@ -121,14 +121,265 @@ A markerless Web layout and the Windows host keep their original cascades,
 geometry, and drag behavior. The title-bar values are zero in full screen, so
 no phantom inset remains.
 
-To enable **Check for updates**, supply both
-`LINKSENSE_DESKTOP_UPDATE_FEED` (the target's full update manifest URL) and
-`LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` (the base64 Ed25519 public key) at build
-time. The client queries the feed through mygo and reports the release version
-in Settings and the protocol update notice. This stage only checks for
-updates; it does not download or install them. mygo requires a writable
-installation location for update checks. Read-only installations and releases
-without a feed show that update checks are unavailable.
+To enable **Check for updates**, supply the update directories and the
+base64 Ed25519 public key at build time. Signed artifacts are a macOS build
+feature; Windows keeps the legacy `LINKSENSE_DESKTOP_UPDATE_FEED` contract
+below. Stable and beta are separate HTTPS directories:
+
+| Variable | Purpose |
+| --- | --- |
+| `LINKSENSE_DESKTOP_UPDATE_URL` | macOS stable asset directory, e.g. `https://downloads.example.com/linksense/stable`. Enables signed artifacts and installation. |
+| `LINKSENSE_DESKTOP_UPDATE_BETA_URL` | macOS beta asset directory. Additive: it requires `LINKSENSE_DESKTOP_UPDATE_URL` and is required for prerelease candidates. |
+| `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` | Base64 Ed25519 public key embedded in the app. Required with any update source. |
+| `LINKSENSE_DESKTOP_VERSION` | Optional strict SemVer version for this candidate, at most 40 characters (the `desktop_devices.app_version` column and its registration schema). It changes the bundle, artifact and manifest version. Never reuse or lower a published version; MyGo only offers a version newer than the running one. |
+| `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL` | Fixed HTTPS installer/support page, macOS only. Required for signed `--macos-release` builds; optional for development test builds. Requires `LINKSENSE_DESKTOP_UPDATE_URL`; not used for legacy check-only builds. |
+| `LINKSENSE_DESKTOP_UPDATE_FEED` | Legacy full manifest URL. It remains update-check-only, including old GitHub/CDN URLs that redirect, and uses only the old `MYGO_LDFLAGS` injection. |
+
+The checked-in default is `apps/desktop/version.mjs`; bump it with the
+release. A stable version (`1.2.0`) builds for
+`LINKSENSE_DESKTOP_UPDATE_URL`; a prerelease version (`1.2.0-beta.1`)
+requires both directories and builds for
+`LINKSENSE_DESKTOP_UPDATE_BETA_URL`. A prerelease version without any update
+source is still a valid local build. The build refuses equal stable and beta
+directories, a beta directory without a stable directory, a legacy feed
+combined with a signed directory, URLs with credentials, queries or
+fragments, and signed-update settings on a Windows target. URLs sent to the
+linker are bounded and reject whitespace, quotes and control characters.
+
+Only explicit URL-directory builds link `main.desktopUpdateFeed` (stable),
+`main.desktopUpdateBetaFeed` (beta, when present) and
+`main.desktopUpdateManifestKey` (the same base64 Ed25519 public key already
+pinned for MyGo). Legacy builds keep the feed solely in MyGo's
+`packageUpdateFeed`/`packageUpdateKey`; they do not receive the new native
+variables. MyGo's own embedded `packageUpdateFeed` is the
+artifact's channel directory (beta for a prerelease), so the native stable
+default must come from `main.desktopUpdateFeed`, not from the embedded feed.
+
+A signed `--macos-release` build with `LINKSENSE_DESKTOP_UPDATE_URL` must also
+set `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`. The build refuses otherwise
+instead of shipping a release whose read-only installations have no manual
+fallback. Development/test builds may omit it; no URL is defaulted or
+inferred.
+
+Give MyGo the signing key through `MYGO_UPDATER_PRIVATE_KEY` or through
+`LINKSENSE_DESKTOP_UPDATE_PRIVATE_KEY_FILE` (an absolute path or `~/...`).
+The build moves a key supplied in the environment into a private `0600`
+temporary file, removes it from every child environment, and passes MyGo only
+the path. Never put the key in the repository, a Vite variable, a log line or
+a command argument.
+
+With update directories and a signing key, MyGo's official `updates`
+configuration writes `linksense-desktop-<version>-<target>.tar.gz`, delta
+updates and the raw `update-<target>.json`, signing the archives and deltas
+with the key. The build verifies the signed app and notarization first, then
+checks the exact archive, delta and previous-archive names, manifest URL,
+size, Ed25519 signatures and the `<out>/SHA256SUMS` line. It also reads the
+single `Info.plist` member from the archive and requires it to be byte-equal
+to the verified app bundle's plist and to carry the candidate version, so it
+does not extract the whole bundle a second time. After those checks and the
+packaged runtime smoke, the build writes one final
+`update-<target>.json.signed` envelope next to the raw manifest:
+
+- the message is exactly `LinkSense desktop update manifest v1\n`, the
+  configured raw manifest URL from `main.desktopUpdateFeed` (or
+  `main.desktopUpdateBetaFeed` for a beta candidate), `\n`, and the exact raw
+  MyGo JSON bytes;
+- it is signed with the same pinned Ed25519 key as standard Ed25519 over
+  those bytes (no prehash), using Node's `crypto` JWK import of MyGo's
+  existing base64 64-byte private key; the derived public key must equal
+  `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY`;
+- the file is canonical base64 of the 64-byte signature, one LF, then the
+  unchanged raw JSON bytes, written to a temporary file and atomically renamed
+  so a client never reads a partial envelope.
+
+The raw manifest stays unchanged and published for MyGo's future CLI delta
+builds; the `.signed` envelope authenticates the version/archive association
+that the stock SDK's archive and delta signatures do not. The app fetches
+`<feed>.signed` and never falls back to an unsigned manifest on the signed
+path; legacy check-only builds keep their old feed and never use the
+envelope. A `--macos-release` build with a stable update directory but
+without a signing key or HTTPS installer URL fails instead of producing a
+release that cannot update or has no manual fallback, and signing refuses to
+run unless the packaged runtime smoke ran on the target platform. Release
+notes come from an `apps/desktop/CHANGELOG.md` section for the version when
+that file exists; without the file the manifest notes are empty.
+
+Writable signed builds install in place. A read-only signed build cannot
+check for or install a newer version: mygo's `Enabled()` is false. When the
+build configured `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`, the app shows that
+fixed page without a version; a signed release must configure it. Legacy
+check-only builds
+can check only when mygo's writable-location check passes and have no
+installation path; move an existing check-only installation once with a
+verified DMG, after which the signed updater and installer fallback apply.
+
+Existing installations from the check-only build path only check and do not
+carry an installer URL. Replace them once with a verified DMG from the
+download page. After that one-time bridge, later releases use the signed
+updater; the old build cannot gain installation or a fallback retroactively.
+
+### Releasing a verified candidate
+
+No live update destination is selected or activated by this repository. The
+stable and beta directories are approved release inputs; use placeholders
+until an approved HTTPS origin exists. The release operator needs a Developer
+ID Application certificate, the `linksense-desktop-notary` Keychain profile,
+the approved directories, the update public key, the fixed HTTPS
+installer/support URL and a signing key in a secret store or a `0600` file.
+
+1. Choose the version and channel. Set `LINKSENSE_DESKTOP_VERSION` to a
+   strict SemVer version; a prerelease identifier (`-beta.1`) selects beta
+   and requires both directories. Never reuse or lower a published version.
+   The build does not infer a predecessor; MyGo only offers a version newer
+   than the running one.
+2. Build and verify on an Apple silicon Mac with umask `022`:
+
+   ```sh
+   LINKSENSE_DESKTOP_VERSION=1.2.0 \
+   LINKSENSE_DESKTOP_UPDATE_URL=https://downloads.example.com/linksense/stable \
+   LINKSENSE_DESKTOP_UPDATE_BETA_URL=https://downloads.example.com/linksense/beta \
+   LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY='<base64 Ed25519 public key>' \
+   LINKSENSE_DESKTOP_UPDATE_PRIVATE_KEY_FILE="$HOME/.config/linksense/mygo-update.key" \
+   LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL=https://linksense.example.com/download \
+   LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY='Developer ID Application: Organization (TEAMID)' \
+     pnpm desktop:build -- --macos-release --platform darwin/arm64 --server-url https://linksense.example.com
+   ```
+
+   `MYGO_UPDATER_PRIVATE_KEY` is accepted instead of the file variable. The
+   command must not include `-upload`, `-skip-dmg`, or `-skip-notarize`.
+   MyGo performs app notarization inside its DMG step, so skipping the DMG
+   also skips notarization of the app that goes into the update archive.
+3. Keep the verified stage as the only source of published bytes. It is
+   `apps/desktop/build/macos-release-*/`: `SHA256SUMS` is at that root
+   (`<out>/SHA256SUMS`, one level above the platform directory), and its
+   `darwin-arm64/` directory contains the app, the DMG,
+   `linksense-desktop-<version>-darwin-arm64.tar.gz`, its deltas,
+   `update-darwin-arm64.json`, `update-darwin-arm64.json.signed` and
+   `install.sh`.
+4. Copy the exact update files into the approved staging root itself, flat:
+   `linksense-desktop-<version>-darwin-arm64.tar.gz`, its deltas,
+   `install.sh`, `SHA256SUMS`, `update-darwin-arm64.json` and
+   `update-darwin-arm64.json.signed` at `${root}/`. Do not add the stage's
+   `darwin-arm64/` level under the root; the manifest names
+   `${root}/<archive>`. The DMG is for the download page and manual rollback,
+   not for update checks. Do not rebuild for staging. Upload every archive,
+   delta, script and `SHA256SUMS` first; verify the staged bytes, the archive
+   signature recorded in the manifest and the `.signed` envelope against the
+   pinned public key; upload the raw `update-darwin-arm64.json` next (the
+   history manifest MyGo's future delta builds read); upload
+   `update-darwin-arm64.json.signed` last. A client must
+   never see an envelope or manifest whose files are missing or unverified.
+5. Promote the same flat files to the production root in the same order:
+   files and raw manifest first, `.signed` envelope last. Keep the current
+   archive and every archive or delta named by a live manifest: with
+   `deltas: 3`, retain the last three base versions and the deltas used by the
+   current manifest. Never delete an archive that a served manifest or delta
+   still references.
+
+   Staging is a byte-audit and promotion queue, not a second update root.
+   The manifest's `url` is absolute to the `LINKSENSE_DESKTOP_UPDATE_URL`
+   (or beta URL) used at build time. Copying the manifest to another root and
+   pointing an app there does not rewrite that URL; the app still fetches the
+   archive from the build-time root. The audit inspects the exact bytes where
+   they are and needs no second signing or build of the release. For an
+   optional end-to-end update test against a test origin, use a separate
+   fixture candidate built with that origin; never rewrite or re-sign the
+   production manifest and archive.
+
+6. Set `Cache-Control: no-cache` on the raw manifest, the `.signed` envelope,
+   `SHA256SUMS` and `install.sh` if the origin is a CDN, matching what MyGo's
+   own S3 uploader does. Do not redirect an update request to a different
+   host.
+
+Do not use `mygo build -upload` for this release. MyGo processes `-upload`
+inside the same `mygo build` invocation, after compiling and packaging but
+before LinkSense verifies the signed runtime, notarization tickets and
+packaged runtime. With `updates.s3` it uploads files and then manifests
+immediately, so an installed app can see a manifest before LinkSense's
+post-build checks pass. With `updates.github` it uploads unverified bytes to a
+draft release. The repository therefore configures only `updates.url`, no
+`updates.github` or `updates.s3`; `-upload` is rejected by MyGo's own
+pre-build check. There is no second uploader or supported upload command in
+this archive; adding one needs a separate reviewed change. The staging and
+promotion steps above are operational requirements for the approved release
+tooling, not an automated pipeline here.
+
+A legacy `LINKSENSE_DESKTOP_UPDATE_FEED` remains check-only exactly as in
+previous releases, including old GitHub/CDN manifests that redirect.
+Downloading/installing updates and the stricter stable/beta directories are
+enabled only by an explicit `LINKSENSE_DESKTOP_UPDATE_URL` build.
+
+Runtime restrictions:
+
+- Production builds require HTTPS update URLs. Loopback HTTP is accepted
+  only for the legacy `LINKSENSE_DESKTOP_UPDATE_FEED` in development, and
+  `--macos-release` rejects it. The packaged server origin has the same
+  restriction.
+- The URL-directory source does not follow redirects; serve the directory
+  directly over TLS. Legacy package feeds keep MyGo's check-only redirect
+  behavior.
+- Stable/beta directories, the installer URL and the private-key file setting
+  are macOS-only. A Windows build keeps the legacy
+  `LINKSENSE_DESKTOP_UPDATE_FEED` behavior unchanged.
+- The public key is pinned at build time in MyGo's config and in
+  `main.desktopUpdateManifestKey`. The app verifies the `.signed` envelope
+  with that key before trusting the manifest version; unsigned, tampered and
+  older versions are not installed, and `Updater.Check` only offers a version
+  newer than the running one.
+- Switching from stable to beta persists in the native app and selects the
+  beta manifest. The first check after a switch may download the whole
+  archive when the target channel has no delta from the running version.
+  Switching back does not downgrade: the app stays on the prerelease until a
+  newer stable release exists.
+- Update URLs are compile-time values. Do not add a user-editable or
+  remotely supplied update host, do not put credentials or tokens in any
+  update URL (including the installer/support URL's query), keep the stable
+  and beta directories distinct rather than aliases, and do not copy beta
+  manifests or archives into the stable directory (or the reverse).
+
+Rollback is manual. Keep the previous verified DMG for the same server
+origin. Quit the app, replace `LinkSense.app` in Applications with the
+previous bundle, and launch it. Verify Keychain sign-in, pairing, deep links
+and a new local turn, and confirm API compatibility before rolling back.
+Never roll back by publishing an older manifest: clients do not downgrade.
+
+Real-Mac update fixtures are separate from Developer ID signing,
+notarization and installed-upgrade acceptance:
+
+1. Use a test key pair from `go tool mygo keygen` and a test HTTPS origin
+   whose certificate the isolated Mac trusts. Build the fixture candidate
+   with that origin as `LINKSENSE_DESKTOP_UPDATE_URL` (and beta URL), so its
+   manifest names the test origin, plus a test HTTPS
+   `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`. Never use the production private
+   key or a live release root for fixtures. A legacy loopback HTTP feed may be used
+   only for check-only development, not for signed artifacts.
+2. Install the previous verified DMG on an isolated Apple silicon Mac and
+   confirm the baseline: sign-in, local runtime and an update check.
+3. Publish the candidate archive, deltas, raw manifest and then the
+   `.signed` envelope to the test origin in the order above. Confirm the
+   candidate is offered and the version is reported.
+4. Exercise the delta path with the previous archive present, then remove or
+   corrupt the delta file while keeping its manifest entry. The app must fall
+   back to the whole archive, keep the current version on failure, and
+   install the candidate after a successful download.
+5. Switch stable to beta and back. Confirm the beta candidate is offered and
+   switching back offers no older stable version. Confirm a read-only
+   installation location still shows the fixed
+   `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL` page, with no version claim and
+   no attempted in-place install.
+6. With a local turn running, choose Install: the app must return the
+   retryable busy state and must not queue, wait for, or replay the install.
+   Finish the turn or stop it explicitly, then choose Install again manually.
+   Once admitted, the update stages, replaces the app on quit, and relaunch
+   does not resume the old turn. Verify sign-in, Keychain, deep links and a
+   new local turn after the update.
+7. Repeat with the previous DMG as a manual rollback. Run Developer ID
+   signing/notarization/staple acceptance and a clean-Mac installed upgrade
+   as separate gates; an ad hoc fixture build does not satisfy them.
+8. For the one-time bridge, start from an older check-only DMG: confirm it
+   cannot install in place, replace it once with the verified signed DMG, then
+   confirm subsequent checks use the signed directories and the installer
+   fallback.
 
 The native HTTP transport accepts only the packaged server's `/api/v1/` routes.
 It preserves API authentication and authorization, streams SSE, propagates
@@ -186,7 +437,9 @@ MyGo signs the app and its helpers with the hardened runtime, then notarizes and
 staples the app and DMG. The build verifies pinned runtime bytes before signing
 and the final bundle, runtime signatures, tickets and native runtime afterward.
 Verified releases appear in separate `apps/desktop/build/macos-release-*`
-directories; an unsuccessful or ad hoc build leaves them alone.
+directories; an unsuccessful or ad hoc build leaves them alone. With a
+stable update directory configured, the same verified stage also contains
+the signed update archive, deltas and manifest described below.
 
 Before distribution, test a quarantined DMG on an isolated Apple silicon Mac:
 install by dragging to Applications, verify Gatekeeper and the first browser
