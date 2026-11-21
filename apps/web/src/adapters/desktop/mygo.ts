@@ -58,6 +58,13 @@ export interface DeviceConnectionStatus {
   deviceId?: string;
   name?: string;
   errorCode?: string;
+  /**
+   * ExecutionReady reports that this socket negotiated execution protocol v2
+   * and holds a live link to the local runtime. Presence-only connections and
+   * revoked, disconnected, shut-down, or account-invalidated connections
+   * report false.
+   */
+  executionReady?: boolean;
 }
 
 export interface HostInfo {

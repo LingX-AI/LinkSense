@@ -237,20 +237,55 @@ type runtimeLink struct {
 	id     string
 	pipe   *runtimePipe
 	frames chan json.RawMessage
+	// current reports whether this link still belongs to the supervisor's
+	// published runtime generation. It is checked under pipe.mu at admission.
+	current func() bool
+	// admit revalidates the device account and cancellation authority and holds
+	// that lease across one bounded frame write. Nil is only for non-device
+	// fixtures that open a link without a device connection.
+	admit func(write func() error) error
 }
 
-func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOperations []string, attachmentVersion *int) (*runtimeLink, error) {
+// runtimePipeClosed reports whether this runtime generation has stopped. A
+// restarted supervisor publishes a new pipe, so a link on an old pipe must not
+// write even while readiness is true again.
+func runtimePipeClosed(pipe *runtimePipe) bool {
+	if pipe == nil || pipe.done == nil {
+		return true
+	}
+	select {
+	case <-pipe.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOperations []string, attachmentVersion *int, admit func(write func() error) error) (*runtimeLink, error) {
 	pipe := s.pipe.Load()
 	if pipe == nil || !validUUID(id) || !validUUID(owner) {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 	}
-	link := &runtimeLink{id: id, pipe: pipe, frames: make(chan json.RawMessage, 16)}
+	link := &runtimeLink{
+		id: id, pipe: pipe, frames: make(chan json.RawMessage, 16), admit: admit,
+		current: func() bool { return s.ready.Load() && s.pipe.Load() == pipe },
+	}
 	pipe.mu.Lock()
 	defer pipe.mu.Unlock()
 	if pipe.link.Load() != nil {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 	}
-	if err := pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion, ToolOperations: toolOperations, AttachmentVersion: attachmentVersion}); err != nil {
+	write := func() error {
+		if !link.current() || runtimePipeClosed(pipe) {
+			return errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
+		}
+		return pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion, ToolOperations: toolOperations, AttachmentVersion: attachmentVersion})
+	}
+	if admit != nil {
+		if err := admit(write); err != nil {
+			return nil, err
+		}
+	} else if err := write(); err != nil {
 		return nil, err
 	}
 	pipe.link.Store(link)
@@ -277,7 +312,19 @@ func (link *runtimeLink) send(frame json.RawMessage) error {
 	if link.pipe.link.Load() != link || len(frame) > desktopFrameLimit || !json.Valid(frame) {
 		return errors.New("DESKTOP_RUNTIME_PROTOCOL_ERROR")
 	}
-	return link.pipe.writeLocked(runtimePipeMessage{Type: "link.frame", LinkID: link.id, Frame: frame})
+	write := func() error {
+		// Admission runs under pipe.mu after any wait for an earlier writer;
+		// readiness, generation, cancellation, and the account lease are all
+		// revalidated here, in that order.
+		if link.current == nil || !link.current() || runtimePipeClosed(link.pipe) {
+			return errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
+		}
+		return link.pipe.writeLocked(runtimePipeMessage{Type: "link.frame", LinkID: link.id, Frame: frame})
+	}
+	if link.admit != nil {
+		return link.admit(write)
+	}
+	return write()
 }
 
 func (link *runtimeLink) close() {

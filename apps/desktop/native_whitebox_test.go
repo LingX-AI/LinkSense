@@ -425,11 +425,19 @@ func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
 	defer desktop.closeDevice()
 	page := win.Page()
 	whiteboxWait(t, page, `typeof mygo === "object"`)
+	// Pairing requires the native principal proven by the rotated refresh, so
+	// let the shared UI restore the seeded session instead of racing bootstrap.
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
 	result, err := page.Eval(`mygo.call("Desktop.PairDevice", "` + strings.Repeat("b", 32) + `", "Work laptop").then(status => !!status.deviceId)`)
 	if err != nil || result != true {
 		t.Fatalf("native pairing IPC failed: %v", err)
 	}
 	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "online")`)
+	// This fixture API predates execution negotiation: online presence must not
+	// claim execution readiness.
+	if result, err := page.Eval(`mygo.call("Desktop.DeviceStatus").then(status => status.executionReady !== true)`); err != nil || result != true {
+		t.Fatal("a presence-only device connection reported execution readiness")
+	}
 	credential := deviceFixtureCredential()
 	result, err = page.Eval(`mygo.call("Desktop.ResumeDevice", "` + credential.OwnerID + `").then(status => status.state === "online")`)
 	if err != nil || result != true {
@@ -445,6 +453,28 @@ func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "online")`)
+	// The renderer owner and the stored pairing alone are not identity. Losing
+	// the verified native account must hide the live device state, refuse a
+	// resume, and keep the still-valid credential for the same account.
+	desktop.account.clear()
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "unpaired")`)
+	result, err = page.Eval(`mygo.call("Desktop.ResumeDevice", "` + credential.OwnerID + `").then(() => false, () => true)`)
+	if err != nil || result != true {
+		t.Fatal("a resume without a verified native account was accepted")
+	}
+	if _, err := nativeWhitebox.store.Get(serverCredentialKey(desktop.server, "device")); err != nil {
+		t.Fatal("account invalidation deleted the valid device credential")
+	}
+	before := nativeWhitebox.refresh.Load()
+	whiteboxReload(t, page)
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+	if nativeWhitebox.refresh.Load() <= before {
+		t.Fatal("the reload did not prove the account with a native refresh")
+	}
+	if _, err := page.Eval(`mygo.call("Desktop.ResumeDevice", "` + credential.OwnerID + `")`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "online" && status.executionReady !== true)`)
 	if _, err := page.Eval(`
 		(() => {
 			const frame = document.createElement("iframe");

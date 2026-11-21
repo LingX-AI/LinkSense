@@ -520,10 +520,23 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 	if !runtime.ready.Load() {
 		t.Fatal("bundled runtime did not become ready")
 	}
-	device := newDeviceConnection(origin, credential)
+	device := newFixtureDeviceConnection(t, origin, credential)
 	device.runtime = runtime
 	go device.run()
 	defer func() { device.cancel(); waitDeviceDone(t, device) }()
+	// The negotiated current connection must expose execution readiness; a turn
+	// below runs exactly on this link.
+	ready := time.Now().Add(10 * time.Second)
+	for !device.Status().ExecutionReady && time.Now().Before(ready) {
+		select {
+		case <-device.done:
+			t.Fatalf("device bridge stopped before execution readiness: %s", device.Status().ErrorCode)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if !device.Status().ExecutionReady {
+		t.Fatal("the negotiated runtime link was not reported as execution ready")
+	}
 	select {
 	case <-done:
 	case <-modelRejected:

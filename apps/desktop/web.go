@@ -54,7 +54,16 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 	d.session.signedOutPath = filepath.Join(dataRoot, "sessions", serverCredentialKey(server, "refresh")+".signed-out")
 	// Any invalidation (sign-out, account switch, expiry, 401/403) releases a
 	// pending workspace relay so its result cannot cross into another account.
+	// The device socket is bound to the same account lease. Cancel only an
+	// unauthorized connection, without waiting: this callback can run under the
+	// auth mutex, and ClearSession may already hold deviceSetup. A resume for a
+	// newer generation may have replaced the connection after the account lock
+	// was dropped, so clearInvalidatedDevice re-checks the current lease.
 	d.account.setOnClear(func() {
+		// Cancel the invalidated device first: workspace cleanup can wait on
+		// the runtime pipe lock and must not delay the device's fail-closed
+		// transition. Both calls are nonblocking.
+		d.clearInvalidatedDevice()
 		if d.localRuntime != nil {
 			d.localRuntime.dropWorkspaceRequests()
 		}

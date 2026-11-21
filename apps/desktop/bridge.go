@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -31,17 +32,32 @@ type DeviceConnectionStatus struct {
 	DeviceID  string                `json:"deviceId,omitempty"`
 	Name      string                `json:"name,omitempty"`
 	ErrorCode string                `json:"errorCode,omitempty"`
+	// ExecutionReady reports that this socket negotiated execution protocol v2
+	// and holds a live link to the local runtime. Presence-only connections and
+	// revoked, disconnected, shut-down, or account-invalidated connections
+	// report false.
+	ExecutionReady bool `json:"executionReady,omitempty"`
 }
 
 type deviceConnection struct {
 	mu         sync.RWMutex
 	server     *url.URL
 	credential deviceCredential
-	ctx        context.Context
-	cancel     context.CancelFunc
-	done       chan struct{}
-	status     DeviceConnectionStatus
-	runtime    *runtimeSupervisor
+	// account and lease bind this connection to the native principal proven by
+	// the rotated refresh. A renderer owner id or a stored pairing alone is not
+	// identity.
+	account *workspaceAccount
+	lease   accountLease
+	// signOut is the native sign-out intent. It is atomic and may be set before
+	// the account clear becomes visible, so pipe admission reads it after the
+	// pipe lock.
+	signOut *atomic.Bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+	status  DeviceConnectionStatus
+	runtime *runtimeSupervisor
+	link    atomic.Pointer[runtimeLink]
 }
 
 const (
@@ -55,23 +71,109 @@ const (
 	desktopAppVersionHeader     = "X-LinkSense-Desktop-App-Version"
 )
 
-func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
+func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &deviceConnection{
-		server: server, credential: credential, ctx: ctx, cancel: cancel, done: make(chan struct{}),
+		server: server, credential: credential, account: account, lease: lease,
+		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 		status: DeviceConnectionStatus{State: DeviceConnecting, DeviceID: credential.DeviceID, Name: credential.Name},
+	}
+}
+
+// authorized reports whether the native principal this connection was created
+// for is still the verified account and no sign-out is pending. Sign-out
+// intent is atomic and can precede the account clear, so it is part of the
+// same derivation used by status publication and pipe admission. Sign-out, an
+// account switch, an expired session, or the same account signing in again
+// under a new generation all stop the connection even while the device
+// credential itself remains valid.
+func (connection *deviceConnection) authorized() bool {
+	if connection.account == nil || connection.lease.id == "" {
+		return false
+	}
+	if connection.signOut != nil && connection.signOut.Load() {
+		return false
+	}
+	return connection.account.matches(connection.lease)
+}
+
+// runtimeLinkLive reports whether the exact runtime generation this link was
+// opened on is still running. A restarted supervisor publishes a new pipe, so
+// a link must not be treated as live merely because readiness is true again.
+func runtimeLinkLive(link *runtimeLink) bool {
+	return link != nil && link.pipe != nil && !runtimePipeClosed(link.pipe)
+}
+
+// runtimeWriteAdmission revalidates this connection immediately before a frame
+// enters the private runtime pipe. The caller holds pipe.mu, so a command that
+// waited for an earlier pipe writer is checked only after that wait. The account
+// read lease is held across the bounded pipe write, preventing a sign-out or
+// account switch from completing between admission and the write. It never
+// takes the auth mutex or a credential store.
+func (connection *deviceConnection) runtimeWriteAdmission(ctx context.Context) func(write func() error) error {
+	return func(write func() error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !connection.authorized() {
+			return errAccountRequired
+		}
+		return connection.account.withLease(connection.lease, func() error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Re-read the atomic intent after acquiring the pipe and the lease;
+			// authorized() is not called here because withLease already holds
+			// the account read lock.
+			if connection.signOut != nil && connection.signOut.Load() {
+				return errAccountRequired
+			}
+			return write()
+		})
 	}
 }
 
 func (connection *deviceConnection) Status() DeviceConnectionStatus {
 	connection.mu.RLock()
-	defer connection.mu.RUnlock()
-	return connection.status
+	status := connection.status
+	// Derive authority after taking the status snapshot. Checking before this
+	// lock let a sign-out, switch, or expiry that landed while a caller waited
+	// on connection.mu publish the previous account's id, name, and state.
+	authorized := connection.authorized()
+	connection.mu.RUnlock()
+	if !authorized {
+		return DeviceConnectionStatus{State: DeviceUnpaired}
+	}
+	// Readiness is derived too: a lost link, stopped runtime, or canceled
+	// connection must fail closed even before the socket unwinds and cleanup
+	// completes.
+	if status.ExecutionReady {
+		link := connection.link.Load()
+		if connection.ctx.Err() != nil || link == nil || !runtimeLinkLive(link) ||
+			(connection.runtime != nil && !connection.runtime.ready.Load()) {
+			status.ExecutionReady = false
+		}
+	}
+	return status
 }
 
 func (connection *deviceConnection) setStatus(state DeviceConnectionState, code string) {
 	connection.mu.Lock()
 	connection.status.State, connection.status.ErrorCode = state, code
+	connection.status.ExecutionReady = false
+	connection.mu.Unlock()
+}
+
+func (connection *deviceConnection) setOnline(executionReady bool) {
+	connection.mu.Lock()
+	connection.status.State, connection.status.ErrorCode = DeviceOnline, ""
+	connection.status.ExecutionReady = executionReady
+	connection.mu.Unlock()
+}
+
+func (connection *deviceConnection) clearExecutionReady() {
+	connection.mu.Lock()
+	connection.status.ExecutionReady = false
 	connection.mu.Unlock()
 }
 
@@ -82,6 +184,12 @@ func (connection *deviceConnection) run() {
 			connection.setStatus(DeviceOffline, "")
 			return
 		}
+		// No dial, retry, or hello may happen after the native session that
+		// authorized this pairing has ended.
+		if !connection.authorized() {
+			connection.setStatus(DeviceOffline, "AUTH_REQUIRED")
+			return
+		}
 		connection.setStatus(DeviceConnecting, "")
 		permanent, code := connection.runOnce()
 		if connection.ctx.Err() != nil {
@@ -90,7 +198,9 @@ func (connection *deviceConnection) run() {
 		}
 		if permanent {
 			state := DeviceOffline
-			if code == "AUTH_REQUIRED" {
+			// A credential revoked by the server is different from a local
+			// account that is no longer proven; the latter keeps the pairing.
+			if code == "AUTH_REQUIRED" && connection.authorized() {
 				state = DeviceRevoked
 			}
 			connection.setStatus(state, code)
@@ -110,6 +220,9 @@ func (connection *deviceConnection) run() {
 }
 
 func (connection *deviceConnection) runOnce() (bool, string) {
+	if !connection.authorized() {
+		return true, "AUTH_REQUIRED"
+	}
 	endpoint := *connection.server
 	endpoint.Path = "/api/v1/desktop/devices/socket"
 	if endpoint.Scheme == "https" {
@@ -148,6 +261,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		return false, "RUNNER_UNAVAILABLE"
 	}
 	defer socket.CloseNow()
+	// The dial and the server handshake can outlive a sign-out; never present
+	// the device credential on behalf of an account that is no longer proven.
+	if !connection.authorized() {
+		return true, "AUTH_REQUIRED"
+	}
 	socket.SetReadLimit(8192)
 	hello, _ := json.Marshal(struct {
 		Type            string `json:"type"`
@@ -173,16 +291,36 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if ready.ExecutionVersion != nil && !offerExecution {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
+	if !connection.authorized() {
+		return true, "AUTH_REQUIRED"
+	}
 	var link *runtimeLink
 	if ready.ExecutionVersion != nil {
-		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations, ready.AttachmentVersion)
+		// attach reuses the supervisor's own checks: only a published pipe owned
+		// by a ready runtime with no other link is accepted. Its admission runs
+		// under pipe.mu and holds the account lease across link.open.
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations, ready.AttachmentVersion, connection.runtimeWriteAdmission(connection.ctx))
 		if err != nil {
+			if errors.Is(err, errAccountRequired) {
+				return true, "AUTH_REQUIRED"
+			}
 			return false, "RUNNER_UNAVAILABLE"
 		}
-		defer link.close()
+		connection.link.Store(link)
+		defer func() {
+			connection.link.CompareAndSwap(link, nil)
+			link.close()
+		}()
 		socket.SetReadLimit(desktopFrameLimit)
 	}
-	connection.setStatus(DeviceOnline, "")
+	// The attach write can block; re-check the lease immediately before this
+	// connection is reported online with execution.
+	if !connection.authorized() {
+		return true, "AUTH_REQUIRED"
+	}
+	// Execution readiness exists only for an accepted execution_protocol_version
+	// with a live link; a presence-only server stays online without it.
+	connection.setOnline(link != nil)
 	heartbeatContext, stopHeartbeat := context.WithCancel(connection.ctx)
 	keepaliveDone := make(chan struct{})
 	defer func() {
@@ -200,10 +338,27 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		}
 		frame := []byte(`{"type":"ping"}`)
 		for {
+			// Account loss is an actual lease loss: cancel the connection rather
+			// than letting the socket unwind into a reconnect attempt.
+			if !connection.authorized() {
+				connection.cancel()
+				connection.clearExecutionReady()
+				_ = socket.CloseNow()
+				return
+			}
+			// The link belongs to one runtime generation. Its pipe ending, or the
+			// supervisor withdrawing readiness, is runtime loss: stop claiming
+			// execution instead of waiting for the next server frame.
+			if link != nil && (!runtimeLinkLive(link) || !connection.runtime.ready.Load()) {
+				connection.clearExecutionReady()
+				_ = socket.CloseNow()
+				return
+			}
 			ctx, cancel := context.WithTimeout(heartbeatContext, 5*time.Second)
 			err := socket.Write(ctx, websocket.MessageText, frame)
 			cancel()
 			if err != nil {
+				connection.clearExecutionReady()
 				_ = socket.CloseNow()
 				return
 			}
@@ -211,6 +366,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			case <-heartbeatContext.Done():
 				return
 			case <-runtimeDone:
+				connection.clearExecutionReady()
 				_ = socket.CloseNow()
 				return
 			case frame = <-frames:
@@ -223,6 +379,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			}
 		}
 	}()
+	// The socket is gone as soon as this read loop exits. Clear readiness
+	// before the deferred keepalive join and link close, so Status never
+	// reports a live execution link for a disconnected socket. Registered
+	// after the keepalive defer, so it runs first.
+	defer connection.clearExecutionReady()
 	for {
 		ctx, cancel := context.WithTimeout(connection.ctx, 45*time.Second)
 		kind, data, err = socket.Read(ctx)
@@ -233,6 +394,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		if kind != websocket.MessageText {
 			return true, "DESKTOP_PROTOCOL_ERROR"
 		}
+		// Re-check after the read too: a frame that arrived across sign-out must
+		// not be answered or handed to the runtime for the previous account.
+		if !connection.authorized() {
+			return true, "AUTH_REQUIRED"
+		}
 		if decodeDevicePong(data) {
 			continue
 		}
@@ -240,6 +406,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			return true, "DESKTOP_PROTOCOL_ERROR"
 		}
 		if err := link.send(data); err != nil {
+			// send revalidates authority under pipe.mu immediately before the
+			// frame write; a command that lost its account is never replayed.
+			if errors.Is(err, errAccountRequired) {
+				return true, "AUTH_REQUIRED"
+			}
 			return false, "RUNNER_UNAVAILABLE"
 		}
 	}

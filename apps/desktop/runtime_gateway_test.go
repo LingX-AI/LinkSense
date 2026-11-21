@@ -44,7 +44,7 @@ func TestPackagedDesktopGateway(t *testing.T) {
 	if !runtime.ready.Load() {
 		t.Fatal("packaged runtime readiness timed out")
 	}
-	device := newDeviceConnection(origin, fixture.Credential)
+	device := newFixtureDeviceConnection(t, origin, fixture.Credential)
 	device.runtime = runtime
 	go device.run()
 	t.Cleanup(func() {
