@@ -466,6 +466,29 @@ The fixture uses a local synthetic provider. Separate acceptance is required
 for orphaned Shell processes after a force quit, installed upgrades and
 production signing/notarization.
 
+On macOS, **Settings → General → This Mac** shows this Mac's native device
+state and the account's paired devices. A signed-in account pairs this Mac by
+naming it; the page requests a one-time pairing code and hands it to the native
+host. Paired devices can be renamed or revoked there. Pairing and resume are
+bound to the account proven by the native refresh; the list, rename and revoke
+use the signed-in account's API session. A stored pairing alone is not reused
+for another signed-in account, and losing the account hides the live device
+state without deleting the still-valid Keychain credential. After the
+system-browser sign-in and a verified refresh, the app resumes that account's
+stored Keychain device credential once; an explicit sign-out still deletes it.
+
+New tasks default to the cloud. In the main macOS window, a new task shows the
+**Run location** control; local is selectable only when the native host reports
+an online device with `executionReady`, not for a presence-only connection.
+Before a local task is created, the app re-reads the native status and requires
+the same device and account. A failed, stale or changed check keeps the draft
+and the selected target, reports the error, and does not create the task on the
+cloud. A host that omits `executionReady` fails closed. Existing tasks keep the
+target assigned by the backend and show it as a read-only badge; changing an
+existing task's target, including cross-target continuation, is not wired.
+This UI adds no database migration or dependency and does not change the
+execution switch above.
+
 Mac artifact registration is separately disabled by default. To
 enable it in development/test, upgrade all serving API replicas and
 `linksense-maintenance` consumers first, then set
