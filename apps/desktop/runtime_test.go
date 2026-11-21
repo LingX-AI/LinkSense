@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -474,5 +475,37 @@ func TestUpdateAdmissionResultsAreStrictAndStaleResultsIgnored(t *testing.T) {
 		}
 	default:
 		t.Fatal("rejected update result did not reach its pending admission")
+	}
+}
+
+func TestDesktopLauncherOwnerEnvironmentReplacesInheritedMarker(t *testing.T) {
+	for _, entry := range desktopRuntimeEnvironment([]string{"LINKSENSE_DESKTOP_OWNER_PID=999"}) {
+		if strings.HasPrefix(entry, desktopLauncherOwnerEnv+"=") {
+			t.Fatal("an inherited launcher owner marker survived the allowlist")
+		}
+	}
+	environment := desktopLauncherOwnerEnvironment([]string{
+		"PATH=/bin", "LINKSENSE_DESKTOP_OWNER_PID=999", "LANG=C",
+	}, 1234)
+	owners := 0
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, desktopLauncherOwnerEnv+"=") {
+			owners++
+			if entry != desktopLauncherOwnerEnv+"=1234" {
+				t.Fatalf("unexpected launcher owner marker %q", entry)
+			}
+		}
+	}
+	if owners != 1 {
+		t.Fatalf("launcher owner marker count = %d", owners)
+	}
+	for _, want := range []string{"PATH=/bin", "LANG=C"} {
+		found := false
+		for _, entry := range environment {
+			found = found || entry == want
+		}
+		if !found {
+			t.Fatalf("launcher environment dropped %q", want)
+		}
 	}
 }

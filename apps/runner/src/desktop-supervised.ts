@@ -5,6 +5,7 @@ import { desktopExecutionMaxFrameBytes, desktopServerOriginSchema } from "@links
 
 import { assertCodexRuntimeVersion } from "./codex/runtime-version.js"
 import { DesktopWorkerProvider } from "./controller/desktop-worker-provider.js"
+import { shouldReclaimOwnedGroup, launcherOwnerEnv, parseLauncherOwnerPid } from "./desktop/owned-group.js"
 import { DesktopSupervisor } from "./desktop/supervisor.js"
 import { desktopWorkerCallbacks } from "./desktop/worker-callbacks.js"
 import { createLoggerOptions } from "./lib/logger.js"
@@ -55,6 +56,58 @@ let provider: DesktopWorkerProvider | undefined
 let supervisor: DesktopSupervisor | undefined
 let callbacks: ReturnType<typeof desktopWorkerCallbacks> | undefined
 let heartbeat: NodeJS.Timeout | undefined
+
+// Go starts this process with Setpgid, so process.pid is the ID of the only
+// process group this supervisor may reclaim. Go also supplies its exact PID in
+// a private child-only env marker (it strips inherited values and appends its
+// own; the worker env allowlist never forwards it). The kernel group check
+// proves leadership, the closed pipe proves the owner channel was lost, and
+// ppid 1 proves reparenting to launchd. process.ppid itself is not the owner
+// identity: the Go owner may already be gone before this line runs.
+const launcherOwnerPid = parseLauncherOwnerPid(process.env[launcherOwnerEnv])
+delete process.env[launcherOwnerEnv]
+const groupId = process.pid
+const ownsGroup = (() => {
+  try { process.kill(-groupId, 0); return true } catch { return false }
+})()
+let pipeLost = process.stdin.readableEnded || process.stdin.destroyed
+let frameAccepted = false
+let failSafe: NodeJS.Timeout | undefined
+
+// Codex exec sessions and sibling runtimes have their own process groups; this
+// target can only contain this supervisor's own descendants. An ordinary Go
+// close keeps the owner alive (ppid != 1), so the group is left to Go.
+const reclaimOwnedGroup = () => {
+  if (!shouldReclaimOwnedGroup({
+    platform: process.platform, frameAccepted,
+    pipeLost: pipeLost || process.stdin.readableEnded || process.stdin.destroyed,
+    launcherOwnerPid, currentPpid: process.ppid, groupId, groupExists: ownsGroup,
+  })) return
+  try { process.kill(-groupId, "SIGKILL") } catch { /* the group is already gone */ }
+}
+
+const armFailSafe = () => {
+  if (failSafe) return
+  failSafe = setTimeout(() => {
+    reclaimOwnedGroup()
+    if (process.ppid === 1) process.exitCode = 1
+  }, 10_000)
+  // Keep the bounded deadline alive only after the owner already departed, so
+  // it runs even when the async iterator is suspended without other handles.
+  // An ordinary parent-alive shutdown stays unreferenced and never kills.
+  if (process.ppid === 1) failSafe.ref()
+  else failSafe.unref()
+}
+
+const markPipeLost = () => {
+  pipeLost = true
+  armFailSafe()
+}
+
+process.stdin.once("end", markPipeLost)
+process.stdin.once("close", markPipeLost)
+if (pipeLost) armFailSafe()
+
 const fail = () => {
   // Go owns the OS process group, including grandchildren of a failed worker.
   process.stdin.destroy(new Error("desktop worker lost"))
@@ -64,6 +117,9 @@ try {
   const initial = await input.next()
   if (initial.done) throw new Error("desktop runtime startup frame missing")
   const config = startupSchema.parse(initial.value)
+  // The startup frame's control token stays the worker control secret; the
+  // launcher boundary is the Go-supplied owner PID env marker, not token shape.
+  frameAccepted = true
   const logger = pino(createLoggerOptions({ name: "desktop-runtime" }), process.stderr)
   let bridgeUrl: string | undefined
   if (config.server_origin) {
@@ -94,4 +150,6 @@ try {
   clearInterval(heartbeat)
   if (!supervisor) await provider?.shutdown().catch(() => { process.exitCode = 1 })
   await callbacks?.close().catch(() => { process.exitCode = 1 })
+  if (failSafe) clearTimeout(failSafe)
+  reclaimOwnedGroup()
 }

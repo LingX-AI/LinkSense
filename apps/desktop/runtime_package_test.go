@@ -17,8 +17,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
 // updateAdmissionProbeRuntime publishes the supervisor to the opt-in update
@@ -164,6 +162,7 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 	modelAborted := make(chan struct{})
 	done := make(chan struct{})
 	var connections atomic.Int32
+	var modelCalls atomic.Int32
 	modelRejected := make(chan struct{}, 1)
 	rejectModel := func(w http.ResponseWriter, message string, code int) {
 		t.Error(message)
@@ -175,111 +174,72 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 	}
 	var state struct {
 		sync.Mutex
-		modelCalls       int
 		terminalDelivery string
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/desktop/models/"+turnID+"/primary/responses" {
-			if r.Header.Get("Authorization") != "Bearer "+modelToken || r.Header.Get("X-Linksense-Model-Purpose") != "primary" {
-				rejectModel(w, "model relay did not use the scoped model credential", http.StatusForbidden)
-				return
-			}
-			var request struct {
-				Tools []struct {
-					Name string `json:"name"`
-					Type string `json:"type"`
-				} `json:"tools"`
-				Input json.RawMessage `json:"input"`
-			}
-			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 2*1024*1024)).Decode(&request) != nil {
-				rejectModel(w, "invalid model fixture request", http.StatusBadRequest)
-				return
-			}
-			state.Lock()
-			state.modelCalls++
-			call := state.modelCalls
-			state.Unlock()
-			var command string
-			switch call {
-			case 1:
-				command = "cat fixture.txt"
-			case 2:
-				if !strings.Contains(string(request.Input), "MAC_DEVICE_READ_OK") {
-					rejectModel(w, "native Codex did not read the workspace file", http.StatusBadRequest)
-					return
+			serveFixtureModel(t, w, r, modelToken, turnID, &modelCalls, func(call int, input string) fixtureModelDirective {
+				switch call {
+				case 1:
+					return fixtureModelDirective{command: "cat fixture.txt"}
+				case 2:
+					if !strings.Contains(input, "MAC_DEVICE_READ_OK") {
+						return fixtureModelDirective{reject: "native Codex did not read the workspace file"}
+					}
+					return fixtureModelDirective{command: "touch unapproved.txt"}
+				case 3:
+					if !strings.Contains(input, "approval request failed") {
+						return fixtureModelDirective{reject: "native Codex did not reject the unapproved command"}
+					}
+					return fixtureModelDirective{command: "touch ../sandbox-denied.txt"}
+				case 4:
+					if !strings.Contains(input, "Operation not permitted") {
+						return fixtureModelDirective{reject: "native sandbox did not deny a preapproved out-of-workspace write"}
+					}
+					return fixtureModelDirective{command: "cat ../../control/fixture.txt"}
+				case 5:
+					if !strings.Contains(input, "Operation not permitted") ||
+						strings.Contains(input, "MAC_DEVICE_PRIVATE_FIXTURE") {
+						return fixtureModelDirective{reject: "private control data reached inference"}
+					}
+					return fixtureModelDirective{command: "cat " + siblingFile}
+				case 6:
+					if !strings.Contains(input, "Operation not permitted") ||
+						strings.Contains(input, "MAC_DEVICE_OTHER_WORKSPACE") {
+						return fixtureModelDirective{reject: "the sibling workspace was not denied"}
+					}
+					return fixtureModelDirective{command: "/usr/bin/curl --max-time 2 " + networkFixture.URL}
+				case 7:
+					if !strings.Contains(input, "curl: (7)") || !strings.Contains(input, port) {
+						t.Errorf("network probe diagnostics: curl=%t denied=%t approval=%t",
+							strings.Contains(input, "curl:"), strings.Contains(input, "Operation not permitted"),
+							strings.Contains(input, "approval request failed"))
+						return fixtureModelDirective{reject: "the sandboxed network probe did not report a connection failure"}
+					}
+					return fixtureModelDirective{command: "/usr/bin/osascript -e '" + automationScript + "'"}
+				case 8:
+					if !strings.Contains(input, "approval request failed") {
+						return fixtureModelDirective{reject: "direct system automation was not denied"}
+					}
+					return fixtureModelDirective{hold: func(ctx context.Context) {
+						// The turn is in flight here; the opt-in whitebox asks the
+						// native gate and the packaged runner for admission.
+						probeUpdateAdmissionDuringTurn(t)
+						close(modelWaiting)
+						select {
+						case <-ctx.Done():
+							close(modelAborted)
+						case <-done:
+						case <-time.After(8 * time.Second):
+							t.Error("native interruption did not cancel inference")
+						}
+					}}
+				default:
+					return fixtureModelDirective{reject: "the device replayed input after interruption"}
 				}
-				command = "touch unapproved.txt"
-			case 3:
-				if !strings.Contains(string(request.Input), "approval request failed") {
-					rejectModel(w, "native Codex did not reject the unapproved command", http.StatusBadRequest)
-					return
-				}
-				command = "touch ../sandbox-denied.txt"
-			case 4:
-				if !strings.Contains(string(request.Input), "Operation not permitted") {
-					rejectModel(w, "native sandbox did not deny a preapproved out-of-workspace write", http.StatusBadRequest)
-					return
-				}
-				command = "cat ../../control/fixture.txt"
-			case 5:
-				if !strings.Contains(string(request.Input), "Operation not permitted") ||
-					strings.Contains(string(request.Input), "MAC_DEVICE_PRIVATE_FIXTURE") {
-					rejectModel(w, "private control data reached inference", http.StatusBadRequest)
-					return
-				}
-				command = "cat " + siblingFile
-			case 6:
-				if !strings.Contains(string(request.Input), "Operation not permitted") ||
-					strings.Contains(string(request.Input), "MAC_DEVICE_OTHER_WORKSPACE") {
-					rejectModel(w, "the sibling workspace was not denied", http.StatusBadRequest)
-					return
-				}
-				command = "/usr/bin/curl --max-time 2 " + networkFixture.URL
-			case 7:
-				output := string(request.Input)
-				if !strings.Contains(output, "curl: (7)") || !strings.Contains(output, port) {
-					t.Errorf("network probe diagnostics: curl=%t denied=%t approval=%t",
-						strings.Contains(output, "curl:"), strings.Contains(output, "Operation not permitted"),
-						strings.Contains(output, "approval request failed"))
-					rejectModel(w, "the sandboxed network probe did not report a connection failure", http.StatusBadRequest)
-					return
-				}
-				command = "/usr/bin/osascript -e '" + automationScript + "'"
-			case 8:
-				if !strings.Contains(string(request.Input), "approval request failed") {
-					rejectModel(w, "direct system automation was not denied", http.StatusBadRequest)
-					return
-				}
-				// The turn is in flight here; the opt-in whitebox asks the
-				// native gate and the packaged runner for admission.
-				probeUpdateAdmissionDuringTurn(t)
-				close(modelWaiting)
-				select {
-				case <-r.Context().Done():
-					close(modelAborted)
-				case <-done:
-				case <-time.After(8 * time.Second):
-					t.Error("native interruption did not cancel inference")
-				}
-				return
-			default:
-				rejectModel(w, "the device replayed input after interruption", http.StatusBadRequest)
-				return
-			}
-			var item map[string]any
-			for _, tool := range request.Tools {
-				if tool.Name == "exec_command" && tool.Type == "function" {
-					args, _ := json.Marshal(map[string]any{"cmd": command, "yield_time_ms": 1000})
-					item = map[string]any{"id": "fixture-tool-" + strconv.Itoa(call), "type": "function_call",
-						"call_id": "fixture-call-" + strconv.Itoa(call), "name": tool.Name, "arguments": string(args), "status": "completed"}
-					break
-				}
-			}
-			if item == nil {
-				rejectModel(w, "pinned Codex did not expose exec_command", http.StatusBadRequest)
-				return
-			}
-			streamFixtureResponses(w, item)
+			}, func(message string, status int) {
+				rejectModel(w, message, status)
+			})
 			return
 		}
 		if r.URL.Path != "/api/v1/desktop/devices/socket" || r.Header.Get(desktopExecutionHeader) != strconv.Itoa(desktopExecutionVersion) {
@@ -294,38 +254,21 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 			rejectModel(w, "unexpected extra device connection", http.StatusBadRequest)
 			return
 		}
-		socket, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			t.Error("could not upgrade fixture WebSocket")
-			return
-		}
-		defer socket.CloseNow()
-		socket.SetReadLimit(desktopFrameLimit)
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-		defer cancel()
-		send := func(value any) bool {
-			raw, err := json.Marshal(value)
-			if err == nil {
-				err = socket.Write(ctx, websocket.MessageText, raw)
-			}
-			if err != nil {
-				t.Error("test device frame was not sent")
-			}
-			return err == nil
-		}
-		_, hello, err := socket.Read(ctx)
-		if err != nil || !strings.Contains(string(hello), credential.Token) {
-			t.Error("device did not authenticate")
-			return
-		}
-		version := desktopExecutionVersion
 		linkID := connectionID
 		if connection == 2 {
 			linkID = reconnectID
 		}
-		if !send(deviceReady{Type: "ready", DeviceID: credential.DeviceID, ConnectionID: linkID, ProtocolVersion: 1,
-			HeartbeatIntervalMS: 15_000, ExecutionVersion: &version}) {
+		socket, ok := acceptFixtureDeviceSocket(t, w, r, credential, linkID, 25*time.Second)
+		if !ok {
 			return
+		}
+		defer socket.close()
+		send := func(value any) bool {
+			if !socket.send(value) {
+				t.Error("test device frame was not sent")
+				return false
+			}
+			return true
 		}
 		command := func(id, operation string) map[string]any {
 			return map[string]any{"type": "command", "operation": operation, "id": id, "owner_id": credential.OwnerID,
@@ -347,7 +290,7 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 			}
 			go func() {
 				select {
-				case <-ctx.Done():
+				case <-socket.done():
 				case <-modelWaiting:
 					send(command(inspectID, "turn.inspect"))
 					send(command(interruptID, "turn.interrupt"))
@@ -361,37 +304,13 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 		}
 		var startSeen, inspectSeen, interruptSeen, interrupted, commandSeen, foreignDenied, drainSent, drained, recovered, emptyDrainSent bool
 		for {
-			_, raw, err := socket.Read(ctx)
-			if err != nil {
+			response, ok := socket.receive()
+			if !ok {
 				t.Errorf("execution channel ended before its full result: start=%t inspect=%t interrupt=%t terminal=%t command=%t",
 					startSeen, inspectSeen, interruptSeen, interrupted, commandSeen)
 				return
 			}
-			var response struct {
-				Type      string `json:"type"`
-				ID        string `json:"id"`
-				OK        bool   `json:"ok"`
-				ErrorCode string `json:"error_code"`
-				Result    struct {
-					Code     string `json:"code"`
-					Status   string `json:"status"`
-					Drained  bool   `json:"drained"`
-					Terminal struct {
-						CodexThreadID string `json:"codexThreadId"`
-						Turn          struct {
-							ID     string `json:"id"`
-							Status string `json:"status"`
-						} `json:"turn"`
-					} `json:"terminal"`
-				} `json:"result"`
-			}
-			if json.Unmarshal(raw, &response) != nil {
-				t.Error("malformed device response")
-				return
-			}
 			switch response.Type {
-			case "ping":
-				send(map[string]string{"type": "pong"})
 			case "command.result":
 				if response.ID == deniedID {
 					foreignDenied = !response.OK && response.ErrorCode == "FORBIDDEN"
@@ -431,8 +350,8 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 					return
 				}
 			case "execution.callback", "execution.recovery":
-				var reported callback
-				if json.Unmarshal(raw, &reported) != nil || reported.Conversation != conversationID ||
+				reported := response
+				if reported.Conversation != conversationID ||
 					reported.Generation != generation || reported.TurnID != turnID ||
 					(connection == 1 && (reported.Type != "execution.callback" || reported.RunToken != runToken)) ||
 					(connection == 2 && (reported.Type != "execution.recovery" || reported.RunToken != "" || reported.DrainID != drainID)) {
@@ -440,9 +359,7 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 					return
 				}
 				if reported.Operation == "events" {
-					ids := make([]string, 0, len(reported.Body.Events))
 					for _, entry := range reported.Body.Events {
-						ids = append(ids, entry.DeliveryID)
 						if entry.Event.Method == "turn/completed" && entry.Event.Params.Turn.Status == "interrupted" {
 							interrupted = true
 							state.Lock()
@@ -454,15 +371,15 @@ func TestPackagedDesktopDeviceTurn(t *testing.T) {
 							state.Unlock()
 						}
 					}
-					commandSeen = commandSeen || (strings.Contains(string(raw), `"type":"commandExecution"`) && strings.Contains(string(raw), "fixture.txt"))
+					commandSeen = commandSeen || (strings.Contains(string(reported.Raw), `"type":"commandExecution"`) && strings.Contains(string(reported.Raw), "fixture.txt"))
 					if connection == 1 && interrupted {
 						break // Deliberately lose the terminal ACK.
 					}
 					send(map[string]any{"type": "execution.ack", "id": reported.ID, "operation": reported.Operation, "ok": true,
-						"data": map[string]any{"accepted_delivery_ids": ids}})
+						"data": reported.acknowledgement()})
 				} else if reported.Operation == "start.settled" {
 					send(map[string]any{"type": "execution.ack", "id": reported.ID, "operation": reported.Operation, "ok": true,
-						"data": map[string]bool{"settled": true}})
+						"data": reported.acknowledgement()})
 				} else {
 					t.Error("device used an unapproved callback operation")
 					return

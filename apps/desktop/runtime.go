@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,7 +90,11 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serv
 	cmd := exec.Command(filepath.Join(runtimeRoot, "bin", binary),
 		filepath.Join(runtimeRoot, "runner", "dist", "desktop-supervised.js"))
 	cmd.Dir = dataRoot
-	cmd.Env = desktopRuntimeEnvironment(os.Environ())
+	environment := desktopRuntimeEnvironment(os.Environ())
+	if goruntime.GOOS == "darwin" {
+		environment = desktopLauncherOwnerEnvironment(environment, os.Getpid())
+	}
+	cmd.Env = environment
 	inputReader, input, err := os.Pipe()
 	if err != nil {
 		return err
@@ -421,6 +426,22 @@ func desktopRuntimeEnvironment(environment []string) []string {
 		}
 	}
 	return result
+}
+
+const desktopLauncherOwnerEnv = "LINKSENSE_DESKTOP_OWNER_PID"
+
+// desktopLauncherOwnerEnvironment replaces any inherited owner marker with the
+// exact Go launcher PID. The marker is read only by the desktop supervisor;
+// desktopWorkerEnvironment does not forward it to workers or Codex.
+func desktopLauncherOwnerEnvironment(environment []string, pid int) []string {
+	prefix := desktopLauncherOwnerEnv + "="
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, prefix) {
+			result = append(result, entry)
+		}
+	}
+	return append(result, prefix+strconv.Itoa(pid))
 }
 
 func (d *Desktop) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
