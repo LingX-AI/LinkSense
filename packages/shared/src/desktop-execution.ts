@@ -334,3 +334,53 @@ export const desktopRuntimeOutputSchema = link.extend({
   type: z.literal("link.frame"),
   frame: z.union([desktopExecutionResultSchema, desktopExecutionCallbackSchema, desktopToolCancelSchema]),
 });
+
+// Workspace usage and cleanup are supervisor control messages, not device links:
+// the settings page can request them while the device socket is idle.
+export const desktopWorkspaceUsageSchema = z.strictObject({
+  bytes: z.number().int().nonnegative(),
+  files: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+  retention_days: z.number().int().positive(),
+  budget_bytes: z.number().int().positive(),
+});
+export const desktopWorkspaceCleanupSchema = z.strictObject({
+  status: z.enum(["completed", "busy"]),
+  deleted_sessions: z.number().int().nonnegative(),
+  freed_bytes: z.number().int().nonnegative(),
+  retained_bytes: z.number().int().nonnegative(),
+});
+// owner_id is filled by the native host from its own refresh session. The
+// WebView never supplies it, so a page cannot name another account.
+const workspaceControlRequest = z.strictObject({ request_id: uuidSchema, owner_id: uuidSchema });
+// Cancelling is bound to one request id. A read-only usage scan has nothing to
+// stop; the supervisor uses this for a cleanup that must not delete more files.
+export const desktopRuntimeControlCancelSchema = z.strictObject({
+  type: z.literal("workspace.cancel"), request_id: uuidSchema,
+});
+export const desktopRuntimeControlInputSchema = z.discriminatedUnion("type", [
+  workspaceControlRequest.extend({ type: z.literal("workspace.usage") }),
+  workspaceControlRequest.extend({ type: z.literal("workspace.cleanup") }),
+  desktopRuntimeControlCancelSchema,
+]);
+const workspaceControlResult = z.strictObject({ request_id: uuidSchema });
+export const desktopRuntimeControlOutputSchema = z.union([
+  workspaceControlResult.extend({
+    type: z.literal("workspace.usage.result"), ok: z.literal(true), usage: desktopWorkspaceUsageSchema,
+  }),
+  workspaceControlResult.extend({
+    type: z.literal("workspace.usage.result"), ok: z.literal(false), error_code: z.literal("DESKTOP_WORKSPACE_UNAVAILABLE"),
+  }),
+  workspaceControlResult.extend({
+    type: z.literal("workspace.cleanup.result"), ok: z.literal(true), cleanup: desktopWorkspaceCleanupSchema,
+  }),
+  workspaceControlResult.extend({
+    type: z.literal("workspace.cleanup.result"), ok: z.literal(false),
+    error_code: z.enum(["DESKTOP_WORKSPACE_UNAVAILABLE", "DESKTOP_WORKSPACE_CLEANUP_FAILED"]),
+  }),
+]);
+export type DesktopRuntimeControlInput = z.infer<typeof desktopRuntimeControlInputSchema>;
+export type DesktopWorkspaceControlRequest = Exclude<DesktopRuntimeControlInput, { type: "workspace.cancel" }>;
+export type DesktopRuntimeControlOutput = z.infer<typeof desktopRuntimeControlOutputSchema>;
+export type DesktopWorkspaceUsage = z.infer<typeof desktopWorkspaceUsageSchema>;
+export type DesktopWorkspaceCleanup = z.infer<typeof desktopWorkspaceCleanupSchema>;

@@ -29,12 +29,68 @@ const desktopNotificationClickSchema = z.strictObject({
   conversationId: z.uuid(),
 })
 
+const desktopWorkspaceUsageSchema = z.strictObject({
+  bytes: z.number().int().nonnegative(),
+  files: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+  retentionDays: z.number().int().positive(),
+  budgetBytes: z.number().int().positive(),
+})
+
+const desktopWorkspaceCleanupSchema = z.strictObject({
+  status: z.enum(["completed", "busy"]),
+  deletedSessions: z.number().int().nonnegative(),
+  freedBytes: z.number().int().nonnegative(),
+  retainedBytes: z.number().int().nonnegative(),
+})
+
+const desktopWorkspaceNoticeSchema = z.strictObject({
+  cleared: z.boolean(),
+})
+
+export type DesktopWorkspaceUsage = z.infer<typeof desktopWorkspaceUsageSchema>
+export type DesktopWorkspaceCleanup = z.infer<typeof desktopWorkspaceCleanupSchema>
+export type DesktopWorkspaceNotice = z.infer<typeof desktopWorkspaceNoticeSchema>
+
 export type DesktopNotificationResult =
   "shown" | "denied" | "unsupported" | "cancelled" | "failed"
 
 export async function checkDesktopUpdate() {
   if (!isDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
   return desktopUpdateSchema.parse(await Desktop.checkForUpdate())
+}
+
+/**
+ * Aggregate local task-workspace usage for the account signed in to this Mac.
+ * The native host derives the account from its own refresh session and never
+ * returns paths or server-side storage figures; the page cannot name another
+ * account.
+ */
+export async function readDesktopWorkspaceUsage(): Promise<DesktopWorkspaceUsage> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  return desktopWorkspaceUsageSchema.parse(await Desktop.workspaceUsage())
+}
+
+/** One click applies the existing 14-day/10-GiB retention policy. */
+export async function cleanupDesktopWorkspaces(): Promise<DesktopWorkspaceCleanup> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  return desktopWorkspaceCleanupSchema.parse(
+    await Desktop.cleanupWorkspaces()
+  )
+}
+
+/**
+ * Read-only check of this conversation's confirmed local eviction. The native
+ * host derives the account from its own refresh session and returns a boolean
+ * only; an unowned, legacy, or foreign workspace never reports as cleared.
+ */
+export async function readDesktopWorkspaceNotice(
+  conversationId: string
+): Promise<DesktopWorkspaceNotice> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  return desktopWorkspaceNoticeSchema.parse(
+    await Desktop.workspaceNotice(conversationId)
+  )
 }
 
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null

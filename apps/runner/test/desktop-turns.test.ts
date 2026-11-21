@@ -305,8 +305,8 @@ it.each(["before start", "during start", "before workspace eviction"])("seals a 
   const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-interrupt-"))
   const dataRoot = path.join(root, "sessions")
   const origin = "https://server.example.test"
-  const provider = new DesktopWorkerProvider({ dataRoot, runtimeRoot: root, controlToken: "a".repeat(64) },
-    logger)
+  const provider = new DesktopWorkerProvider({ dataRoot, runtimeRoot: root, controlToken: "a".repeat(64),
+    serverOrigin: origin }, logger)
   const acquire = vi.spyOn(provider, "acquire")
   const workerLost = vi.fn()
   const turns = new DesktopTurns(provider, root, origin, workerLost, logger)
@@ -340,7 +340,9 @@ it.each(["before start", "during start", "before workspace eviction"])("seals a 
       const workspace = path.join(paths.home, "workspace")
       await writeFile(history, "previous native history")
       await writeFile(path.join(workspace, "discarded"), "old workspace content")
-      expect(await provider.pruneWorkspaces(Date.now() + 15 * 86_400_000)).toEqual({ deleted: 1, retainedBytes: 0 })
+      expect(await provider.pruneWorkspaces(Date.now() + 15 * 86_400_000)).toEqual({
+        deleted: 1, freedBytes: Buffer.byteLength("old workspace content"), retainedBytes: 0,
+      })
       await expect(readFile(path.join(workspace, "discarded"))).rejects.toMatchObject({ code: "ENOENT" })
       expect(await readFile(history, "utf8")).toBe("previous native history")
       await provider.prepareOwnerFilesystem(paths)
@@ -358,6 +360,54 @@ it.each(["before start", "during start", "before workspace eviction"])("seals a 
     expect(acquire).not.toHaveBeenCalled()
     expect(workerLost).not.toHaveBeenCalled()
   } finally {
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("rejects new starts and recovery reads but keeps Stop available during cleanup maintenance", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-maintenance-"))
+  const origin = "https://server.example.test"
+  const provider = new DesktopWorkerProvider({ dataRoot: root, runtimeRoot: root, controlToken: "a".repeat(64), serverOrigin: origin },
+    logger)
+  const acquire = vi.spyOn(provider, "acquire")
+  const turns = new DesktopTurns(provider, root, origin, vi.fn(), logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const command = { type: "command", ...scope, expires_at: expiresAt }
+  const signal = AbortSignal.timeout(5_000)
+  try {
+    expect(provider.beginMaintenance()).toBe(true)
+    const start = desktopExecutionCommandSchema.parse({
+      ...command, id: randomUUID(), operation: "turn.start",
+      body: {
+        native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+        credentials: {
+          turn_id: scope.turn_id, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+          primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+        },
+      },
+    })
+    expect(await turns.execute(start, signal)).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+    const inspect = desktopExecutionCommandSchema.parse({ ...command, id: randomUUID(), operation: "turn.inspect" })
+    expect(await turns.execute(inspect, signal)).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+    expect(acquire).not.toHaveBeenCalled()
+    // Stop is not workspace admission: it receives its receipt immediately and
+    // never waits for the cleanup. Sealing an unstarted turn needs the same
+    // filesystem preparation that exclusivity excludes, so this attempt is
+    // reported as uncertain for an idempotent retry, not silently dropped.
+    const stop = desktopExecutionCommandSchema.parse({ ...command, id: randomUUID(), operation: "turn.interrupt" })
+    expect(await turns.execute(stop, signal)).toMatchObject({
+      ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+    })
+    provider.endMaintenance()
+    expect(await turns.execute(stop, signal)).toMatchObject({
+      ok: true, result: { code: "TURN_INTERRUPT_REQUESTED" },
+    })
+    expect(acquire).not.toHaveBeenCalled()
+  } finally {
+    provider.endMaintenance()
     await turns.shutdown()
     await provider.shutdown()
     await rm(root, { recursive: true, force: true })

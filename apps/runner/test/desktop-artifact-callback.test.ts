@@ -52,6 +52,8 @@ function createProvider(root: string): ConstructorParameters<typeof DesktopTurns
       }
     },
     prepareOwnerFilesystem: async () => {},
+    assertSessionOrigin: async () => {},
+    isMaintenanceActive: () => false,
     acquire: async () => { throw new Error("artifact fixture must not acquire a worker") },
     inspect: async () => "running" as const,
     request: async () => { throw new Error("artifact fixture must not reach a worker") },

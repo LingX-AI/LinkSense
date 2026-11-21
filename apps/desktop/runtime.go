@@ -65,6 +65,8 @@ func superviseRuntime(dataRoot, runtimeRoot, serverOrigin string) *runtimeSuperv
 }
 
 func (s *runtimeSupervisor) close() {
+	// A pending cleanup must stop deleting before the runtime process exits.
+	s.dropWorkspaceRequests()
 	s.cancel()
 	<-s.done
 }
@@ -201,8 +203,9 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serv
 
 type runtimePipeMessage struct {
 	Type              string          `json:"type"`
-	LinkID            string          `json:"link_id"`
+	LinkID            string          `json:"link_id,omitempty"`
 	OwnerID           string          `json:"owner_id,omitempty"`
+	RequestID         string          `json:"request_id,omitempty"`
 	Frame             json.RawMessage `json:"frame,omitempty"`
 	ToolsVersion      *int            `json:"tools_version,omitempty"`
 	ToolOperations    []string        `json:"tool_operations,omitempty"`
@@ -210,10 +213,11 @@ type runtimePipeMessage struct {
 }
 
 type runtimePipe struct {
-	input *os.File
-	done  chan struct{}
-	mu    sync.Mutex
-	link  atomic.Pointer[runtimeLink]
+	input    *os.File
+	done     chan struct{}
+	mu       sync.Mutex
+	link     atomic.Pointer[runtimeLink]
+	requests map[string]*pendingWorkspaceRequest
 }
 
 type runtimeLink struct {
@@ -272,20 +276,31 @@ func (link *runtimeLink) close() {
 }
 
 func (pipe *runtimePipe) deliver(raw string) bool {
-	var message runtimePipeMessage
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if !json.Valid([]byte(raw)) || decoder.Decode(&message) != nil || message.Type != "link.frame" ||
-		!validUUID(message.LinkID) || message.OwnerID != "" || message.ToolsVersion != nil || len(message.ToolOperations) > 0 || message.AttachmentVersion != nil ||
-		len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
-		return false
-	}
 	var header struct {
 		Type string `json:"type"`
 	}
-	if json.Unmarshal(message.Frame, &header) != nil ||
-		(header.Type != "command.result" && header.Type != "execution.callback" && header.Type != "execution.recovery" &&
-			header.Type != "tool.request" && header.Type != "tool.cancel") {
+	if !json.Valid([]byte(raw)) || json.Unmarshal([]byte(raw), &header) != nil {
+		return false
+	}
+	switch header.Type {
+	case workspaceUsageResultType, workspaceCleanupResultType:
+		return pipe.deliverWorkspaceResult(raw, header.Type)
+	}
+	var message runtimePipeMessage
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&message) != nil || message.Type != "link.frame" ||
+		!validUUID(message.LinkID) || message.OwnerID != "" || message.RequestID != "" ||
+		message.ToolsVersion != nil || len(message.ToolOperations) > 0 || message.AttachmentVersion != nil ||
+		len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
+		return false
+	}
+	var frameHeader struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(message.Frame, &frameHeader) != nil ||
+		(frameHeader.Type != "command.result" && frameHeader.Type != "execution.callback" && frameHeader.Type != "execution.recovery" &&
+			frameHeader.Type != "tool.request" && frameHeader.Type != "tool.cancel") {
 		return false
 	}
 	link := pipe.link.Load()

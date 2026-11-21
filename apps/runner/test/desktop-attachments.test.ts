@@ -216,7 +216,7 @@ it.each([
       await journal.update(correlated, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
     }
   }
-  await provider.pruneWorkspaces(Date.now(), { startup: true })
+  await provider.pruneWorkspaces(Date.now())
   expect(new Set(await readdir(parent))).toEqual(new Set(retains ? [published, userFolder] : [userFolder]))
 })
 

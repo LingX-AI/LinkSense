@@ -25,8 +25,12 @@ import {
 import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
-import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import {
+  isDesktopHost,
+  isMacDesktopHost,
+} from "@/adapters/desktop/desktop-adapter"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
+import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
 import {
   personalizationSettingsSchema,
   personalUsageProfileSchema,
@@ -271,6 +275,18 @@ export function SettingsGeneralPage() {
             }
           >
             <DesktopUpdateControl />
+          </SettingsCard>
+        )}
+        {isMacDesktopHost() && user && (
+          <SettingsCard
+            header={
+              <SettingsSectionHeader
+                id="local-workspace-heading"
+                title={t("localWorkspace.title")}
+              />
+            }
+          >
+            <LocalWorkspaceSettings key={user.id} />
           </SettingsCard>
         )}
       </div>

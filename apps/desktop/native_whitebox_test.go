@@ -26,6 +26,7 @@ var nativeWhitebox struct {
 	desktop    *Desktop
 	store      *memoryCredentialStore
 	server     *httptest.Server
+	dataRoot   string
 	logins     atomic.Int32
 	refresh    atomic.Int32
 	protocol   atomic.Int32
@@ -54,6 +55,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	mygo.App.SetPath(mygo.PathUserData, dataRoot)
+	nativeWhitebox.dataRoot = dataRoot
 	nativeWhitebox.store = &memoryCredentialStore{}
 	nativeWhitebox.protocol.Store(1)
 	nativeWhitebox.server = httptest.NewServer(http.HandlerFunc(whiteboxAPI))

@@ -24,15 +24,17 @@ type HostInfo struct {
 
 // Desktop exposes only the capabilities used by the shared application UI.
 type Desktop struct {
-	mu           sync.RWMutex
-	deviceSetup  sync.Mutex
-	server       *url.URL
-	window       *mygo.Window
-	session      *sessionTransport
-	device       *deviceConnection
-	login        *browserLoginAttempt
-	openBrowser  func(string) error
-	localRuntime *runtimeSupervisor
+	mu            sync.RWMutex
+	deviceSetup   sync.Mutex
+	server        *url.URL
+	workspaceRoot string
+	window        *mygo.Window
+	session       *sessionTransport
+	account       workspaceAccount
+	device        *deviceConnection
+	login         *browserLoginAttempt
+	openBrowser   func(string) error
+	localRuntime  *runtimeSupervisor
 	// The window and application lifecycle callbacks use these only on the main thread.
 	closeToTray bool
 	quitting    bool
@@ -40,17 +42,32 @@ type Desktop struct {
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {
 	d.server = server
+	// The native host answers the per-conversation workspace notice from the
+	// same private runtime root the supervisor uses, without starting it.
+	d.workspaceRoot = filepath.Join(dataRoot, "local-runtime")
 	client := newDesktopHTTPClient(server, store)
 	d.session = client.Transport.(*sessionTransport)
+	d.session.account = &d.account
 	d.session.signedOutPath = filepath.Join(dataRoot, "sessions", serverCredentialKey(server, "refresh")+".signed-out")
+	// Any invalidation (sign-out, account switch, expiry, 401/403) releases a
+	// pending workspace relay so its result cannot cross into another account.
+	d.account.setOnClear(func() {
+		if d.localRuntime != nil {
+			d.localRuntime.dropWorkspaceRequests()
+		}
+	})
 }
 
 func (d *Desktop) ClearSession(ctx context.Context) error {
-	d.deviceSetup.Lock()
-	defer d.deviceSetup.Unlock()
 	if err := d.checkCaller(ctx); err != nil {
 		return err
 	}
+	// Sign-out intent and account invalidation happen before device shutdown,
+	// which can wait for a connection to unwind. This releases pending relays
+	// and prevents an already in-flight refresh from restoring the account.
+	d.session.requestSignOut()
+	d.deviceSetup.Lock()
+	defer d.deviceSetup.Unlock()
 	d.closeDevice()
 	d.cancelSignIn()
 	refreshErr := d.session.clearSession()

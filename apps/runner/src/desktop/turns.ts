@@ -53,7 +53,7 @@ export class DesktopTurns {
   private closing = false
 
   constructor(
-    private readonly provider: Pick<DesktopWorkerProvider, "pathsFor" | "prepareOwnerFilesystem" | "acquire" | "inspect" | "request" | "release" | "stopWorkers">,
+    private readonly provider: Pick<DesktopWorkerProvider, "pathsFor" | "prepareOwnerFilesystem" | "acquire" | "inspect" | "request" | "release" | "stopWorkers" | "isMaintenanceActive" | "assertSessionOrigin">,
     private readonly runtimeRoot: string,
     private readonly origin: string,
     private readonly workerLost: () => void,
@@ -64,6 +64,11 @@ export class DesktopTurns {
   scopedRun(conversationId: string) {
     const run = this.sessions.get(conversationId)?.run
     return run && run.expiresAt > Date.now() ? run : undefined
+  }
+
+  /** A start, recovery or running turn still owns its task workspace. */
+  isBusy(): boolean {
+    return this.closing || this.sessions.size > 0 || this.seals.size > 0 || this.recovering.size > 0
   }
 
   inspectRun(run: DesktopRuntimeRun) {
@@ -80,6 +85,13 @@ export class DesktopTurns {
     try {
       signal.throwIfAborted()
       if (this.closing) throw new Error("desktop runner is closing")
+      // Cleanup owns admission from the moment it is taken synchronously.
+      // Start and recovery must fail before any worker, journal, or workspace
+      // side effect; stop, acknowledgements, and responses stay available.
+      if (this.provider.isMaintenanceActive() && (command.operation === "turn.start" ||
+          command.operation === "turn.inspect" || command.operation === "turn.drain")) {
+        return { ...envelope, ok: false, error_code: "RUNNER_UNAVAILABLE" }
+      }
       if (session && (session.scope.owner_id !== command.owner_id || session.scope.runtime_generation !== command.runtime_generation)) {
         throw new RuntimeGenerationIntegrityError()
       }
@@ -391,6 +403,9 @@ export class DesktopTurns {
 
   private async readGeneration(command: Scope) {
     const paths = this.provider.pathsFor(command.owner_id, command.conversation_id)
+    // A v2 marker that names another configured origin must never be read or
+    // recovered as this server's data. Legacy and absent markers still work.
+    await this.provider.assertSessionOrigin(command.owner_id, command.conversation_id)
     // The parent can survive workspace eviction; absence is not evidence of an unrun command.
     for (const directory of [paths.root, path.dirname(path.dirname(paths.owner)), path.dirname(paths.owner), paths.owner,
       paths.control, path.join(paths.control, "workspaces"), path.join(paths.control, "workspaces", command.conversation_id)]) {

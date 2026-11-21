@@ -57,6 +57,40 @@ choice persists on this Mac and is off for new and upgraded installs.
 (`Command+N`) actions work after sign-in and respect the app's unsaved-change
 prompts.
 
+### Local workspaces
+
+On macOS, local task files live under the app's private runtime directory.
+Startup maintenance keeps the most recent 14 days and caps eligible task files
+at 10 GiB, evicting the oldest workspaces first. **Settings → General** shows
+only the signed-in account's current-server total and offers the same policy as
+a one-click cleanup.
+
+Only sessions created by this build for the current server origin are measured
+or evicted. Legacy v1 sessions (which never recorded an origin), sessions bound
+to another origin, other accounts, active turns, and sessions with unresolved
+start journals, attachment staging, or event outbox entries are retained. A
+cleanup removes only `home/workspace`; the session marker, control state, Codex
+history, managed files, and uploaded artifacts stay.
+
+A confirmed eviction is recorded in the session marker. Opening that
+conversation on the Mac shows one inline notice; the next local turn rebuilds an
+empty workspace and removes the notice. Because v1 sessions have no origin
+binding, a missing v1 workspace is never reported as cleared. The notice is
+answered read-only from the marker, so it survives an app restart until the
+workspace is rebuilt.
+
+The WKWebView workspace whitebox runs only when a prepared runtime is selected:
+
+```sh
+LINKSENSE_DESKTOP_RUNTIME_DIST="$PWD/apps/desktop/resources/darwin-arm64/runtime" \
+  pnpm desktop:whitebox
+```
+
+It drives Settings and a cleared conversation with a disposable supervised
+runner and fixtures for another account, a foreign origin, a legacy v1 session,
+and an unresolved outbox. Without the variable that test is skipped; the
+remaining whitebox tests still run.
+
 Enable **macOS notifications** in **Settings → General**. Turning it on
 sends a test notification and can open the system permission prompt. A saved
 browser preference does not enable Mac notifications. While the app runs

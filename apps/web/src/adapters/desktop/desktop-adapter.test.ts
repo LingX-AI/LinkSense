@@ -10,6 +10,9 @@ const native = vi.hoisted(() => ({
   showCompletionNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   showTestNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   onNotificationClick: vi.fn(),
+  workspaceUsage: vi.fn(),
+  cleanupWorkspaces: vi.fn(),
+  workspaceNotice: vi.fn(),
 }))
 vi.mock("mygo-runtime", () => ({ isMyGo: () => native.isDesktop }))
 vi.mock("@mygo-plugins/fetch", () => ({ fetch: native.request }))
@@ -20,6 +23,9 @@ vi.mock("./mygo", () => ({
     notificationsSupported: native.notificationsSupported,
     showCompletionNotification: native.showCompletionNotification,
     showTestNotification: native.showTestNotification,
+    workspaceUsage: native.workspaceUsage,
+    cleanupWorkspaces: native.cleanupWorkspaces,
+    workspaceNotice: native.workspaceNotice,
   },
   events: {
     desktopNavigate: { on: native.onNavigate },
@@ -28,12 +34,15 @@ vi.mock("./mygo", () => ({
 }))
 
 import {
+  cleanupDesktopWorkspaces,
   desktopNotificationRouteForUser,
   getDesktopPlatform,
   getDesktopServerUrl,
   hostFetch,
   initializeDesktopHost,
   openDesktopExternal,
+  readDesktopWorkspaceNotice,
+  readDesktopWorkspaceUsage,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
   subscribeDesktopNavigation,
@@ -223,5 +232,97 @@ describe("desktop host boundary", () => {
     const nextListener = vi.fn()
     subscribeDesktopNotificationClick(nextListener)
     expect(nextListener).toHaveBeenCalledWith(pendingTarget)
+  })
+
+  it("validates the read-only conversation workspace notice", async () => {
+    const conversationId = "40000000-0000-4000-8000-000000000001"
+    await expect(readDesktopWorkspaceNotice(conversationId)).rejects.toThrow(
+      "DESKTOP_HOST_UNAVAILABLE"
+    )
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+    native.workspaceNotice.mockResolvedValue({ cleared: true })
+    await expect(readDesktopWorkspaceNotice(conversationId)).resolves.toEqual({
+      cleared: true,
+    })
+    expect(native.workspaceNotice).toHaveBeenCalledWith(conversationId)
+
+    native.workspaceNotice.mockResolvedValueOnce({
+      cleared: true,
+      path: "/tmp/workspace",
+    })
+    await expect(readDesktopWorkspaceNotice(conversationId)).rejects.toThrow()
+  })
+
+  it("validates native account-scoped workspace usage and cleanup relays", async () => {
+    await expect(readDesktopWorkspaceUsage()).rejects.toThrow(
+      "DESKTOP_HOST_UNAVAILABLE"
+    )
+    await expect(cleanupDesktopWorkspaces()).rejects.toThrow(
+      "DESKTOP_HOST_UNAVAILABLE"
+    )
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+    native.workspaceUsage.mockResolvedValue({
+      bytes: 1536,
+      files: 4,
+      sessions: 1,
+      retentionDays: 14,
+      budgetBytes: 10 * 1024 * 1024 * 1024,
+    })
+    await expect(readDesktopWorkspaceUsage()).resolves.toMatchObject({
+      files: 4,
+      sessions: 1,
+    })
+    expect(native.workspaceUsage).toHaveBeenCalledWith()
+
+    native.workspaceUsage.mockResolvedValueOnce({
+      bytes: 0,
+      files: 0,
+      sessions: 0,
+      retentionDays: 14,
+      budgetBytes: 10 * 1024 * 1024 * 1024,
+      path: "/tmp/workspace",
+    })
+    await expect(readDesktopWorkspaceUsage()).rejects.toThrow()
+
+    native.cleanupWorkspaces.mockResolvedValue({
+      status: "busy",
+      deletedSessions: 0,
+      freedBytes: 0,
+      retainedBytes: 0,
+    })
+    await expect(cleanupDesktopWorkspaces()).resolves.toEqual({
+      status: "busy",
+      deletedSessions: 0,
+      freedBytes: 0,
+      retainedBytes: 0,
+    })
+
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "windows",
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+    await expect(readDesktopWorkspaceUsage()).rejects.toThrow(
+      "DESKTOP_HOST_UNAVAILABLE"
+    )
+    await expect(cleanupDesktopWorkspaces()).rejects.toThrow(
+      "DESKTOP_HOST_UNAVAILABLE"
+    )
   })
 })

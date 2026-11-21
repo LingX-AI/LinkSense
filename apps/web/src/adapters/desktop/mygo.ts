@@ -48,12 +48,45 @@ export interface RuntimeStatus {
   state: string;
 }
 
+/**
+ * WorkspaceCleanupResult reports the outcome of one explicit cleanup.
+ * "busy" means a start, recovery or turn owned a workspace, so nothing ran.
+ */
+export interface WorkspaceCleanupResult {
+  status: string;
+  deletedSessions: number;
+  freedBytes: number;
+  retainedBytes: number;
+}
+
+/**
+ * WorkspaceNotice answers one read-only question for the shared UI: were this
+ * conversation's local task files explicitly cleared on this Mac? It exposes a
+ * boolean only, never a path, token, or file name.
+ */
+export interface WorkspaceNotice {
+  cleared: boolean;
+}
+
+/**
+ * WorkspaceUsage is an aggregate for the signed-in account on this Mac.
+ * It never contains paths, conversation ids or file names.
+ */
+export interface WorkspaceUsage {
+  bytes: number;
+  files: number;
+  sessions: number;
+  retentionDays: number;
+  budgetBytes: number;
+}
+
 // ---- Services ----
 
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
   cancelSignIn: bind<[], void>("Desktop.CancelSignIn", () => []),
   checkForUpdate: bind<[], DesktopUpdateResult>("Desktop.CheckForUpdate", () => []),
+  cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
   info: bind<[], HostInfo>("Desktop.Info", () => []),
@@ -77,6 +110,14 @@ export const Desktop = {
    */
   showTestNotification: bind<[string], void>("Desktop.ShowTestNotification", (body: string) => [body]),
   signIn: bind<[], void>("Desktop.SignIn", () => []),
+  /**
+   * WorkspaceNotice derives the account from the authenticated native refresh
+   * session, exactly like usage and cleanup. An unreadable, corrupt, legacy, or
+   * foreign-origin marker produces no notice; absence of an old workspace is
+   * never treated as an eviction.
+   */
+  workspaceNotice: bind<[string], WorkspaceNotice>("Desktop.WorkspaceNotice", (conversationID: string) => [conversationID]),
+  workspaceUsage: bind<[], WorkspaceUsage>("Desktop.WorkspaceUsage", () => []),
 } as const;
 
 // ---- Events ----

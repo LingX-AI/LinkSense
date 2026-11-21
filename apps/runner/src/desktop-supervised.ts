@@ -1,14 +1,11 @@
 import path from "node:path"
 import pino from "pino"
 import { z } from "zod"
-import {
-  desktopRuntimeInputSchema, desktopRuntimeOutputSchema, desktopExecutionMaxFrameBytes, desktopServerOriginSchema,
-} from "@linksense/shared"
+import { desktopExecutionMaxFrameBytes, desktopServerOriginSchema } from "@linksense/shared"
 
 import { assertCodexRuntimeVersion } from "./codex/runtime-version.js"
 import { DesktopWorkerProvider } from "./controller/desktop-worker-provider.js"
-import { DesktopLink } from "./desktop/link.js"
-import { DesktopTurns } from "./desktop/turns.js"
+import { DesktopSupervisor } from "./desktop/supervisor.js"
 import { desktopWorkerCallbacks } from "./desktop/worker-callbacks.js"
 import { createLoggerOptions } from "./lib/logger.js"
 
@@ -55,8 +52,8 @@ function writeLine(value: unknown): Promise<void> {
 
 // The private supervisor pipe is held open for the life of the desktop app.
 let provider: DesktopWorkerProvider | undefined
+let supervisor: DesktopSupervisor | undefined
 let callbacks: ReturnType<typeof desktopWorkerCallbacks> | undefined
-let current: { link: DesktopLink; turns: DesktopTurns } | undefined
 let heartbeat: NodeJS.Timeout | undefined
 const fail = () => {
   // Go owns the OS process group, including grandchildren of a failed worker.
@@ -70,48 +67,31 @@ try {
   const logger = pino(createLoggerOptions({ name: "desktop-runtime" }), process.stderr)
   let bridgeUrl: string | undefined
   if (config.server_origin) {
-    callbacks = desktopWorkerCallbacks(config.control_token, () => current, config.server_origin)
+    callbacks = desktopWorkerCallbacks(config.control_token, () => supervisor?.currentForCallbacks(), config.server_origin)
     bridgeUrl = new URL("/", await callbacks.listen({ host: "127.0.0.1", port: 0 })).href
   }
-  const runtime = new DesktopWorkerProvider({
+  provider = new DesktopWorkerProvider({
     dataRoot: config.data_root, runtimeRoot: config.runtime_root, controlToken: config.control_token,
     ...(bridgeUrl ? { bridgeUrl } : {}),
     ...(config.server_origin ? { serverOrigin: config.server_origin } : {}),
   }, logger, fail)
-  provider = runtime
   await assertCodexRuntimeVersion({
     command: path.join(config.runtime_root, "bin", process.platform === "win32" ? "codex.exe" : "codex"),
   })
-  await runtime.initialize()
+  await provider.initialize()
   await writeLine({ type: "ready", version: 1 })
   heartbeat = setInterval(() => {
     if (process.stdout.writableLength === 0) void writeLine({ type: "heartbeat", version: 1 }).catch(fail)
   }, 2_000)
-  for await (const value of input) {
-    const message = desktopRuntimeInputSchema.parse(value)
-    const origin = config.server_origin
-    if (message.type === "link.open") {
-      if (current || !origin) throw new Error("desktop link is not available")
-      const operations = message.tool_operations ?? (message.tools_version !== undefined ? ["web.search" as const] : [])
-      const turns = new DesktopTurns(runtime, config.runtime_root, origin, fail, logger, operations)
-      current = {
-        turns,
-        link: new DesktopLink(message.link_id, message.owner_id, turns, frame =>
-          writeLine(desktopRuntimeOutputSchema.parse(frame)), fail, operations, message.attachment_version !== undefined),
-      }
-    } else if (current?.link.id === message.link_id) {
-      if (message.type === "link.close") {
-        const state = current
-        current = undefined
-        await state.link.close()
-      } else current.link.receive(message.frame)
-    }
-  }
+  supervisor = new DesktopSupervisor({
+    provider, runtimeRoot: config.runtime_root, origin: config.server_origin, logger,
+    write: writeLine, fail,
+  })
+  await supervisor.run(input)
 } catch {
   process.exitCode = 1
 } finally {
   clearInterval(heartbeat)
-  await current?.link.close().catch(() => { process.exitCode = 1 })
-  await provider?.shutdown().catch(() => { process.exitCode = 1 })
+  if (!supervisor) await provider?.shutdown().catch(() => { process.exitCode = 1 })
   await callbacks?.close().catch(() => { process.exitCode = 1 })
 }
