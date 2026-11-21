@@ -1,4 +1,5 @@
 import {
+  desktopModelPurposeSchema,
   modelUsageWorkloadValues,
   modelIdentifierSchema,
   modelTokenPricingSchema,
@@ -98,6 +99,73 @@ export function projectMeasuredModelTokenUsage(
 
 export interface ModelUsageRecorder {
   recordModelUsage(input: ModelUsageCapture): Promise<{ recorded: boolean }>
+}
+
+const desktopProviderTokenCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER)
+
+export const desktopProviderTokenUsageSchema = z
+  .strictObject({
+    totalTokens: desktopProviderTokenCountSchema,
+    inputTokens: desktopProviderTokenCountSchema,
+    cachedInputTokens: desktopProviderTokenCountSchema,
+    outputTokens: desktopProviderTokenCountSchema,
+    reasoningOutputTokens: desktopProviderTokenCountSchema,
+  })
+  .superRefine((usage, context) => {
+    if (usage.cachedInputTokens > usage.inputTokens) {
+      context.addIssue({
+        code: "custom",
+        path: ["cachedInputTokens"],
+        message: "cached_input_tokens_must_be_input_subset",
+      })
+    }
+    if (usage.reasoningOutputTokens > usage.outputTokens) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningOutputTokens"],
+        message: "reasoning_output_tokens_must_be_output_subset",
+      })
+    }
+  })
+
+export type DesktopProviderTokenUsage = z.output<
+  typeof desktopProviderTokenUsageSchema
+>
+
+/**
+ * Provider-authoritative usage observed by the desktop model proxy. The run
+ * lease supplies owner/conversation/turn/model; the upstream terminal frame
+ * supplies only the token counts.
+ */
+export const desktopProviderUsageCaptureSchema = z.strictObject({
+  requestId: z.uuid(),
+  purpose: desktopModelPurposeSchema,
+  ownerId: z.uuid(),
+  conversationId: z.uuid(),
+  turnId: z.uuid(),
+  runtimeGeneration: z.uuid(),
+  model: modelIdentifierSchema,
+  tokenUsage: desktopProviderTokenUsageSchema,
+  pricing: modelTokenPricingSchema,
+})
+
+export type DesktopProviderUsageCapture = z.output<
+  typeof desktopProviderUsageCaptureSchema
+>
+
+export type DesktopProviderUsageResult = {
+  recorded: boolean
+  reason_code?: string
+}
+
+export interface DesktopProviderUsageRecorder {
+  recordDesktopProviderUsage(
+    input: DesktopProviderUsageCapture,
+  ): Promise<DesktopProviderUsageResult>
 }
 
 export type UsagePriceAndCostSnapshot = {

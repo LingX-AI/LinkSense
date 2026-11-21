@@ -76,7 +76,10 @@ export async function verifyPackagedDesktopGateway(input: {
   connector: { driveName: string; documentName: string; documentText: string };
   browser: { title: string; tabId: number; image: Buffer; ref: string; observed: readonly string[] };
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
-}): Promise<{ id: string; turnId: string; sizeBytes: number; websiteArtifactId: string; websiteAssets: string[] }> {
+}): Promise<{
+  id: string; turnId: string; conversationId: string; sizeBytes: number; websiteArtifactId: string;
+  websiteAssets: string[]; model: string; modelCalls: number;
+}> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
     "the package regression requires a local Mac arm64 app runtime");
   z.object({ target: z.literal("darwin/arm64") }).parse(
@@ -387,6 +390,7 @@ export async function verifyPackagedDesktopGateway(input: {
         models: [{
           kind: "chat", id: fixtureModel, display_name: "Desktop fixture", enabled: true,
           context_window: 32768, supported_reasoning_efforts: ["low"], default_reasoning_effort: "low", supports_image_input: true,
+          input_price_per_million: "10", cached_input_price_per_million: "2", output_price_per_million: "20",
         }],
       }],
     }, {});
@@ -945,8 +949,9 @@ export async function verifyPackagedDesktopGateway(input: {
     await assertNoServerSecrets(dataRoot, secrets);
     console.log(`Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled ${attachmentMiB} MiB retry read by native Codex, scoped tools, approvals, native artifact registration and authenticated download, interruption, and start idempotency.`);
     return {
-      id: artifact.file_id, turnId: completed.turn_id, sizeBytes: download.sizeBytes,
+      id: artifact.file_id, turnId: completed.turn_id, conversationId: read.id, sizeBytes: download.sizeBytes,
       websiteArtifactId: website.file_id, websiteAssets,
+      model: fixtureModel, modelCalls: modelRequests.read,
     };
   } finally {
     closeModelStream?.();

@@ -53,10 +53,17 @@ export async function startDesktopModelProxyFixture(configured: readonly Fixture
           baseUrl: configured.upstreamBaseUrl,
           apiKey: configured.upstreamKey,
           supportsImageInput: configured.supportsImageInput === true,
+          provider: "openai",
+          pricing: {
+            input_price_per_million: "10",
+            cached_input_price_per_million: "2",
+            output_price_per_million: "20",
+          },
         };
       } },
       creditLimits: { assertCanStartTask: async () => undefined },
       privacyMasking: { runtimeForUser: async () => undefined },
+      usage: { recordDesktopProviderUsage: async () => ({ recorded: true }) },
     });
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
     const purposes = new Set<string>();

@@ -21,7 +21,7 @@ import { executeDesktopTool } from "./tool-requests.js";
 type ExecutionServices = Pick<AppServices,
   "config" | "redis" | "prisma" | "runner" | "conversations" | "events" |
   "modelProviderSettings" | "creditLimits" | "privacyMaskingSettings" | "webSearchSettings" | "audit" | "knowledgeSearch"
-  | "storage"
+  | "storage" | "usageAnalytics"
 > & { files: Pick<AppServices["files"], "registerVerifiedDesktopArtifact">; jobs: Pick<AppServices["jobs"], "enqueueDesktopArtifactCleanup" | "enqueueDesktopWebsiteCleanup"> };
 
 export async function registerDesktopExecution(
@@ -176,6 +176,7 @@ export async function registerDesktopExecution(
     settings: services.modelProviderSettings,
     creditLimits: services.creditLimits,
     privacyMasking: services.privacyMaskingSettings,
+    usage: services.usageAnalytics,
     redis: redis.client,
     rateLimitSecret: config.loginRateLimitHmacSecret,
   });

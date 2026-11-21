@@ -13,6 +13,8 @@ import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-au
 import type { DesktopRunAuthorizationPhase } from "../../src/modules/desktop-credentials/run-leases.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
+import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
+import { UsageAnalyticsService } from "../../src/modules/usage/service.js";
 import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
 import { MemoryDesktopDeviceCoordinator } from "../desktop-devices.fixture.js";
 import { verifyDesktopExecutionProjection } from "./desktop-execution-projection.js";
@@ -229,9 +231,98 @@ try {
     VALUES (${legacyArtifactId}::uuid, ${scope.conversationId}::uuid, ${scope.turnId}::uuid,
       'artifact', 'agent_generated', 'registered', 'legacy.txt', 'text/plain', ${legacyArtifactContents.length},
       ${sha256(legacyArtifactContents)}, 'minio', ${`fixtures/${legacyArtifactId}`}, true, ${randomUUID()}::uuid, now())`;
+  // Native history written before the widening migration: the prior columns are
+  // populated and must survive unchanged.
+  const legacyUsageId = randomUUID();
+  const legacySnapshotKey = sha256(`legacy-provider-usage:${legacyUsageId}`);
+  await db.$executeRaw`INSERT INTO token_usage_records
+    (id, snapshot_key, owner_id, conversation_id, turn_id, codex_thread_id, codex_turn_id, model,
+     total_tokens, input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens,
+     input_price_micros_per_million, cached_input_price_micros_per_million, output_price_micros_per_million,
+     input_cost_pico_usd, cached_input_cost_pico_usd, output_cost_pico_usd, total_cost_pico_usd,
+     unpriced_tokens, credit_price_micros_usd, used_credit_micros, observed_at)
+    VALUES (${legacyUsageId}::uuid, ${legacySnapshotKey}, ${owner}::uuid, ${scope.conversationId}::uuid,
+      ${scope.turnId}::uuid, 'legacy-thread', 'legacy-turn', 'legacy-native',
+      15, 10, 0, 5, 0,
+      10000000, 2000000, 20000000,
+      100000000, 0, 100000000, 200000000,
+      0, 10000, 20000, now())`;
+  const legacyUsageBefore = await db.tokenUsageRecord.findUniqueOrThrow({
+    where: { id: legacyUsageId },
+    select: {
+      codexThreadId: true, codexTurnId: true, totalTokens: true,
+      totalCostPicoUsd: true, usedCreditMicros: true,
+    },
+  });
+  assert.deepEqual(legacyUsageBefore, {
+    codexThreadId: "legacy-thread", codexTurnId: "legacy-turn", totalTokens: 15n,
+    totalCostPicoUsd: 200_000_000n, usedCreditMicros: 20_000n,
+  });
   await migrate("desktop_upgrade");
   assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: legacyGrantId } })).sessionId, null);
   assert.equal(await authority(), true);
+  const legacyUsageAfter = await db.tokenUsageRecord.findUniqueOrThrow({
+    where: { id: legacyUsageId },
+    select: {
+      codexThreadId: true, codexTurnId: true, totalTokens: true,
+      totalCostPicoUsd: true, usedCreditMicros: true,
+    },
+  });
+  assert.deepEqual(legacyUsageAfter, legacyUsageBefore,
+    "the widening migration must preserve native history and its accounting");
+  // Provider-authoritative usage recorded before turn projection keeps the
+  // server-issued projection turn id and leaves native ids empty.
+  const providerUsageId = randomUUID();
+  const providerSnapshotKey = sha256(`provider-authoritative:${providerUsageId}`);
+  await db.tokenUsageRecord.create({
+    data: {
+      id: providerUsageId,
+      snapshotKey: providerSnapshotKey,
+      ownerId: owner,
+      conversationId: scope.conversationId,
+      turnId: scope.turnId,
+      codexThreadId: null,
+      codexTurnId: null,
+      model: "provider-authoritative",
+      totalTokens: 6n,
+      inputTokens: 4n,
+      cachedInputTokens: 0n,
+      outputTokens: 2n,
+      reasoningOutputTokens: 0n,
+      inputPriceMicrosPerMillion: 10_000_000n,
+      cachedInputPriceMicrosPerMillion: 2_000_000n,
+      outputPriceMicrosPerMillion: 20_000_000n,
+      inputCostPicoUsd: 40_000_000n,
+      cachedInputCostPicoUsd: 0n,
+      outputCostPicoUsd: 40_000_000n,
+      totalCostPicoUsd: 80_000_000n,
+      unpricedTokens: 0n,
+      creditPriceMicrosUsd: 10_000n,
+      usedCreditMicros: 8_000n,
+      observedAt: new Date(),
+    },
+  });
+  const usageAnalytics = new UsageAnalyticsService(db);
+  const usageReport = await usageAnalytics.report({ range: "all", time_zone: "UTC" });
+  assert.equal(usageReport.totals.token_usage.total_tokens, "21");
+  assert.equal(usageReport.totals.cost.total_cost, "0.00028");
+  const assistantUsage = usageReport.workloads.find(
+    workload => workload.workload === "assistant_response",
+  );
+  assert.equal(assistantUsage?.token_usage.total_tokens, "21");
+  assert.deepEqual(assistantUsage?.measurement_methods, ["provider"]);
+  assert.equal(usageReport.models.find(model => model.model_id === "legacy-native")
+    ?.token_usage.total_tokens, "15");
+  assert.equal(usageReport.models.find(model => model.model_id === "provider-authoritative")
+    ?.token_usage.total_tokens, "6");
+  const usageProfile = await usageAnalytics.personalProfile(owner, { time_zone: "UTC" });
+  assert.equal(usageProfile.metrics.token_usage.total_tokens, "21");
+  assert.equal(usageProfile.models.find(model => model.model_id === "provider-authoritative")
+    ?.token_usage.total_tokens, "6");
+  const usageQuota = await usageAnalytics.personalQuota(owner, { range: "7d", time_zone: "UTC" });
+  assert.equal(usageQuota.tasks.find(task => task.id === scope.conversationId)?.credits, "0.028");
+  const creditOverview = await new CreditLimitService(db, { timeZone: "UTC" }).personalOverview(owner);
+  assert.equal(creditOverview.used, "0.028");
   await verifyDesktopExecutionProjection({
     prisma: db, ownerId: owner, deviceId: stored.id, token: issued.token,
     databaseUrl: databaseUrl("desktop_upgrade"), workspaceRoot: join(root, "workspaces"),

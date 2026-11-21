@@ -1390,8 +1390,8 @@ model TokenUsageRecord {
   applicationId                    String?  @map("application_id") @db.Uuid
   applicationNameSnapshot          String?  @map("application_name_snapshot") @db.VarChar(160)
   turnId                           String   @map("turn_id") @db.Uuid
-  codexThreadId                    String   @map("codex_thread_id") @db.Text
-  codexTurnId                      String   @map("codex_turn_id") @db.Text
+  codexThreadId                    String?  @map("codex_thread_id") @db.Text
+  codexTurnId                      String?  @map("codex_turn_id") @db.Text
   model                            String   @db.VarChar(240)
   totalTokens                      BigInt   @map("total_tokens") @db.BigInt
   inputTokens                      BigInt   @map("input_tokens") @db.BigInt

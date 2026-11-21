@@ -16,7 +16,7 @@ const modelPath = z.strictObject({ turnId: z.uuid(), purpose: desktopModelPurpos
 const requestLimit = 16 * 1024 * 1024;
 const requestDeadlineMs = 180_000;
 
-type ProxyOptions = Pick<DesktopModelDependencies, "leases" | "settings" | "creditLimits" | "privacyMasking" | "fetcher"> & {
+type ProxyOptions = Pick<DesktopModelDependencies, "leases" | "settings" | "creditLimits" | "privacyMasking" | "usage" | "fetcher"> & {
   redis: Redis;
   rateLimitSecret: string;
   deadlineMs?: number;
@@ -133,6 +133,7 @@ export const desktopModelProxyRoutes: FastifyPluginAsync<ProxyOptions> = async (
         reserveSlot: turnId => reserveDesktopModelSlot(options.redis, turnId),
         watchRevocation,
         onSlotReleaseFailure: () => request.log.warn("desktop model concurrency slot will expire"),
+        logger: request.log,
       }, authorization(request), endpoint, request.body, requestState(request).signal, turnMetadata(request));
       if (!result.ok) return reply.code(result.status).send({
         error: {

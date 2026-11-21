@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   conversationStartFailurePayloadSchema,
+  creditMicrosToDecimal,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
@@ -69,6 +70,7 @@ import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
 import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
+import { UsageAnalyticsService } from "../../src/modules/usage/service.js";
 import { webBundleObjectKey } from "../../src/modules/web-sites/bundle.js";
 import { WebArtifactResources } from "../../src/modules/web-sites/artifact-resources.js";
 import { WebSiteRepository } from "../../src/modules/web-sites/repository.js";
@@ -149,6 +151,7 @@ export async function verifyDesktopExecutionProjection(input: {
     });
     const outsideFixture = async (): Promise<never> => { throw new Error("Unexpected cloud or user-authentication call"); };
     const modelProviderSettings = new ModelProviderSettingsService(prisma, config);
+    const usageAnalytics = new UsageAnalyticsService(prisma, { modelCatalog: modelProviderSettings });
     const creditLimits = new CreditLimitService(prisma, { timeZone: config.billingTimeZone });
     const privacyMaskingSettings = new PrivacyMaskingSettingsService(prisma, config);
     const audit = new AuditService(prisma);
@@ -215,6 +218,7 @@ export async function verifyDesktopExecutionProjection(input: {
         return files.registerVerifiedDesktopArtifact(input, fence);
       } },
       modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
+      usageAnalytics,
       knowledgeSearch: knowledge.service, connections: connector.service,
       browserUse: new DesktopBrowserUse(prisma, browser, browserStore, config),
     }, coordinator, leases);
@@ -993,6 +997,100 @@ export async function verifyDesktopExecutionProjection(input: {
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,
         },
       });
+      const providerUsage = await prisma.tokenUsageRecord.findMany({
+        where: {
+          ownerId, conversationId: artifact.conversationId, turnId: artifact.turnId,
+        },
+        select: {
+          snapshotKey: true, ownerId: true, conversationId: true, turnId: true,
+          codexThreadId: true, codexTurnId: true, model: true,
+          totalTokens: true, inputTokens: true, cachedInputTokens: true, outputTokens: true,
+          reasoningOutputTokens: true, totalCostPicoUsd: true, usedCreditMicros: true,
+        },
+        orderBy: { observedAt: "asc" },
+      });
+      const completedTurn = await prisma.conversationTurn.findUniqueOrThrow({
+        where: { id: artifact.turnId },
+        select: { model: true, codexThreadId: true, codexTurnId: true, status: true },
+      });
+      assert.equal(completedTurn.status, "completed");
+      assert.equal(completedTurn.model, artifact.model);
+      // One exact server-observed provider response per proxied model call.
+      assert.equal(providerUsage.length, artifact.modelCalls,
+        "each proxied model call must persist exactly one provider usage record");
+      for (const record of providerUsage) {
+        assert.equal(record.ownerId, ownerId);
+        assert.equal(record.conversationId, artifact.conversationId);
+        assert.equal(record.turnId, artifact.turnId);
+        if (record.codexThreadId === null) {
+          assert.equal(record.codexTurnId, null,
+            "pre-projection provider usage must not invent native ids");
+        } else {
+          assert.equal(record.codexThreadId, completedTurn.codexThreadId);
+          assert.equal(record.codexTurnId, completedTurn.codexTurnId);
+        }
+        assert.equal(record.model, artifact.model);
+        // The fixture response reports 1 input + 1 output token; catalog prices
+        // are 10 / 2 / 20 USD per million, so each record costs 30,000,000 pUSD.
+        assert.deepEqual([
+          record.totalTokens, record.inputTokens, record.cachedInputTokens,
+          record.outputTokens, record.reasoningOutputTokens,
+        ], [2n, 1n, 0n, 1n, 0n]);
+        assert.equal(record.totalCostPicoUsd, 30_000_000n);
+        assert.equal(record.usedCreditMicros, 3_000n);
+      }
+      assert.equal(new Set(providerUsage.map(record => record.snapshotKey)).size, providerUsage.length);
+      assert.equal(await prisma.modelUsageRecord.count({
+        where: { ownerId, turnId: artifact.turnId },
+      }), 0, "primary provider usage must not also write a model usage record");
+      assert.equal(await prisma.conversationEvent.count({
+        where: {
+          conversationId: artifact.conversationId, turnId: artifact.turnId,
+          eventType: "thread/tokenUsage/updated",
+        },
+      }), 0, "client-supplied token events must remain skipped");
+      const ownerTokenUsage = await prisma.tokenUsageRecord.aggregate({
+        where: { ownerId },
+        _sum: {
+          totalTokens: true, inputTokens: true, cachedInputTokens: true,
+          outputTokens: true, reasoningOutputTokens: true, usedCreditMicros: true,
+        },
+      });
+      const ownerTotalTokens = ownerTokenUsage._sum.totalTokens ?? 0n;
+      const profile = await usageAnalytics.personalProfile(ownerId, { time_zone: "UTC" });
+      assert.equal(profile.metrics.token_usage.total_tokens, ownerTotalTokens.toString());
+      assert.equal(profile.metrics.token_usage.input_tokens,
+        (ownerTokenUsage._sum.inputTokens ?? 0n).toString());
+      assert.equal(profile.metrics.token_usage.output_tokens,
+        (ownerTokenUsage._sum.outputTokens ?? 0n).toString());
+      assert.equal(profile.metrics.turn_count, await prisma.usageActivityRecord.count({
+        where: { ownerId, activityType: "turn_started" },
+      }), "provider usage must not invent a turn");
+      const profileModel = profile.models.find(model => model.model_id === artifact.model);
+      assert(profileModel);
+      assert.equal(profileModel.token_usage.total_tokens,
+        (await prisma.tokenUsageRecord.aggregate({
+          where: { ownerId, model: artifact.model }, _sum: { totalTokens: true },
+        }))._sum.totalTokens?.toString() ?? "0");
+      const report = await usageAnalytics.report({ range: "all", time_zone: "UTC" });
+      assert.equal(report.totals.token_usage.total_tokens, ownerTotalTokens.toString());
+      const assistantWorkload = report.workloads.find(
+        workload => workload.workload === "assistant_response",
+      );
+      assert.equal(assistantWorkload?.token_usage.total_tokens, ownerTotalTokens.toString());
+      assert.deepEqual(assistantWorkload?.measurement_methods, ["provider"]);
+      assert.equal(report.models.find(model => model.model_id === artifact.model)
+        ?.token_usage.total_tokens, profileModel.token_usage.total_tokens);
+      const quota = await usageAnalytics.personalQuota(ownerId, { range: "7d", time_zone: "UTC" });
+      const readTask = quota.tasks.find(task => task.id === artifact.conversationId);
+      assert(readTask, "the packaged conversation must appear in personal quota");
+      assert.deepEqual(readTask.breakdown, [{
+        model: artifact.model, workload: "assistant_response", credits: "0.057",
+      }]);
+      assert.equal(readTask.credits, "0.057");
+      const creditOverview = await creditLimits.personalOverview(ownerId);
+      assert.equal(creditOverview.used,
+        creditMicrosToDecimal(ownerTokenUsage._sum.usedCreditMicros ?? 0n));
       const websiteCleanup = await maintenance.getJob(`desktop-website-${artifact.websiteArtifactId}`);
       assert(websiteCleanup?.data.type === "desktop-website-cleanup");
       assert.deepEqual([...websiteCleanup.data.paths].sort(), [...artifact.websiteAssets].sort());
