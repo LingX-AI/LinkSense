@@ -21,6 +21,7 @@ export type PendingFeishuDelivery = {
 };
 
 export type FeishuTurnOutcome =
+  | { status: "missing" }
   | { status: "running" }
   | { status: "completed"; text: string | null }
   | { status: "failed"; errorCode: string | null };
@@ -658,7 +659,8 @@ export class PrismaFeishuRepository {
       where: { id: turnId },
       select: { status: true, errorCode: true, collaborationMode: true },
     });
-    if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) {
+    if (!turn) return { status: "missing" };
+    if (!["completed", "failed", "interrupted"].includes(turn.status)) {
       return { status: "running" };
     }
     if (turn.status !== "completed") {

@@ -577,6 +577,19 @@ export class FeishuRuntime {
         return;
       }
       const outcome = await this.repository.getTurnOutcome(claimed.turnId);
+      if (outcome.status === "missing") {
+        // Keep historical channel records while retiring a delivery whose task
+        // was already deleted. It must neither poll forever nor send a new notice.
+        await this.repository.markDeliveryRetry({
+          deliveryId: claimed.id,
+          processingToken: lease.token,
+          attempts: claimed.attempts,
+          errorCode: "CONVERSATION_NOT_FOUND",
+          nextAttemptAt: this.now(),
+          terminal: true,
+        });
+        return;
+      }
       if (outcome.status === "running") {
         await this.#deferDelivery(claimed.id, lease.token);
         return;

@@ -138,6 +138,9 @@ async function deleteConversationGraph(
   await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
   await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });
+  await tx.feishuOutboundDelivery.deleteMany({ where: { conversationId } });
+  await tx.feishuInboundMessage.deleteMany({ where: { conversationId } });
+  await tx.feishuPeerSession.deleteMany({ where: { conversationId } });
   await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
   await tx.weixinPeerSession.deleteMany({ where: { conversationId } });
