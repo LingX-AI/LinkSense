@@ -137,7 +137,12 @@ export async function verifyLocalComputerSessions(input: {
     };
     const actGrant = { ...observeGrant, grant_id: randomUUID(), capability: "computer.act" as const };
     status(await inject("POST", authorizationPermissions, observeGrant));
-    await assert.doesNotReject(authorize(authorizationScope, "computer.observe", "com.example.Fixture"));
+    const observePermit = await authorize(
+      { ...authorizationScope, deviceId: authorizationScope.deviceId.toUpperCase() },
+      "computer.observe", "com.example.Fixture",
+    );
+    // The permit carries the exact canonical run scope for downstream occupancy binding.
+    assert.deepEqual(observePermit.scope, authorizationScope);
     await assert.rejects(authorize(authorizationScope, "computer.act", "com.example.Fixture"), { code: "FORBIDDEN" });
     status(await inject("POST", authorizationPermissions, actGrant));
     await assert.doesNotReject(authorize(authorizationScope, "computer.act", "com.example.Fixture"));

@@ -13,6 +13,8 @@ import { activeLocalComputerSession } from "./repository.js";
 export type LocalComputerActionCapability = "computer.observe" | "computer.act";
 
 export type LocalComputerActionAuthorization = {
+  /** Canonical parsed run scope; occupancy derives its device key and holder binding from this. */
+  scope: DesktopRunScope;
   sessionId: string;
   grantId: string;
   capability: LocalComputerActionCapability;
@@ -50,6 +52,9 @@ type GrantBinding = Pick<DesktopRunScope, "ownerId" | "deviceId" | "conversation
  *
  * Grants are application-scoped (`bundle_id`) only. This decision deliberately makes no claim
  * about a window, process, or UI element; the native layer pins the trusted window when it acts.
+ *
+ * The returned permit carries the parsed canonical run scope. Downstream holders such as GUI
+ * occupancy derive their key and binding from that scope instead of accepting a second one.
  */
 export async function authorizeLocalComputerAction(
   prisma: PrismaClient,
@@ -98,6 +103,7 @@ export async function authorizeLocalComputerAction(
     // cancellation before each native input.
     if (expiresAt.getTime() <= now().getTime()) throw new AppError("FORBIDDEN");
     return {
+      scope: binding.scope,
       sessionId: session.id,
       grantId: grant.id,
       capability: binding.capability,

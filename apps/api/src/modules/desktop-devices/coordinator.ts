@@ -3,7 +3,9 @@ import { z } from "zod";
 import { desktopNoticeChannel, subscribeDesktopNotices, type DesktopNotice } from "./notices.js";
 
 const leaseMilliseconds = 45_000;
-const presenceKey = (id: string) => `linksense:desktop-devices:${id}:connection`;
+/** The single current-connection key shared by presence and GUI occupancy checks. */
+export const desktopDeviceConnectionKey = (id: string) => `linksense:desktop-devices:${id}:connection`;
+const presenceKey = desktopDeviceConnectionKey;
 const executionKey = (id: string) => `linksense:desktop-devices:${id}:execution`;
 const knowledgeExecutionKey = (id: string) => `linksense:desktop-devices:${id}:execution-knowledge`;
 const attachmentExecutionKey = (id: string) => `linksense:desktop-devices:${id}:execution-attachments`;
