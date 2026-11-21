@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESKTOP_APP_VERSION_HEADER,
+  desktopDeviceAppVersionSchema,
   desktopDeviceClientFrameSchema,
   desktopDevicePairInputSchema,
   desktopDeviceRegistrationSchema,
@@ -37,6 +39,17 @@ describe("desktop device trust boundaries", () => {
       { ...credentials, transition_source: { ...credentials.transition_source, purpose: "primary" } },
     ]) {
       expect(desktopRunCredentialsSchema.safeParse(input).success).toBe(false);
+    }
+  });
+
+  it("parses optional handshake app versions with the registration charset", () => {
+    expect(DESKTOP_APP_VERSION_HEADER).toBe("x-linksense-desktop-app-version");
+    expect(desktopDeviceRegistrationSchema.shape.app_version).toBe(desktopDeviceAppVersionSchema);
+    for (const value of ["0.1.0", "2.0.0-beta.1+build.5", "a".repeat(40)]) {
+      expect(desktopDeviceAppVersionSchema.parse(value)).toBe(value);
+    }
+    for (const value of ["", " ", "1.0.0, 2.0.0", "1/2", "版本1", "a".repeat(41)]) {
+      expect(desktopDeviceAppVersionSchema.safeParse(value).success).toBe(false);
     }
   });
 

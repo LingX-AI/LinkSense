@@ -8,6 +8,9 @@ import {
   reasoningEffortSchema,
 } from "./model-provider.js";
 
+// Optional macOS handshake metadata; descriptive only and never gates admission.
+export const DESKTOP_APP_VERSION_HEADER = "x-linksense-desktop-app-version";
+export const desktopDeviceAppVersionSchema = z.string().min(1).max(40).regex(/^[A-Za-z0-9._+-]+$/u);
 export const desktopDeviceCapabilitiesSchema = z.strictObject({
   local_execution: z.boolean().default(false),
   browser_extension: z.boolean().default(false),
@@ -17,7 +20,7 @@ export const desktopDeviceRegistrationSchema = z.strictObject({
   name: z.string().trim().min(1).max(120).regex(/^[^\u0000-\u001f\u007f]+$/u),
   platform: z.enum(["darwin", "windows"]),
   arch: z.enum(["amd64", "arm64"]),
-  app_version: z.string().min(1).max(40).regex(/^[A-Za-z0-9._+-]+$/u),
+  app_version: desktopDeviceAppVersionSchema,
   capabilities: desktopDeviceCapabilitiesSchema.default({
     local_execution: false, browser_extension: false, computer_use: false,
   }),

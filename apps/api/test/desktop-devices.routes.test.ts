@@ -4,6 +4,7 @@ import { EventEmitter, once } from "node:events";
 import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DESKTOP_APP_VERSION_HEADER,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, DESKTOP_TOOL_OPERATIONS_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER, desktopAttachmentProtocolVersion,
   desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
@@ -99,14 +100,20 @@ function barrier() {
   return { promise, resolve: () => release() };
 }
 
-async function connect(
-  app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false, toolOffer?: string,
-) {
+async function socketUrl(app: ReturnType<typeof Fastify>) {
   const address = app.server.listening
     ? `http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`
     : await app.listen({ host: "127.0.0.1", port: 0 });
-  const socket = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`, {
+  return `${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`;
+}
+
+async function connect(
+  app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false, toolOffer?: string,
+  appVersion?: string | string[],
+) {
+  const socket = new WebSocket(await socketUrl(app), {
     headers: {
+      ...(appVersion === undefined ? {} : { [DESKTOP_APP_VERSION_HEADER]: appVersion }),
       ...(executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) }),
       ...(attachments ? { [DESKTOP_ATTACHMENT_PROTOCOL_HEADER]: String(desktopAttachmentProtocolVersion) } : {}),
       ...(toolOffer === undefined ? {} : {
@@ -747,20 +754,55 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
       await gate.promise;
       await touch(...args);
     });
-    const address = await first.app.listen({ host: "127.0.0.1", port: 0 });
-    const stale = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`);
+    const stale = new WebSocket(await socketUrl(first.app), {
+      headers: { [DESKTOP_APP_VERSION_HEADER]: "0.0.1" },
+    });
     sockets.push(stale);
     await once(stale, "open");
     const closed = once(stale, "close");
     stale.send(JSON.stringify({ type: "hello", token: device.token, protocol_version: 1 }));
     try {
       await vi.waitFor(() => expect(blocked).toBe(true));
-      const winning = await connect(second.app, device.token);
+      const winning = await connect(second.app, device.token, undefined, false, undefined, "9.9.9");
       gate.resolve();
       expect((await closed)[0]).toBe(4409);
+      await vi.waitFor(() => expect(first.repository.devices.get(device.device.id)?.appVersion).toBe("9.9.9"));
       const pong = nextFrame(winning.socket);
       winning.socket.send(JSON.stringify({ type: "ping" }));
       expect(await pong).toEqual({ type: "pong" });
+    } finally { gate.resolve(); }
+  });
+
+  it("keeps the winning version when a slower admitted handshake finishes later", async () => {
+    const { app, repository } = await fixture();
+    const { device, token } = await paired(app);
+    const gate = barrier();
+    const settled = barrier();
+    let blocked = false;
+    const update = repository.updateAppVersion.bind(repository);
+    vi.spyOn(repository, "updateAppVersion").mockImplementationOnce(async (row, appVersion, isCurrentConnection, now) => {
+      blocked = true;
+      await gate.promise;
+      try { await update(row, appVersion, isCurrentConnection, now); }
+      finally { settled.resolve(); }
+    });
+    const stale = new WebSocket(await socketUrl(app), {
+      headers: { [DESKTOP_APP_VERSION_HEADER]: "0.0.1" },
+    });
+    sockets.push(stale);
+    await once(stale, "open");
+    const ready = nextFrame(stale);
+    const closed = once(stale, "close");
+    stale.send(JSON.stringify({ type: "hello", token, protocol_version: 1 }));
+    try {
+      expect((await ready).type).toBe("ready");
+      await vi.waitFor(() => expect(blocked).toBe(true));
+      await connect(app, token, undefined, false, undefined, "9.9.9");
+      await vi.waitFor(() => expect(repository.devices.get(device.id)?.appVersion).toBe("9.9.9"));
+      gate.resolve();
+      expect((await closed)[0]).toBe(4409);
+      await settled.promise;
+      expect(repository.devices.get(device.id)?.appVersion).toBe("9.9.9");
     } finally { gate.resolve(); }
   });
 
@@ -789,5 +831,93 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
     } finally {
       gate.resolve();
     }
+  });
+});
+
+describe("desktop app version reconnect metadata", () => {
+  it("refreshes only the installed Mac version after an authenticated reconnect", async () => {
+    const { app, repository } = await fixture();
+    const { device, token } = await paired(app);
+    const original = repository.devices.get(device.id);
+    if (!original) throw new Error("missing paired device");
+    const identity = {
+      id: original.id, ownerId: original.ownerId, name: original.name, platform: original.platform,
+      arch: original.arch, tokenHash: original.tokenHash, capabilitiesJson: original.capabilitiesJson,
+      authValidAfter: original.authValidAfter, revokedAt: original.revokedAt, createdAt: original.createdAt,
+    };
+    await connect(app, token, undefined, false, undefined, "1.4.0");
+    await vi.waitFor(() => expect(repository.devices.get(device.id)?.appVersion).toBe("1.4.0"));
+    expect((await app.inject({ url: "/api/v1/desktop/devices", headers })).json().data.items[0])
+      .toMatchObject({ id: device.id, name: original.name, app_version: "1.4.0" });
+    // A manual rollback is reported as-is; there is no monotonic SemVer rule.
+    await connect(app, token, undefined, false, undefined, "0.9.0");
+    await vi.waitFor(() => expect(repository.devices.get(device.id)?.appVersion).toBe("0.9.0"));
+    // Older Macs that send no metadata keep the stored version.
+    await connect(app, token);
+    expect(repository.devices.get(device.id)?.appVersion).toBe("0.9.0");
+    for (const malformed of ["", "1.0.0 2.0.0", "a".repeat(41), ["1.0.0", "2.0.0"]]) {
+      const { ready } = await connect(app, token, undefined, false, undefined, malformed);
+      expect(ready.type).toBe("ready");
+      expect(repository.devices.get(device.id)?.appVersion).toBe("0.9.0");
+    }
+    const after = repository.devices.get(device.id);
+    expect(after && {
+      id: after.id, ownerId: after.ownerId, name: after.name, platform: after.platform,
+      arch: after.arch, tokenHash: after.tokenHash, capabilitiesJson: after.capabilitiesJson,
+      authValidAfter: after.authValidAfter, revokedAt: after.revokedAt, createdAt: after.createdAt,
+    }).toEqual(identity);
+  });
+
+  it("sends ready and answers pings while the version write is still pending", async () => {
+    const { app, repository } = await fixture();
+    const { device, token } = await paired(app);
+    const gate = barrier();
+    let blocked = false;
+    const update = repository.updateAppVersion.bind(repository);
+    vi.spyOn(repository, "updateAppVersion").mockImplementationOnce(async (row, appVersion, isCurrentConnection, now) => {
+      blocked = true;
+      await gate.promise;
+      await update(row, appVersion, isCurrentConnection, now);
+    });
+    try {
+      const { socket, ready } = await connect(app, token, undefined, false, undefined, "3.1.0");
+      expect(ready.type).toBe("ready");
+      await vi.waitFor(() => expect(blocked).toBe(true));
+      const pong = nextFrame(socket);
+      socket.send(JSON.stringify({ type: "ping" }));
+      expect(await pong).toEqual({ type: "pong" });
+      expect(repository.devices.get(device.id)?.appVersion).toBe("0.1.0");
+      gate.resolve();
+      await vi.waitFor(() => expect(repository.devices.get(device.id)?.appVersion).toBe("3.1.0"));
+    } finally { gate.resolve(); }
+  });
+
+  it("keeps an admitted device usable when the version write fails", async () => {
+    const { app, repository } = await fixture();
+    const { device, token } = await paired(app);
+    vi.spyOn(repository, "updateAppVersion").mockRejectedValueOnce(new Error("fixture version write failure"));
+    const { socket, ready } = await connect(app, token, undefined, false, undefined, "4.0.0");
+    expect(ready.type).toBe("ready");
+    const pong = nextFrame(socket);
+    socket.send(JSON.stringify({ type: "ping" }));
+    expect(await pong).toEqual({ type: "pong" });
+    await vi.waitFor(() => expect(repository.updateAppVersion).toHaveBeenCalledTimes(1));
+    expect(repository.devices.get(device.id)?.appVersion).toBe("0.1.0");
+  });
+
+  it("keeps Windows and revoked devices on their stored version", async () => {
+    const { app, repository } = await fixture();
+    const windows = await paired(app, "windows");
+    await connect(app, windows.token, undefined, false, undefined, "9.9.9");
+    expect(repository.devices.get(windows.device.id)?.appVersion).toBe("0.1.0");
+    const mac = await paired(app);
+    await app.inject({ method: "DELETE", url: `/api/v1/desktop/devices/${mac.device.id}`, headers });
+    const socket = new WebSocket(await socketUrl(app), { headers: { [DESKTOP_APP_VERSION_HEADER]: "9.9.9" } });
+    sockets.push(socket);
+    await once(socket, "open");
+    const closed = once(socket, "close", { signal: AbortSignal.timeout(2_000) });
+    socket.send(JSON.stringify({ type: "hello", token: mac.token, protocol_version: 1 }));
+    expect((await closed)[0]).toBe(4401);
+    expect(repository.devices.get(mac.device.id)?.appVersion).toBe("0.1.0");
   });
 });

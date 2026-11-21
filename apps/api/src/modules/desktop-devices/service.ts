@@ -74,6 +74,14 @@ export class DesktopDeviceService {
     return connectionId;
   }
 
+  /** Descriptive macOS upgrade/rollback metadata; never gates admission or presence. */
+  async refreshAppVersion(device: DesktopDeviceRecord, connectionId: string, appVersion: string): Promise<void> {
+    if (device.platform !== "darwin") return;
+    await this.repository.updateAppVersion(
+      device, appVersion, () => this.coordinator.isCurrentConnection(device.id, connectionId), this.now(),
+    );
+  }
+
   async hasCurrentCredential(device: DesktopDeviceRecord): Promise<boolean> {
     const current = await this.repository.findCredential(device.tokenHash);
     return current !== null && isCurrentDeviceCredential(current.device, current.owner);

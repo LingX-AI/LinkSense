@@ -23,6 +23,7 @@ export type DesktopPublication = {
 export interface DesktopDeviceCoordinator {
   connect(deviceId: string, connectionId: string): Promise<void>;
   maintain(deviceId: string, connectionId: string): Promise<"online" | "replaced" | "expired">;
+  isCurrentConnection(deviceId: string, connectionId: string): Promise<boolean>;
   disconnect(deviceId: string, connectionId: string): Promise<void>;
   online(deviceIds: readonly string[]): Promise<Set<string>>;
   revoke(deviceId: string): Promise<void>;

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "../src/lib/errors.js";
 import type { DesktopDeviceRegistration, DesktopDeviceRenameResult } from "@linksense/shared";
-import type {
-  DesktopDeviceRecord, DesktopDeviceRepository, DeviceCredentialRecord,
+import {
+  isCurrentDeviceCredential,
+  type DesktopDeviceRecord, type DesktopDeviceRepository, type DeviceCredentialRecord,
 } from "../src/modules/desktop-devices/repository.js";
 import type {
   DesktopConnectionNotice, DesktopDeviceCoordinator,
@@ -81,6 +82,20 @@ export class MemoryDesktopDeviceRepository implements DesktopDeviceRepository {
     const device = this.devices.get(deviceId);
     if (device) device.lastSeenAt = now;
   }
+
+  async updateAppVersion(
+    device: Pick<DesktopDeviceRecord, "id" | "ownerId" | "tokenHash">,
+    appVersion: string,
+    isCurrentConnection: () => Promise<boolean>,
+    now: Date,
+  ): Promise<void> {
+    const row = this.devices.get(device.id);
+    const owner = row ? this.owners.get(row.ownerId) : undefined;
+    if (!row || row.platform !== "darwin" || !owner ||
+      !isCurrentDeviceCredential(row, owner) || row.appVersion === appVersion || !await isCurrentConnection()) return;
+    row.appVersion = appVersion;
+    row.updatedAt = now;
+  }
 }
 
 export class MemoryDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
@@ -97,6 +112,9 @@ export class MemoryDesktopDeviceCoordinator implements DesktopDeviceCoordinator 
   async maintain(deviceId: string, connectionId: string): Promise<"online" | "replaced" | "expired"> {
     const current = this.connections.get(deviceId);
     return current === connectionId ? "online" : current ? "replaced" : "expired";
+  }
+  async isCurrentConnection(deviceId: string, connectionId: string): Promise<boolean> {
+    return this.connections.get(deviceId) === connectionId;
   }
   async disconnect(deviceId: string, connectionId: string): Promise<void> {
     if (this.connections.get(deviceId) === connectionId) this.connections.delete(deviceId);

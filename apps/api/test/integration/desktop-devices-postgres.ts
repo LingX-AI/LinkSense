@@ -95,7 +95,8 @@ try {
   assert.equal(existing.executionTarget, "cloud");
   await db.conversation.update({ where: { id: conversation }, data: { title: "Still editable" } });
   const repository = new PrismaDesktopDeviceRepository(db);
-  const service = new DesktopDeviceService(repository, new MemoryDesktopDeviceCoordinator());
+  const coordinator = new MemoryDesktopDeviceCoordinator();
+  const service = new DesktopDeviceService(repository, coordinator);
   const sessionEpoch = (await db.user.findUniqueOrThrow({ where: { id: owner } })).authValidAfter;
   const legacyToken = randomBytes(32).toString("hex");
   const legacyDevice = await db.desktopDevice.create({
@@ -121,6 +122,25 @@ try {
   assert.notEqual(stored.tokenHash, issued.token);
   assert.equal((await service.authenticate(issued.token))?.ownerId, owner);
   await assert.rejects(assertPairedDesktopDevice(db, other, stored.id), { code: "FORBIDDEN" });
+  // An authenticated reconnect refreshes the installed version, including a manual rollback.
+  const firstConnection = await service.connect(stored);
+  await service.refreshAppVersion(stored, firstConnection, "1.2.3");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).appVersion, "1.2.3");
+  await service.refreshAppVersion(stored, firstConnection, "0.4.0");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).appVersion, "0.4.0");
+  // A replaced connection cannot overwrite the version reported by the current one.
+  const winningConnection = await service.connect(stored);
+  await service.refreshAppVersion(stored, firstConnection, "9.9.9");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).appVersion, "0.4.0");
+  await service.refreshAppVersion(stored, winningConnection, "2.0.0");
+  const refreshed = await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } });
+  assert.equal(refreshed.appVersion, "2.0.0");
+  assert.equal(refreshed.name, "Mac");
+  assert.equal(refreshed.tokenHash, stored.tokenHash);
+  // Windows and older clients never take the macOS metadata path.
+  const legacyConnection = await service.connect(legacyDevice);
+  await service.refreshAppVersion(legacyDevice, legacyConnection, "7.7.7");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: legacyDevice.id } })).appVersion, "0.1.0");
   const localThread = randomUUID();
   const localConversation = await db.$transaction(async tx => {
     await assertPairedDesktopDevice(tx, owner, stored.id);
@@ -236,6 +256,8 @@ try {
   await assert.rejects(service.rename(owner, stored.id, "Revoked device"), { code: "FORBIDDEN" });
   await assert.rejects(assertPairedDesktopDevice(db, owner, stored.id), { code: "FORBIDDEN" });
   assert.equal(await service.authenticate(issued.token), null);
+  await service.refreshAppVersion(stored, winningConnection, "3.0.0");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).appVersion, "2.0.0");
   assert.deepEqual(await service.revokedIds([legacyDevice.id, stored.id]), new Set([stored.id]));
   assert.equal((await db.localComputerSession.findUniqueOrThrow({ where: { id: local.id } })).status, "ended");
   assert((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: grant.id } })).revokedAt);
@@ -257,6 +279,11 @@ try {
   const renewed = await service.pair({ ...registration, code: (await service.pairing(owner, nextEpoch)).code });
   await db.user.update({ where: { id: owner }, data: { authValidAfter: new Date(Date.now() + 2000) } });
   assert.equal(await service.authenticate(renewed.token), null);
+  // A stale owner epoch blocks the refresh even while the socket presence is current.
+  const renewedRecord = await db.desktopDevice.findUniqueOrThrow({ where: { id: renewed.device.id } });
+  const renewedConnection = await service.connect(renewedRecord);
+  await service.refreshAppVersion(renewedRecord, renewedConnection, "5.5.5");
+  assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: renewed.device.id } })).appVersion, "0.1.0");
   await migrate("desktop_fresh");
   const fresh = createPrismaClient(databaseUrl("desktop_fresh"));
   connections.push(fresh);

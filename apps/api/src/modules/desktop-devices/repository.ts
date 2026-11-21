@@ -26,6 +26,12 @@ export interface DesktopDeviceRepository {
   rename(ownerId: string, deviceId: string, name: string, now: Date): Promise<DesktopDeviceRenameResult | null>;
   revoke(ownerId: string, deviceId: string, now: Date): Promise<string | null>;
   touch(deviceId: string, now: Date): Promise<void>;
+  updateAppVersion(
+    device: Pick<DesktopDeviceRecord, "id" | "ownerId" | "tokenHash">,
+    appVersion: string,
+    isCurrentConnection: () => Promise<boolean>,
+    now: Date,
+  ): Promise<void>;
 }
 
 export class PrismaDesktopDeviceRepository implements DesktopDeviceRepository {
@@ -132,6 +138,36 @@ export class PrismaDesktopDeviceRepository implements DesktopDeviceRepository {
     await this.prisma.desktopDevice.updateMany({
       where: { id: deviceId, revokedAt: null }, data: { lastSeenAt: now },
     });
+  }
+
+  async updateAppVersion(
+    device: Pick<DesktopDeviceRecord, "id" | "ownerId" | "tokenHash">,
+    appVersion: string,
+    isCurrentConnection: () => Promise<boolean>,
+    now: Date,
+  ): Promise<void> {
+    await this.prisma.$transaction(async tx => {
+      // Lock the exact authenticated row so a slower replaced handshake cannot
+      // overwrite the version reported by the connection that won presence.
+      const [row] = await tx.$queryRaw<Array<{
+        revokedAt: Date | null; deviceEpoch: Date; ownerEpoch: Date; ownerStatus: string; appVersion: string;
+      }>>`
+        SELECT d.revoked_at AS "revokedAt", d.auth_valid_after AS "deviceEpoch",
+          d.app_version AS "appVersion",
+          u.auth_valid_after AS "ownerEpoch", u.status AS "ownerStatus"
+        FROM desktop_devices d
+        JOIN users u ON u.id = d.owner_id
+        WHERE d.id = ${device.id}::uuid AND d.owner_id = ${device.ownerId}::uuid
+          AND d.token_hash = ${device.tokenHash} AND d.platform = 'darwin'
+          AND d.revoked_at IS NULL
+        FOR UPDATE OF d`;
+      // Compare only the freshly locked row, never the pre-transaction snapshot.
+      if (!row || !isCurrentDeviceCredential(
+        { revokedAt: row.revokedAt, authValidAfter: row.deviceEpoch },
+        { status: row.ownerStatus, authValidAfter: row.ownerEpoch },
+      ) || row.appVersion === appVersion || !await isCurrentConnection()) return;
+      await tx.desktopDevice.update({ where: { id: device.id }, data: { appVersion, updatedAt: now } });
+    }, { maxWait: 1_000, timeout: 5_000 });
   }
 }
 

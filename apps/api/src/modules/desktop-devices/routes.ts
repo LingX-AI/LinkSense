@@ -6,10 +6,12 @@ import type { Redis } from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { z, ZodError } from "zod";
 import {
+  DESKTOP_APP_VERSION_HEADER,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
+  desktopDeviceAppVersionSchema,
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
@@ -99,7 +101,7 @@ export async function registerDesktopDeviceRoutes(
   const connected = new Map<WebSocket, {
     device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: readonly DesktopNegotiatedOperation[]; detach?: () => void;
   }>();
-  const recoveryEnqueues = new Set<Promise<void>>();
+  const backgroundWork = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
   let subscriptionGeneration = 0;
   let closing = false;
@@ -165,6 +167,8 @@ export async function registerDesktopDeviceRoutes(
   };
   app.server.on("upgrade", upgrade);
   server.on("connection", (socket, request: IncomingMessage) => {
+    // Malformed or duplicated metadata is ignored; it never denies the upgrade.
+    const reportedAppVersion = desktopDeviceAppVersionSchema.safeParse(request.headers[DESKTOP_APP_VERSION_HEADER]);
     const supportsExecution = execution !== undefined &&
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
     const supportsAttachments = supportsExecution &&
@@ -270,14 +274,21 @@ export async function registerDesktopDeviceRoutes(
             } : {}),
           }) : ready));
           readySent = true;
+          if (reportedAppVersion.success) {
+            // Descriptive metadata only; readiness and the message handler must not wait for it.
+            const refresh = service.refreshAppVersion(device, connectionId, reportedAppVersion.data)
+              .catch(() => app.log.warn("desktop app version refresh failed"))
+              .finally(() => { backgroundWork.delete(refresh); });
+            backgroundWork.add(refresh);
+          }
           if (state.execution && options.onExecutionReady) {
             const enqueue = options.onExecutionReady({ deviceId: device.id, ownerId: device.ownerId, connectionId })
               .catch(() => {
                 app.log.warn({ deviceId: device.id }, "desktop reconnect recovery could not be queued");
                 socket.terminate();
               })
-              .finally(() => { recoveryEnqueues.delete(enqueue); });
-            recoveryEnqueues.add(enqueue);
+              .finally(() => { backgroundWork.delete(enqueue); });
+            backgroundWork.add(enqueue);
           }
           return;
         }
@@ -327,7 +338,7 @@ export async function registerDesktopDeviceRoutes(
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await revocationCheck;
-    await Promise.all(recoveryEnqueues);
+    await Promise.all(backgroundWork);
     const unsubscribe = await subscription?.catch(() => undefined);
     unsubscribe?.();
     await execution?.close();
