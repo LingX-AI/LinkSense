@@ -74,6 +74,8 @@ export function coreMcpToolNamesFor(
 export function createCoreMcpRegistry(
   input: Partial<CoreMcpModuleContext> & {
     mode?: CoreMcpCollaborationMode
+    /** Explicit fixture-only modules; production registration stays negotiated. */
+    extraModules?: readonly CoreMcpModuleDefinition[]
   } = {},
 ): CoreMcpRegistry {
   const environment = input.environment ?? process.env
@@ -85,8 +87,8 @@ export function createCoreMcpRegistry(
     workspaceRoot: input.workspaceRoot ?? process.cwd(),
     fetch: input.fetch ?? globalThis.fetch,
   }
-  const definitions = coreMcpModuleRegistry.filter((definition) =>
-    definition.modes.includes(mode),
+  const definitions = [...coreMcpModuleRegistry, ...(input.extraModules ?? [])].filter(
+    (definition) => definition.modes.includes(mode),
   )
   const modules = definitions.map((definition) => definition.create(context))
   const toolsByName = new Map<string, CoreMcpToolModule>()
