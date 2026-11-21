@@ -203,7 +203,9 @@ export async function verifyDesktopExecutionProjection(input: {
     await assert.rejects(files.readArtifactDownload(input.otherOwnerId, input.legacyConversationId, legacyArtifact.id, {}), { code: "CONVERSATION_NOT_FOUND" });
     const jobs = new BackgroundJobs(config, storage, runner, audit, config.capabilityRoot, maintenance, prisma);
     let beforeArtifactRegistration: (() => Promise<void>) | undefined;
-    const local = await verifyLocalComputerSessions({ ...input, conversations });
+    const local = await verifyLocalComputerSessions({
+      ...input, conversations, redis: redis.client, connections: coordinator,
+    });
     const recovery = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
