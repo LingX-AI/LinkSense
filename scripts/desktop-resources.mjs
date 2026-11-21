@@ -170,13 +170,25 @@ function verificationEnvironment(home) {
   return { ...environment, HOME: home, USERPROFILE: home, CODEX_HOME: path.join(home, ".codex") };
 }
 
+export function desktopRuntimeVersionChecks(target, versions) {
+  // agent-desktop 1.3.1 stops same-UID legacy command hosts before parsing
+  // arguments, so even --version mutates a Mac login. The pinned archive
+  // checksum, exact file hashes and the release signature prove its identity
+  // without launching it; keep the CLI smoke only on Windows.
+  return [
+    ["node", versions.node],
+    ["codex", versions.codex],
+    ...(target.startsWith("windows") ? [["agent-desktop", versions.agent_desktop]] : []),
+  ];
+}
+
 export async function verifyPackagedDesktopRuntime(runtime, target, versions) {
   if (!["darwin", "win32"].includes(process.platform) || target !== desktopTarget()) return;
   const home = await mkdtemp(path.join(root, ".data/desktop/staging/verify-"));
   const suffix = target.startsWith("windows") ? ".exe" : "";
   try {
     const environment = verificationEnvironment(home);
-    for (const [name, expected] of [["node", versions.node], ["codex", versions.codex], ["agent-desktop", versions.agent_desktop]]) {
+    for (const [name, expected] of desktopRuntimeVersionChecks(target, versions)) {
       const { stdout } = await promisify(execFile)(path.join(runtime, "bin", `${name}${suffix}`), ["--version"], {
         timeout: 10_000, maxBuffer: 16_384, env: environment,
       });

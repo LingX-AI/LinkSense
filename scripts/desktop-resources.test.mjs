@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { desktopResourceDigest, extractDesktopArtifact, parseDesktopResources, verifyDesktopPackageManifest, verifyDesktopResource, verifyDesktopRuntimeFiles, verifyMacosBundlePermissions } from "./desktop-resources.mjs";
+import { desktopTarget } from "./desktop.mjs";
+import { desktopResourceDigest, desktopRuntimeVersionChecks, extractDesktopArtifact, parseDesktopResources, verifyDesktopPackageManifest, verifyDesktopResource, verifyDesktopRuntimeFiles, verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } from "./desktop-resources.mjs";
 
 test("desktop release manifest pins every platform and its native sandbox helpers", async () => {
   const input = JSON.parse(await readFile(new URL("../apps/desktop/desktop-resources.json", import.meta.url), "utf8"));
@@ -72,6 +73,38 @@ if (process.platform === "darwin") {
     }
   });
 }
+
+test("Mac runtime verification queries Node and Codex without launching the pinned engine", async () => {
+  const versions = { node: "24.99.9", codex: "9.9.9", agent_desktop: "1.3.1" };
+  const names = target => desktopRuntimeVersionChecks(target, versions).map(([name]) => name);
+  assert.deepEqual(names("darwin/arm64"), ["node", "codex"]);
+  assert.deepEqual(names("windows/arm64"), ["node", "codex", "agent-desktop"]);
+  if (process.platform !== "darwin") return;
+  const runtime = await mkdtemp(path.join(tmpdir(), "linksense-desktop-runtime-"));
+  try {
+    await mkdir(path.join(runtime, "bin"));
+    await mkdir(path.join(runtime, "runner"));
+    const sentinel = path.join(runtime, "agent-desktop-launched");
+    const queried = name => path.join(runtime, `${name}-queried`);
+    const scripts = {
+      node: `#!/bin/sh\n: > '${queried("node")}'\nif [ "$1" = "--version" ]; then echo "v${versions.node}"; else printf %s DESKTOP_RUNTIME_IMPORTS_OK; fi\n`,
+      codex: `#!/bin/sh\n: > '${queried("codex")}'\necho "codex-cli ${versions.codex}"\n`,
+      "agent-desktop": `#!/bin/sh\n: > '${sentinel}'\necho "agent-desktop ${versions.agent_desktop}"\n`,
+    };
+    for (const [name, script] of Object.entries(scripts)) {
+      const file = path.join(runtime, "bin", name);
+      await writeFile(file, script);
+      await chmod(file, 0o700);
+    }
+    await mkdir(path.join(path.resolve(import.meta.dirname, ".."), ".data/desktop/staging"), { recursive: true });
+    await verifyPackagedDesktopRuntime(runtime, desktopTarget(), versions);
+    await readFile(queried("node"));
+    await readFile(queried("codex"));
+    await assert.rejects(readFile(sentinel), { code: "ENOENT" });
+  } finally {
+    await rm(runtime, { recursive: true, force: true });
+  }
+});
 
 test("resource extraction validates checksums, omits unselected files and rejects linked binaries", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-resource-"));

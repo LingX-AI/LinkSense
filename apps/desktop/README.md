@@ -391,7 +391,10 @@ Builds embed the Web application's current build and bundle fixed Node.js
 24.22.1, Codex 0.170.0, agent-desktop 1.3.1, and the runner's production
 dependency closure. The release manifest pins upstream download SHA-256
 checksums; the generated runtime manifest records executable hashes.
-Preparation checks executable versions and native imports on the build host.
+Preparation checks the bundled Node and Codex versions and native imports on
+the build host; the pinned agent-desktop engine is verified by archive
+checksum, exact file hashes and the Apple signature gate, and its GUI behavior
+has a separate opt-in `desktop:whitebox:engine` smoke.
 The runner uses pnpm's portable, hoisted deployment so mygo's resource copier
 retains its complete dependency tree. Runtime license texts ship alongside
 the repository and the target Go application's dependency notices. Local
