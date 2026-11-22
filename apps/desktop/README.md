@@ -759,6 +759,15 @@ finished or overlapping control id is refused with
 exception. Results for a superseded connection, runtime generation, session or
 selection are rejected.
 
+Product observe and wait share one locked final delivery. A read result is
+still only a candidate when the native read returns. After the metadata
+attempt audit, the final delivery rechecks the original grant, selection epoch
+and expiry, adopted holder, live runtime/device, cancellation and deadline;
+only that exact identity may authorize one successful socket send. A Pause,
+Stop, same-ID renewal or cancellation already applied on the server can
+therefore withhold stale AX text. The read is never replayed, and this adds no
+protocol, opt-in or act change.
+
 A timed-out, disconnected or unparseable action can return
 `RUNNER_OPERATION_UNCERTAIN`; it may already have happened. The model is told
 not to repeat it and to observe again. `no_effect` is also not retried. The page
@@ -803,10 +812,12 @@ LinkSense audit is metadata-only: it records lifecycle-scoped computer-session
 and grant action codes with resource ids and a strict allowlist (operation,
 conversation/turn/device ids, request kind, click or type, duration, stable
 reason code). It is not a transcript of typed or observed text, element values,
-titles, paths, screenshots, clipboard content or native driver output. A wait
-writes its single attempt row with `computer_request=wait` and
-`delivery=unconfirmed`; that row is not a published-success claim and excludes
-observation ids, refs, timeouts, AX contents and other contents. The
+titles, paths, screenshots, clipboard content or native driver output. Each
+observe or wait attempt writes its single attempt row with the exact
+`computer_request=observe` or `computer_request=wait` and
+`delivery=unconfirmed`; that row is written before final delivery, is not a
+published-success claim, and excludes observation ids, refs, timeouts, AX
+contents, screenshots and other contents. The
 `computer.control` frames carry opaque selection ids and the picked bundle id;
 they do not carry the window id, PID, process instance, title or path. The
 2026-11-22 product-chain receipt checked events and audit for a private native
@@ -885,8 +896,9 @@ CODEX_BIN=<pinned Codex 0.170.0> pnpm --filter @linksense/api exec tsx \
 It requires the pinned Codex binary, local `initdb`/`pg_ctl`, `redis-server`, a
 built `@linksense/shared`, and loopback ports. It uses a synthetic Mac executor
 and the fixture-only `computer.execute` lane; it does not exercise the product
-picker, AX/TCC, the signed driver, or `computer.control`. Run it only in an
-isolated development/test environment.
+picker, AX/TCC, the signed driver, or `computer.control`. This fixture-only
+legacy observation still verifies run authorization after audit before
+relaying a success. Run it only in an isolated development/test environment.
 
 The separate product-chain development receipt is:
 
@@ -930,6 +942,17 @@ local model fixture against disposable
 PostgreSQL/Redis. None of these touch the signed native AX/TCC path, an
 installed app, Windows, a real provider or production, and they are not
 P1-13b/P1-14b, mixed-version GUI, or P1-23 whole acceptance.
+
+The final 2026-11-23 observe-delivery receipt uses the accepted owner logs:
+`owner-observe-final-api-test.log` (API 396 files, 5,567 tests passed),
+`owner-observe-final-api-lint.log`, `owner-observe-api-typecheck.log` and
+`owner-observe-api-build.log` all exited 0. The product chain
+(`owner-observe-joined.log`, exit 0) used the fixed Codex 0.170.0, the real Go
+bridge with a synthetic Mac platform, executor and local model, and disposable
+PostgreSQL/Redis. The legacy `computer.execute` fixture chain
+(`owner-observe-legacy-joined.log`) also exited 0. These receipted runs do not
+cover Developer ID signing, TCC, the signed real driver, installed updates,
+real providers, production or Windows, and they are not M1b completion.
 
 The native app whitebox is a separate receipt: `titlebar-unlocked-full-suite.log`
 (2026-11-22, exit 0) ran 295 top-level tests in 118.171s on an unlocked Mac. It
