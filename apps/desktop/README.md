@@ -614,24 +614,49 @@ signer token and the fixed signed runtime layout; there is no prepared-hash or
 ad hoc fallback.
 
 This section records the intended stable behavior and safe operating limits.
-The slice is a development/test click-and-type Accessibility path, not M1b
-stage completion. A development product-chain receipt passed on 2026-11-22
-against real Codex 0.170.0 with a local model fixture, the real Go device
-WebSocket, disposable PostgreSQL/Redis and a synthetic platform/executor; see
-[Joined fixtures and receipts](#joined-fixtures-and-receipts) and the
-[task breakdown's 2026-11-22 entry](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#10-实施记录2026-11-17).
-It is not P1-13b/P1-14b acceptance and does not replace the existing GUI smoke
-commands or their prerequisites (`pnpm desktop:whitebox:engine` with the
-prepared signed engine, and `pnpm desktop:whitebox` with
-`LINKSENSE_DESKTOP_RUNTIME_DIST` for the workspace case), which are unchanged.
+The slice is a development/test Accessibility path that now includes the
+reviewed `computer_wait` read-only increment; it is not M1b stage completion.
+The 2026-11-22 product-chain baseline and the 2026-11-23 wait increment are
+recorded under [Joined fixtures and receipts](#joined-fixtures-and-receipts)
+and the [task breakdown's 2026-11-23
+entry](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#10-实施记录2026-11-17).
+The joined chain used real Codex 0.170.0 with a synthetic local model fixture,
+the real Go device WebSocket, disposable PostgreSQL/Redis and a synthetic
+platform/executor. This development result is not P1-13b/P1-14b, mixed-version
+GUI, signed/installed/TCC, Windows, provider or production acceptance, and it
+does not accept P1-23 as a whole. It also does not replace the existing GUI
+smoke commands or their prerequisites (`pnpm desktop:whitebox:engine` with the
+prepared signed engine, and
+`pnpm desktop:whitebox` with `LINKSENSE_DESKTOP_RUNTIME_DIST` for the workspace
+case), which are unchanged.
 
-The model sees only `computer_status`, `computer_observe` and `computer_act`;
-Plan turns expose status and observe only. Observe returns a bounded
-accessibility tree for the host-picked window with an observation id and opaque
-refs. Act accepts one `click` or `type` (UTF-8 text up to 8 KiB) on a ref from
-the latest observation, with an 8-second default and 20-second maximum effect
-wait. The model cannot pass an application, window, process, path, coordinate,
-key, scroll, drag, launch or CLI argument.
+The model sees `computer_status`, `computer_observe` and `computer_act`, plus
+`computer_wait` only when both the `computer.execute` and additive
+`computer.wait` markers were negotiated on the same live socket. Plan turns
+expose status and observe only. Observe returns a bounded accessibility tree
+for the host-picked window with an observation id and opaque refs. Act accepts
+one `click` or `type` (UTF-8 text up to 8 KiB) on a ref from the latest
+observation, with an 8-second default and 20-second maximum effect wait. The
+model cannot pass an application, window, process, path, coordinate, key,
+scroll, drag, launch or CLI argument.
+
+#### Read-only wait
+
+`computer_wait` evaluates only the fixed `actionable` predicate for the exact
+opaque ref and observation id from the same latest Accessibility observation of
+the selected window. It does not click, type, press keys, use coordinates,
+capture the screen, take a new observation or repeat an action. The timeout
+defaults to 8 seconds and is bounded to 20 seconds; the original command
+deadline and selected grant also bound the wait. Valid results are `met` or
+`timed_out` with a bounded `waited_ms`; a `timed_out` result is an observation,
+so re-observe before another step. Stale or superseded refs, renewal, pause,
+stop or expiry fail closed. A wait never renews or replaces the observation.
+
+The wait uses the existing authorized `computer.execute` window; it adds no
+native approval, no input and no replay. Before returning a successful reply,
+the service rechecks the original authorization, the same selection and live
+device connection, cancellation and deadline. It never automatically repeats a
+wait or sends a duplicate success.
 
 #### Selecting one window
 
@@ -761,28 +786,32 @@ requires a new explicit selection.
 #### What this slice does not include
 
 The documented slice is `computer_status`, bounded `computer_observe` of the
-chosen window, and `computer_act` click/type on refs from the latest
-observation. It does not capture screenshots, click arbitrary coordinates or
-canvas targets, wait for elements, press keys, scroll, drag, launch
-applications, use the clipboard, or run on Windows. The planned wait, other
-action types, and screenshot/model and coordinate fallbacks are not
-implemented. Signed Accessibility/TCC behavior, Developer ID
-signing/notarization, an installed update or upgrade, clean-Mac installed
-acceptance, and any real provider remain separate gates. Do not describe those
-capabilities as available or verified.
+chosen window, `computer_act` click/type on refs from the latest observation,
+and the read-only `computer_wait` above. It still does not capture screenshots
+(including any signed native AX/model screenshot fallback), click arbitrary
+coordinates or canvas targets, press keys, scroll, drag, launch applications,
+use the clipboard, wait on other predicates, or run on Windows. Other action
+types and the signed native AX/model screenshot and coordinate fallbacks remain
+unverified and out of scope for this increment. Signed Accessibility/TCC
+behavior, Developer ID signing/notarization, an installed update or upgrade,
+clean-Mac installed acceptance, Windows and any real provider remain separate
+gates. Do not describe those capabilities as available or verified.
 
 #### Audit and native Codex history
 
 LinkSense audit is metadata-only: it records lifecycle-scoped computer-session
 and grant action codes with resource ids and a strict allowlist (operation,
-conversation/turn/device ids, click or type, duration, stable reason code). It
-is not a transcript of typed or observed text, element values, titles, paths,
-screenshots, clipboard content or native driver output. The `computer.control`
-frames carry opaque selection ids and the picked bundle id; they do not carry
-the window id, PID, process instance, title or path. The 2026-11-22
-product-chain receipt checked events and audit for a private native marker,
-screenshot payloads, device tokens and provider keys, and checked Redis for the
-marker, screenshot payloads and provider key; none appeared.
+conversation/turn/device ids, request kind, click or type, duration, stable
+reason code). It is not a transcript of typed or observed text, element values,
+titles, paths, screenshots, clipboard content or native driver output. A wait
+writes its single attempt row with `computer_request=wait` and
+`delivery=unconfirmed`; that row is not a published-success claim and excludes
+observation ids, refs, timeouts, AX contents and other contents. The
+`computer.control` frames carry opaque selection ids and the picked bundle id;
+they do not carry the window id, PID, process instance, title or path. The
+2026-11-22 product-chain receipt checked events and audit for a private native
+marker, screenshot payloads, device tokens and provider keys, and checked Redis
+for the marker, screenshot payloads and provider key; none appeared.
 
 That boundary does not cover native Codex history, and LinkSense audit
 redaction is therefore not an erasure promise. The bundled Codex 0.170.0
@@ -799,34 +828,43 @@ typed or observed text or images stored there.
 
 #### Client and server negotiation, enable and disable
 
-`computer.execute` is an additive tool operation. A new Mac offers it on the
-authenticated device socket only when its host can build the signed packaged
-driver. The API includes it only when `LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED`
-is on and the offer is present. Negotiation is additive: with an older Mac the
-API negotiates no computer operation, and existing users keep their local and
-cloud modes, tools and approvals. With an older API, the new Mac sees no
-computer operation, reports `computerReady: false`, hides the card and does not
-request Accessibility; this is not an update-required error. With both new,
-the card appears only after the live socket reports `computerReady`, which also
-requires the runtime link and the signed runtime layout. A presence-only socket
-fails closed.
+`computer.execute` is an additive tool operation. `computer.wait` is an
+additive negotiation marker for the read-only wait kind, not a second wire
+operation, and it has no separate user-managed flag. A new Mac offers both on
+the authenticated device socket only when its host can build the signed
+packaged driver. The API accepts the wait kind only when
+`LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED` is on and this exact socket generation
+offered both markers. An immediate pre-wait Mac or API still negotiates and
+supports `computer.execute` (status/observe/act), but an old/new link does not
+negotiate `computer.wait`; an older API ignores the unknown marker and an older
+Mac never offers it. If either side lacks `computer.execute`, or the switch is
+off, the new Mac sees no computer operation, reports `computerReady: false`,
+hides the card and does not request Accessibility; existing users keep their
+local and cloud modes, tools and approvals, and this is not an
+update-required error. With both new, the card appears only after the live
+socket reports `computerReady`, which also requires the runtime link and the
+signed runtime layout. A presence-only socket fails closed.
 
-For development/test, enable in this order: apply any forward migration; build
-the shared package; upgrade every serving API replica and every
-task-recovery/maintenance consumer; set
-`LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`; set
-`LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED=true` uniformly; reconnect the Mac so
-the new socket negotiates `computer.execute`; confirm `computerReady`; then
-select a window. Do not enable the switch on a mixed-version fleet or before the
-Mac has the signed runtime.
+For development/test, apply any required forward migrations and build the
+shared package first; this slice adds no migration. Keep the computer-use
+switch off while upgrading every serving API replica, every
+task-recovery/maintenance consumer and the complete matching Go host/Runner
+bundle. Then set both local-execution and computer-use variables uniformly;
+reconnect the Mac so the new socket negotiates `computer.execute` and
+`computer.wait`; confirm `computerReady`; then select a window. Do not claim
+mixed-version operational acceptance or enable the switch on a mixed-version
+fleet or with a partial bundle; a socket connected while the switch was off
+does not gain the markers. Older command and Redis formats and existing
+authentication and privacy are unchanged; the strict old Redis decode of
+legacy producers is verified only by targeted fixtures.
 
 To disable or roll back: stop starting new computer-control selections; pause or
 stop active selections and let active turns and approvals settle; turn the
 computer-use switch off uniformly; reconnect the Mac so the new socket omits
-`computer.execute`; keep the updated API replicas and recovery consumers running
-until selections have expired or retired and cleanup has drained; then roll
-back. Do not delete selection, quiesce or outbox records by hand. A reconnect
-never resumes an old selection.
+both `computer.execute` and `computer.wait`; keep the updated API replicas and
+recovery consumers running until selections have expired or retired and cleanup
+has drained; then roll back. Do not delete selection, quiesce or outbox records
+by hand. A reconnect never resumes an old selection.
 
 Production is intentionally not enabled. The API refuses local execution when
 `NODE_ENV=production`, so the computer-use switch cannot be turned on there.
@@ -870,15 +908,28 @@ disposable PostgreSQL/Redis and a synthetic platform/executor. It does not
 touch a real driver, app, window, permission dialog, TCC, installed app, real
 provider or secret.
 
-The latest development receipt is `m1b-cleanup-product-joined.log`
-(2026-11-22, exit 0): 1 turn, 11 model requests, 6 approvals, 4 observes, 1
-approved act, 4 failed acts and 2 renewals. Renewal stayed blocked before and
-while Stop was pending, no stop reply was sent during the pending renewal, the
-superseded renewal failed with `COMPUTER_CANCELED`, Stop advanced the lease
-epoch, `driverTouched` was false, the private marker and screenshot payloads
-stayed absent, and gateway/Redis/PostgreSQL/scratch cleanup was clean. The
-measured expiry advance after Stop is fixture timing, so no duration threshold
-is claimed.
+The 2026-11-22 baseline product-chain receipt is
+`m1b-cleanup-product-joined.log` (exit 0): 1 turn, 11 model requests,
+6 approvals, 4 observes, 1 approved act, 4 failed acts and 2 renewals. Renewal
+stayed blocked before and while Stop was pending, no stop reply was sent during
+the pending renewal, the superseded renewal failed with `COMPUTER_CANCELED`,
+Stop advanced the lease epoch, `driverTouched` was false, the private marker and
+screenshot payloads stayed absent, and gateway/Redis/PostgreSQL/scratch cleanup
+was clean. The measured expiry advance after Stop is fixture timing, so no
+duration threshold is claimed.
+
+The 2026-11-23 `computer_wait` development result uses that same product-chain
+command. Its final joined build is `m1b-wait-owner-build-joined-final.log`
+(exit 0): 1 turn, 13 model requests, 6 approvals and two waits (one `met`, one
+`timed_out`), with clean teardown. The owner acceptance run is
+`m1b-wait-owner-api-accepted.log`: API 396 files/5,567 tests passed, typecheck
+and lint passed, API build passed; Shared 896, Runner 1,634 with one
+pre-existing skip, and Go race from existing owner logs. The joined chain uses
+the real Codex 0.170.0 protocol with a synthetic platform/executor and synthetic
+local model fixture against disposable
+PostgreSQL/Redis. None of these touch the signed native AX/TCC path, an
+installed app, Windows, a real provider or production, and they are not
+P1-13b/P1-14b, mixed-version GUI, or P1-23 whole acceptance.
 
 The native app whitebox is a separate receipt: `titlebar-unlocked-full-suite.log`
 (2026-11-22, exit 0) ran 295 top-level tests in 118.171s on an unlocked Mac. It
