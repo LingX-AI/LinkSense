@@ -597,6 +597,304 @@ agent-desktop process in that login: the pinned engine can stop legacy command
 hosts owned by the same account. Windows UIA and installed app validation are
 separate acceptance gates.
 
+### Local computer control (M1b)
+
+M1b adds GUI control of one user-chosen macOS window to a running local turn.
+It is macOS-only and development/test-only: the API refuses
+`LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED` in production, and the M1b
+`LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED` switch requires local execution. The
+product path requires the signed packaged app with the pinned `agent-desktop`
+1.3.1 runtime; a host that cannot build that runtime reports
+`computerReady: false` and never offers `computer.execute`. The driver is
+constructed on demand only after the user selects a window, from the release
+signer token and the fixed signed runtime layout; there is no prepared-hash or
+ad hoc fallback.
+
+This section records the intended stable behavior and safe operating limits.
+The slice is a development/test click-and-type Accessibility path, not M1b
+stage completion. A development product-chain receipt passed on 2026-11-22
+against real Codex 0.170.0 with a local model fixture, the real Go device
+WebSocket, disposable PostgreSQL/Redis and a synthetic platform/executor; see
+[Joined fixtures and receipts](#joined-fixtures-and-receipts) and the
+[task breakdown's 2026-11-22 entry](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#10-实施记录2026-11-17).
+It is not P1-13b/P1-14b acceptance and does not replace the existing GUI smoke
+commands or their prerequisites (`pnpm desktop:whitebox:engine` with the
+prepared signed engine, and `pnpm desktop:whitebox` with
+`LINKSENSE_DESKTOP_RUNTIME_DIST` for the workspace case), which are unchanged.
+
+The model sees only `computer_status`, `computer_observe` and `computer_act`;
+Plan turns expose status and observe only. Observe returns a bounded
+accessibility tree for the host-picked window with an observation id and opaque
+refs. Act accepts one `click` or `type` (UTF-8 text up to 8 KiB) on a ref from
+the latest observation, with an 8-second default and 20-second maximum effect
+wait. The model cannot pass an application, window, process, path, coordinate,
+key, scroll, drag, launch or CLI argument.
+
+#### Selecting one window
+
+The **Computer Use** card appears only for a running local turn whose persisted
+device is this Mac, after the live authenticated socket negotiated
+`computer.execute` and the native host reports `computerReady`. A presence-only
+connection, an older server, or an ineligible host shows no card and does not
+request Accessibility.
+
+**Select window…** first performs a read-only Accessibility check. The app does
+not check TCC at login, startup, ordinary tasks, or general Settings. This slice
+does not request Screen Recording because it never captures the screen. If
+Accessibility is not granted, the card opens its permission dialog; only the
+dialog's explicit action runs MyGo 0.10.0 `permissionflow` (System Settings plus
+the draggable LinkSense panel), with a manual Settings fallback. Existing grants
+do not prompt. A guide that ends without a grant reports a stable reason; it
+never becomes a grant, restarts the app or replays a turn, and **Continue
+without GUI** leaves the task in its non-GUI mode.
+
+The native picker lists sanitized application and window labels from the signed
+driver's inventory. Only windows whose owner reports Accessibility are
+candidates, and LinkSense's own windows are excluded. Choose a row and confirm
+with **Use This Window** (or Return); the window must still be focused. Escape,
+Cancel or closing the picker cancels. The chosen window id, PID and process
+instance stay in the LinkSense process; the page, model, events, audit and logs
+never receive them. The device socket sends the picked bundle id and opaque
+selection ids to the server for the task-scoped grant; it does not send the
+window id, PID, process instance, title or path. The page receives only state
+and expiry. The model cannot name the target.
+
+One computer-control selection is allowed per Mac at a time. A second task gets
+`DEVICE_BUSY` and must wait; it is not queued or preempted.
+
+#### Five-minute grant, renewal, pause, resume and stop
+
+A successful selection creates one five-minute authorization
+(`localComputerSessionDurationMs`) for exactly the signed-in owner, this device,
+conversation, running turn, runtime generation and picked bundle. The card shows
+the remaining time. The authorization covers observe and act for that window and
+is separate from the macOS Accessibility grant.
+
+- **Renew for 5 minutes** is explicit and appears only while Active. It extends
+  the exact live authorization by five minutes; it never opens the picker,
+  changes the window, or revives an expired, paused or stopped selection, and it
+  is refused while an action is admitted. Renewal clears the previous
+  observation, so the next act must start from a fresh observe; actions queued
+  before the renewal cannot use the extended authorization. If the
+  acknowledged extension cannot be installed on the same window (a rebind
+  refusal, a closed input boundary, or an act admitted after the busy check),
+  the host closes the matching local authorization and reports unavailable
+  instead of presenting the old grant as current.
+- **Pause** closes GUI input immediately, invalidates observation refs, and
+  waits for the exact in-flight action and the native quiesce to become terminal
+  before the card shows Paused. It stops GUI control only; the turn keeps
+  running. It does not extend the authorization, so a paused authorization can
+  expire. If the acknowledgement or terminal cannot be proven, input stays
+  closed while the card still shows Active; Resume requires a proven Paused
+  state, and the pause is never repeated automatically.
+- **Resume** is explicit, rebinds the same immutable window, and requires a live
+  authorization. It clears the previous observation, so the next act must
+  observe again; the window identity is rechecked then, and a changed window
+  fails closed and asks for a new selection.
+- **Stop** closes input immediately, invalidates refs, cancels an in-flight
+  pause, resume or renewal wait, and, when the exact link is live, sends one
+  stop and revokes this task's authorization. It does not cancel or replay the
+  Codex turn. Stop is a native IPC action, not an API request: while the
+  WebView or API is offline it still closes input and retires the local
+  selection, without sending or replaying a server stop. An exact
+  same-selection Stop is also the one control accepted while that selection's
+  select or renewal is still settling; the API parks it until the earlier
+  transition settles and suppresses a late positive select/renew ack (a
+  negative result for the superseded request may still be sent). The card does
+  not report Stopped until the exact in-flight action is terminal and the
+  driver is closed; if that proof misses the deadline, input stays closed, the
+  selection remains non-open, and no new selection is admitted until the real
+  terminal. Stop never queues a retry.
+
+The emergency control is **Pause Computer Control** (`Cmd+Shift+Esc`) in the
+LinkSense app menu and menu-bar menu. `Cmd+Shift+Esc` is a MyGo global shortcut
+only while a computer-control selection is active and LinkSense is in the
+background. When the app becomes active or the selection ends, the global
+binding is released, so the menu accelerator is the only path and one press
+cannot fire twice. It acts on the host's current selection without page ids,
+closes input immediately, runs off the UI thread, and never exposes native
+detail. Without an active selection, or when the signed driver cannot be built,
+only the app-local menu item remains.
+
+#### Late results, window changes and recovery
+
+Each act is bound to the latest observation and the pinned window identity.
+Before input, the engine rechecks the bundle id, window id, PID and process
+instance; a mismatch returns `COMPUTER_TARGET_CHANGED`, clears refs and requires
+a new selection. A stale observation or ref returns
+`COMPUTER_STALE_OBSERVATION` or `COMPUTER_STALE_REF` and is never reused.
+
+Only one action may be in flight. A duplicate transport command id is not
+executed twice; a duplicate control id that is still open is dropped, and a
+finished or overlapping control id is refused with
+`RUNNER_OPERATION_UNCERTAIN`. The exact same-selection Stop above is the only
+exception. Results for a superseded connection, runtime generation, session or
+selection are rejected.
+
+A timed-out, disconnected or unparseable action can return
+`RUNNER_OPERATION_UNCERTAIN`; it may already have happened. The model is told
+not to repeat it and to observe again. `no_effect` is also not retried. The page
+never automatically repeats select, renew, pause, resume or stop; after an
+uncertain renewal, pause or stop it may perform one read-only status refresh.
+
+- **Device revoke** closes the socket, invalidates the credential and clears the
+  selection. Local input closes and the driver retires without retrying a server
+  side effect. Reconnecting never resumes or replays the old selection; after
+  pairing/sign-in and a live local turn, select the window again.
+- **Disconnect or runtime-generation change** retires the selection on the Mac
+  and does not revive it on the new socket. A reconnect starts from no
+  selection.
+- **Turn terminal or five-minute expiry** closes input and retires the
+  selection; the terminal frame also causes the API to clean up the matching
+  turn scope. A new selection is admitted only after the exact action is
+  terminal and the driver is closed.
+- **Window close or identity change** returns `COMPUTER_TARGET_CHANGED`; select
+  the window again. This slice has no automatic re-selection or coordinate
+  fallback.
+
+Quitting or crashing the app leaves no resumable selection. The next launch
+requires a new explicit selection.
+
+#### What this slice does not include
+
+The documented slice is `computer_status`, bounded `computer_observe` of the
+chosen window, and `computer_act` click/type on refs from the latest
+observation. It does not capture screenshots, click arbitrary coordinates or
+canvas targets, wait for elements, press keys, scroll, drag, launch
+applications, use the clipboard, or run on Windows. The planned wait, other
+action types, and screenshot/model and coordinate fallbacks are not
+implemented. Signed Accessibility/TCC behavior, Developer ID
+signing/notarization, an installed update or upgrade, clean-Mac installed
+acceptance, and any real provider remain separate gates. Do not describe those
+capabilities as available or verified.
+
+#### Audit and native Codex history
+
+LinkSense audit is metadata-only: it records lifecycle-scoped computer-session
+and grant action codes with resource ids and a strict allowlist (operation,
+conversation/turn/device ids, click or type, duration, stable reason code). It
+is not a transcript of typed or observed text, element values, titles, paths,
+screenshots, clipboard content or native driver output. The `computer.control`
+frames carry opaque selection ids and the picked bundle id; they do not carry
+the window id, PID, process instance, title or path. The 2026-11-22
+product-chain receipt checked events and audit for a private native marker,
+screenshot payloads, device tokens and provider keys, and checked Redis for the
+marker, screenshot payloads and provider key; none appeared.
+
+That boundary does not cover native Codex history, and LinkSense audit
+redaction is therefore not an erasure promise. The bundled Codex 0.170.0
+runs persistent local threads and retains its rollout under the app's private
+runtime directory (`home/.codex`). The 14-day / 10 GiB workspace retention
+removes only `home/workspace`: control state, `home/.codex`, managed files,
+session markers and pending outboxes stay. Tests confirm native history
+survives that prune and the next preparation, and this slice has no retention
+or delete control for it. Quit, sign-out, device revoke, Stop and workspace
+cleanup are not erasure of native history. Any future screenshot or richer
+input support would sit under the same native Codex persistence boundary. Do
+not tell users that Stop or sign-out erases native Codex history, including any
+typed or observed text or images stored there.
+
+#### Client and server negotiation, enable and disable
+
+`computer.execute` is an additive tool operation. A new Mac offers it on the
+authenticated device socket only when its host can build the signed packaged
+driver. The API includes it only when `LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED`
+is on and the offer is present. Negotiation is additive: with an older Mac the
+API negotiates no computer operation, and existing users keep their local and
+cloud modes, tools and approvals. With an older API, the new Mac sees no
+computer operation, reports `computerReady: false`, hides the card and does not
+request Accessibility; this is not an update-required error. With both new,
+the card appears only after the live socket reports `computerReady`, which also
+requires the runtime link and the signed runtime layout. A presence-only socket
+fails closed.
+
+For development/test, enable in this order: apply any forward migration; build
+the shared package; upgrade every serving API replica and every
+task-recovery/maintenance consumer; set
+`LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`; set
+`LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED=true` uniformly; reconnect the Mac so
+the new socket negotiates `computer.execute`; confirm `computerReady`; then
+select a window. Do not enable the switch on a mixed-version fleet or before the
+Mac has the signed runtime.
+
+To disable or roll back: stop starting new computer-control selections; pause or
+stop active selections and let active turns and approvals settle; turn the
+computer-use switch off uniformly; reconnect the Mac so the new socket omits
+`computer.execute`; keep the updated API replicas and recovery consumers running
+until selections have expired or retired and cleanup has drained; then roll
+back. Do not delete selection, quiesce or outbox records by hand. A reconnect
+never resumes an old selection.
+
+Production is intentionally not enabled. The API refuses local execution when
+`NODE_ENV=production`, so the computer-use switch cannot be turned on there.
+Enabling it would require the gates above plus an explicit privacy disclosure,
+not just this documentation. Native Codex history has no retention or delete
+control in this slice, so any typed or observed text or images Codex stored
+there remain outside LinkSense audit redaction.
+
+#### Joined fixtures and receipts
+
+The older fixture-only joined harness remains:
+
+```sh
+CODEX_BIN=<pinned Codex 0.170.0> pnpm --filter @linksense/api exec tsx \
+  ../../scripts/desktop-computer-use-joined.mts
+```
+
+It requires the pinned Codex binary, local `initdb`/`pg_ctl`, `redis-server`, a
+built `@linksense/shared`, and loopback ports. It uses a synthetic Mac executor
+and the fixture-only `computer.execute` lane; it does not exercise the product
+picker, AX/TCC, the signed driver, or `computer.control`. Run it only in an
+isolated development/test environment.
+
+The separate product-chain development receipt is:
+
+```sh
+pnpm --filter @linksense/shared build
+pnpm --filter @linksense/runner build
+LINKSENSE_JOINED_RUNTIME=<staged-read-only-runtime> \
+  pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-product-chain.ts
+```
+
+It requires a local Mac with `initdb`/`pg_ctl` and `redis-server`, a built
+shared package and runner, an absolute read-only `LINKSENSE_JOINED_RUNTIME`
+staged runtime, loopback ports, and the pinned Go 1.27.3 toolchain installed
+locally with its module cache populated (the test compiles the Go bridge with
+`GOPROXY=off`).
+It boots the real Fastify device socket, Go device bridge, supervised runner,
+official Core MCP and Codex 0.170.0 against a local model fixture, with
+disposable PostgreSQL/Redis and a synthetic platform/executor. It does not
+touch a real driver, app, window, permission dialog, TCC, installed app, real
+provider or secret.
+
+The latest development receipt is `m1b-cleanup-product-joined.log`
+(2026-11-22, exit 0): 1 turn, 11 model requests, 6 approvals, 4 observes, 1
+approved act, 4 failed acts and 2 renewals. Renewal stayed blocked before and
+while Stop was pending, no stop reply was sent during the pending renewal, the
+superseded renewal failed with `COMPUTER_CANCELED`, Stop advanced the lease
+epoch, `driverTouched` was false, the private marker and screenshot payloads
+stayed absent, and gateway/Redis/PostgreSQL/scratch cleanup was clean. The
+measured expiry advance after Stop is fixture timing, so no duration threshold
+is claimed.
+
+The native app whitebox is a separate receipt: `titlebar-unlocked-full-suite.log`
+(2026-11-22, exit 0) ran 295 top-level tests in 118.171s on an unlocked Mac. It
+includes `TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable` (6.06s),
+which waits for MyGo's fullscreen completion events and recorded zero title-bar
+insets in full screen. This is the native app/WKWebView whitebox, not the
+synthetic product chain above, and it is not Developer ID
+signing/notarization, TCC, real-provider or clean-Mac installed-upgrade
+acceptance; those gates remain open.
+
+The disposable authority fixture is separate:
+
+```sh
+pnpm test:desktop:computer:postgres
+```
+
+It uses disposable PostgreSQL/Redis and covers the real conversation lock,
+terminal proof and cleanup, and final-ack suppression.
+
 The reference implementation is `feat-computer-use` at
 `7041e026032b948c5e4e3bae5c0a5b9d5148bdfb`. This module is implemented for the
 current `feat` architecture; the companion application's Go files are not copied.
