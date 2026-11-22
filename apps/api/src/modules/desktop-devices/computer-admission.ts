@@ -29,18 +29,25 @@ export type DesktopComputerDispatchAdmission = z.infer<typeof desktopComputerDis
 export type DesktopComputerDispatchAdmissionInput = z.input<typeof desktopComputerDispatchAdmissionSchema>;
 
 /**
- * Request-local continuation for publishing one read-only wait success.
+ * Request-local continuation for publishing one read-only observe or wait
+ * success.
  *
- * The Mac's `met`/`timed_out` result is produced before the API has a final
- * authoritative view of the run. This carries only the identity captured for
- * that one tool request (canonical scope, original selection epoch/session/
- * bundle/expiry, adopted holder, original observe grant and expiry). `publish`
- * rechecks that exact identity under the existing `verifyDispatch` PostgreSQL
- * conversation lock and invokes `finalize` at most once, synchronously, while
- * the lock is held. It never persists state, starts a timer, re-authorizes a
- * newer selection, or waits for the device.
+ * The Mac's AX text or `met`/`timed_out` result is produced before the API has
+ * a final authoritative view of the run. This carries only the identity
+ * captured for that one tool request (canonical scope, original selection
+ * epoch/session/bundle/expiry, adopted holder, original observe grant and
+ * expiry). `publish` rechecks that exact identity under the existing
+ * `verifyDispatch` PostgreSQL conversation lock and invokes `finalize` at most
+ * once, synchronously, while the lock is held. It never persists state, starts
+ * a timer, re-authorizes a newer selection, or waits for the device.
  */
-export type DesktopComputerWaitPublication = {
+export type DesktopComputerReadPublication = {
+  /**
+   * Exact request kind this continuation was issued for. The tool-request lane
+   * compares it with the request and the returned read before any send, so an
+   * observe proof can never publish a wait result (or the reverse).
+   */
+  kind: "observe" | "wait";
   /** `finalize` performs only local socket checks and the one send. */
   publish: (finalize: () => boolean) => Promise<boolean>;
   /** Read after `publish` resolves false: the final synchronous deadline elapsed. */

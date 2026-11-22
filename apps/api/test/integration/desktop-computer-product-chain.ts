@@ -73,14 +73,14 @@ const computerAuditMetadataKeys: ReadonlySet<string> = new Set([
   "operation", "conversation_id", "turn_id", "device_id", "computer_request", "delivery",
   "computer_action", "duration_ms", "reason_code",
 ]);
-// computer_request is the bounded request kind; a wait attempt carries the
+// computer_request is the bounded request kind; both read attempts carry the
 // existing delivery vocabulary (`unconfirmed`) instead of computer_action and
-// never carries a timeout, an element ref or an observation id.
+// never carry a timeout, an element ref or an observation id.
 const observeAuditKeys = [
-  "computer_request", "conversation_id", "device_id", "duration_ms", "operation", "turn_id",
+  "computer_request", "conversation_id", "device_id", "delivery", "duration_ms", "operation", "turn_id",
 ].sort();
-const waitAuditKeys = [...observeAuditKeys, "delivery"].sort();
-const actAuditKeys = [...observeAuditKeys, "computer_action"].sort();
+const waitAuditKeys = observeAuditKeys;
+const actAuditKeys = [...observeAuditKeys.filter(key => key !== "delivery"), "computer_action"].sort();
 const failedActAuditKeys = [...actAuditKeys, "reason_code"].sort();
 const computerAuditMetadataSchema = z.strictObject({
   operation: z.literal("computer.execute"),
@@ -1173,15 +1173,15 @@ try {
         assert.equal(metadata.computer_action, undefined,
           "a wait must not be tagged with computer_action");
         assert.deepEqual(keys, waitAuditKeys,
-          "a wait attempt must carry only the bounded observe fields plus computer_request and delivery");
+          "a wait attempt must carry only the bounded read fields plus computer_request and delivery");
       } else if (metadata.computer_request === "observe") {
         successfulObserveAudits++;
-        assert.equal(metadata.delivery, undefined,
-          "an observation must not claim a delivery outcome");
+        assert.equal(metadata.delivery, "unconfirmed",
+          "an observation attempt must be audited as an unconfirmed delivery");
         assert.equal(metadata.computer_action, undefined,
           "an observation must not name a computer action");
         assert.deepEqual(keys, observeAuditKeys,
-          "an observation success must carry only the bounded observe fields");
+          "an observation attempt must carry only the bounded read fields plus delivery");
       } else if (metadata.computer_request === "act") {
         successfulClickAudits++;
         assert.equal(metadata.computer_action, "click");

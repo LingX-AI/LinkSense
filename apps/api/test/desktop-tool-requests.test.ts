@@ -1,8 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { expect, it, vi } from "vitest";
-import { desktopConnectionTextPageBytes, desktopToolRequestSchema, type DesktopToolRequest } from "@linksense/shared";
+import {
+  desktopConnectionTextPageBytes, desktopToolRequestSchema,
+  type ComputerObservation, type DesktopToolRequest,
+} from "@linksense/shared";
 import { AppError } from "../src/lib/errors.js";
-import { executeDesktopTool } from "../src/modules/desktop-devices/tool-requests.js";
+import type { DesktopComputerReadPublication } from "../src/modules/desktop-devices/computer-admission.js";
+import {
+  executeDesktopTool,
+  type DesktopToolResultDelivery,
+} from "../src/modules/desktop-devices/tool-requests.js";
 
 function connectionFrame() {
   const scope = {
@@ -241,4 +248,142 @@ it.each(["grant during audit", "run during document recheck"])("does not return 
     code: lost === "grant during audit" ? "FORBIDDEN" : "AUTH_REQUIRED",
   });
   expect(assertDocumentReferencesCurrent).toHaveBeenCalledWith({ ...scope, signal }, [documentRef]);
+});
+
+const privateObservation: ComputerObservation = {
+  observation_id: "obs-private", tree_quality: "good", truncated: false,
+  nodes: [{ ref: "e-private", role: "text", name: "PRIVATE_AX_TEXT" }],
+};
+
+function computerObserveFrame() {
+  const scope = {
+    ownerId: randomUUID(), deviceId: randomUUID(), connectionId: randomUUID(),
+    conversationId: randomUUID(), turnId: randomUUID(), runtimeGeneration: randomUUID(),
+  };
+  return { scope, raw: {
+    type: "tool.request", operation: "computer.execute", id: randomUUID(),
+    conversation_id: scope.conversationId, turn_id: scope.turnId, runtime_generation: scope.runtimeGeneration,
+    expires_at: new Date(Date.now() + 5_000).toISOString(), run_token: `lsdr_${"a".repeat(43)}`,
+    body: { kind: "observe" },
+  } };
+}
+
+it("refuses a product observe success without request-local proof and never sends its AX text", async () => {
+  const { scope, raw } = computerObserveFrame();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const write = vi.fn(async () => {});
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write }, webSearchSettings: { search: vi.fn() },
+    computerExecute: async () => ({ kind: "observe" as const, result: privateObservation }),
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" } });
+  expect(sink).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toContain("PRIVATE_AX_TEXT");
+  expect(JSON.stringify(write.mock.lastCall)).not.toContain("PRIVATE_AX_TEXT");
+  // The single attempt row is still written, and it never claims a delivery.
+  expect(write).toHaveBeenCalledWith(expect.objectContaining({
+    result: "success",
+    metadata: expect.objectContaining({ computer_request: "observe", delivery: "unconfirmed" }),
+  }));
+});
+
+it("refuses an observe success whose continuation belongs to the wait kind and never sends", async () => {
+  const { scope, raw } = computerObserveFrame();
+  const publication: DesktopComputerReadPublication = { kind: "wait", publish: async () => true };
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerExecute: async (_input, publishRead) => {
+      publishRead?.(publication);
+      return { kind: "observe" as const, result: privateObservation };
+    },
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" } });
+  expect(sink).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toContain("PRIVATE_AX_TEXT");
+});
+
+it("refuses an observe request whose returned read kind is wait, even on the trusted fixture seam", async () => {
+  const { scope, raw } = computerObserveFrame();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    allowUnprotectedComputerRead: true,
+    computerExecute: async () => ({ kind: "wait" as const, result: { result: "met" as const, waited_ms: 1 } }),
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" } });
+  expect(sink).not.toHaveBeenCalled();
+});
+
+it("relays one exact-kind observe success through the proof sink exactly once", async () => {
+  const { scope, raw } = computerObserveFrame();
+  const finalizeCalls = vi.fn(() => true);
+  const publication: DesktopComputerReadPublication = {
+    kind: "observe", publish: async finalize => finalize(),
+  };
+  const sink = vi.fn<DesktopToolResultDelivery>(async candidate => candidate.publish(finalizeCalls));
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerExecute: async (_input, publishRead) => {
+      publishRead?.(publication);
+      return { kind: "observe" as const, result: privateObservation };
+    },
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "observe", result: privateObservation } });
+  expect(sink).toHaveBeenCalledOnce();
+  expect(finalizeCalls).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { loss: "invalidate the run", expected: "COMPUTER_ACCESS_DENIED" },
+  { loss: "abort the request", expected: "COMPUTER_TIMEOUT" },
+])("refuses a fixture observe with a typed $expected failure and sends no AX text when the audit will $loss", async ({ loss, expected }) => {
+  const { scope, raw } = computerObserveFrame();
+  const controller = new AbortController();
+  let active = true;
+  const write = vi.fn(async () => {
+    if (loss === "abort the request") controller.abort();
+    else active = false;
+  });
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: {
+      claimToolRequest: async () => true,
+      verifyRunBinding: async () => { if (!active) throw new AppError("AUTH_REQUIRED"); },
+    },
+    knowledgeSearch: null, audit: { write }, webSearchSettings: { search: vi.fn() },
+    allowUnprotectedComputerRead: true,
+    computerExecute: async () => ({ kind: "observe" as const, result: privateObservation }),
+  }, scope, desktopToolRequestSchema.parse(raw), controller.signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "failure", error: expected } });
+  expect(JSON.stringify(result)).not.toContain("PRIVATE_AX_TEXT");
+  expect(write).toHaveBeenCalledOnce();
+  expect(sink).not.toHaveBeenCalled();
+});
+
+it("allows the explicit fixture seam to relay a legacy observe success without proof", async () => {
+  const { scope, raw } = computerObserveFrame();
+  const write = vi.fn(async () => {});
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write }, webSearchSettings: { search: vi.fn() },
+    allowUnprotectedComputerRead: true,
+    computerExecute: async () => ({ kind: "observe" as const, result: privateObservation }),
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "observe", result: privateObservation } });
+  expect(sink).not.toHaveBeenCalled();
+  expect(write).toHaveBeenCalledWith(expect.objectContaining({
+    metadata: expect.objectContaining({ computer_request: "observe", delivery: "unconfirmed" }),
+  }));
 });

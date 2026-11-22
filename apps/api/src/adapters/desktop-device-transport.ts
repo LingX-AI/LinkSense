@@ -30,7 +30,7 @@ import {
   desktopComputerDispatchAdmissionSchema,
   type DesktopComputerDispatchAdmission,
   type DesktopComputerDispatchAdmissionInput,
-  type DesktopComputerWaitPublication,
+  type DesktopComputerReadPublication,
 } from "../modules/desktop-devices/computer-admission.js";
 import {
   desktopExecutionBindingSchema,
@@ -94,19 +94,20 @@ type ExecutionAuthority = (
   barrier?: AdmissionFinalizer,
 ) => Promise<boolean>;
 /**
- * Final send sink for one read-only wait candidate. The callback composes the
- * wait result, but only this transport owns the local socket token and the one
- * true send, so the request-local publication continuation is handed back here.
+ * Final send sink for one read-only observe or wait candidate. The callback
+ * composes the read result, but only this transport owns the local socket token
+ * and the one true send, so the request-local publication continuation is
+ * handed back here.
  */
-type WaitDelivery = (
-  publication: DesktopComputerWaitPublication,
+type ReadDelivery = (
+  publication: DesktopComputerReadPublication,
   ack: DesktopExecutionAck,
 ) => Promise<boolean>;
 type ExecutionCallback = (
   binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
   frame: DesktopExecutionCallback,
   signal: AbortSignal,
-  waitDelivery?: WaitDelivery,
+  readDelivery?: ReadDelivery,
 ) => Promise<DesktopExecutionAck>;
 
 const channel = (gatewayId: string) => `linksense:desktop-execution:${gatewayId}`;
@@ -323,16 +324,16 @@ export class DesktopDeviceTransport {
       socket.lifetime.signal, AbortSignal.timeout(Math.min(remaining, lifetime)),
       ...(pending ? [pending.lifetime.signal] : []), ...(tool ? [tool.controller.signal] : []),
     ]);
-    // The callback composes the wait result, but only this transport knows the
+    // The callback composes the read result, but only this transport knows the
     // live local socket and the exact in-flight tool token. When the product
     // lane hands back its request-local publication, `publish` rechecks the
     // original authority under the locked dispatch transaction and then calls
     // this finalize, which performs the last token/expiry checks and at most
     // one send. `delivered` stops the post-callback path from replying again.
     let delivered = false;
-    const waitDelivery: WaitDelivery | undefined = tool ? async (publication, ack) => {
+    const readDelivery: ReadDelivery | undefined = tool ? async (publication, ack) => {
       if (frame.type !== "tool.request" || frame.operation !== "computer.execute" ||
-          frame.body.kind !== "wait") return false;
+          (frame.body.kind !== "observe" && frame.body.kind !== "wait")) return false;
       return await publication.publish(() => {
         if (delivered || signal.aborted || socket.tools.get(frame.id) !== tool ||
             this.sockets.get(connectionId) !== socket || Date.now() >= deadline) return false;
@@ -384,7 +385,7 @@ export class DesktopDeviceTransport {
         return;
       }
       const ack = await this.callback(
-        { ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal, waitDelivery,
+        { ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal, readDelivery,
       );
       if (frame.operation === "attachments.ready" &&
           (!pending || !await this.coordinator.mayDispatch(binding, pending.command.id))) return;

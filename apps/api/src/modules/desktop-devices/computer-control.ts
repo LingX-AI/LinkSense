@@ -52,7 +52,7 @@ import {
 } from "./computer-execute.js";
 import type {
   DesktopComputerDispatchAdmission,
-  DesktopComputerWaitPublication,
+  DesktopComputerReadPublication,
 } from "./computer-admission.js";
 import { desktopDeviceConnectionKey, type DesktopExecutionBinding } from "./coordinator.js";
 
@@ -1411,20 +1411,21 @@ export class DesktopComputerControl {
   /**
    * Product execution lane for an existing `computer.execute` tool request.
    *
-   * A successful read-only wait also hands the caller a request-local
-   * publication continuation through `publishWait`. It is the only path that
-   * makes the read result safe to send to the device: `DesktopComputerControl`
-   * rechecks the exact original selection/epoch/holder/grant under the locked
-   * `verifyDispatch` transaction and only then performs the one socket send.
-   * Direct-lane callers that do not accept the continuation (focused tests and
-   * fixtures) still receive the typed read result, but it is pre-publication
-   * only and must not be treated as a device success.
+   * A successful read-only observe or wait also hands the caller a
+   * request-local publication continuation through `publishRead`. It is the
+   * only path that makes the read result safe to send to the device:
+   * `DesktopComputerControl` rechecks the exact original selection/epoch/
+   * holder/grant under the locked `verifyDispatch` transaction and only then
+   * performs the one socket send. Direct-lane callers that do not accept the
+   * continuation (focused tests and fixtures) still receive the typed read
+   * result, but it is pre-publication only and must not be treated as a device
+   * success.
    */
   async execute(input: {
     scope: DesktopRunScope;
     request: ComputerExecuteToolRequest;
     signal: AbortSignal;
-  }, publishWait?: (publication: DesktopComputerWaitPublication) => void): Promise<ComputerExecuteResult> {
+  }, publishRead?: (publication: DesktopComputerReadPublication) => void): Promise<ComputerExecuteResult> {
     let mutationMayHaveRun = false;
     try {
       const scope = desktopRunScopeSchema.parse(input.scope);
@@ -1491,12 +1492,35 @@ export class DesktopComputerControl {
           toolExpiresAt, authorization.expiresAt.getTime(), acquired.expiresAt, current.expiresAt,
         );
         if (expiresAt <= this.now().getTime()) return computerExecuteFailure("COMPUTER_TIMEOUT");
-        mutationMayHaveRun = true;
-        const result = await sendComputerExecute(this.host.transport, binding, scope, {
-          sessionId: selection.sessionId, selectionId, holderId: acquired.holderId,
-          request: { kind: "observe" }, expiresAt, signal: input.signal, admission,
-        });
-        return expectComputerExecuteKind(result, "observe");
+        // A read never has an input side effect, so it never becomes act
+        // uncertainty. The adopted holder stays for pause/stop quiesce, and a
+        // transport timeout/cancel is a bounded timeout; a malformed or
+        // nonmatching read reply is unavailable.
+        let result: ComputerExecuteResult;
+        try {
+          result = await sendComputerExecute(this.host.transport, binding, scope, {
+            sessionId: selection.sessionId, selectionId, holderId: acquired.holderId,
+            request: { kind: "observe" }, expiresAt, signal: input.signal, admission,
+          });
+        } catch {
+          return computerExecuteFailure(input.signal.aborted
+            ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+        }
+        if (result.kind === "failure") {
+          return result.error === "RUNNER_OPERATION_UNCERTAIN"
+            ? computerExecuteFailure("COMPUTER_TIMEOUT") : result;
+        }
+        if (result.kind !== "observe") return computerExecuteFailure("COMPUTER_UNAVAILABLE");
+        // A read success is not authority to publish it. The exact
+        // request-local identity is compared again after the mandatory tool
+        // audit, immediately before the one socket send. A renewal, pause,
+        // stop, revoke, cancel, or expiry that wins either wait therefore
+        // withholds the stale AX text.
+        publishRead?.(this.readPublication({
+          scope, selection, selectionId, authorization, requestKind: "observe",
+          holderId: acquired.holderId, expiresAt, signal: input.signal,
+        }));
+        return result;
       }
 
       const held = await this.host.occupancy.read(scope.deviceId);
@@ -1549,8 +1573,8 @@ export class DesktopComputerControl {
         // transaction after the tool audit has resolved, immediately before the
         // one socket send. A renewal, pause, stop, revoke, cancel, or expiry
         // that wins either wait therefore withholds the old success.
-        publishWait?.(this.waitPublication({
-          scope, selection, selectionId, authorization,
+        publishRead?.(this.readPublication({
+          scope, selection, selectionId, authorization, requestKind: "wait",
           holderId: held.holderId, expiresAt, signal: input.signal,
         }));
         return result;
@@ -1597,7 +1621,7 @@ export class DesktopComputerControl {
   }
 
   /**
-   * Request-local proof for publishing one read-only wait success.
+   * Request-local proof for publishing one read-only observe or wait success.
    *
    * The closure captures only the identity that admitted the read. It reuses
    * the existing `verifyDispatch` conversation lock: the original session and
@@ -1610,18 +1634,20 @@ export class DesktopComputerControl {
    * the audit, or a native wait; this object is never persisted and has no
    * timer. A second publication attempt is always refused.
    */
-  private waitPublication(input: {
+  private readPublication(input: {
     scope: DesktopRunScope;
     selection: DesktopComputerSelection;
     selectionId: string;
     authorization: LocalComputerActionAuthorization;
+    requestKind: "observe" | "wait";
     holderId: string;
     expiresAt: number;
     signal: AbortSignal;
-  }): DesktopComputerWaitPublication {
+  }): DesktopComputerReadPublication {
     let attempted = false;
     let timedOut = false;
     return {
+      kind: input.requestKind,
       timedOut: () => timedOut,
       publish: async finalize => {
         if (attempted) return false;
@@ -1632,7 +1658,7 @@ export class DesktopComputerControl {
             scope: input.scope, sessionId: input.selection.sessionId,
             grantId: input.authorization.grantId, capability: "computer.observe",
             bundleId: input.selection.bundleId, expiresAt: input.authorization.expiresAt,
-            requestKind: "wait",
+            requestKind: input.requestKind,
           }, async () => {
             // Exact adopted holder. The atomic snapshot below proves the run
             // lease, presence, and original active selection, so separate

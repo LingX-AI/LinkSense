@@ -15,7 +15,7 @@ import { reserveDesktopArtifactSlot, reserveDesktopAttachmentSlot } from "../fil
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import { authorizeLocalComputerAction, verifyLocalComputerDispatch } from "../local-computer/authorization.js";
 import { LocalComputerGuiOccupancy } from "../local-computer/occupancy.js";
-import type { DesktopComputerWaitPublication } from "./computer-admission.js";
+import type { DesktopComputerReadPublication } from "./computer-admission.js";
 import { DesktopComputerFixtureBindings, type DesktopComputerExecuteFactory, type DesktopComputerExecuteFixture } from "./computer-execute.js";
 import {
   DesktopComputerControl,
@@ -93,10 +93,10 @@ export async function registerDesktopExecution(
     runtimeGeneration: frame.runtime_generation,
   });
   type ComputerExecuteLane = {
-    /** The product lane supplies the request-local wait publication continuation. */
+    /** The product lane supplies the request-local read publication continuation. */
     execute: (
       input: Parameters<DesktopComputerExecuteFixture["execute"]>[0],
-      publishWait?: (publication: DesktopComputerWaitPublication) => void,
+      publishRead?: (publication: DesktopComputerReadPublication) => void,
     ) => ReturnType<DesktopComputerExecuteFixture["execute"]>;
     admit: (
       /** `commandId` is the exact generated transport command UUID (product lane only). */
@@ -106,6 +106,11 @@ export async function registerDesktopExecution(
   };
   let computerExecute: ComputerExecuteLane | undefined;
   let computerControl: DesktopComputerControl | undefined;
+  // Fixture-only trusted seam, default closed. Only the joined fixture lane
+  // selected by the explicit `services.computerExecute` factory below returns
+  // a pre-publication observe success without the request-local proof; the
+  // product controller always supplies it and configuration cannot set this.
+  const fixtureComputerRead = services.computerExecute !== undefined;
   const guiOccupancy = new LocalComputerGuiOccupancy(redis.client);
   const transport = new DesktopDeviceTransport(redis.client, async (binding, command, admission, barrier) => {
     const scope = {
@@ -142,7 +147,7 @@ export async function registerDesktopExecution(
       : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
   },
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
-    async ({ ownerId, toolOperations, ...binding }, frame, signal, waitDelivery) => {
+    async ({ ownerId, toolOperations, ...binding }, frame, signal, readDelivery) => {
       const scope = { ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId, ...turnScope(frame) };
       if (frame.type === "tool.request") {
         return executeDesktopTool({
@@ -154,10 +159,11 @@ export async function registerDesktopExecution(
           // Mac never offers computer.wait, so its wait kind is refused here
           // before the lane or a device command exists.
           computerWait: supportsDesktopComputerWait(toolOperations),
+          ...(fixtureComputerRead ? { allowUnprotectedComputerRead: true } : {}),
           ...(computerExecute ? {
-            computerExecute: (input, publishWait) => {
+            computerExecute: (input, publishRead) => {
               if (!computerExecute) throw new AppError("RUNNER_UNAVAILABLE");
-              return computerExecute.execute(input, publishWait);
+              return computerExecute.execute(input, publishRead);
             },
           } : {}),
           checkPublication: async (tx, source) => {
@@ -167,7 +173,7 @@ export async function registerDesktopExecution(
             await leases.fenceRunBinding(scope, frame.run_token);
             signal.throwIfAborted();
           },
-        }, scope, frame, signal, waitDelivery);
+        }, scope, frame, signal, readDelivery);
       }
       if (frame.operation === "attachments.ready") {
         await leases.verifyRunBinding(scope, frame.run_token, "use");

@@ -10,7 +10,7 @@ import { AppError } from "../../lib/errors.js";
 import type { AuditService } from "../audit/service.js";
 import { projectDesktopWorkspaceData } from "../connections/desktop-workspace-data.js";
 import type { ConnectionService } from "../connections/service.js";
-import type { DesktopComputerWaitPublication } from "./computer-admission.js";
+import type { DesktopComputerReadPublication } from "./computer-admission.js";
 import type { DesktopRunLeases, DesktopRunScope } from "../desktop-credentials/run-leases.js";
 import type { DesktopArtifacts } from "../files/desktop-artifacts.js";
 import type { CheckKnowledgeAssetPublication } from "../knowledge/conversation-asset-snapshots.js";
@@ -30,21 +30,28 @@ type ToolRequestServices = {
   artifacts?: Pick<DesktopArtifacts, "prepare">;
   /**
    * Supplied by the API composition (product controller or joined fixture),
-   * never by the model. The product wait lane hands back its request-local
-   * publication continuation through the second argument.
+   * never by the model. The product observe/wait lanes hand back their
+   * request-local publication continuation through the second argument.
    */
   computerExecute?: (input: {
     scope: DesktopRunScope;
     request: Extract<DesktopToolRequest, { operation: "computer.execute" }>;
     signal: AbortSignal;
-  }, publishWait?: (publication: DesktopComputerWaitPublication) => void) => Promise<ComputerExecuteResult>;
+  }, publishRead?: (publication: DesktopComputerReadPublication) => void) => Promise<ComputerExecuteResult>;
   /** True only for the socket generation that offered computer.wait too. */
   computerWait?: boolean;
+  /**
+   * Explicit trusted fixture seam, default closed and never set by
+   * configuration or the product composition. The joined fixture lane predates
+   * request-local read publication, so only that composition may relay a typed
+   * observe/wait success without proof through the legacy unlocked reply.
+   */
+  allowUnprotectedComputerRead?: boolean;
 };
 
 /** Final send sink supplied by the transport; it owns the one true socket send. */
 export type DesktopToolResultDelivery = (
-  publication: DesktopComputerWaitPublication,
+  publication: DesktopComputerReadPublication,
   result: Extract<DesktopToolResult, { ok: true }>,
 ) => Promise<boolean>;
 
@@ -54,8 +61,10 @@ export async function executeDesktopTool(
 ): Promise<DesktopToolResult> {
   const startedAt = Date.now();
   const base = { type: "tool.result", id: frame.id, operation: frame.operation } as const;
-  const wait = frame.operation === "computer.execute" && frame.body.kind === "wait";
-  const waitFailure = (error: ComputerFailureCode): DesktopToolResult => ({
+  const readKind = frame.operation === "computer.execute" &&
+    (frame.body.kind === "observe" || frame.body.kind === "wait") ? frame.body.kind : undefined;
+  const wait = readKind === "wait";
+  const readFailure = (error: ComputerFailureCode): DesktopToolResult => ({
     type: "tool.result", id: frame.id, operation: "computer.execute", ok: true,
     data: { kind: "failure", error },
   });
@@ -68,10 +77,10 @@ export async function executeDesktopTool(
   if (!await services.leases.claimToolRequest(scope.turnId, frame.id)) {
     // A wait is a read: a settled duplicate is a clean bounded failure, never
     // mutation uncertainty, and it is never executed or replayed.
-    if (wait) return waitFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    if (wait) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
-  let waitPublication: DesktopComputerWaitPublication | undefined;
+  let readPublication: DesktopComputerReadPublication | undefined;
   let recheckResource: (() => Promise<void>) | undefined;
   let browserMutationMayHaveRun = false;
   let computerMutationMayHaveRun = false;
@@ -104,7 +113,7 @@ export async function executeDesktopTool(
       data = frame.body.kind === "wait" && services.computerWait !== true
         ? { kind: "failure" as const, error: "COMPUTER_UNAVAILABLE" as const }
         : await services.computerExecute({ scope, request: frame, signal }, publication => {
-          waitPublication = publication;
+          readPublication = publication;
         });
       // Only an act that may have reached the Mac must suppress a retry after a
       // later authorization failure; pre-dispatch denials stay retryable.
@@ -131,10 +140,10 @@ export async function executeDesktopTool(
           : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
     }
   } catch (error) {
-    if (wait) {
+    if (readKind) {
       // Keep the existing failed-attempt audit below, but as a clean bounded
       // read outcome instead of mutation uncertainty.
-      result = waitFailure(waitReadFailure(error, signal));
+      result = readFailure(readFailureCode(error, signal));
     } else {
       const errorCode = error instanceof AppError ? error.code : undefined;
       const code = desktopToolErrorSchema.safeParse(errorCode);
@@ -146,12 +155,12 @@ export async function executeDesktopTool(
       };
     }
   }
-  if (wait && signal.aborted && result.ok && result.operation === "computer.execute" &&
-      result.data.kind === "wait") {
+  if (readKind && signal.aborted && result.ok && result.operation === "computer.execute" &&
+      result.data.kind === readKind) {
     // A cancel/deadline that arrived before the attempt audit must not be
     // recorded as a completed read, and the publication is never attempted.
-    result = waitFailure("COMPUTER_TIMEOUT");
-    waitPublication = undefined;
+    result = readFailure("COMPUTER_TIMEOUT");
+    readPublication = undefined;
   }
   const reason = !result.ok ? result.error_code
     : result.operation === "browser.execute" && !result.data.result.ok ? result.data.result.code
@@ -176,46 +185,59 @@ export async function executeDesktopTool(
           ? {
             duration_ms: Math.max(0, Date.now() - startedAt),
             computer_request: frame.body.kind,
-            // A wait row is the single mandatory attempt record, written
-            // before authority/queue/publication. `unconfirmed` is the
-            // existing delivery vocabulary: a late final denial never turns
-            // this row into a published-success claim.
-            ...(frame.body.kind === "wait" ? { delivery: "unconfirmed" } : {}),
+            // Every read attempt is the single mandatory attempt record, written
+            // before authority/queue/publication. `unconfirmed` is the existing
+            // delivery vocabulary: a late final denial, an absent proof, or a
+            // failed final send never turns this row into a published success.
+            ...(readKind ? { delivery: "unconfirmed" } : {}),
           } : {}),
         ...(reason ? { reason_code: reason } : {}),
       },
     });
   } catch {
     // The single bounded audit write above is the existing attempt record.
-    // A wait read never becomes mutation uncertainty and never claims a
-    // completed read through a rejected audit.
-    if (wait) return waitFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    // A read never becomes mutation uncertainty and never claims a completed
+    // read through a rejected audit.
+    if (readKind) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
-  if (waitPublication) {
-    if (result.ok && result.operation === "computer.execute" && result.data.kind === "wait") {
-      // The audit has resolved. Only the transport's final sink can publish
-      // this read: it runs the request-local exact compare inside the locked
-      // dispatch transaction and then the one synchronous socket send. Without
-      // a sink (direct test/fixture lane) the result stays pre-publication only.
-      if (publishResult) {
-        const sent = await publishResult(waitPublication, result).catch(() => false);
-        if (sent) return result;
-        return waitFailure(signal.aborted || waitPublication.timedOut?.()
-          ? "COMPUTER_TIMEOUT" : "COMPUTER_TARGET_CHANGED");
+  // One fail-closed publication gate. A read success may reach the device only
+  // through this request's exact-kind proof and the transport's final sink; a
+  // missing or mismatched proof is a bounded unavailable read, never the
+  // generic unlocked reply. The explicit trusted fixture seam is the only
+  // exception and is never set by configuration or the product composition.
+  if (readKind) {
+    if (result.ok && result.operation === "computer.execute" &&
+        (result.data.kind === "observe" || result.data.kind === "wait")) {
+      if (result.data.kind !== readKind ||
+          (readPublication !== undefined && readPublication.kind !== readKind)) {
+        return readFailure("COMPUTER_UNAVAILABLE");
       }
-    } else if (result.ok && !(result.operation === "computer.execute" && result.data.kind === "failure")) {
-      // A publication may only accompany a wait success; any other success
-      // fails closed. An existing typed computer failure is already closed and
-      // keeps its failed-attempt audit below.
-      return waitFailure("COMPUTER_UNAVAILABLE");
+      if (!readPublication) {
+        // No proof means no device success. The explicit fixture seam may
+        // still relay the pre-publication typed result, but only through the
+        // same final run authorization every product read takes after audit.
+        if (services.allowUnprotectedComputerRead !== true)
+          return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+        try {
+          await authorize();
+        } catch (error) {
+          return readFailure(readFailureCode(error, signal));
+        }
+        return result;
+      }
+      if (!publishResult) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+      const sent = await publishResult(readPublication, result).catch(() => false);
+      if (sent) return result;
+      return readFailure(signal.aborted || readPublication.timedOut?.()
+        ? "COMPUTER_TIMEOUT" : "COMPUTER_TARGET_CHANGED");
     }
-  }
-  if (wait && result.ok && result.operation === "computer.execute" && result.data.kind === "failure") {
-    // A read failure is already the final bounded outcome and never needs the
-    // post-success resource recheck; returning it keeps cancellation a clean
-    // timeout instead of throwing out of the tool callback.
-    return result;
+    if (result.ok && result.operation === "computer.execute" && result.data.kind === "failure") {
+      // A typed read failure is already the final bounded outcome and never
+      // needs the post-success resource recheck or the generic reply.
+      return result;
+    }
+    if (result.ok) return readFailure("COMPUTER_UNAVAILABLE");
   }
   if (result.ok) {
     if (browserMutationMayHaveRun) {
@@ -263,12 +285,12 @@ export async function executeDesktopTool(
 }
 
 /**
- * A wait is a read with no effect to reconcile: every clean failure is a
- * bounded read outcome. Cancellation/deadline is a timeout; an authorization
- * denial stays denied; anything else is unavailable. Never uncertain, never
- * replayed.
+ * An observe or wait is a read with no effect to reconcile: every clean failure
+ * is a bounded read outcome. Cancellation/deadline is a timeout; an
+ * authorization denial stays denied; anything else is unavailable. Never
+ * uncertain, never replayed.
  */
-function waitReadFailure(error: unknown, signal: AbortSignal): ComputerFailureCode {
+function readFailureCode(error: unknown, signal: AbortSignal): ComputerFailureCode {
   if (signal.aborted) return "COMPUTER_TIMEOUT";
   const code = error instanceof AppError ? error.code : undefined;
   return code === "FORBIDDEN" || code === "ACCESS_DENIED" ||

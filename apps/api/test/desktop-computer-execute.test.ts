@@ -198,6 +198,9 @@ async function fixture(computerExecute: boolean) {
         webSearchSettings: { search: async () => { throw new AppError("RUNNER_UNAVAILABLE"); } },
         knowledgeSearch: null,
         checkPublication: async () => {},
+        // Fixture-only trusted composition: this lane never supplies the
+        // request-local read publication that the product controller does.
+        allowUnprotectedComputerRead: true,
         computerWait: binding.toolOperations.includes("computer.execute") &&
           binding.toolOperations.includes("computer.wait"),
         computerExecute: input => {
