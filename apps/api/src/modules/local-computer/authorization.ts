@@ -12,6 +12,12 @@ import { desktopRunScopeSchema, type DesktopRunLeases, type DesktopRunScope } fr
 import { activeLocalComputerSession } from "./repository.js";
 
 export type LocalComputerActionCapability = "computer.observe" | "computer.act";
+/**
+ * Read-side request kind supplied by the authenticated host lane. It does not
+ * grant anything: it lets the canonical collaboration-mode decision deny the
+ * read-only wait in Plan while status/observe stay available.
+ */
+export type LocalComputerActionKind = "status" | "observe" | "wait" | "act";
 
 export type LocalComputerActionAuthorization = {
   /** Canonical parsed run scope; occupancy derives its device key and holder binding from this. */
@@ -64,13 +70,20 @@ type GrantBinding = Pick<DesktopRunScope, "ownerId" | "deviceId" | "conversation
 export async function authorizeLocalComputerAction(
   prisma: PrismaClient,
   authority: Authority,
-  input: { scope: DesktopRunScope; capability: LocalComputerActionCapability; bundleId: string; runToken: string },
+  input: {
+    scope: DesktopRunScope;
+    capability: LocalComputerActionCapability;
+    bundleId: string;
+    runToken: string;
+    requestKind?: LocalComputerActionKind;
+  },
   now: () => Date = () => new Date(),
 ): Promise<LocalComputerActionAuthorization> {
   const scope = desktopRunScopeSchema.safeParse(input.scope);
   const target = localComputerGrantSchema.shape.target.safeParse({ bundle_id: input.bundleId });
   if (!scope.success || !target.success ||
-      (input.capability !== "computer.observe" && input.capability !== "computer.act")) {
+      (input.capability !== "computer.observe" && input.capability !== "computer.act") ||
+      (input.requestKind !== undefined && actionCapability(input.requestKind) !== input.capability)) {
     throw new AppError("FORBIDDEN");
   }
   if (!desktopRunTokenSchema.safeParse(input.runToken).success) throw new AppError("AUTH_REQUIRED");
@@ -90,8 +103,13 @@ export async function authorizeLocalComputerAction(
     const collaborationMode = await readCollaborationMode(tx, {
       ownerId, conversationId, runtimeGeneration, turnId, codexThreadId,
     });
-    // Plan turns are read-only: observe may proceed, act may not.
-    if (binding.capability === "computer.act" && collaborationMode !== "default") throw new AppError("FORBIDDEN");
+    // Plan turns are read-only: status/observe may proceed, act and the
+    // read-only wait may not. The wait grant is still the observe capability;
+    // the request kind is carried only so the canonical mode decision can deny
+    // it before any command is created.
+    if (actionDeniedInPlan(binding.capability, input.requestKind) && collaborationMode !== "default") {
+      throw new AppError("FORBIDDEN");
+    }
     const session = await activeLocalComputerSession(tx, {
       device: { ownerId, conversationId, deviceId }, runtimeGeneration,
     }, at);
@@ -125,6 +143,8 @@ export type LocalComputerDispatchAdmission = {
   capability: LocalComputerActionCapability;
   bundleId: string;
   expiresAt: Date;
+  /** Exact request kind when the lane knows it; used for the Plan wait guard. */
+  requestKind?: LocalComputerActionKind;
 };
 
 /**
@@ -154,6 +174,9 @@ export async function verifyLocalComputerDispatch(
       !(input.expiresAt instanceof Date) || !Number.isFinite(input.expiresAt.getTime())) {
     throw new AppError("FORBIDDEN");
   }
+  if (input.requestKind !== undefined && actionCapability(input.requestKind) !== input.capability) {
+    throw new AppError("FORBIDDEN");
+  }
   const { ownerId, deviceId, conversationId, runtimeGeneration, turnId } = scope.data;
   return prisma.$transaction(async tx => {
     const { codexThreadId } = await lockDesktopConversation(tx, {
@@ -168,7 +191,11 @@ export async function verifyLocalComputerDispatch(
       ownerId, conversationId, runtimeGeneration, turnId, codexThreadId,
     });
     // Plan turns stay read-only, matching the initial authorization decision.
-    if (input.capability === "computer.act" && collaborationMode !== "default") throw new AppError("FORBIDDEN");
+    // A wait publication carries its exact kind so the final gate also denies
+    // a stale Plan read that only used the observe grant.
+    if (actionDeniedInPlan(input.capability, input.requestKind) && collaborationMode !== "default") {
+      throw new AppError("FORBIDDEN");
+    }
     const session = await tx.localComputerSession.findFirst({
       where: {
         id: sessionId.data, ownerId, deviceId, conversationId, runtimeGeneration,
@@ -186,6 +213,17 @@ export async function verifyLocalComputerDispatch(
     // send is invoked, and this transaction never waits for the native reply.
     if (finalize && !await finalize()) throw new AppError("FORBIDDEN");
   });
+}
+
+function actionCapability(kind: LocalComputerActionKind): LocalComputerActionCapability {
+  return kind === "act" ? "computer.act" : "computer.observe";
+}
+
+function actionDeniedInPlan(
+  capability: LocalComputerActionCapability,
+  requestKind: LocalComputerActionKind | undefined,
+): boolean {
+  return capability === "computer.act" || requestKind === "wait";
 }
 
 async function readCollaborationMode(

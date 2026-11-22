@@ -61,6 +61,15 @@ export function desktopComputerUseExecutor(link: DesktopLink, run: DesktopRuntim
       if (result.kind !== "act") throw new ComputerUseFailureError("RUNNER_OPERATION_UNCERTAIN")
       return computerActResultSchema.parse(result.result)
     },
+    async wait(input) {
+      const result = await request({
+        kind: "wait",
+        input: { observation_id: input.observationId, ref: input.ref, timeout_ms: input.timeoutMs },
+      }, input.signal)
+      if (result.kind === "failure") throw new ComputerUseFailureError(result.error)
+      if (result.kind !== "wait") throw new ComputerUseFailureError("RUNNER_OPERATION_UNCERTAIN")
+      return result.result
+    },
   }
 }
 

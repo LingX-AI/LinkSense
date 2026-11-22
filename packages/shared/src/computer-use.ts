@@ -3,11 +3,23 @@ import { z } from "zod";
 export const computerStatusToolName = "computer_status";
 export const computerObserveToolName = "computer_observe";
 export const computerActToolName = "computer_act";
+export const computerWaitToolName = "computer_wait";
 
 const observationIdSchema = z.string().min(1).max(120);
 const elementRefSchema = z.string().min(1).max(200);
 const effectTimeoutMsSchema = z.number().int().min(100).max(20_000);
 const utf8Bytes = (value: string) => new TextEncoder().encode(value).length;
+
+/**
+ * A qualified agent-desktop ref from the latest observation. The pinned CLI
+ * requires `@<snapshot_id>:e<N>` with a 3-64 character snapshot id, so a bare
+ * element ref or a caller-invented prefix is rejected before any transport.
+ */
+export const computerQualifiedRefSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^@[A-Za-z0-9_-]{3,64}:e[0-9]{1,10}$/u);
 
 /**
  * The host chooses the single target before the task starts. It is never a tool
@@ -142,6 +154,26 @@ export const computerActResultSchema = z
     "a successful action requires an effect and a failed action requires an error",
   );
 export type ComputerActResult = z.infer<typeof computerActResultSchema>;
+
+/**
+ * The only read-only wait input. The predicate is fixed to `actionable` by the
+ * device; the model can name only the exact observation/ref pair it already
+ * read and a bounded timeout. No selector, text, window, process or path is
+ * representable.
+ */
+export const computerWaitInputSchema = z.strictObject({
+  observation_id: observationIdSchema,
+  ref: computerQualifiedRefSchema,
+  timeout_ms: effectTimeoutMsSchema.default(8_000),
+});
+export type ComputerWaitInput = z.infer<typeof computerWaitInputSchema>;
+
+/** A native predicate expiry is a normal bounded observation, not an error. */
+export const computerWaitResultSchema = z.strictObject({
+  result: z.enum(["met", "timed_out"]),
+  waited_ms: z.number().int().nonnegative().max(20_000),
+});
+export type ComputerWaitResult = z.infer<typeof computerWaitResultSchema>;
 
 export function computerFailure(
   code: ComputerFailureCode,

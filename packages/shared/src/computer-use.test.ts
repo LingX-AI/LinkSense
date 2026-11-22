@@ -8,6 +8,8 @@ import {
   computerScreenshotMaxEncodedBytes,
   computerScreenshotMaxResultBytes,
   computerScreenshotSchema,
+  computerWaitInputSchema,
+  computerWaitResultSchema,
   type ComputerScreenshot,
 } from "./computer-use.js";
 import { desktopExecutionMaxFrameBytes } from "./desktop-execution.js";
@@ -72,6 +74,59 @@ describe("local computer tool contracts", () => {
     expect(computerActResultSchema.safeParse({
       ok: false, error: "COMPUTER_STALE_REF", waited_ms: 0,
     }).success).toBe(true);
+  });
+});
+
+describe("computer wait tool contracts", () => {
+  const wait = { observation_id: "obs-1", ref: "@obs-1:e1" };
+
+  it("accepts only the exact observation/ref input with a bounded default timeout", () => {
+    expect(computerWaitInputSchema.parse(wait)).toEqual({ ...wait, timeout_ms: 8_000 });
+    expect(computerWaitInputSchema.safeParse({ ...wait, timeout_ms: 100 }).success).toBe(true);
+    expect(computerWaitInputSchema.safeParse({ ...wait, timeout_ms: 20_000 }).success).toBe(true);
+    for (const extra of [
+      { timeout_ms: null },
+      { timeout_ms: 99 },
+      { timeout_ms: 20_001 },
+      { timeout_ms: 1.5 },
+      { predicate: "visible" },
+      { action: "click" },
+      { app: "Finder" },
+      { window: "Main" },
+      { text: "Continue" },
+      { native_call_id: "call-1" },
+      { pid: 42 },
+    ]) {
+      expect(computerWaitInputSchema.safeParse({ ...wait, ...extra }).success).toBe(false);
+    }
+    for (const ref of [
+      "e1",
+      "@e1",
+      "@ab:e1",
+      "@obs-1:e",
+      "@obs 1:e1",
+      `@${"a".repeat(65)}:e1`,
+    ]) {
+      expect(computerWaitInputSchema.safeParse({ ...wait, ref }).success).toBe(false);
+    }
+    expect(computerWaitInputSchema.safeParse({ observation_id: "", ref: "@obs-1:e1" }).success).toBe(false);
+    expect(computerWaitInputSchema.safeParse({ observation_id: "x".repeat(121), ref: "@obs-1:e1" }).success).toBe(false);
+  });
+
+  it("accepts only met/timed_out with a bounded waited_ms", () => {
+    expect(computerWaitResultSchema.safeParse({ result: "met", waited_ms: 0 }).success).toBe(true);
+    expect(computerWaitResultSchema.safeParse({ result: "timed_out", waited_ms: 8_000 }).success).toBe(true);
+    for (const result of [
+      { result: "done", waited_ms: 1 },
+      { result: "met", waited_ms: -1 },
+      { result: "met", waited_ms: 20_001 },
+      { result: "met", waited_ms: 1.5 },
+      { result: "met", waited_ms: 1, effect: "done" },
+      { result: "met", waited_ms: 1, ok: true },
+      { result: "met" },
+    ]) {
+      expect(computerWaitResultSchema.safeParse(result).success).toBe(false);
+    }
   });
 });
 

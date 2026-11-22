@@ -24,6 +24,7 @@ import type {
 } from "../../../src/mcp/core-service-module.js";
 import { createCoreMcpRegistry } from "../../../src/mcp/core-service-registry.js";
 import {
+  ComputerUseFailureError,
   createComputerUseCoreMcpModule,
   type ComputerUseExecutor,
 } from "../../../src/mcp/core-services/computer-use-service.js";
@@ -167,6 +168,28 @@ const executor: ComputerUseExecutor = {
     }
     audit({ ...entry, effect: "done" });
     return { ok: true, effect: "done", waited_ms: 5 };
+  },
+  async wait(input) {
+    input.signal.throwIfAborted();
+    const entry = {
+      tool: "wait",
+      observationId: input.observationId,
+      ref: input.ref,
+      timeoutMs: input.timeoutMs,
+    };
+    if (!latest || latest.id !== input.observationId) {
+      audit({ ...entry, error: "COMPUTER_STALE_OBSERVATION" });
+      throw new ComputerUseFailureError("COMPUTER_STALE_OBSERVATION");
+    }
+    // The model passes the qualified @snapshot:eN ref; the fixture map stores
+    // the element suffix.
+    const bare = input.ref.slice(input.ref.lastIndexOf(":") + 1);
+    if (!latest.refs.has(bare)) {
+      audit({ ...entry, error: "COMPUTER_STALE_REF" });
+      throw new ComputerUseFailureError("COMPUTER_STALE_REF");
+    }
+    audit({ ...entry, result: "met" });
+    return { result: "met", waited_ms: Math.min(input.timeoutMs, 5) };
   },
 };
 

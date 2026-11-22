@@ -94,7 +94,7 @@ func assertComputerActWire(t *testing.T, act map[string]any) {
 		t.Fatalf("act.ok is not boolean: %+v", act)
 	}
 	waited, isNumber := act["waited_ms"].(float64)
-	if !isNumber || waited < 0 || waited > 20000 || waited != float64(int(waited)) {
+	if !isNumber || waited < 0 || waited > m1bComputerMaxTimeout || waited != float64(int(waited)) {
 		t.Fatalf("act.waited_ms is outside the shared schema: %+v", act)
 	}
 	effect, hasEffect := act["effect"].(string)
@@ -128,9 +128,21 @@ func newTestComputerExecutor(t *testing.T, runtimeRoot string, selection m1bComp
 	}
 	// Under -race the copied fake is the race-instrumented test binary. Disable
 	// only its per-process atexit sleep; production never sets this.
-	executor.driver.environment = append(executor.driver.environment, "GORACE=atexit_sleep_ms=0")
+	computerConcreteDriver(t, executor).environment = append(computerConcreteDriver(t, executor).environment, "GORACE=atexit_sleep_ms=0")
 	t.Cleanup(func() { _ = executor.close() })
 	return executor
+}
+
+// computerConcreteDriver recovers the concrete private driver behind the
+// executor seam. Tests that need the fake-CLI state root use it; fake drivers
+// may wrap the same concrete driver for a deterministic wait fence.
+func computerConcreteDriver(t *testing.T, executor *computerExecutorDarwin) *computerDriver {
+	t.Helper()
+	driver, ok := executor.driver.(*computerDriver)
+	if !ok {
+		t.Fatalf("executor driver is %T, want the concrete private driver", executor.driver)
+	}
+	return driver
 }
 
 func startComputerExecutorBridge(t *testing.T, executor *computerExecutorDarwin) (*m1bComputerHost, *computerFixtureRun) {
@@ -241,7 +253,7 @@ func TestComputerExecutorBridgeMapsSharedWireResults(t *testing.T) {
 			fakeNode("textfield", "Input", "@stpost1:e1", text),
 			fakeNode("button", "保存 🙂", "@stpost1:e2", nil)))
 	writeFakeScenario(t, runtimeRoot, fakeScenario{
-		StatusData:      fakeStatusData(executor.driver.sessionID, executor.driver.stateRoot, "granted"),
+		StatusData:      fakeStatusData(computerConcreteDriver(t, executor).sessionID, computerConcreteDriver(t, executor).stateRoot, "granted"),
 		PermissionsData: fakePermissions("granted"),
 		Windows:         mustWindows(t, fixtureWindow()),
 		Snapshots: []json.RawMessage{
@@ -277,9 +289,9 @@ func TestComputerExecutorBridgeMapsSharedWireResults(t *testing.T) {
 	}
 
 	input := map[string]any{
-		"action": "type", "observation_id": observationID, "ref": ref, "text": text, "timeout_ms": 8000,
+		"action": "type", "observation_id": observationID, "ref": ref, "text": text, "timeout_ms": m1bComputerDefaultTimeout,
 	}
-	actInput := m1bComputerAct{Action: "type", ObservationID: observationID, Ref: ref, Text: text, TimeoutMS: 8000}
+	actInput := m1bComputerAct{Action: "type", ObservationID: observationID, Ref: ref, Text: text, TimeoutMS: m1bComputerDefaultTimeout}
 	authorizeFixtureAct(t, executor, selection, "call-unicode", actInput, time.Minute)
 	actFrame := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000503", selection, fixtureHolder, false,
 		computerActRequestJSON(t, "call-unicode", input))
@@ -288,7 +300,7 @@ func TestComputerExecutorBridgeMapsSharedWireResults(t *testing.T) {
 		t.Fatalf("unexpected unicode act result: %+v", actFrame)
 	}
 	assertComputerActWire(t, act)
-	if _, err := os.Lstat(executor.driver.stateRoot); err != nil {
+	if _, err := os.Lstat(computerConcreteDriver(t, executor).stateRoot); err != nil {
 		t.Fatalf("the driver state root disappeared: %v", err)
 	}
 
@@ -297,7 +309,7 @@ func TestComputerExecutorBridgeMapsSharedWireResults(t *testing.T) {
 	if len(typeCalls) != 1 {
 		t.Fatalf("expected exactly one type call, got %d", len(typeCalls))
 	}
-	assertExactArgs(t, typeCalls[0], executor.driver.sessionID, "type", ref, "--stdin", "--timeout-ms=15000")
+	assertExactArgs(t, typeCalls[0], computerConcreteDriver(t, executor).sessionID, "type", ref, "--stdin", "--timeout-ms=15000")
 	if typeCalls[0].Stdin != text {
 		t.Fatalf("stdin mismatch: got %q want %q", typeCalls[0].Stdin, text)
 	}
@@ -346,7 +358,7 @@ func TestComputerExecutorBridgeMapsPermissionStates(t *testing.T) {
 		t.Run(test.driverState, func(t *testing.T) {
 			selection := executor.selection()
 			writeFakeScenario(t, runtimeRoot, fakeScenario{
-				StatusData: fakeStatusData(executor.driver.sessionID, executor.driver.stateRoot, test.driverState),
+				StatusData: fakeStatusData(computerConcreteDriver(t, executor).sessionID, computerConcreteDriver(t, executor).stateRoot, test.driverState),
 			})
 			id := fmt.Sprintf("90000000-0000-4000-8000-%012d", 506+index)
 			frame := sendComputerCommand(t, run, id, selection, "", true, `{"kind":"status"}`)
@@ -440,7 +452,7 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 	if len(clickCalls) != 1 {
 		t.Fatalf("expected exactly one click, got %d", len(clickCalls))
 	}
-	assertExactArgs(t, clickCalls[0], executor.driver.sessionID, "click", ref, "--timeout-ms=15000")
+	assertExactArgs(t, clickCalls[0], computerConcreteDriver(t, executor).sessionID, "click", ref, "--timeout-ms=15000")
 
 	// A post-entry result whose delivery is not proven maps to the documented
 	// uncertain runner code and is not retried.
@@ -495,14 +507,14 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 		t.Fatalf("the replacement selection could not observe: %+v", direct)
 	}
 	executor.invalidate(selection)
-	if executor.driver.latest == nil {
+	if computerConcreteDriver(t, executor).latest == nil {
 		t.Fatal("clearing the old selection also cleared the replacement observation")
 	}
 	executor.invalidate(revoked)
-	if executor.driver.latest != nil {
+	if computerConcreteDriver(t, executor).latest != nil {
 		t.Fatal("the matching selection did not clear its refs")
 	}
-	if _, err := os.Lstat(executor.driver.stateRoot); err != nil {
+	if _, err := os.Lstat(computerConcreteDriver(t, executor).stateRoot); err != nil {
 		t.Fatalf("invalidation closed the driver state root: %v", err)
 	}
 
@@ -599,7 +611,7 @@ func startComputerPreflight(t *testing.T, proofTTL time.Duration) *computerPrefl
 	const actID = "90000000-0000-4000-8000-000000000602"
 	if err := run.socket.send([]byte(computerCommandJSON(actID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z",
 		computerActRequestJSON(t, "call-preflight", map[string]any{
-			"action": "click", "observation_id": observationID, "ref": ref, "timeout_ms": 20000,
+			"action": "click", "observation_id": observationID, "ref": ref, "timeout_ms": m1bComputerMaxTimeout,
 		})))); err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +731,7 @@ func TestComputerExecutorDarwinPreflightInvalidationAndClose(t *testing.T) {
 		if count := len(callsFor(readFakeCalls(t, runtimeRoot), "click")); count != 0 {
 			t.Fatalf("close still dispatched input: %d clicks", count)
 		}
-		if _, err := os.Lstat(executor.driver.stateRoot); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(computerConcreteDriver(t, executor).stateRoot); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("close did not remove the driver state root: %v", err)
 		}
 	})
@@ -784,10 +796,10 @@ func TestComputerExecutorBridgeCancelSuppressesResultAndKeepsDriverAlive(t *test
 	if quiesceKind != "quiesce" || quiesceResult["quiesced"] != true {
 		t.Fatalf("the quiesce was not acknowledged: %+v", quiesce)
 	}
-	if executor.driver.latest != nil {
+	if computerConcreteDriver(t, executor).latest != nil {
 		t.Fatal("the quiesce did not clear the driver refs")
 	}
-	if _, err := os.Lstat(executor.driver.stateRoot); err != nil {
+	if _, err := os.Lstat(computerConcreteDriver(t, executor).stateRoot); err != nil {
 		t.Fatalf("the quiesce closed the driver state root: %v", err)
 	}
 
@@ -824,7 +836,7 @@ func TestComputerExecutorDarwinHonorsValidatedInputTimeout(t *testing.T) {
 	}
 	input := m1bComputerAct{
 		Action: "click", ObservationID: observation.observation.ObservationID,
-		Ref: typedObservationRef(observation.observation, "button", "Apply"), TimeoutMS: 100,
+		Ref: typedObservationRef(observation.observation, "button", "Apply"), TimeoutMS: m1bComputerMinTimeout,
 	}
 	authorizeFixtureAct(t, executor, selection, "call-input-timeout", input, time.Minute)
 	start := time.Now()
@@ -1128,4 +1140,475 @@ func TestComputerExecutorRenewalRejectsAStaleObservationExpiry(t *testing.T) {
 	if observed != "" {
 		t.Fatal("the exact renewed observation was not cleared")
 	}
+}
+
+func computerWaitRequestJSON(t *testing.T, observationID, ref string, timeout *int) string {
+	t.Helper()
+	input := map[string]any{"observation_id": observationID, "ref": ref}
+	if timeout != nil {
+		input["timeout_ms"] = *timeout
+	}
+	data, err := json.Marshal(map[string]any{"kind": "wait", "input": input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// The bridge admits the exact read-only native wait and keeps the same
+// observation actable. It needs no mutating proof and never captures a new
+// snapshot or dispatches click/type.
+func TestComputerExecutorBridgeWaitUsesExactArgsAndKeepsObservation(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	writeFakeScenario(t, runtimeRoot, basicScenario(t, "swait1", "@swait1:e1"))
+	_, run := startComputerExecutorBridge(t, executor)
+	observationID, observation := observeFixture(t, run, "90000000-0000-4000-8000-000000000901", selection)
+	ref := observationRef(t, observation, "button", "Apply")
+	if ref == "" {
+		t.Fatal("the observation had no Apply button")
+	}
+	resetFakeCalls(t, runtimeRoot)
+
+	timeout := 5000
+	const waitID = "90000000-0000-4000-8000-000000000902"
+	wait := sendComputerCommand(t, run, waitID, selection, fixtureHolder, false,
+		computerWaitRequestJSON(t, observationID, ref, &timeout))
+	kind, result := typedComputerFrame(t, wait)
+	if kind != "wait" || result["result"] != computerWaitMet || result["waited_ms"] != float64(0) {
+		t.Fatalf("the exact wait did not return met: %+v", wait)
+	}
+	if _, hasError := result["error"]; hasError {
+		t.Fatalf("a met wait carried a failure: %+v", result)
+	}
+	if executor.observed == "" {
+		t.Fatal("a met wait cleared the prior observation")
+	}
+	if computerConcreteDriver(t, executor).latest == nil {
+		t.Fatal("a met wait dropped the driver observation")
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	waitCalls := callsFor(calls, "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected one wait process, got %d", len(waitCalls))
+	}
+	assertWaitExactArgs(t, waitCalls[0], computerConcreteDriver(t, executor).sessionID, ref, timeout)
+	if len(callsFor(calls, "snapshot")) != 0 ||
+		len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("a wait captured a snapshot or mutated")
+	}
+	assertNoForbiddenArgs(t, calls)
+	assertNoWaitSpecificArgs(t, calls)
+}
+
+func TestComputerExecutorWaitNativePredicateTimeoutIsTimedOut(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	scenario := basicScenario(t, "swait2", "@swait2:e1")
+	scenario.ActionError = map[string]json.RawMessage{"wait": mustJSON(t, map[string]any{
+		"code": "TIMEOUT", "message": "SECRET wait text",
+		"details": map[string]any{
+			"kind": "wait_timeout", "ref": "@swait2:e1", "predicate": "actionable",
+			"timeout_ms": m1bComputerDefaultTimeout, "last_observed": map[string]any{"actionable": false},
+		},
+		"disposition": map[string]any{"delivery": "not_delivered", "retry": "safe"},
+	})}
+	writeFakeScenario(t, runtimeRoot, scenario)
+	_, run := startComputerExecutorBridge(t, executor)
+	observationID, observation := observeFixture(t, run, "90000000-0000-4000-8000-000000000911", selection)
+	ref := observationRef(t, observation, "button", "Apply")
+	resetFakeCalls(t, runtimeRoot)
+
+	const waitID = "90000000-0000-4000-8000-000000000912"
+	wait := sendComputerCommand(t, run, waitID, selection, fixtureHolder, false,
+		computerWaitRequestJSON(t, observationID, ref, nil))
+	kind, result := typedComputerFrame(t, wait)
+	if kind != "wait" || result["result"] != computerWaitTimedOut ||
+		result["waited_ms"] != float64(m1bComputerDefaultTimeout) {
+		t.Fatalf("a native predicate expiry was not timed_out: %+v", wait)
+	}
+	if _, hasError := result["error"]; hasError {
+		t.Fatalf("a native predicate expiry was classified as a failure: %+v", result)
+	}
+	if executor.observed == "" || computerConcreteDriver(t, executor).latest == nil {
+		t.Fatal("a native predicate expiry must keep the observation")
+	}
+	if len(callsFor(readFakeCalls(t, runtimeRoot), "wait")) != 1 {
+		t.Fatal("a predicate expiry was retried")
+	}
+}
+
+// A wait blocked in the driver mutex is canceled before synchronous
+// invalidation/close waits for that mutex. Invalidation returns only after the
+// child is gone, and the canceled wait publishes no success.
+func TestComputerExecutorWaitCancellationPrecedesSynchronousInvalidation(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	scenario := basicScenario(t, "scancel1", "@scancel1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+
+	observation := executor.observe(context.Background(), selection)
+	if observation.kind != "observe" {
+		t.Fatalf("observe failed: %+v", observation)
+	}
+	ref := typedObservationRef(observation.observation, "button", "Apply")
+	if ref == "" {
+		t.Fatal("the observation had no ref")
+	}
+	resetFakeCalls(t, runtimeRoot)
+	type outcome struct {
+		result m1bComputerResult
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		finished <- outcome{result: executor.wait(context.Background(), selection, m1bComputerWait{
+			ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
+		})}
+	}()
+	waitForFakeCommand(t, runtimeRoot, "wait")
+	waitCalls := callsFor(readFakeCalls(t, runtimeRoot), "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected one wait process, got %d", len(waitCalls))
+	}
+	start := time.Now()
+	executor.invalidate(selection)
+	select {
+	case got := <-finished:
+		if got.result.kind == "wait" {
+			t.Fatalf("a canceled wait published a result: %+v", got.result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("invalidation did not release the driver mutex")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("invalidation waited too long: %s", elapsed)
+	}
+	assertProcessGone(t, waitCalls[0].PID, "invalidated wait")
+}
+
+// A same-binding renewal cancels the wait before the driver mutex is touched,
+// advances the generation, and returns no pre-renewal success.
+func TestComputerExecutorWaitRenewalCancelsBeforeFence(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	scenario := basicScenario(t, "srenew1", "@srenew1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+	observation := executor.observe(context.Background(), selection)
+	if observation.kind != "observe" {
+		t.Fatalf("observe failed: %+v", observation)
+	}
+	ref := typedObservationRef(observation.observation, "button", "Apply")
+	resetFakeCalls(t, runtimeRoot)
+	finished := make(chan m1bComputerResult, 1)
+	go func() {
+		finished <- executor.wait(context.Background(), selection, m1bComputerWait{
+			ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
+		})
+	}()
+	waitForFakeCommand(t, runtimeRoot, "wait")
+	waitCalls := callsFor(readFakeCalls(t, runtimeRoot), "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected one wait process, got %d", len(waitCalls))
+	}
+	renewed := selection
+	renewed.ExpiresAt = selection.ExpiresAt.Add(time.Minute)
+	if err := executor.selectHostSelection(renewed); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-finished:
+		if result.kind == "wait" {
+			t.Fatalf("a pre-renewal wait published success: %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("renewal did not cancel the wait")
+	}
+	assertProcessGone(t, waitCalls[0].PID, "renewed wait")
+}
+
+// A fake driver that ignores cancellation and returns a late success after the
+// executor generation advanced cannot be published. The fence is the same
+// binding, observation, generation, and live wait context.
+func TestComputerExecutorWaitFencesLateFakeSuccess(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(t *testing.T, executor *computerExecutorDarwin, selection m1bComputerSelection, deadline context.Context)
+	}{
+		{
+			name: "exact renewal",
+			change: func(t *testing.T, executor *computerExecutorDarwin, selection m1bComputerSelection, _ context.Context) {
+				renewed := selection
+				renewed.ExpiresAt = selection.ExpiresAt.Add(time.Minute)
+				if err := executor.selectHostSelection(renewed); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "invalidate",
+			change: func(t *testing.T, executor *computerExecutorDarwin, selection m1bComputerSelection, _ context.Context) {
+				executor.invalidate(selection)
+			},
+		},
+		{
+			name: "expiry",
+			change: func(t *testing.T, _ *computerExecutorDarwin, _ m1bComputerSelection, deadline context.Context) {
+				<-deadline.Done()
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtimeRoot, _ := newFakeRuntime(t)
+			selection := fixtureComputerSelection(deviceFixtureCredential())
+			executor := newTestComputerExecutor(t, runtimeRoot, selection)
+			scenario := basicScenario(t, "sfake1", "@sfake1:e1")
+			writeFakeScenario(t, runtimeRoot, scenario)
+			concrete := computerConcreteDriver(t, executor)
+			late := &lateWaitDriver{
+				computerDriver: concrete,
+				started:        make(chan struct{}, 1),
+				release:        make(chan struct{}),
+				result:         computerWaitResult{Result: computerWaitMet, WaitedMS: 1},
+			}
+			executor.driver = late
+			observation := executor.observe(context.Background(), selection)
+			if observation.kind != "observe" {
+				t.Fatalf("observe failed: %+v", observation)
+			}
+			ref := typedObservationRef(observation.observation, "button", "Apply")
+			ctx := context.Background()
+			var cancel context.CancelFunc
+			if test.name == "expiry" {
+				ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+				defer cancel()
+			}
+			finished := make(chan m1bComputerResult, 1)
+			go func() {
+				finished <- executor.wait(ctx, selection, m1bComputerWait{
+					ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: m1bComputerDefaultTimeout,
+				})
+			}()
+			select {
+			case <-late.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the fake wait did not start")
+			}
+			test.change(t, executor, selection, ctx)
+			close(late.release)
+			select {
+			case result := <-finished:
+				if result.kind == "wait" {
+					t.Fatalf("a late fake success was published: %+v", result)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the late fake success was not fenced")
+			}
+		})
+	}
+}
+
+type lateWaitDriver struct {
+	*computerDriver
+	started chan struct{}
+	release chan struct{}
+	result  computerWaitResult
+}
+
+func (driver *lateWaitDriver) Wait(context.Context, computerWaitRequest) (computerWaitResult, error) {
+	select {
+	case driver.started <- struct{}{}:
+	default:
+	}
+	// Deliberately ignore cancellation to model a driver that reports success
+	// after the parent has already canceled or rebound the selection.
+	<-driver.release
+	return driver.result, nil
+}
+
+// A wait is read-only: it needs no computerHostAuthorization and does not
+// consume a proof already issued for a following act.
+func TestComputerExecutorWaitDoesNotConsumeActProof(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	writeFakeScenario(t, runtimeRoot, basicScenario(t, "sproof1", "@sproof1:e1"))
+	observation := executor.observe(context.Background(), selection)
+	if observation.kind != "observe" {
+		t.Fatalf("observe failed: %+v", observation)
+	}
+	ref := typedObservationRef(observation.observation, "button", "Apply")
+	actInput := m1bComputerAct{
+		Action: "click", ObservationID: observation.observation.ObservationID, Ref: ref,
+		TimeoutMS: m1bComputerDefaultTimeout,
+	}
+	authorizeFixtureAct(t, executor, selection, "call-proof", actInput, time.Minute)
+
+	wait := executor.wait(context.Background(), selection, m1bComputerWait{
+		ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: 1000,
+	})
+	if wait.kind != "wait" || wait.wait.Result != computerWaitMet {
+		t.Fatalf("the read-only wait failed: %+v", wait)
+	}
+	expiry, ok := executor.consumeAuthorization(selection, "call-proof", actInput)
+	if !ok || expiry.IsZero() {
+		t.Fatal("the wait consumed the act proof")
+	}
+}
+
+// The gate's act slot stays idle during a read-only wait, so a same-binding
+// renewal can cancel that wait instead of inheriting mutating-act semantics.
+func TestComputerGateWaitKeepsActBusyForActsOnly(t *testing.T) {
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	executor := &controlTestExecutor{
+		binding: selection, waitStarted: started, waitRelease: release,
+	}
+	gate := &computerExecutorGate{}
+	gate.install(executor)
+	finished := make(chan m1bComputerResult, 1)
+	go func() {
+		finished <- gate.wait(context.Background(), selection, m1bComputerWait{
+			ObservationID: controlObservation, Ref: "@obs1:e1", TimeoutMS: m1bComputerDefaultTimeout,
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the gate wait did not start")
+	}
+	if gate.busy() {
+		t.Fatal("a read-only wait occupied the act busy slot")
+	}
+	if _, authorizations, _ := executor.snapshot(); authorizations != 0 {
+		t.Fatal("a read-only wait required a mutating authorization")
+	}
+	close(release)
+	select {
+	case result := <-finished:
+		if result.kind != "wait" || result.wait.Result != computerWaitMet {
+			t.Fatalf("the gate wait did not return met: %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the gate wait did not finish")
+	}
+	if gate.busy() {
+		t.Fatal("a wait left the act busy slot set")
+	}
+}
+
+// A local pause/stop quiesce closes input and synchronously invalidates the
+// exact selection. The invalidate cancels the wait before trying to acquire the
+// driver mutex, so the quiesce proof returns promptly and no wait success is
+// published after the boundary closes.
+func TestComputerGateQuiesceCancelsWaitBeforeInvalidate(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	scenario := basicScenario(t, "squiesce1", "@squiesce1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+	observation := executor.observe(context.Background(), selection)
+	if observation.kind != "observe" {
+		t.Fatalf("observe failed: %+v", observation)
+	}
+	ref := typedObservationRef(observation.observation, "button", "Apply")
+	gate := &computerExecutorGate{}
+	gate.install(executor)
+	resetFakeCalls(t, runtimeRoot)
+	finished := make(chan m1bComputerResult, 1)
+	go func() {
+		finished <- gate.wait(context.Background(), selection, m1bComputerWait{
+			ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
+		})
+	}()
+	waitForFakeCommand(t, runtimeRoot, "wait")
+	waitCalls := callsFor(readFakeCalls(t, runtimeRoot), "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected one wait process, got %d", len(waitCalls))
+	}
+	start := time.Now()
+	quiesce := gate.quiesce(context.Background(), executor, selection)
+	select {
+	case quiesced := <-quiesce:
+		if !quiesced {
+			t.Fatal("the quiesce did not prove the wait terminal")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("quiesce blocked on the driver mutex")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("quiesce took %s", elapsed)
+	}
+	select {
+	case result := <-finished:
+		if result.kind == "wait" {
+			t.Fatalf("a paused/stopped wait published success: %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the quiesced wait did not return")
+	}
+	assertProcessGone(t, waitCalls[0].PID, "quiesced wait")
+}
+
+// Close is the logout/teardown path. It cancels the in-flight wait before
+// waiting on the same driver mutex, then marks the driver closed so no late
+// result can be attributed afterwards.
+func TestComputerExecutorCloseCancelsWaitBeforeDriverMutex(t *testing.T) {
+	runtimeRoot, _ := newFakeRuntime(t)
+	selection := fixtureComputerSelection(deviceFixtureCredential())
+	executor := newTestComputerExecutor(t, runtimeRoot, selection)
+	scenario := basicScenario(t, "sclose1", "@sclose1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+	observation := executor.observe(context.Background(), selection)
+	if observation.kind != "observe" {
+		t.Fatalf("observe failed: %+v", observation)
+	}
+	ref := typedObservationRef(observation.observation, "button", "Apply")
+	resetFakeCalls(t, runtimeRoot)
+	finished := make(chan m1bComputerResult, 1)
+	go func() {
+		finished <- executor.wait(context.Background(), selection, m1bComputerWait{
+			ObservationID: observation.observation.ObservationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
+		})
+	}()
+	waitForFakeCommand(t, runtimeRoot, "wait")
+	waitCalls := callsFor(readFakeCalls(t, runtimeRoot), "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected one wait process, got %d", len(waitCalls))
+	}
+	closed := make(chan error, 1)
+	start := time.Now()
+	go func() { closed <- executor.close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("close failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("close blocked on the driver mutex")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("close took %s", elapsed)
+	}
+	select {
+	case result := <-finished:
+		if result.kind == "wait" {
+			t.Fatalf("a closed executor published wait success: %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the closed wait did not return")
+	}
+	assertProcessGone(t, waitCalls[0].PID, "closed wait")
 }

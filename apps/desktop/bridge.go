@@ -96,9 +96,14 @@ const (
 	desktopToolVersion          = 1
 	desktopToolHeader           = "X-LinkSense-Desktop-Tools"
 	desktopToolOperationsHeader = "X-LinkSense-Desktop-Tool-Operations"
-	desktopAttachmentHeader     = "X-LinkSense-Desktop-Attachments"
-	desktopAttachmentVersion    = 1
-	desktopAppVersionHeader     = "X-LinkSense-Desktop-App-Version"
+	// desktopComputerWaitOperation is an additive negotiation marker for the
+	// read-only wait kind inside computer.execute. It is not a second wire
+	// operation: an old server ignores the unknown offered string and an old
+	// Mac never offers it.
+	desktopComputerWaitOperation = "computer.wait"
+	desktopAttachmentHeader      = "X-LinkSense-Desktop-Attachments"
+	desktopAttachmentVersion     = 1
+	desktopAppVersionHeader      = "X-LinkSense-Desktop-App-Version"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
@@ -312,7 +317,9 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
 		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
 		if connection.computer != nil {
-			operations += "," + m1bComputerOperation
+			// Only the installed Mac product host offers the read-only wait,
+			// and it rides the existing computer.execute operation.
+			operations += "," + m1bComputerOperation + "," + desktopComputerWaitOperation
 		}
 		headers.Set(desktopToolOperationsHeader, operations)
 	}

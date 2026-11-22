@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,8 +37,13 @@ const (
 
 	// m1bComputerMaxWork bounds read-only status/observe and the quiesce
 	// control path. Act instead uses its host-validated timeout_ms (default
-	// 8_000, max 20_000), which the shared schema already caps.
+	// 8_000, max 20_000), which the shared schema already caps. Wait uses its
+	// own bounded timeout plus m1bComputerWaitGrace, so the native predicate
+	// expiry envelope and the before/after identity checks can complete inside
+	// the same finite transport context. Max wait work stays below the hard
+	// 25-second tool request limit.
 	m1bComputerMaxWork        = 5 * time.Second
+	m1bComputerWaitGrace      = 4 * time.Second
 	m1bComputerMaxCommands    = 1024
 	m1bComputerMaxControls    = 1
 	m1bComputerMaxTombstones  = 256
@@ -52,7 +58,24 @@ const (
 	m1bComputerMaxTextBytes   = 8_192
 )
 
-var errM1BComputerInvalid = errors.New("COMPUTER_INVALID")
+const (
+	// Closed wait result set and the one fixed native predicate. These are
+	// shared by the host-facing fixtures, the executor, and the Darwin driver,
+	// so a non-Darwin build still has the stable wire vocabulary.
+	computerWaitMet                 = "met"
+	computerWaitTimedOut            = "timed_out"
+	computerWaitPredicateActionable = "actionable"
+)
+
+var (
+	errM1BComputerInvalid = errors.New("COMPUTER_INVALID")
+
+	// v1.3.1 validates a ref as @<snapshot_id>:e<digits>, where the snapshot id
+	// is 3-64 ASCII letters, digits, '-' or '_'. This definition is shared by
+	// the host parser and the Darwin driver/executor so every layer accepts the
+	// exact same qualified AX ref on every platform build.
+	computerRefPattern = regexp.MustCompile(`^@[A-Za-z0-9_-]{3,64}:e[0-9]{1,10}$`)
+)
 
 // m1bComputerSelection is the host-picked binding for one device link and run.
 // The payload can only repeat these ids; it can never name an application,
@@ -95,10 +118,20 @@ type m1bComputerAct struct {
 	TimeoutMS     int
 }
 
+// m1bComputerWait is the validated read-only wait input. The predicate is
+// fixed to actionable and there is no selector: only the exact ref from the
+// latest observation and a bounded timeout cross this boundary.
+type m1bComputerWait struct {
+	ObservationID string
+	Ref           string
+	TimeoutMS     int
+}
+
 type m1bComputerRequest struct {
 	Kind         string
 	NativeCallID string
 	Act          *m1bComputerAct
+	Wait         *m1bComputerWait
 }
 
 type m1bComputerCommand struct {
@@ -146,6 +179,11 @@ type m1bComputerActResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
+type m1bComputerWaitResult struct {
+	Result   string `json:"result"`
+	WaitedMS int    `json:"waited_ms"`
+}
+
 type m1bComputerQuiesceResult struct {
 	Quiesced bool `json:"quiesced"`
 }
@@ -168,6 +206,7 @@ type m1bComputerResult struct {
 	kind        string
 	status      m1bComputerStatus
 	observation m1bComputerObservation
+	wait        m1bComputerWaitResult
 	act         m1bComputerActResult
 	failure     string
 }
@@ -178,6 +217,10 @@ func m1bComputerStatusResult(result m1bComputerStatus) m1bComputerResult {
 
 func m1bComputerObservationResult(result m1bComputerObservation) m1bComputerResult {
 	return m1bComputerResult{kind: "observe", observation: result}
+}
+
+func m1bComputerWaitOutcome(result m1bComputerWaitResult) m1bComputerResult {
+	return m1bComputerResult{kind: "wait", wait: result}
 }
 
 func m1bComputerActOutcome(result m1bComputerActResult) m1bComputerResult {
@@ -196,8 +239,18 @@ type m1bComputerExecutor interface {
 	selection() m1bComputerSelection
 	status(context.Context, m1bComputerSelection) m1bComputerResult
 	observe(context.Context, m1bComputerSelection) m1bComputerResult
+	wait(context.Context, m1bComputerSelection, m1bComputerWait) m1bComputerResult
 	act(context.Context, m1bComputerSelection, string, m1bComputerAct) m1bComputerResult
 	invalidate(m1bComputerSelection)
+}
+
+// m1bComputerWaitPublication is implemented by the macOS product gate. It
+// exposes the cancellation lifetime of one exact acknowledged grant so an
+// admitted wait's driver work and its bounded final wire publication are
+// closed together by pause, stop, expiry or same-id renewal. A test double
+// without it keeps the existing transport-bound context.
+type m1bComputerWaitPublication interface {
+	waitPublicationContext(m1bComputerSelection) (context.Context, bool)
 }
 
 // m1bComputerDispatch is one admitted transport command. terminal closes when
@@ -322,7 +375,9 @@ func (host *m1bComputerHost) deliverable(work *m1bComputerDispatch) bool {
 // inputBusy reports whether an act is admitted or its result is still being
 // published. An explicit renewal must not replace the grant while an act may
 // already have reached the native executor under it. Read-only status/observe
-// work is not input and is fenced by the executor's own generation.
+// and wait work is not act input: status/observe is fenced by the executor's
+// own generation, and a same-binding renewal cancels/cuts the wait generation
+// instead of inheriting the act busy slot.
 func (host *m1bComputerHost) inputBusy() bool {
 	host.mu.Lock()
 	defer host.mu.Unlock()
@@ -336,6 +391,22 @@ func (host *m1bComputerHost) inputBusy() bool {
 // before executor entry or ref invalidation.
 func (host *m1bComputerHost) selectionCurrent(selection m1bComputerSelection) bool {
 	return host.executor.selection().bindingKey() == selection.bindingKey()
+}
+
+// selectionCurrentExact also requires the acknowledged expiry. A wait is a
+// read-only observation of one exact grant generation, so a same-identity
+// renewal must not publish its pre-renewal success even when the id binding is
+// unchanged.
+func (host *m1bComputerHost) selectionCurrentExact(selection m1bComputerSelection) bool {
+	current := host.executor.selection()
+	return current.bindingKey() == selection.bindingKey() && current.ExpiresAt.Equal(selection.ExpiresAt)
+}
+
+func (host *m1bComputerHost) currentSelectionFor(kind string, selection m1bComputerSelection) bool {
+	if kind == "wait" {
+		return host.selectionCurrentExact(selection)
+	}
+	return host.selectionCurrent(selection)
 }
 
 // retire closes the exact selection's input binding without forgetting the
@@ -426,7 +497,7 @@ func (host *m1bComputerHost) holderFailureLocked(selection m1bComputerSelection,
 		if hasHolder && !strings.EqualFold(holder, command.HolderID) {
 			return "COMPUTER_TARGET_CHANGED", hasHolder
 		}
-	case "act":
+	case "wait", "act":
 		if !hasHolder || !strings.EqualFold(holder, command.HolderID) {
 			return "COMPUTER_TARGET_CHANGED", hasHolder
 		}
@@ -731,7 +802,7 @@ func (link *m1bComputerLink) dispatch(data []byte) {
 		link.replyFailure(command.ID, failure)
 		return
 	}
-	ctx, cancel := context.WithDeadline(link.ctx, deadline)
+	ctx, cancel := m1bComputerInputContext(link, selection, command.Request.Kind, deadline)
 	begin := link.host.beginInput(link, selection, command, deadline, ctx, cancel, work)
 	if !link.beginResult(command.ID, begin, cancel) {
 		return
@@ -770,7 +841,7 @@ func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.Cancel
 	defer link.host.finishPublication(work)
 	entered := false
 	var outcome m1bComputerResult
-	if !link.host.isCanceled(work) && link.executable() && link.host.selectionCurrent(selection) &&
+	if !link.host.isCanceled(work) && link.executable() && link.host.currentSelectionFor(request.Kind, selection) &&
 		time.Now().Before(work.deadline) && ctx.Err() == nil {
 		// Guard immediately before entering the executor, after context,
 		// account lease and runtime-link checks.
@@ -780,6 +851,12 @@ func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.Cancel
 			outcome = link.host.executor.status(ctx, selection)
 		case "observe":
 			outcome = link.host.executor.observe(ctx, selection)
+		case "wait":
+			if request.Wait == nil {
+				outcome = m1bComputerFailure("COMPUTER_INVALID")
+				break
+			}
+			outcome = link.host.executor.wait(ctx, selection, *request.Wait)
 		case "act":
 			if request.Act == nil {
 				outcome = m1bComputerFailure("COMPUTER_INVALID")
@@ -808,7 +885,8 @@ func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.Cancel
 		}
 		return
 	}
-	if ctx.Err() != nil || !link.host.deliverable(work) || !link.executable() || !link.host.selectionCurrent(selection) {
+	if ctx.Err() != nil || !link.host.deliverable(work) || !link.executable() ||
+		!link.host.currentSelectionFor(request.Kind, selection) {
 		return
 	}
 	// Suppress or classify uncertainty when the deadline crosses between the
@@ -875,6 +953,42 @@ func (link *m1bComputerLink) runQuiesce(ctx context.Context, cancel context.Canc
 	link.sendWorkResult(work, m1bComputerTypedResult{Kind: "quiesce", Result: m1bComputerQuiesceResult{Quiesced: true}})
 }
 
+// m1bComputerInputContext combines the transport lifetime, the exact grant
+// lifetime exposed by the product gate, and the existing command deadline.
+// The grant is the direct parent so a pause, stop, expiry or renewal closes a
+// blocked final write synchronously. The transport context is relayed into the
+// same child, so socket shutdown still cancels the work. Non-wait input keeps
+// the previous transport-only context.
+func m1bComputerInputContext(link *m1bComputerLink, selection m1bComputerSelection, kind string, deadline time.Time) (context.Context, context.CancelFunc) {
+	if link == nil || link.ctx == nil {
+		return context.WithDeadline(context.Background(), deadline)
+	}
+	if kind != "wait" || link.host == nil {
+		return context.WithDeadline(link.ctx, deadline)
+	}
+	grants, ok := link.host.executor.(m1bComputerWaitPublication)
+	if !ok {
+		return context.WithDeadline(link.ctx, deadline)
+	}
+	grant, ok := grants.waitPublicationContext(selection)
+	if !ok || grant == nil {
+		return context.WithDeadline(link.ctx, deadline)
+	}
+	if linkDeadline, has := link.ctx.Deadline(); has && linkDeadline.Before(deadline) {
+		deadline = linkDeadline
+	}
+	ctx, cancel := context.WithDeadline(grant, deadline)
+	if link.ctx.Err() != nil {
+		cancel()
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(link.ctx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
+
 func m1bComputerInputDeadline(selection m1bComputerSelection, command m1bComputerCommand, now time.Time) (time.Time, string) {
 	if !now.Before(command.ExpiresAt) || !now.Before(selection.ExpiresAt) {
 		return time.Time{}, "COMPUTER_TIMEOUT"
@@ -884,6 +998,12 @@ func m1bComputerInputDeadline(selection m1bComputerSelection, command m1bCompute
 		deadline = selection.ExpiresAt
 	}
 	limit := now.Add(m1bComputerMaxWork)
+	if command.Request.Kind == "wait" && command.Request.Wait != nil {
+		// The native predicate timeout plus a finite identity-check grace. The
+		// command expiry, selection/proof expiry, and caller cancellation still
+		// cap the actual context; this never extends them.
+		limit = now.Add(time.Duration(command.Request.Wait.TimeoutMS)*time.Millisecond + m1bComputerWaitGrace)
+	}
 	if command.Request.Kind == "act" && command.Request.Act != nil {
 		// The strict parser already validated timeout_ms to 100..20_000 ms
 		// (absent means 8_000). It is the act's bounded effect window, so the
@@ -933,6 +1053,8 @@ func (link *m1bComputerLink) sendOutcome(work *m1bComputerDispatch, outcome m1bC
 		typed = m1bComputerTypedResult{Kind: "status", Result: outcome.status}
 	case "observe":
 		typed = m1bComputerTypedResult{Kind: "observe", Result: outcome.observation}
+	case "wait":
+		typed = m1bComputerTypedResult{Kind: "wait", Result: outcome.wait}
 	case "act":
 		typed = m1bComputerTypedResult{Kind: "act", Result: outcome.act}
 	case "failure":
@@ -1165,6 +1287,19 @@ func m1bComputerParseRequest(raw []byte) (m1bComputerRequest, error) {
 			return m1bComputerRequest{}, errM1BComputerInvalid
 		}
 		return m1bComputerRequest{Kind: header.Kind}, nil
+	case "wait":
+		var request struct {
+			Kind  string          `json:"kind"`
+			Input json.RawMessage `json:"input"`
+		}
+		if m1bDecodeStrict(raw, &request) != nil || request.Kind != "wait" || len(request.Input) == 0 {
+			return m1bComputerRequest{}, errM1BComputerInvalid
+		}
+		wait, err := m1bComputerParseWait(request.Input)
+		if err != nil {
+			return m1bComputerRequest{}, err
+		}
+		return m1bComputerRequest{Kind: "wait", Wait: &wait}, nil
 	case "act":
 		var request struct {
 			Kind         string          `json:"kind"`
@@ -1182,6 +1317,30 @@ func m1bComputerParseRequest(raw []byte) (m1bComputerRequest, error) {
 		return m1bComputerRequest{Kind: "act", NativeCallID: request.NativeCallID, Act: &act}, nil
 	}
 	return m1bComputerRequest{}, errM1BComputerInvalid
+}
+
+func m1bComputerParseWait(raw []byte) (m1bComputerWait, error) {
+	if !utf8.Valid(raw) {
+		return m1bComputerWait{}, errM1BComputerInvalid
+	}
+	var input struct {
+		ObservationID string          `json:"observation_id"`
+		Ref           string          `json:"ref"`
+		TimeoutMS     json.RawMessage `json:"timeout_ms"`
+	}
+	if m1bDecodeStrict(raw, &input) != nil ||
+		!m1bComputerStringOK(input.ObservationID, 1, m1bComputerMaxObservID) ||
+		!m1bComputerStringOK(input.Ref, 1, m1bComputerMaxRef) ||
+		!computerRefPattern.MatchString(input.Ref) {
+		return m1bComputerWait{}, errM1BComputerInvalid
+	}
+	timeout, err := m1bComputerTimeout(input.TimeoutMS)
+	if err != nil {
+		return m1bComputerWait{}, err
+	}
+	return m1bComputerWait{
+		ObservationID: input.ObservationID, Ref: input.Ref, TimeoutMS: timeout,
+	}, nil
 }
 
 func m1bComputerParseAct(raw []byte) (m1bComputerAct, error) {

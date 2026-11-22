@@ -7,7 +7,7 @@ import { connectionFailureCodeSchema } from "./connections.js";
 import { browserUseRequestSchema, desktopBrowserUseResultSchema } from "./browser-use.js";
 import { nativeUserInputResponseSchema, type NativeUserInputResponse } from "./conversation-forms.js";
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema, runnerNativeIdSchema } from "./events.js";
-import { computerActInputSchema, computerActResultSchema, computerFailureCodeSchema, computerObservationSchema, computerStatusResultSchema } from "./computer-use.js";
+import { computerActInputSchema, computerActResultSchema, computerFailureCodeSchema, computerObservationSchema, computerStatusResultSchema, computerWaitInputSchema, computerWaitResultSchema } from "./computer-use.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
 import { runnerKnowledgeBaseSelectionSchema } from "./runner.js";
@@ -81,12 +81,27 @@ export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
  * and the opt-in product controller share this wire operation.
  */
 export const desktopComputerExecuteOperation = "computer.execute" as const;
+/**
+ * Additive negotiation marker for the read-only wait kind inside the existing
+ * `computer.execute` operation. It is deliberately not a tool-request or
+ * command operation: an old API ignores an unknown offered marker, and an old
+ * Mac never offers it.
+ */
+export const desktopComputerWaitOperation = "computer.wait" as const;
 export const desktopToolRequestOperationSchema = z.enum([...desktopToolOperationSchema.options, desktopComputerExecuteOperation]);
 export type DesktopToolRequestOperation = z.infer<typeof desktopToolRequestOperationSchema>;
 /** Command operations, including the additive M1b computer operation. */
 export const desktopExecutionCommandOperationSchema = z.enum([...desktopExecutionOperation.options, desktopComputerExecuteOperation]);
-export const desktopNegotiatedOperationSchema = z.enum([...desktopToolRequestOperationSchema.options, "approval.respond"]);
+export const desktopNegotiatedOperationSchema = z.enum([
+  ...desktopToolRequestOperationSchema.options, "approval.respond", desktopComputerWaitOperation,
+]);
 export type DesktopNegotiatedOperation = z.infer<typeof desktopNegotiatedOperationSchema>;
+/** Wait is usable only when this connection offered both markers. */
+export function supportsDesktopComputerWait(
+  operations: readonly DesktopNegotiatedOperation[],
+): boolean {
+  return operations.includes(desktopComputerExecuteOperation) && operations.includes(desktopComputerWaitOperation);
+}
 export function supportsDesktopUserInput(
   operations: readonly DesktopNegotiatedOperation[],
   response?: NativeUserInputResponse,
@@ -120,6 +135,14 @@ const computerExecuteActRequest = z.strictObject({
   input: computerActInputSchema,
 });
 /**
+ * Read-only wait inside the existing `computer.execute` operation. It carries
+ * no native call id: a wait has no one-shot approval and no effect to claim.
+ */
+const computerExecuteWaitRequest = z.strictObject({
+  kind: z.literal("wait"),
+  input: computerWaitInputSchema,
+});
+/**
  * Host policy chooses the target, session, selection, and holder; none of them
  * is accepted from the model or from this tool request body.
  */
@@ -127,6 +150,7 @@ export const computerExecuteInputSchema = z.discriminatedUnion("kind", [
   computerExecuteStatusRequest,
   computerExecuteObserveRequest,
   computerExecuteActRequest,
+  computerExecuteWaitRequest,
 ]);
 export type ComputerExecuteInput = z.infer<typeof computerExecuteInputSchema>;
 /** Server -> Mac command request. Quiescence exists only on this control path. */
@@ -140,6 +164,7 @@ export const desktopComputerExecuteBodySchema = z.strictObject({
     computerExecuteStatusRequest,
     computerExecuteObserveRequest,
     computerExecuteActRequest,
+    computerExecuteWaitRequest,
     z.strictObject({ kind: z.literal("quiesce") }),
   ]),
 }).refine(body => body.request.kind === "status" ? body.holder_id === null : body.holder_id !== null, {
@@ -151,6 +176,7 @@ export const computerExecuteResultSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("status"), result: computerStatusResultSchema }),
   z.strictObject({ kind: z.literal("observe"), result: computerObservationSchema }),
   z.strictObject({ kind: z.literal("act"), result: computerActResultSchema }),
+  z.strictObject({ kind: z.literal("wait"), result: computerWaitResultSchema }),
   z.strictObject({ kind: z.literal("quiesce"), result: z.strictObject({ quiesced: z.literal(true) }) }),
   z.strictObject({ kind: z.literal("failure"), error: computerFailureCodeSchema }),
 ]);

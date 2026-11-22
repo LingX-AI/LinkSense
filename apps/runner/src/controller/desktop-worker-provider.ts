@@ -5,7 +5,7 @@ import * as net from "node:net"
 import path from "node:path"
 import type { Logger } from "pino"
 import { z } from "zod"
-import { desktopServerOriginSchema, runtimeEnvironmentPath } from "@linksense/shared"
+import { desktopServerOriginSchema, runtimeEnvironmentPath, supportsDesktopComputerWait } from "@linksense/shared"
 import { pruneDesktopAttachments } from "../desktop/attachments.js"
 import { StartOperationStore, type StartOperationState } from "../start-operation.js"
 import { WorkspaceManager } from "../workspace/workspace-manager.js"
@@ -792,6 +792,10 @@ export function desktopWorkerEnvironment(
     ...(run?.toolOperations?.includes("connection.execute") ? { LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("browser.execute") ? { LINKSENSE_DESKTOP_BROWSER_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("computer.execute") ? { LINKSENSE_DESKTOP_COMPUTER_ENABLED: "true" } : {}),
+    // Recovery reuses the same run, so a negotiated wait is re-authored there
+    // too. An old Mac's ready frame has no marker and keeps the old tool set.
+    ...(supportsDesktopComputerWait(run?.toolOperations ?? [])
+      ? { LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("approval.respond") ? { LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.some(operation => operation === "artifact.prepare" || operation === "artifact.website")
       ? { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" } : {}),

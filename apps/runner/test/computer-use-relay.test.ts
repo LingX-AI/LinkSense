@@ -95,6 +95,51 @@ describe("computer_use production relay registration", () => {
     }
   })
 
+  it("advertises the read-only wait only with the negotiated marker", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      json({ kind: "wait", result: { result: "timed_out", waited_ms: 1_000 } }))
+
+    const unnegotiated = createCoreMcpRegistry({
+      mode: "default", environment: environment(), fetch: fetchMock,
+    })
+    expect(unnegotiated.tools.map(tool => tool.name)).not.toContain("computer_wait")
+
+    const negotiated = createCoreMcpRegistry({
+      mode: "default",
+      environment: environment({ LINKSENSE_COMPUTER_WAIT: "1" }),
+      fetch: fetchMock,
+    })
+    const names = negotiated.tools.map(tool => tool.name)
+    expect(names).toContain("computer_wait")
+    expect(negotiated.tools.find(tool => tool.name === "computer_wait")?.annotations)
+      .toMatchObject({ readOnlyHint: true, destructiveHint: false })
+
+    const result = await negotiated.callTool({
+      toolName: "computer_wait",
+      argumentsValue: { observation_id: "obs-1", ref: "@obs-1:e1" },
+      signal: new AbortController().signal,
+    })
+    expect(result.isError).toBe(false)
+    expect(JSON.parse(String((result.content[0] as { text: string }).text)))
+      .toEqual({ result: "timed_out", waited_ms: 1_000 })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      input: {
+        kind: "wait",
+        input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 },
+      },
+    })
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).not.toMatch(/nativeCallId|native_call_id/u)
+
+    // Plan keeps the pre-existing read-only tool list even when negotiated.
+    const plan = createCoreMcpRegistry({
+      mode: "plan",
+      environment: environment({ LINKSENSE_COMPUTER_WAIT: "1", LINKSENSE_COLLABORATION_MODE: "plan" }),
+      fetch: fetchMock,
+    })
+    expect(plan.tools.map(tool => tool.name)).not.toContain("computer_wait")
+  })
+
   it("keeps Plan read-only and refuses a direct act without a request", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
       const body = JSON.parse(String(init?.body)) as { input: { kind: string } }
@@ -180,6 +225,36 @@ describe("computer_use relay failure semantics", () => {
     await expect(reads.status({ signal: AbortSignal.timeout(1_000) }))
       .rejects.toMatchObject({ name: "ComputerUseFailureError", code: "COMPUTER_UNAVAILABLE" })
     expect(readFailure).toHaveBeenCalledOnce()
+  })
+
+  it("keeps wait reads unavailable on transport loss and never retries", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw new TypeError("connection reset")
+    })
+    const executor = createComputerUseRelayExecutor({ endpoint, token, fetch: fetchMock })
+    await expect(executor.wait({
+      observationId: "obs-1", ref: "@obs-1:e1", timeoutMs: 8_000,
+      signal: AbortSignal.timeout(1_000),
+    })).rejects.toMatchObject({ name: "ComputerUseFailureError", code: "COMPUTER_UNAVAILABLE" })
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    const timeout = vi.fn<typeof fetch>(async () =>
+      json({ kind: "failure", error: "COMPUTER_TIMEOUT" }))
+    const clean = createComputerUseRelayExecutor({ endpoint, token, fetch: timeout })
+    await expect(clean.wait({
+      observationId: "obs-1", ref: "@obs-1:e1", timeoutMs: 8_000,
+      signal: AbortSignal.timeout(1_000),
+    })).rejects.toMatchObject({ name: "ComputerUseFailureError", code: "COMPUTER_TIMEOUT" })
+    expect(timeout).toHaveBeenCalledOnce()
+
+    const altered = vi.fn<typeof fetch>(async () =>
+      json({ kind: "wait", result: { result: "met", waited_ms: 20_001 } }))
+    const denied = createComputerUseRelayExecutor({ endpoint, token, fetch: altered })
+    await expect(denied.wait({
+      observationId: "obs-1", ref: "@obs-1:e1", timeoutMs: 8_000,
+      signal: AbortSignal.timeout(1_000),
+    })).rejects.toMatchObject({ name: "ComputerUseFailureError", code: "COMPUTER_UNAVAILABLE" })
+    expect(altered).toHaveBeenCalledOnce()
   })
 
   it("never retries an effect and reports transport ambiguity once", async () => {

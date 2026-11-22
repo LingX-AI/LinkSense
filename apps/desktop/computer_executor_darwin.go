@@ -110,10 +110,12 @@ func validComputerSelection(selection m1bComputerSelection) bool {
 	return !selection.ExpiresAt.IsZero()
 }
 
-// computerExecutorActRun is the one in-flight input. Canceling it stops the
-// driver's slow preflight before the actual input when its selection is
-// revoked, invalidated, closed, or replaced.
-type computerExecutorActRun struct {
+// computerExecutorInputRun is the one in-flight input-shaped call (act or
+// wait). Canceling it stops the driver's slow preflight or a wait blocked on
+// the driver mutex when its selection is revoked, invalidated, closed, or
+// replaced. It is canceled before any synchronous invalidate/close can acquire
+// the driver mutex.
+type computerExecutorInputRun struct {
 	selectionKey string
 	cancel       context.CancelFunc
 }
@@ -121,14 +123,14 @@ type computerExecutorActRun struct {
 // computerExecutorDarwin owns one private driver and its exact host-picked
 // binding. target is immutable: a different window needs a new executor.
 type computerExecutorDarwin struct {
-	driver *computerDriver
+	driver computerDriverAPI
 	target computerTarget
 
 	mu       sync.Mutex
 	binding  m1bComputerSelection
 	observed string // binding key of the observation held by the driver
 	pending  *computerHostAuthorization
-	active   *computerExecutorActRun
+	active   *computerExecutorInputRun
 	closed   bool
 	// generation advances whenever the host-picked binding changes. A delayed
 	// observe that started under an older generation can never mark its refs
@@ -279,6 +281,22 @@ func (e *computerExecutorDarwin) observeStart(selection m1bComputerSelection) (u
 	return e.generation, ""
 }
 
+// waitStart captures the exact binding generation and requires the prior
+// observation on that same binding. A wait never renews or replaces an
+// observation; the driver reuses the refmap saved by that observe.
+func (e *computerExecutorDarwin) waitStart(selection m1bComputerSelection) (uint64, string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return 0, computerExecutorUnavailable
+	}
+	key := selection.bindingKey()
+	if !sameComputerBinding(e.binding, selection) || e.observed != key {
+		return 0, computerExecutorTargetChanged
+	}
+	return e.generation, ""
+}
+
 // clearObserved drops the observation marker only for the exact binding and
 // generation that started the driver work. A delayed error from an observation
 // admitted before a renewal must not clear a fresh observation completed under
@@ -414,7 +432,7 @@ func (e *computerExecutorDarwin) act(ctx context.Context, selection m1bComputerS
 	actCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	key := selection.bindingKey()
-	run := &computerExecutorActRun{selectionKey: key, cancel: cancel}
+	run := &computerExecutorInputRun{selectionKey: key, cancel: cancel}
 	e.mu.Lock()
 	code := ""
 	switch {
@@ -453,6 +471,98 @@ func (e *computerExecutorDarwin) act(ctx context.Context, selection m1bComputerS
 		}
 	}
 	return m1bComputerActOutcome(computerExecutorActResult(result, err, time.Since(start)))
+}
+
+// wait dispatches one read-only actionability wait on the exact prior
+// observation. It uses the caller context and selection expiry, registers its
+// cancellation before the driver mutex is acquired, and only publishes a
+// result while the same binding, observation, generation, and context remain
+// current. A pre-renewal/replaced/canceled call returns a clean failure; it
+// never publishes a late success and never consumes an act authorization.
+func (e *computerExecutorDarwin) wait(ctx context.Context, selection m1bComputerSelection, input m1bComputerWait) m1bComputerResult {
+	if ctx == nil {
+		return m1bComputerFailure(computerExecutorInvalid)
+	}
+	if !validObservationID(input.ObservationID) || !computerRefPattern.MatchString(input.Ref) ||
+		input.TimeoutMS < m1bComputerMinTimeout || input.TimeoutMS > m1bComputerMaxTimeout {
+		return m1bComputerFailure(computerExecutorInvalid)
+	}
+	generation, failure := e.waitStart(selection)
+	if failure != "" {
+		return m1bComputerFailure(failure)
+	}
+	deadline := selection.ExpiresAt
+	if callerDeadline, has := ctx.Deadline(); has && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
+	}
+	if deadline.IsZero() || !time.Now().Before(deadline) {
+		return m1bComputerFailure(computerExecutorTimeout)
+	}
+	waitCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	key := selection.bindingKey()
+	run := &computerExecutorInputRun{selectionKey: key, cancel: cancel}
+	e.mu.Lock()
+	code := ""
+	switch {
+	case e.closed:
+		code = computerExecutorUnavailable
+	case !sameComputerBinding(e.binding, selection) || e.observed != key || e.generation != generation:
+		code = computerExecutorTargetChanged
+	case e.active != nil:
+		code = computerExecutorBusy
+	default:
+		e.active = run
+	}
+	e.mu.Unlock()
+	if code != "" {
+		return m1bComputerFailure(code)
+	}
+
+	request := computerWaitRequest{
+		ObservationID: input.ObservationID, Ref: input.Ref, TimeoutMS: input.TimeoutMS,
+	}
+	result, err := e.driver.Wait(waitCtx, request)
+	e.mu.Lock()
+	if e.active == run {
+		e.active = nil
+	}
+	current := !e.closed && sameComputerBinding(e.binding, selection) &&
+		e.observed == key && e.generation == generation && waitCtx.Err() == nil
+	e.mu.Unlock()
+	if !current {
+		if waitCtx.Err() != nil {
+			return m1bComputerFailure(computerExecutorTimeout)
+		}
+		return m1bComputerFailure(computerExecutorTargetChanged)
+	}
+	if err != nil {
+		// The driver only clears the latest observation on stale/target
+		// failures, but a failed read is fail-closed here too: the next wait or
+		// act must be preceded by a fresh observe on the same generation.
+		e.clearObserved(selection, generation)
+		return m1bComputerFailure(computerExecutorDriverCode(err))
+	}
+	mapped, ok := computerExecutorWaitResult(result, input.TimeoutMS)
+	if !ok {
+		e.clearObserved(selection, generation)
+		return m1bComputerFailure(computerExecutorActionFailed)
+	}
+	return m1bComputerWaitOutcome(mapped)
+}
+
+// computerExecutorWaitResult accepts only the closed result set and a bounded
+// waited_ms. It never adds an effect, observation, ref, or native text.
+func computerExecutorWaitResult(result computerWaitResult, timeoutMS int) (m1bComputerWaitResult, bool) {
+	switch result.Result {
+	case computerWaitMet, computerWaitTimedOut:
+	default:
+		return m1bComputerWaitResult{}, false
+	}
+	if result.WaitedMS < 0 || result.WaitedMS > timeoutMS || result.WaitedMS > m1bComputerMaxTimeout {
+		return m1bComputerWaitResult{}, false
+	}
+	return m1bComputerWaitResult{Result: result.Result, WaitedMS: result.WaitedMS}, true
 }
 
 // invalidate clears refs only for the exact selection the quiesce terminal

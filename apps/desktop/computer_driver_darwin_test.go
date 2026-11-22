@@ -185,9 +185,34 @@ func runFakeAgentDesktop(base string) int {
 			})
 		}
 		return fakeWriteSuccess(command, data)
+	case "wait":
+		if raw, ok := scenario.ActionError["wait"]; ok {
+			return fakeWriteRawError("wait", raw)
+		}
+		if data, ok := scenario.ActionData["wait"]; ok {
+			return fakeWriteSuccess("wait", data)
+		}
+		// A minimal v1.3.1 element-success envelope. The fake echoes only the
+		// element ref and predicate it was given; observed content is empty.
+		ref, _ := fakeFlagValue(os.Args[1:], "--element")
+		predicate, _ := fakeFlagValue(os.Args[1:], "--predicate")
+		data, _ := json.Marshal(map[string]any{
+			"found": true, "ref": ref, "predicate": predicate,
+			"observed": map[string]any{"actionable": true}, "elapsed_ms": 0,
+		})
+		return fakeWriteSuccess("wait", data)
 	default:
 		return fakeWriteError(command, "INVALID_ARGS")
 	}
+}
+
+func fakeFlagValue(args []string, name string) (string, bool) {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == name {
+			return args[index+1], true
+		}
+	}
+	return "", false
 }
 
 func fakeCommand(args []string) (string, []string) {
@@ -463,6 +488,35 @@ func assertNoForbiddenArgs(t *testing.T, calls []fakeCall) {
 			}
 		}
 	}
+}
+
+func assertNoWaitSpecificArgs(t *testing.T, calls []fakeCall) {
+	t.Helper()
+	forbidden := []string{
+		"--app", "--app=", "--window", "--window-id", "--text", "--value",
+		"--action", "--count", "--event", "--menu", "--menu-closed",
+		"--notification", "--timeout-ms", "--force", "--headed", "--trace",
+		"--screenshot", "--debug", "--surface", "--request", "--guide",
+		"--arg", "--env", "--cwd", "--cdp",
+	}
+	for _, call := range calls {
+		if len(call.Argv) < 3 || call.Argv[2] != "wait" {
+			continue
+		}
+		for _, arg := range call.Argv {
+			for _, forbiddenArg := range forbidden {
+				if arg == forbiddenArg || strings.HasPrefix(arg, forbiddenArg+"=") {
+					t.Fatalf("wait must not carry %q in %q", forbiddenArg, call.Argv)
+				}
+			}
+		}
+	}
+}
+
+func assertWaitExactArgs(t *testing.T, call fakeCall, sessionID, ref string, timeoutMS int) {
+	t.Helper()
+	assertExactArgs(t, call, sessionID, "wait",
+		"--element", ref, "--predicate", "actionable", "--timeout", strconv.Itoa(timeoutMS))
 }
 
 func fakePermissions(accessibility string) json.RawMessage {
@@ -2143,6 +2197,402 @@ func TestComputerDriverCancellationKillsTheActionGroupWithoutRetry(t *testing.T)
 			t.Fatalf("cancelled action process %d still exists", pid)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func assertProcessGone(t *testing.T, pid int, what string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s process %d still exists", what, pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestComputerDriverWaitUsesExactBoundedArgsAndKeepsObservation(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	writeFakeScenario(t, runtimeRoot, basicScenario(t, "spre1", "@spre1:e1"))
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFakeCalls(t, runtimeRoot)
+
+	first, err := driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: observation.ID, Ref: "@spre1:e1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Result != computerWaitMet || first.WaitedMS != 0 {
+		t.Fatalf("unexpected wait result: %+v", first)
+	}
+	if driver.latest == nil || driver.latest.ID != observation.ID {
+		t.Fatal("a read-only wait must keep the observation actable")
+	}
+
+	second, err := driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: observation.ID, Ref: "@spre1:e1", TimeoutMS: 5000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Result != computerWaitMet {
+		t.Fatalf("second wait must reuse the observation: %+v", second)
+	}
+
+	before := len(readFakeCalls(t, runtimeRoot))
+	for _, timeout := range []int{-1, 99, computerWaitMaxTimeoutMS + 1} {
+		_, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1", TimeoutMS: timeout,
+		})
+		assertDriverCode(t, err, computerErrorInvalidArgument)
+	}
+	if len(readFakeCalls(t, runtimeRoot)) != before {
+		t.Fatal("an out-of-range timeout must never dispatch")
+	}
+
+	calls := readFakeCalls(t, runtimeRoot)
+	waitCalls := callsFor(calls, "wait")
+	if len(waitCalls) != 2 {
+		t.Fatalf("expected two waits, got %d", len(waitCalls))
+	}
+	assertWaitExactArgs(t, waitCalls[0], driver.sessionID, "@spre1:e1", computerWaitDefaultTimeoutMS)
+	assertWaitExactArgs(t, waitCalls[1], driver.sessionID, "@spre1:e1", 5000)
+	if len(callsFor(calls, "snapshot")) != 0 ||
+		len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("a wait must never capture, click, or type")
+	}
+	assertNoForbiddenArgs(t, calls)
+	assertNoWaitSpecificArgs(t, calls)
+}
+
+func TestComputerDriverWaitRejectsStaleAndCrossObservationRefs(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fixtureWindow()),
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree("@spre1:e1")),
+			fakeSnapshotData("spre2", "w-4242", "Fixture", "Fixture App", basicTree("@spre2:e1")),
+		},
+	})
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		action computerWaitRequest
+		code   string
+	}{
+		{"bare ref", computerWaitRequest{ObservationID: observation.ID, Ref: "@e1"}, computerErrorInvalidArgument},
+		{"foreign snapshot", computerWaitRequest{ObservationID: observation.ID, Ref: "@sother:e1"}, computerErrorStaleRef},
+		{"unknown element in the observation", computerWaitRequest{ObservationID: observation.ID, Ref: "@spre1:e9"}, computerErrorStaleRef},
+		{"foreign observation", computerWaitRequest{ObservationID: strings.Repeat("a", 32), Ref: "@spre1:e1"}, computerErrorStaleObservation},
+	}
+	resetFakeCalls(t, runtimeRoot)
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			_, err := driver.Wait(context.Background(), item.action)
+			assertDriverCode(t, err, item.code)
+		})
+	}
+	if len(callsFor(readFakeCalls(t, runtimeRoot), "wait")) != 0 {
+		t.Fatal("invalid refs must be rejected before any wait process")
+	}
+
+	// A fresh observe advances the current observation; the previous
+	// observation's id and refs must not authorize a wait.
+	second, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFakeCalls(t, runtimeRoot)
+	_, err = driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: observation.ID, Ref: "@spre1:e1",
+	})
+	assertDriverCode(t, err, computerErrorStaleObservation)
+	_, err = driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: second.ID, Ref: "@spre1:e1",
+	})
+	assertDriverCode(t, err, computerErrorStaleRef)
+	if len(callsFor(readFakeCalls(t, runtimeRoot), "wait")) != 0 {
+		t.Fatal("cross-observation refs must never dispatch")
+	}
+	if _, err := driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: second.ID, Ref: "@spre2:e1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if calls := callsFor(readFakeCalls(t, runtimeRoot), "wait"); len(calls) != 1 {
+		t.Fatalf("the current observation must authorize one wait, got %d", len(calls))
+	}
+}
+
+func TestComputerDriverWaitDiscardsResultWhenProcessGenerationChanges(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	original := mustWindows(t, fixtureWindow())
+	successor := mustWindows(t, fakeWindow("w-4242", 9999, "inst-2", "Fixture", "Fixture App"))
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		// Observe resolves twice, then Wait resolves once before and once after
+		// the native read. The post-read resolution sees a successor process.
+		WindowsCalls: []json.RawMessage{original, original, original, successor},
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree("@spre1:e1")),
+		},
+	})
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFakeCalls(t, runtimeRoot)
+	result, err := driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: observation.ID, Ref: "@spre1:e1",
+	})
+	assertDriverCode(t, err, computerErrorTargetChanged)
+	if result.Result != "" {
+		t.Fatalf("a replaced process must suppress the native result: %+v", result)
+	}
+	if driver.latest != nil {
+		t.Fatal("a replaced process must invalidate the observation")
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	if waitCalls := callsFor(calls, "wait"); len(waitCalls) != 1 {
+		t.Fatalf("expected exactly one wait, got %d", len(waitCalls))
+	}
+	if len(callsFor(calls, "snapshot")) != 0 {
+		t.Fatal("a wait must not capture or replay")
+	}
+}
+
+func TestComputerDriverWaitClassifiesNativeOutcomes(t *testing.T) {
+	setup := func(t *testing.T, data, errorJSON json.RawMessage) (*computerDriver, string, computerObservation) {
+		t.Helper()
+		runtimeRoot, stateRoot := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+		scenario := basicScenario(t, "spre1", "@spre1:e1")
+		if data != nil {
+			scenario.ActionData = map[string]json.RawMessage{"wait": data}
+		}
+		if errorJSON != nil {
+			scenario.ActionError = map[string]json.RawMessage{"wait": errorJSON}
+		}
+		writeFakeScenario(t, runtimeRoot, scenario)
+		observation, err := driver.Observe(context.Background(), fixtureTarget())
+		if err != nil {
+			t.Fatal(err)
+		}
+		resetFakeCalls(t, runtimeRoot)
+		return driver, runtimeRoot, observation
+	}
+
+	t.Run("native predicate expiry is timed_out", func(t *testing.T) {
+		errorJSON := mustJSON(t, map[string]any{
+			"code": "TIMEOUT", "message": "SECRET wait text",
+			"details": map[string]any{
+				"kind": "wait_timeout", "ref": "@spre1:e1", "predicate": "actionable",
+				"timeout_ms":    computerWaitDefaultTimeoutMS,
+				"last_observed": map[string]any{"actionable": false},
+			},
+			"disposition": map[string]any{"delivery": "not_delivered", "retry": "safe"},
+		})
+		driver, runtimeRoot, observation := setup(t, nil, errorJSON)
+		result, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Result != computerWaitTimedOut || result.WaitedMS != computerWaitDefaultTimeoutMS {
+			t.Fatalf("unexpected timeout result: %+v", result)
+		}
+		if driver.latest == nil {
+			t.Fatal("a bounded predicate expiry must keep the observation")
+		}
+		calls := readFakeCalls(t, runtimeRoot)
+		if len(callsFor(calls, "snapshot")) != 0 ||
+			len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+			t.Fatal("a timeout must not capture or mutate")
+		}
+	})
+
+	t.Run("a different native deadline is not timed_out", func(t *testing.T) {
+		errorJSON := mustJSON(t, map[string]any{
+			"code": "TIMEOUT", "message": "SECRET deadline text",
+			"details":     map[string]any{"kind": "deadline", "timeout_ms": 5000},
+			"disposition": map[string]any{"delivery": "not_delivered", "retry": "safe"},
+		})
+		driver, _, observation := setup(t, nil, errorJSON)
+		result, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		var driverErr *computerDriverError
+		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorTimeout ||
+			driverErr.AgentCode != "TIMEOUT" || driverErr.AgentKind != "deadline" {
+			t.Fatalf("expected a native deadline error, got %v", err)
+		}
+		if result.Result != "" || strings.Contains(err.Error(), "SECRET") {
+			t.Fatalf("native text or a result leaked: %+v %v", result, err)
+		}
+	})
+
+	t.Run("stale ref invalidates the observation", func(t *testing.T) {
+		errorJSON := mustJSON(t, map[string]any{
+			"code": "STALE_REF", "message": "SECRET stale text",
+			"disposition": map[string]any{"delivery": "not_delivered", "retry": "safe"},
+		})
+		driver, runtimeRoot, observation := setup(t, nil, errorJSON)
+		result, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		assertDriverCode(t, err, computerErrorStaleRef)
+		if result.Result != "" || driver.latest != nil {
+			t.Fatalf("a stale native ref must invalidate: %+v latest=%v", result, driver.latest)
+		}
+		_, err = driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		assertDriverCode(t, err, computerErrorNoObservation)
+		if len(callsFor(readFakeCalls(t, runtimeRoot), "wait")) != 1 {
+			t.Fatal("a stale native ref must not be retried")
+		}
+	})
+
+	t.Run("ambiguous target invalidates the observation", func(t *testing.T) {
+		errorJSON := mustJSON(t, map[string]any{
+			"code": "AMBIGUOUS_TARGET", "message": "SECRET ambiguous text",
+			"disposition": map[string]any{"delivery": "not_delivered", "retry": "safe"},
+		})
+		driver, _, observation := setup(t, nil, errorJSON)
+		result, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		assertDriverCode(t, err, computerErrorTargetChanged)
+		if result.Result != "" || driver.latest != nil {
+			t.Fatalf("an ambiguous native target must invalidate: %+v latest=%v", result, driver.latest)
+		}
+	})
+
+	t.Run("malformed success is a protocol error", func(t *testing.T) {
+		cases := []struct {
+			name string
+			data map[string]any
+		}{
+			{"not found", map[string]any{"found": false, "ref": "@spre1:e1", "predicate": "actionable", "elapsed_ms": 0}},
+			{"wrong ref", map[string]any{"found": true, "ref": "@spre1:e2", "predicate": "actionable", "elapsed_ms": 0}},
+			{"wrong predicate", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "enabled", "elapsed_ms": 0}},
+			{"elapsed beyond the bound", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "elapsed_ms": 8001}},
+		}
+		for _, item := range cases {
+			t.Run(item.name, func(t *testing.T) {
+				driver, _, observation := setup(t, mustJSON(t, item.data), nil)
+				_, err := driver.Wait(context.Background(), computerWaitRequest{
+					ObservationID: observation.ID, Ref: "@spre1:e1",
+				})
+				assertDriverCode(t, err, computerErrorProtocol)
+			})
+		}
+	})
+}
+
+func TestComputerDriverWaitProcessBoundKillsTheChildWithoutResult(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	scenario := basicScenario(t, "spre1", "@spre1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFakeCalls(t, runtimeRoot)
+	started := time.Now()
+	result, err := driver.Wait(context.Background(), computerWaitRequest{
+		ObservationID: observation.ID, Ref: "@spre1:e1", TimeoutMS: computerWaitMinTimeoutMS,
+	})
+	if elapsed := time.Since(started); elapsed < 100*time.Millisecond || elapsed > 10*time.Second {
+		t.Fatalf("driver bound did not terminate promptly: %v", elapsed)
+	}
+	var driverErr *computerDriverError
+	if !errors.As(err, &driverErr) || driverErr.Code != computerErrorTimeout || driverErr.AgentKind != "" {
+		t.Fatalf("expected the driver process bound, got %v", err)
+	}
+	if result.Result != "" {
+		t.Fatalf("a killed process must not report a native result: %+v", result)
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	waitCalls := callsFor(calls, "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected exactly one bounded wait, got %d", len(waitCalls))
+	}
+	assertWaitExactArgs(t, waitCalls[0], driver.sessionID, "@spre1:e1", computerWaitMinTimeoutMS)
+	assertProcessGone(t, waitCalls[0].PID, "bounded wait")
+	if len(callsFor(calls, "snapshot")) != 0 ||
+		len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("a bounded process kill must not capture, mutate, or replay")
+	}
+}
+
+func TestComputerDriverWaitCancellationKillsTheChildWithoutResult(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	scenario := basicScenario(t, "spre1", "@spre1:e1")
+	scenario.DelayMS = 30000
+	scenario.DelayCommand = "wait"
+	writeFakeScenario(t, runtimeRoot, scenario)
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFakeCalls(t, runtimeRoot)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type outcome struct {
+		result computerWaitResult
+		err    error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		result, err := driver.Wait(ctx, computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		finished <- outcome{result: result, err: err}
+	}()
+	waitForFakeCommand(t, runtimeRoot, "wait")
+	cancel()
+	var got outcome
+	select {
+	case got = <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancelled wait did not return")
+	}
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", got.err)
+	}
+	if got.result.Result != "" {
+		t.Fatalf("cancellation must not report a native result: %+v", got.result)
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	waitCalls := callsFor(calls, "wait")
+	if len(waitCalls) != 1 {
+		t.Fatalf("expected exactly one cancelled wait, got %d", len(waitCalls))
+	}
+	assertProcessGone(t, waitCalls[0].PID, "cancelled wait")
+	if len(callsFor(calls, "snapshot")) != 0 ||
+		len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("cancellation must not capture, mutate, or replay")
 	}
 }
 

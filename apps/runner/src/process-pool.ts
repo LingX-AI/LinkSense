@@ -1027,6 +1027,8 @@ export class AppServerProcessPool {
       desktopWorkspace?: boolean;
       desktopBrowserEnabled?: boolean;
       desktopComputerEnabled?: boolean;
+      /** Authored only from a device ready frame that offered computer.wait. */
+      desktopComputerWaitEnabled?: boolean;
       desktopArtifactsEnabled?: boolean;
       desktopArtifactsWebsiteEnabled?: boolean;
       desktopNativeApprovalsEnabled?: boolean;
@@ -1861,6 +1863,7 @@ export class AppServerProcessPool {
               ...(this.options.desktopComputerEnabled ? {
                 LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
                 LINKSENSE_COMPUTER_TOKEN: computerToken,
+                ...(this.options.desktopComputerWaitEnabled ? { LINKSENSE_COMPUTER_WAIT: "1" } : {}),
                 // Production stays text-only until the end-to-end raster and
                 // masking contract is proven; no environment flag enables it.
               } : {}),
@@ -4365,6 +4368,7 @@ export class AppServerProcessPool {
               ...(this.options.desktopComputerEnabled ? {
                 LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
                 LINKSENSE_COMPUTER_TOKEN: computerToken,
+                ...(this.options.desktopComputerWaitEnabled ? { LINKSENSE_COMPUTER_WAIT: "1" } : {}),
                 // Production stays text-only until the end-to-end raster and
                 // masking contract is proven; no environment flag enables it.
               } : {}),
@@ -5190,7 +5194,13 @@ export class AppServerProcessPool {
         managed.nativeTerminalTurnIds.has(managed.activeTurnId) || managed.interruptRequest !== null) {
       return failure(input.kind === "act" ? "COMPUTER_ACCESS_DENIED" : "COMPUTER_UNAVAILABLE");
     }
-    if (managed.activeCollaborationMode === "plan" && input.kind === "act") {
+    // The read-only wait kind exists only on a worker whose supervised
+    // environment was authored from the negotiated marker. A direct call on an
+    // older run is refused cleanly and never disconnects the device.
+    if (input.kind === "wait" && !this.options.desktopComputerWaitEnabled) {
+      return failure("COMPUTER_UNAVAILABLE");
+    }
+    if (managed.activeCollaborationMode === "plan" && (input.kind === "act" || input.kind === "wait")) {
       return failure("COMPUTER_ACCESS_DENIED");
     }
     if (input.kind === "act") {
@@ -6255,6 +6265,10 @@ export class AppServerProcessPool {
               // the act approval is default-mode-only.
               computerRelay: this.options.desktopWorkspace === true &&
                 this.options.desktopComputerEnabled === true,
+              computerWait: this.options.desktopWorkspace === true &&
+                this.options.desktopComputerEnabled === true &&
+                this.options.desktopComputerWaitEnabled === true &&
+                input.collaborationMode !== "plan",
               command: this.options.mcpCommand,
               args: this.options.mcpArgs,
               ...(this.options.managedBrowserMcpArgs

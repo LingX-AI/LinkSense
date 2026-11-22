@@ -42,23 +42,32 @@ func fixtureComputerSelection(credential deviceCredential) m1bComputerSelection 
 // fixtureComputerExecutor is the only executor in this slice. Its target is
 // host-picked; refs come from the last observe and are cleared by invalidate.
 type fixtureComputerExecutor struct {
-	mu              sync.Mutex
-	target          m1bComputerSelection
-	statusResult    m1bComputerStatus
-	observation     m1bComputerObservation
-	actResult       m1bComputerActResult
-	latest          *m1bComputerObservation
-	latestSelection string
-	hold            chan struct{}
-	cancelWait      <-chan struct{}
-	started         chan string
-	canceled        chan struct{}
-	cancelOnce      sync.Once
-	calls           int
-	actCalls        int
-	invalidations   int
-	lastTimeout     int
-	lastDeadline    time.Time
+	mu               sync.Mutex
+	target           m1bComputerSelection
+	statusResult     m1bComputerStatus
+	observation      m1bComputerObservation
+	actResult        m1bComputerActResult
+	waitResult       m1bComputerWaitResult
+	latest           *m1bComputerObservation
+	latestSelection  string
+	hold             chan struct{}
+	cancelWait       <-chan struct{}
+	started          chan string
+	canceled         chan struct{}
+	cancelOnce       sync.Once
+	waitHold         chan struct{}
+	waitCancelWait   <-chan struct{}
+	waitStarted      chan m1bComputerWait
+	waitCanceled     chan struct{}
+	waitCancelOnce   sync.Once
+	calls            int
+	actCalls         int
+	waitCalls        int
+	invalidations    int
+	lastTimeout      int
+	lastDeadline     time.Time
+	lastWaitTimeout  int
+	lastWaitDeadline time.Time
 }
 
 func newFixtureComputerExecutor(target m1bComputerSelection) *fixtureComputerExecutor {
@@ -75,9 +84,12 @@ func newFixtureComputerExecutor(target m1bComputerSelection) *fixtureComputerExe
 				{Ref: "e2", Role: "AXTextField", Name: &name},
 			},
 		},
-		actResult: m1bComputerActResult{OK: true, Effect: "done", WaitedMS: 1},
-		started:   make(chan string, 16),
-		canceled:  make(chan struct{}),
+		actResult:    m1bComputerActResult{OK: true, Effect: "done", WaitedMS: 1},
+		waitResult:   m1bComputerWaitResult{Result: computerWaitMet, WaitedMS: 1},
+		started:      make(chan string, 16),
+		canceled:     make(chan struct{}),
+		waitStarted:  make(chan m1bComputerWait, 16),
+		waitCanceled: make(chan struct{}),
 	}
 }
 
@@ -113,6 +125,38 @@ func (f *fixtureComputerExecutor) waitForCancellation(terminal <-chan struct{}) 
 	f.hold = nil
 	f.cancelWait = terminal
 	f.mu.Unlock()
+}
+
+func (f *fixtureComputerExecutor) holdNextWait(hold chan struct{}) {
+	f.mu.Lock()
+	f.waitHold = hold
+	f.waitCancelWait = nil
+	f.mu.Unlock()
+}
+
+func (f *fixtureComputerExecutor) waitForWaitCancellation(terminal <-chan struct{}) {
+	f.mu.Lock()
+	f.waitHold = nil
+	f.waitCancelWait = terminal
+	f.mu.Unlock()
+}
+
+func (f *fixtureComputerExecutor) setWaitResult(result m1bComputerWaitResult) {
+	f.mu.Lock()
+	f.waitResult = result
+	f.mu.Unlock()
+}
+
+func (f *fixtureComputerExecutor) waitSnapshot() (waitCalls int, lastTimeout int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.waitCalls, f.lastWaitTimeout
+}
+
+func (f *fixtureComputerExecutor) waitDeadline() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastWaitDeadline
 }
 
 func (f *fixtureComputerExecutor) invalidate(selection m1bComputerSelection) {
@@ -165,6 +209,50 @@ func (f *fixtureComputerExecutor) observe(ctx context.Context, selection m1bComp
 	f.latestSelection = selection.bindingKey()
 	f.mu.Unlock()
 	return m1bComputerObservationResult(observation)
+}
+
+func (f *fixtureComputerExecutor) wait(ctx context.Context, selection m1bComputerSelection, input m1bComputerWait) m1bComputerResult {
+	f.mu.Lock()
+	f.waitCalls++
+	f.calls++
+	f.lastWaitTimeout = input.TimeoutMS
+	f.lastWaitDeadline, _ = ctx.Deadline()
+	latest, latestSelection, hold, cancelWait, result := f.latest, f.latestSelection, f.waitHold, f.waitCancelWait, f.waitResult
+	f.mu.Unlock()
+	select {
+	case f.waitStarted <- input:
+	default:
+	}
+	if latest == nil || latest.ObservationID != input.ObservationID {
+		return m1bComputerFailure("COMPUTER_STALE_OBSERVATION")
+	}
+	if latestSelection != selection.bindingKey() {
+		return m1bComputerFailure("COMPUTER_TARGET_CHANGED")
+	}
+	found := false
+	for _, node := range latest.Nodes {
+		if node.Ref == input.Ref {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return m1bComputerFailure("COMPUTER_STALE_REF")
+	}
+	if hold != nil {
+		<-hold
+		return m1bComputerWaitOutcome(result)
+	}
+	if cancelWait != nil {
+		<-ctx.Done()
+		f.waitCancelOnce.Do(func() { close(f.waitCanceled) })
+		<-cancelWait
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	if ctx.Err() != nil {
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	return m1bComputerWaitOutcome(result)
 }
 
 func (f *fixtureComputerExecutor) act(ctx context.Context, selection m1bComputerSelection, nativeCallID string, input m1bComputerAct) m1bComputerResult {
@@ -1444,6 +1532,9 @@ func TestComputerCommandShapeCapsUTF16AndNullTimeout(t *testing.T) {
 	click := func(extra string) string {
 		return `{"kind":"act","native_call_id":"call-1","input":{"action":"click","observation_id":"obs-1","ref":"e1"` + extra + `}}`
 	}
+	waitInput := func(extra string) string {
+		return `{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"` + extra + `}}`
+	}
 	emoji := strings.Repeat("😀", 1)
 	for _, test := range []struct {
 		name  string
@@ -1456,6 +1547,20 @@ func TestComputerCommandShapeCapsUTF16AndNullTimeout(t *testing.T) {
 		{"observe null holder", payload("", true, `{"kind":"observe"}`), false},
 		{"act null holder", payload("", true, click("")), false},
 		{"quiesce null holder", payload("", true, `{"kind":"quiesce"}`), false},
+		{"wait null holder", payload("", true, waitInput("")), false},
+		{"wait valid default", payload(fixtureHolder, false, waitInput("")), true},
+		{"wait explicit bounds", payload(fixtureHolder, false, waitInput(`,"timeout_ms":100`)), true},
+		{"wait null timeout", payload(fixtureHolder, false, waitInput(`,"timeout_ms":null`)), false},
+		{"wait timeout below", payload(fixtureHolder, false, waitInput(`,"timeout_ms":99`)), false},
+		{"wait timeout above", payload(fixtureHolder, false, waitInput(`,"timeout_ms":20001`)), false},
+		{"wait bare ref", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"obs-1","ref":"@e1"}}`), false},
+		{"wait missing input", payload(fixtureHolder, false, `{"kind":"wait"}`), false},
+		{"wait native call id", payload(fixtureHolder, false, `{"kind":"wait","native_call_id":"call-1","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`), false},
+		{"wait request predicate", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"},"predicate":"visible"}`), false},
+		{"wait input selector", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1","app":"Finder"}}`), false},
+		{"wait input predicate", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1","predicate":"enabled"}}`), false},
+		{"wait observation 120 units", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"`+strings.Repeat(emoji, 60)+`","ref":"@obs-1:e1"}}`), true},
+		{"wait observation 122 units", payload(fixtureHolder, false, `{"kind":"wait","input":{"observation_id":"`+strings.Repeat(emoji, 61)+`","ref":"@obs-1:e1"}}`), false},
 		{"absent timeout default", payload(fixtureHolder, false, click("")), true},
 		{"null timeout", payload(fixtureHolder, false, click(`,"timeout_ms":null`)), false},
 		{"timeout below", payload(fixtureHolder, false, click(`,"timeout_ms":99`)), false},
@@ -1485,6 +1590,9 @@ func TestComputerCommandShapeCapsUTF16AndNullTimeout(t *testing.T) {
 				}
 				if command.Request.Kind == "act" && command.Request.Act != nil && command.Request.Act.TimeoutMS != m1bComputerDefaultTimeout && !strings.Contains(string(test.raw), "20000") {
 					t.Fatalf("the default timeout was not applied: %d", command.Request.Act.TimeoutMS)
+				}
+				if command.Request.Kind == "wait" && command.Request.Wait != nil && command.Request.Wait.TimeoutMS != m1bComputerDefaultTimeout && !strings.Contains(string(test.raw), "100") {
+					t.Fatalf("the default wait timeout was not applied: %d", command.Request.Wait.TimeoutMS)
 				}
 			} else if err == nil {
 				t.Fatal("an invalid command was accepted")
@@ -1606,5 +1714,290 @@ func TestComputerActDeadlineCarriesValidatedTimeout(t *testing.T) {
 				t.Fatalf("the executor input timeout = %d, want the exact validated %d", timeout, test.timeoutMS)
 			}
 		})
+	}
+}
+
+func configureFixtureWaitObservation(f *fixtureComputerExecutor) {
+	f.mu.Lock()
+	f.observation.Nodes = []m1bComputerNode{{Ref: "@obs-1:e1", Role: "AXButton"}}
+	f.mu.Unlock()
+}
+
+// A wait is admitted only for the exact holder adopted by the last observe and
+// a ref from the exact current observation. It never acquires input, sets an
+// act proof, mutates the desktop, or stores a new observation.
+func TestComputerWaitRequiresAdoptedHolderAndExactObservation(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000801", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	_, actBefore, _ := fake.snapshot()
+	waitBefore, _ := fake.waitSnapshot()
+
+	nullHolder := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000802", selection, "", true,
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`)
+	if fixtureCommandError(nullHolder) != "COMPUTER_INVALID" {
+		t.Fatalf("a null-holder wait was not rejected: %+v", nullHolder)
+	}
+	wrongHolder := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000803", selection, fixtureHolderTwo, false,
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`)
+	if fixtureCommandError(wrongHolder) != "COMPUTER_TARGET_CHANGED" {
+		t.Fatalf("a different holder entered wait: %+v", wrongHolder)
+	}
+	if calls, _ := fake.waitSnapshot(); calls != waitBefore {
+		t.Fatal("a rejected holder reached the executor")
+	}
+
+	wrongObservation := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000804", selection, fixtureHolder, false,
+		`{"kind":"wait","input":{"observation_id":"obs-2","ref":"@obs-1:e1"}}`)
+	if fixtureCommandError(wrongObservation) != "COMPUTER_STALE_OBSERVATION" {
+		t.Fatalf("a foreign observation entered wait: %+v", wrongObservation)
+	}
+	wrongRef := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000805", selection, fixtureHolder, false,
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e9"}}`)
+	if fixtureCommandError(wrongRef) != "COMPUTER_STALE_REF" {
+		t.Fatalf("a ref outside the observation entered wait: %+v", wrongRef)
+	}
+
+	const waitID = "90000000-0000-4000-8000-000000000806"
+	wait := sendComputerCommand(t, run, waitID, selection, fixtureHolder, false,
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1","timeout_ms":1234}}`)
+	kind, result := typedComputerFrame(t, wait)
+	if kind != "wait" || result["result"] != computerWaitMet || result["waited_ms"] != float64(1) {
+		t.Fatalf("the exact wait was not admitted: %+v", wait)
+	}
+	if _, hasError := result["error"]; hasError {
+		t.Fatalf("a met wait carried a failure: %+v", result)
+	}
+	if calls, timeout := fake.waitSnapshot(); calls != waitBefore+3 || timeout != 1234 {
+		t.Fatalf("wait calls=%d timeout=%d", calls, timeout)
+	}
+	if _, actAfter, _ := fake.snapshot(); actAfter != actBefore {
+		t.Fatalf("wait used the mutating act slot: act calls %d -> %d", actBefore, actAfter)
+	}
+	if _, _, invalidations := fake.snapshot(); invalidations != 0 {
+		t.Fatal("a met wait invalidated the observation")
+	}
+}
+
+// The host wait window is the validated native timeout plus a finite identity
+// grace, and remains below the hard 25s tool request limit. Command, selection,
+// and transport cancellation still cap it.
+func TestComputerWaitDeadlineHonorsTimeoutPlusIdentityGrace(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	wait := func(timeoutMS int, expiresAt time.Time) m1bComputerCommand {
+		return m1bComputerCommand{
+			ExpiresAt: expiresAt,
+			Request:   m1bComputerRequest{Kind: "wait", Wait: &m1bComputerWait{TimeoutMS: timeoutMS}},
+		}
+	}
+	longSelection := m1bComputerSelection{ExpiresAt: now.Add(time.Hour)}
+	for _, test := range []struct {
+		name      string
+		selection m1bComputerSelection
+		command   m1bComputerCommand
+		want      time.Time
+		failure   string
+	}{
+		{"wait default", longSelection, wait(m1bComputerDefaultTimeout, now.Add(time.Hour)), now.Add(8*time.Second + m1bComputerWaitGrace), ""},
+		{"wait minimum", longSelection, wait(m1bComputerMinTimeout, now.Add(time.Hour)), now.Add(100*time.Millisecond + m1bComputerWaitGrace), ""},
+		{"wait maximum", longSelection, wait(m1bComputerMaxTimeout, now.Add(time.Hour)), now.Add(20*time.Second + m1bComputerWaitGrace), ""},
+		{"wait command expiry caps", longSelection, wait(m1bComputerMaxTimeout, now.Add(3*time.Second)), now.Add(3 * time.Second), ""},
+		{"wait selection expiry caps", m1bComputerSelection{ExpiresAt: now.Add(2 * time.Second)},
+			wait(m1bComputerMaxTimeout, now.Add(time.Hour)), now.Add(2 * time.Second), ""},
+		{"wait expired command", longSelection, wait(m1bComputerDefaultTimeout, now), time.Time{}, "COMPUTER_TIMEOUT"},
+		{"wait expired selection", m1bComputerSelection{ExpiresAt: now},
+			wait(m1bComputerDefaultTimeout, now.Add(time.Hour)), time.Time{}, "COMPUTER_TIMEOUT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deadline, failure := m1bComputerInputDeadline(test.selection, test.command, now)
+			if failure != test.failure {
+				t.Fatalf("failure = %q, want %q", failure, test.failure)
+			}
+			if !deadline.Equal(test.want) {
+				t.Fatalf("deadline = %s, want %s", deadline, test.want)
+			}
+		})
+	}
+	if maxWait := time.Duration(m1bComputerMaxTimeout)*time.Millisecond + m1bComputerWaitGrace; maxWait >= 25*time.Second {
+		t.Fatalf("the max wait work bound %s reaches the 25s request limit", maxWait)
+	}
+}
+
+// The actual admitted transport context carries the bounded native timeout
+// plus the identity grace, not the 5s status/observe read window.
+func TestComputerWaitTransportContextCarriesTimeoutAndGrace(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000811", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	start := time.Now()
+	wait := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000812", selection, fixtureHolder, false,
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1","timeout_ms":100}}`)
+	if kind, _ := typedComputerFrame(t, wait); kind != "wait" {
+		t.Fatalf("the wait was not admitted: %+v", wait)
+	}
+	budget := fake.waitDeadline().Sub(start)
+	want := 100*time.Millisecond + m1bComputerWaitGrace
+	if budget < want-250*time.Millisecond {
+		t.Fatalf("wait context budget = %s, want at least %s", budget, want)
+	}
+}
+
+func TestComputerWaitQuiesceCancelsAndSuppressesLateSuccess(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	terminal := make(chan struct{})
+	fake.waitForWaitCancellation(terminal)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000821", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	const waitID = "90000000-0000-4000-8000-000000000822"
+	if err := run.socket.send([]byte(computerCommandJSON(waitID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z",
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture wait did not start")
+	}
+	const quiesceID = "90000000-0000-4000-8000-000000000823"
+	if err := run.socket.send([]byte(computerCommandJSON(quiesceID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z", `{"kind":"quiesce"}`))); err != nil {
+		t.Fatal(err)
+	}
+	waitComputerStopped(t, host)
+	select {
+	case <-fake.waitCanceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the quiesce did not cancel the wait")
+	}
+	expectNoComputerResults(t, run.socket, []string{quiesceID, waitID}, 150*time.Millisecond)
+	close(terminal)
+	frame := awaitComputerResultWithout(t, run.socket, quiesceID, []string{waitID})
+	if kind, nested := typedComputerFrame(t, frame); kind != "quiesce" || nested["quiesced"] != true {
+		t.Fatalf("the quiesce barrier was not acknowledged: %+v", frame)
+	}
+	expectNoComputerResults(t, run.socket, []string{waitID}, 250*time.Millisecond)
+	if _, _, invalidations := fake.snapshot(); invalidations == 0 {
+		t.Fatal("the quiesce did not invalidate the bound refs after the wait terminal")
+	}
+}
+
+func TestComputerWaitCancelSuppressesLateSuccess(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	terminal := make(chan struct{})
+	fake.waitForWaitCancellation(terminal)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000831", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	const waitID = "90000000-0000-4000-8000-000000000832"
+	if err := run.socket.send([]byte(computerCommandJSON(waitID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z",
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture wait did not start")
+	}
+	if err := run.socket.send([]byte(`{"type":"command.cancel","id":"` + waitID + `"}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fake.waitCanceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("command.cancel did not cancel the wait")
+	}
+	close(terminal)
+	expectNoComputerResults(t, run.socket, []string{waitID}, 300*time.Millisecond)
+}
+
+// Even a driver that reports success after the binding expiry changed must not
+// publish a pre-renewal wait success at the receipt result fence.
+func TestComputerWaitLateSuccessSuppressedAfterExactRenewal(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	hold := make(chan struct{})
+	fake.holdNextWait(hold)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000841", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	const waitID = "90000000-0000-4000-8000-000000000842"
+	if err := run.socket.send([]byte(computerCommandJSON(waitID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z",
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1"}}`))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture wait did not start")
+	}
+	// Model the exact same-id renewal the executor installs after the ack: the
+	// binding key is unchanged but the acknowledged expiry advances.
+	renewed := selection
+	renewed.ExpiresAt = selection.ExpiresAt.Add(time.Minute)
+	fake.selectTarget(renewed)
+	close(hold)
+	expectNoComputerResults(t, run.socket, []string{waitID}, 300*time.Millisecond)
+	waitComputerIdle(t, host)
+}
+
+// A wait cannot outlive the selection/proof expiry. The transport deadline is
+// a clean COMPUTER_TIMEOUT failure, not a late met/timed_out success and never
+// an act uncertainty.
+func TestComputerWaitSelectionExpiryIsCleanTimeout(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	selection.ExpiresAt = time.Now().Add(250 * time.Millisecond)
+	fake := newFixtureComputerExecutor(selection)
+	configureFixtureWaitObservation(fake)
+	terminal := make(chan struct{})
+	fake.waitForWaitCancellation(terminal)
+	host := newM1BComputerHost(fake)
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+
+	sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000851", selection, fixtureHolder, false, `{"kind":"observe"}`)
+	const waitID = "90000000-0000-4000-8000-000000000852"
+	if err := run.socket.send([]byte(computerCommandJSON(waitID, selection, fixtureHolder, false, "2030-01-01T00:00:00Z",
+		`{"kind":"wait","input":{"observation_id":"obs-1","ref":"@obs-1:e1","timeout_ms":20000}}`))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fake.waitCanceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the selection expiry did not cancel the wait")
+	}
+	close(terminal)
+	frame := awaitComputerResult(t, run.socket, waitID)
+	if fixtureCommandError(frame) != "COMPUTER_TIMEOUT" {
+		t.Fatalf("an expired wait was not a clean timeout: %+v", frame)
+	}
+	if kind, _ := typedComputerFrame(t, frame); kind != "failure" {
+		t.Fatalf("an expired wait published a result: %+v", frame)
 	}
 }

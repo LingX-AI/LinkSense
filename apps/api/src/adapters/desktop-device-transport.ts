@@ -30,6 +30,7 @@ import {
   desktopComputerDispatchAdmissionSchema,
   type DesktopComputerDispatchAdmission,
   type DesktopComputerDispatchAdmissionInput,
+  type DesktopComputerWaitPublication,
 } from "../modules/desktop-devices/computer-admission.js";
 import {
   desktopExecutionBindingSchema,
@@ -92,10 +93,20 @@ type ExecutionAuthority = (
   admission?: DesktopComputerDispatchAdmission,
   barrier?: AdmissionFinalizer,
 ) => Promise<boolean>;
+/**
+ * Final send sink for one read-only wait candidate. The callback composes the
+ * wait result, but only this transport owns the local socket token and the one
+ * true send, so the request-local publication continuation is handed back here.
+ */
+type WaitDelivery = (
+  publication: DesktopComputerWaitPublication,
+  ack: DesktopExecutionAck,
+) => Promise<boolean>;
 type ExecutionCallback = (
   binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
   frame: DesktopExecutionCallback,
   signal: AbortSignal,
+  waitDelivery?: WaitDelivery,
 ) => Promise<DesktopExecutionAck>;
 
 const channel = (gatewayId: string) => `linksense:desktop-execution:${gatewayId}`;
@@ -307,10 +318,37 @@ export class DesktopDeviceTransport {
       : frame.operation === "attachments.ready" ? socket.pending.get(frame.start_id) : undefined;
     const tool = frame.type === "tool.request" ? { frame, controller: new AbortController() } : undefined;
     if (tool) socket.tools.set(frame.id, tool);
+    const deadline = Date.now() + Math.min(remaining, lifetime);
     const signal = AbortSignal.any([
       socket.lifetime.signal, AbortSignal.timeout(Math.min(remaining, lifetime)),
       ...(pending ? [pending.lifetime.signal] : []), ...(tool ? [tool.controller.signal] : []),
     ]);
+    // The callback composes the wait result, but only this transport knows the
+    // live local socket and the exact in-flight tool token. When the product
+    // lane hands back its request-local publication, `publish` rechecks the
+    // original authority under the locked dispatch transaction and then calls
+    // this finalize, which performs the last token/expiry checks and at most
+    // one send. `delivered` stops the post-callback path from replying again.
+    let delivered = false;
+    const waitDelivery: WaitDelivery | undefined = tool ? async (publication, ack) => {
+      if (frame.type !== "tool.request" || frame.operation !== "computer.execute" ||
+          frame.body.kind !== "wait") return false;
+      return await publication.publish(() => {
+        if (delivered || signal.aborted || socket.tools.get(frame.id) !== tool ||
+            this.sockets.get(connectionId) !== socket || Date.now() >= deadline) return false;
+        try {
+          if (!socket.send(ack)) return false;
+        } catch {
+          // The synchronous send invocation threw after the final checks, so
+          // the frame may already be queued. Keep the success rather than
+          // publishing a contradictory second result.
+          delivered = true;
+          return true;
+        }
+        delivered = true;
+        return true;
+      });
+    } : undefined;
     try {
       const { binding, ownerId } = socket;
       if (!await socket.verifyCredential()) {
@@ -345,12 +383,14 @@ export class DesktopDeviceTransport {
         reply(reject("FORBIDDEN"));
         return;
       }
-      const ack = await this.callback({ ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal);
+      const ack = await this.callback(
+        { ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal, waitDelivery,
+      );
       if (frame.operation === "attachments.ready" &&
           (!pending || !await this.coordinator.mayDispatch(binding, pending.command.id))) return;
-      if (!signal.aborted && (!pending || socket.pending.get(pending.command.id) === pending)) reply(ack);
+      if (!delivered && !signal.aborted && (!pending || socket.pending.get(pending.command.id) === pending)) reply(ack);
     } catch (error) {
-      if (!signal.aborted) reply(reject(error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "AUTH_REQUIRED")
+      if (!delivered && !signal.aborted) reply(reject(error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "AUTH_REQUIRED")
         ? "FORBIDDEN" : "RUNNER_UNAVAILABLE"));
     } finally {
       socket.callbacks.delete(key);

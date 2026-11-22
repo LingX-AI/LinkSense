@@ -134,6 +134,25 @@ describe("desktop worker lifecycle", () => {
     expect(await provider.discover()).toEqual([])
   })
 
+  it("authors the computer wait flag only from both negotiated markers", async () => {
+    const { root, configuration, provider } = await fixture()
+    const paths = provider.pathsFor(ownerId, firstId)
+    const run = { turnId, runtimeGeneration: randomUUID(), toolOperations: ["computer.execute", "computer.wait"] as const }
+    const env = desktopWorkerEnvironment(configuration, ownerId, firstId, paths, 49153, path.join(root, "tools"), run)
+    expect(env.LINKSENSE_DESKTOP_COMPUTER_ENABLED).toBe("true")
+    expect(env.LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED).toBe("true")
+
+    const oldMac = desktopWorkerEnvironment(configuration, ownerId, firstId, paths, 49153, path.join(root, "tools"),
+      { ...run, toolOperations: ["computer.execute"] as const })
+    expect(oldMac.LINKSENSE_DESKTOP_COMPUTER_ENABLED).toBe("true")
+    expect(oldMac).not.toHaveProperty("LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED")
+
+    const markerOnly = desktopWorkerEnvironment(configuration, ownerId, firstId, paths, 49153, path.join(root, "tools"),
+      { ...run, toolOperations: ["computer.wait"] as const })
+    expect(markerOnly).not.toHaveProperty("LINKSENSE_DESKTOP_COMPUTER_ENABLED")
+    expect(markerOnly).not.toHaveProperty("LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED")
+  })
+
   it("rejects escaping links and does not copy platform credentials into the runtime environment", async () => {
     const { root, configuration, provider } = await fixture()
     const paths = provider.pathsFor(ownerId, firstId)

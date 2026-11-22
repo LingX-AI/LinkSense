@@ -1,4 +1,4 @@
-import { DESKTOP_MODEL_PROXY_PATH, desktopArtifactMaxBytes, supportsDesktopUserInput, webBundleManifestSchema, type DesktopExecutionCommand } from "@linksense/shared";
+import { DESKTOP_MODEL_PROXY_PATH, desktopArtifactMaxBytes, supportsDesktopComputerWait, supportsDesktopUserInput, webBundleManifestSchema, type DesktopExecutionCommand } from "@linksense/shared";
 import type { FastifyInstance } from "fastify";
 import { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { DesktopRunner } from "../../adapters/desktop-runner.js";
@@ -15,6 +15,7 @@ import { reserveDesktopArtifactSlot, reserveDesktopAttachmentSlot } from "../fil
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import { authorizeLocalComputerAction, verifyLocalComputerDispatch } from "../local-computer/authorization.js";
 import { LocalComputerGuiOccupancy } from "../local-computer/occupancy.js";
+import type { DesktopComputerWaitPublication } from "./computer-admission.js";
 import { DesktopComputerFixtureBindings, type DesktopComputerExecuteFactory, type DesktopComputerExecuteFixture } from "./computer-execute.js";
 import {
   DesktopComputerControl,
@@ -92,7 +93,11 @@ export async function registerDesktopExecution(
     runtimeGeneration: frame.runtime_generation,
   });
   type ComputerExecuteLane = {
-    execute: DesktopComputerExecuteFixture["execute"];
+    /** The product lane supplies the request-local wait publication continuation. */
+    execute: (
+      input: Parameters<DesktopComputerExecuteFixture["execute"]>[0],
+      publishWait?: (publication: DesktopComputerWaitPublication) => void,
+    ) => ReturnType<DesktopComputerExecuteFixture["execute"]>;
     admit: (
       /** `commandId` is the exact generated transport command UUID (product lane only). */
       input: Parameters<DesktopComputerExecuteFixture["admit"]>[0] & { commandId: string },
@@ -137,7 +142,7 @@ export async function registerDesktopExecution(
       : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
   },
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
-    async ({ ownerId, toolOperations, ...binding }, frame, signal) => {
+    async ({ ownerId, toolOperations, ...binding }, frame, signal, waitDelivery) => {
       const scope = { ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId, ...turnScope(frame) };
       if (frame.type === "tool.request") {
         return executeDesktopTool({
@@ -145,10 +150,14 @@ export async function registerDesktopExecution(
           webSearchSettings: services.webSearchSettings, knowledgeSearch: services.knowledgeSearch,
           ...(services.connections ? { connections: services.connections } : {}),
           ...(services.browserUse ? { browserUse: services.browserUse } : {}),
+          // Trust only this socket generation's negotiated markers. An older
+          // Mac never offers computer.wait, so its wait kind is refused here
+          // before the lane or a device command exists.
+          computerWait: supportsDesktopComputerWait(toolOperations),
           ...(computerExecute ? {
-            computerExecute: input => {
+            computerExecute: (input, publishWait) => {
               if (!computerExecute) throw new AppError("RUNNER_UNAVAILABLE");
-              return computerExecute.execute(input);
+              return computerExecute.execute(input, publishWait);
             },
           } : {}),
           checkPublication: async (tx, source) => {
@@ -158,7 +167,7 @@ export async function registerDesktopExecution(
             await leases.fenceRunBinding(scope, frame.run_token);
             signal.throwIfAborted();
           },
-        }, scope, frame, signal);
+        }, scope, frame, signal, waitDelivery);
       }
       if (frame.operation === "attachments.ready") {
         await leases.verifyRunBinding(scope, frame.run_token, "use");

@@ -4,6 +4,7 @@ import {
   desktopExecutionCallbackSchema, desktopExecutionLifetimeFor, desktopExecutionMaxInFlight,
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
+  supportsDesktopComputerWait,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
   type DesktopNegotiatedOperation, type DesktopToolRequestOperation, type DesktopToolRequest, type DesktopToolResult,
 } from "@linksense/shared"
@@ -132,6 +133,10 @@ export class DesktopLink {
       ({ type: "tool.result", id, operation, ok: false, error_code })
     if (run.scope.owner_id !== this.ownerId) return failure("FORBIDDEN")
     if (!this.toolOperations.includes(operation)) return failure("RUNNER_UNAVAILABLE")
+    // The wait kind rides computer.execute, so the operation check alone does
+    // not prove this exact link generation offered the additive marker.
+    if (input.operation === "computer.execute" && input.body.kind === "wait" &&
+        !supportsDesktopComputerWait(this.toolOperations)) return failure("RUNNER_UNAVAILABLE")
     if (this.callbacks.size >= desktopExecutionMaxInFlight ||
       [...this.callbacks.values()].filter(pending => pending.type === "tool.result").length >= desktopToolMaxInFlight) {
       return failure("RUNNER_UNAVAILABLE")

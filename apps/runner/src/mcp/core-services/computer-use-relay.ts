@@ -6,6 +6,7 @@ import {
   type ComputerFailureCode,
   type ComputerObservation,
   type ComputerStatusResult,
+  type ComputerWaitResult,
 } from "@linksense/shared";
 import { z } from "zod";
 
@@ -135,6 +136,22 @@ export function createComputerUseRelayExecutor(input: {
         waited_ms: Math.min(Math.max(Date.now() - startedAt, 0), 20_000),
       };
     },
+    async wait(request) {
+      // No native call id: a read-only wait never carries an act approval.
+      const result = await send({
+        kind: "wait",
+        input: {
+          observation_id: request.observationId,
+          ref: request.ref,
+          timeout_ms: request.timeoutMs,
+        },
+      }, request.signal);
+      if (result.kind === "failure") throw new ComputerUseFailureError(result.error);
+      if (result.kind !== "wait") {
+        throw new ComputerUseFailureError("COMPUTER_UNAVAILABLE");
+      }
+      return result.result as ComputerWaitResult;
+    },
   };
 }
 
@@ -167,6 +184,9 @@ export function computerUseRelayCoreMcpModules(input: {
       // unmasked, and no environment flag may select it. Synthetic probes pass
       // `screenshots` directly to createComputerUseCoreMcpModule.
       screenshots: false,
+      // The supervisor authors this only after the current device connection
+      // offered computer.wait together with computer.execute.
+      wait: input.environment.LINKSENSE_COMPUTER_WAIT === "1",
     }),
   ];
 }

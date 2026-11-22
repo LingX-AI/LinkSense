@@ -173,6 +173,89 @@ func TestDeviceBridgeAuthenticatesHeartbeatsAndStopsWithItsContext(t *testing.T)
 	}
 }
 
+func TestDeviceBridgeOffersComputerWaitOnlyWithTheMacHost(t *testing.T) {
+	credential := deviceFixtureCredential()
+	offers := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		offers <- r.Header.Get(desktopToolOperationsHeader)
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		if _, _, err := socket.Read(ctx); err != nil {
+			return
+		}
+		// An older server sends no tool_operations; the new bridge must still
+		// accept that ready frame, and its own offer is unchanged for an old
+		// server.
+		if sendDeviceExecutionReady(ctx, socket, credential.DeviceID,
+			"30000000-0000-4000-8000-000000000021") != nil {
+			return
+		}
+		for {
+			_, data, err := socket.Read(ctx)
+			if err != nil {
+				return
+			}
+			if string(data) == `{"type":"ping"}` {
+				if socket.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`)) != nil {
+					return
+				}
+			}
+		}
+	}))
+	defer server.Close()
+	origin, _ := url.Parse(server.URL)
+
+	withHostRuntime, _, withHostMessages := newFixtureRuntime(t)
+	withHost := newFixtureDeviceConnection(t, origin, credential)
+	withHost.runtime = withHostRuntime
+	withHost.computer = newM1BComputerHost(newFixtureComputerExecutor(fixtureComputerSelection(credential)))
+	withHost.computerEligible = func() bool { return true }
+	go withHost.run()
+	select {
+	case offer := <-offers:
+		for _, required := range []string{m1bComputerOperation, desktopComputerWaitOperation} {
+			if !strings.Contains(offer, required) {
+				t.Fatalf("the Mac host did not offer %q: %q", required, offer)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the device did not dial")
+	}
+	select {
+	case message := <-withHostMessages:
+		if message.Type != "link.open" {
+			t.Fatalf("the old ready frame was not accepted: %+v", message)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the old ready frame did not open the runtime link")
+	}
+	withHost.cancel()
+	waitDeviceDone(t, withHost)
+
+	presenceRuntime, _, _ := newFixtureRuntime(t)
+	withoutHost := newFixtureDeviceConnection(t, origin, credential)
+	withoutHost.runtime = presenceRuntime
+	go withoutHost.run()
+	defer func() {
+		withoutHost.cancel()
+		waitDeviceDone(t, withoutHost)
+	}()
+	select {
+	case offer := <-offers:
+		if strings.Contains(offer, m1bComputerOperation) ||
+			strings.Contains(offer, desktopComputerWaitOperation) {
+			t.Fatalf("a host without the Mac computer executor offered computer operations: %q", offer)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second device did not dial")
+	}
+}
+
 func TestDeviceBridgeRejectsUnexpectedExecutionFramesWithoutRetrying(t *testing.T) {
 	var attempts atomic.Int32
 	credential := deviceFixtureCredential()

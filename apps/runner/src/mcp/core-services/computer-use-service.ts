@@ -13,12 +13,17 @@ import {
   computerStatusInputSchema,
   computerStatusResultSchema,
   computerStatusToolName,
+  computerWaitInputSchema,
+  computerWaitResultSchema,
+  computerWaitToolName,
   type ComputerActInput,
   type ComputerActResult,
   type ComputerFailureCode,
   type ComputerObservation,
   type ComputerScreenshot,
   type ComputerStatusResult,
+  type ComputerWaitInput,
+  type ComputerWaitResult,
 } from "@linksense/shared";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import sharp from "sharp";
@@ -58,6 +63,12 @@ export type ComputerUseExecutor = {
     timeoutMs: number;
     signal: AbortSignal;
   }): Promise<ComputerActResult>;
+  wait(input: {
+    observationId: string;
+    ref: string;
+    timeoutMs: number;
+    signal: AbortSignal;
+  }): Promise<ComputerWaitResult>;
 };
 
 export function createComputerUseCoreMcpModule(input: {
@@ -69,12 +80,20 @@ export function createComputerUseCoreMcpModule(input: {
    * production relay always passes false.
    */
   screenshots?: boolean;
+  /**
+   * Only the supervised worker whose own device connection offered the wait
+   * marker registers the read-only tool. An unnegotiated worker keeps the
+   * pre-existing tool set.
+   */
+  wait?: boolean;
 }): CoreMcpModuleDefinition {
   const plan = input.mode === "plan";
   const screenshots = input.screenshots === true;
+  const wait = input.wait === true && !plan;
   const toolNames = plan
     ? [computerStatusToolName, computerObserveToolName]
-    : [computerStatusToolName, computerObserveToolName, computerActToolName];
+    : [computerStatusToolName, computerObserveToolName, computerActToolName,
+        ...(wait ? [computerWaitToolName] : [])];
 
   return {
     key: "computer_use",
@@ -83,7 +102,8 @@ export function createComputerUseCoreMcpModule(input: {
     create(): CoreMcpToolModule {
       return {
         key: "computer_use",
-        tools: plan ? [statusTool, observeTool] : [statusTool, observeTool, actTool],
+        tools: plan ? [statusTool, observeTool]
+          : [statusTool, observeTool, actTool, ...(wait ? [waitTool] : [])],
         async callTool(call) {
           if (call.toolName === computerStatusToolName) {
             return status(input.executor, call);
@@ -93,6 +113,13 @@ export function createComputerUseCoreMcpModule(input: {
           }
           if (call.toolName === computerActToolName && !plan) {
             return act(input.executor, call);
+          }
+          if (call.toolName === computerWaitToolName) {
+            // Plan never registers or executes wait, even if a caller invokes
+            // the name directly.
+            return wait && !plan
+              ? runWait(input.executor, call)
+              : failureToolResult(computerFailure("COMPUTER_ACCESS_DENIED"));
           }
           return failureToolResult(computerFailure("COMPUTER_ACCESS_DENIED"));
         },
@@ -374,6 +401,48 @@ async function act(
   }
 }
 
+async function runWait(
+  executor: ComputerUseExecutor,
+  call: CoreMcpToolCall,
+): Promise<CallToolResult> {
+  let request: ComputerWaitInput;
+  try {
+    request = computerWaitInputSchema.parse(call.argumentsValue);
+  } catch {
+    return failureToolResult(computerFailure("COMPUTER_INVALID"));
+  }
+  call.signal.throwIfAborted();
+  // Match the host's bounded wait plus its finite identity-check grace; the
+  // existing 25s computer tool request lifetime still caps the whole call.
+  const deadline = withRequestTimeout(call.signal, request.timeout_ms + 4_000);
+  try {
+    const settled = await settle(
+      executor.wait({
+        observationId: request.observation_id,
+        ref: request.ref,
+        timeoutMs: request.timeout_ms,
+        signal: deadline,
+      }),
+      deadline,
+    );
+    call.signal.throwIfAborted();
+    if (settled.kind === "aborted" || deadline.aborted) {
+      return failureToolResult(computerFailure("COMPUTER_TIMEOUT"));
+    }
+    const result = computerWaitResultSchema.safeParse(settled.value);
+    // met and timed_out are both normal bounded outcomes; never retried here.
+    return result.success
+      ? successToolResult(result.data)
+      : failureToolResult(computerFailure("COMPUTER_UNAVAILABLE"));
+  } catch (error) {
+    call.signal.throwIfAborted();
+    return failureToolResult(
+      computerFailure(error instanceof ComputerUseFailureError
+        ? error.code : deadline.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE"),
+    );
+  }
+}
+
 function actResult(result: ComputerActResult): CallToolResult {
   const value = { type: "text" as const, text: JSON.stringify(result) };
   if (!result.ok) {
@@ -505,6 +574,22 @@ const actTool = {
     title: "Act on local computer",
     readOnlyHint: false,
     destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
+} satisfies Tool;
+
+const waitInputJsonSchema = z.toJSONSchema(computerWaitInputSchema, { io: "input" });
+
+const waitTool = {
+  name: computerWaitToolName,
+  description:
+    "Wait, up to a bounded timeout, for an element ref from the latest computer_observe result of the host-chosen local application to become actionable. Pass that observation's exact observation_id and its qualified ref (the @snapshot:eN form returned by computer_observe). Returns only met or timed_out with waited_ms; it never reads a new tree, returns refs, changes the application, or repeats itself. A timed_out result is an observation: re-observe before choosing another step. Read-only.",
+  inputSchema: waitInputJsonSchema as Tool["inputSchema"],
+  annotations: {
+    title: "Wait for local computer element",
+    readOnlyHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
   },

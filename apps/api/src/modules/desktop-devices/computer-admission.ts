@@ -27,3 +27,22 @@ export const desktopComputerDispatchAdmissionSchema = z.strictObject({
 });
 export type DesktopComputerDispatchAdmission = z.infer<typeof desktopComputerDispatchAdmissionSchema>;
 export type DesktopComputerDispatchAdmissionInput = z.input<typeof desktopComputerDispatchAdmissionSchema>;
+
+/**
+ * Request-local continuation for publishing one read-only wait success.
+ *
+ * The Mac's `met`/`timed_out` result is produced before the API has a final
+ * authoritative view of the run. This carries only the identity captured for
+ * that one tool request (canonical scope, original selection epoch/session/
+ * bundle/expiry, adopted holder, original observe grant and expiry). `publish`
+ * rechecks that exact identity under the existing `verifyDispatch` PostgreSQL
+ * conversation lock and invokes `finalize` at most once, synchronously, while
+ * the lock is held. It never persists state, starts a timer, re-authorizes a
+ * newer selection, or waits for the device.
+ */
+export type DesktopComputerWaitPublication = {
+  /** `finalize` performs only local socket checks and the one send. */
+  publish: (finalize: () => boolean) => Promise<boolean>;
+  /** Read after `publish` resolves false: the final synchronous deadline elapsed. */
+  timedOut?: () => boolean;
+};

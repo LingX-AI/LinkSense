@@ -112,6 +112,7 @@ function fakeExecutor(overrides: Partial<ComputerUseExecutor> = {}) {
     status: vi.fn(async () => status),
     observe: vi.fn(async () => observation),
     act: vi.fn(async () => ({ ok: true, effect: "done" as const, waited_ms: 10 })),
+    wait: vi.fn(async ({ timeoutMs }) => ({ result: "timed_out" as const, waited_ms: timeoutMs })),
     ...overrides,
   }
   return executor
@@ -121,16 +122,18 @@ function moduleFor(
   executor: ComputerUseExecutor,
   mode: "default" | "plan" = "default",
   screenshots = true,
+  wait = false,
 ) {
-  return createComputerUseCoreMcpModule({ mode, executor, screenshots })
+  return createComputerUseCoreMcpModule({ mode, executor, screenshots, wait })
 }
 
 function toolFor(
   executor: ComputerUseExecutor,
   mode: "default" | "plan" = "default",
   screenshots = true,
+  wait = false,
 ) {
-  return moduleFor(executor, mode, screenshots).create({ environment: {}, workspaceRoot: "/tmp" })
+  return moduleFor(executor, mode, screenshots, wait).create({ environment: {}, workspaceRoot: "/tmp" })
 }
 
 describe("computer_use Core MCP module", () => {
@@ -160,6 +163,91 @@ describe("computer_use Core MCP module", () => {
 
     expect(result.isError).toBe(true)
     expect(executor.act).not.toHaveBeenCalled()
+  })
+
+  it("registers the read-only wait only for a negotiated default-mode worker", () => {
+    expect(moduleFor(fakeExecutor()).toolNames).not.toContain("computer_wait")
+    expect(moduleFor(fakeExecutor(), "default", false, true).toolNames)
+      .toContain("computer_wait")
+    // Plan keeps the pre-existing tool set even when the worker negotiated.
+    expect(moduleFor(fakeExecutor(), "plan", false, true).toolNames)
+      .toEqual(["computer_status", "computer_observe"])
+
+    const tool = toolFor(fakeExecutor(), "default", false, true)
+    const wait = tool.tools?.find(candidate => candidate.name === "computer_wait")
+    expect(wait?.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    })
+  })
+
+  it("rejects Plan and unnegotiated direct wait without calling the executor", async () => {
+    for (const wait of [false, true]) {
+      for (const mode of ["plan", "default"] as const) {
+        if (wait && mode === "default") continue
+        const executor = fakeExecutor()
+        const result = await toolFor(executor, mode, false, wait).callTool({
+          toolName: "computer_wait",
+          argumentsValue: { observation_id: "obs-1", ref: "@obs-1:e1" },
+          signal: signal(),
+        })
+        expect(result.isError).toBe(true)
+        expect(executor.wait).not.toHaveBeenCalled()
+      }
+    }
+  })
+
+  it("passes the exact bounded wait input and never requires a native call id", async () => {
+    const executor = fakeExecutor({
+      wait: vi.fn(async () => ({ result: "met" as const, waited_ms: 12 })),
+    })
+    const call = toolFor(executor, "default", false, true)
+    const result = await call.callTool({
+      toolName: "computer_wait",
+      argumentsValue: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 1_500 },
+      signal: signal(),
+    })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: "text", text: JSON.stringify({ result: "met", waited_ms: 12 }) }])
+    expect(executor.wait).toHaveBeenCalledWith(expect.objectContaining({
+      observationId: "obs-1", ref: "@obs-1:e1", timeoutMs: 1_500,
+    }))
+
+    await call.callTool({
+      toolName: "computer_wait",
+      argumentsValue: { observation_id: "obs-1", ref: "@obs-1:e1" },
+      signal: signal(),
+    })
+    expect(executor.wait).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 8_000 }))
+  })
+
+  it("rejects extra wait arguments and keeps a transport failure clean and single-shot", async () => {
+    const executor = fakeExecutor()
+    for (const argumentsValue of [
+      { observation_id: "obs-1", ref: "@obs-1:e1", predicate: "visible" },
+      { observation_id: "obs-1", ref: "e1" },
+      { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 20_001 },
+    ]) {
+      const result = await toolFor(executor, "default", false, true).callTool({
+        toolName: "computer_wait", argumentsValue, signal: signal(),
+      })
+      expect(result.isError).toBe(true)
+    }
+    expect(executor.wait).not.toHaveBeenCalled()
+
+    const failing = fakeExecutor({
+      wait: vi.fn(async () => { throw new ComputerUseFailureError("COMPUTER_TIMEOUT") }),
+    })
+    const result = await toolFor(failing, "default", false, true).callTool({
+      toolName: "computer_wait",
+      argumentsValue: { observation_id: "obs-1", ref: "@obs-1:e1" },
+      signal: signal(),
+    })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(String((result.content[0] as { text: string }).text)))
+      .toMatchObject({ code: "COMPUTER_TIMEOUT" })
+    expect(failing.wait).toHaveBeenCalledOnce()
   })
 
   it("requires the native call identity before acting", async () => {

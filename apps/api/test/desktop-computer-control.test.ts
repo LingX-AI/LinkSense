@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
@@ -15,6 +16,9 @@ import {
   desktopExecutionResultSchema,
   desktopToolProtocolVersion,
   desktopToolRequestSchema,
+  localComputerGrantSchema,
+  timestampSchema,
+  uuidSchema,
   type ComputerObservation,
   type DesktopComputerControlResult,
   type DesktopExecutionAck,
@@ -24,6 +28,7 @@ import {
 } from "@linksense/shared";
 import { DesktopDeviceTransport, DesktopCommandUncertainError } from "../src/adapters/desktop-device-transport.js";
 import { AppError } from "../src/lib/errors.js";
+import type { DesktopComputerWaitPublication } from "../src/modules/desktop-devices/computer-admission.js";
 import { sendAppError } from "../src/lib/http.js";
 import {
   DesktopComputerControl,
@@ -36,7 +41,7 @@ import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js"
 import { RedisDesktopDeviceCoordinator, type DesktopExecutionBinding } from "../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
 import { executeDesktopTool } from "../src/modules/desktop-devices/tool-requests.js";
-import { DesktopRunLeases, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
+import { DesktopRunLeases, desktopRunScopeSchema, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
 import {
   localComputerGuiOccupancyKey,
   LocalComputerGuiOccupancy,
@@ -58,6 +63,17 @@ const observation: ComputerObservation = {
   observation_id: "obs-1", tree_quality: "good", truncated: false,
   nodes: [{ ref: "e1", role: "button", name: "Continue" }],
 };
+
+// Exact pre-change admission contract: no requestKind exists on the wire.
+const preChangeDispatchAdmissionSchema = z.strictObject({
+  scope: desktopRunScopeSchema,
+  sessionId: uuidSchema,
+  grantId: uuidSchema,
+  capability: z.enum(["computer.observe", "computer.act"]),
+  bundleId: localComputerGrantSchema.shape.target.shape.bundle_id,
+  expiresAt: timestampSchema.transform(value => new Date(value)),
+  controlEpoch: uuidSchema.optional(),
+});
 
 let redis: Awaited<ReturnType<typeof createRedisFixture>>;
 
@@ -86,6 +102,10 @@ class FakeControlStore implements DesktopComputerControlStore {
   bindingLiveValue = true;
   finalizeActiveValue: boolean | undefined;
   finalizeActiveCalls = 0;
+  finalCheckCalls = 0;
+  presenceLiveValue = true;
+  finalCheckGate: Promise<void> | undefined;
+  finalCheckStartResolvers: Array<() => void> = [];
   sessionExpiryMs = 5 * 60_000;
 
   async resolve(input: { ownerId: string; deviceId: string; conversationId: string }) {
@@ -159,6 +179,23 @@ class FakeControlStore implements DesktopComputerControlStore {
     return input.finalize();
   }
 
+  async verifyActiveFinal(scope: DesktopRunScope, selection: DesktopComputerSelection): Promise<boolean> {
+    this.finalCheckCalls += 1;
+    const started = this.finalCheckStartResolvers;
+    this.finalCheckStartResolvers = [];
+    for (const resolve of started) resolve();
+    if (this.finalCheckGate) await this.finalCheckGate;
+    if (!this.bindingLiveValue || !this.presenceLiveValue) return false;
+    const current = this.selections.get(desktopComputerSelectionKey(scope));
+    return !!current && current.state === "active" && current.expiresAt > Date.now() &&
+      current.selectionId === selection.selectionId &&
+      current.sessionId === selection.sessionId &&
+      current.connectionId === scope.connectionId &&
+      current.controlEpoch === selection.controlEpoch &&
+      current.bundleId === selection.bundleId &&
+      current.expiresAt === selection.expiresAt;
+  }
+
   async scopesForTurn(): Promise<DesktopRunScope[]> {
     return [];
   }
@@ -172,15 +209,33 @@ class FakeControlStore implements DesktopComputerControlStore {
     if (this.failSelect) throw this.failSelect;
     const key = desktopComputerSelectionKey(input.scope);
     const existing = this.selections.get(key);
+    const now = Date.now();
     if (existing && existing.connectionId === input.scope.connectionId) {
       if (existing.state === "paused" || existing.state === "pausing") {
         throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
       }
-      if (existing.state === "active" && existing.selectionId !== input.selectionId) {
+      if (existing.selectionId === input.selectionId) {
+        // Production-like same-id renewal: the exact session and grant identity
+        // is kept, only a later bounded expiry and a new control epoch are
+        // written. A live act-marker or a non-live selection never renews.
+        if (existing.bundleId !== input.bundleId) {
+          throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
+        }
+        if (existing.state !== "active" || existing.expiresAt <= now || existing.pendingInput) {
+          throw new DesktopComputerSelectionError("COMPUTER_ACCESS_DENIED");
+        }
+        const renewed: DesktopComputerSelection = {
+          ...existing, state: "active", controlEpoch: randomUUID(),
+          expiresAt: Math.max(now + this.sessionExpiryMs, existing.expiresAt + 1),
+          pendingInput: null,
+        };
+        this.selections.set(key, renewed);
+        return { ...renewed };
+      }
+      if (existing.state === "active") {
         throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
       }
     }
-    const now = Date.now();
     const selection: DesktopComputerSelection = {
       v: 1, state: "active", ownerId: input.scope.ownerId, deviceId: input.scope.deviceId,
       conversationId: input.scope.conversationId, turnId: input.scope.turnId,
@@ -331,7 +386,19 @@ async function fixture() {
   const leases = new DesktopRunLeases(redis.client, async () => true);
   const store = new FakeControlStore();
   const occupancy = new LocalComputerGuiOccupancy(redis.client);
-  const audit = vi.fn(async () => {});
+  let auditGate: Promise<void> | undefined;
+  let auditStartResolvers: Array<() => void> = [];
+  const audit = vi.fn(async (entry: {
+    action: string;
+    result: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void entry;
+    const started = auditStartResolvers;
+    auditStartResolvers = [];
+    for (const resolve of started) resolve();
+    if (auditGate) await auditGate;
+  });
   let authorizeFailure: Error | undefined;
   let verifyGate: Promise<void> | undefined;
   let verifyFailure: Error | undefined;
@@ -394,6 +461,10 @@ async function fixture() {
       binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly string[] },
       frame: DesktopExecutionCallback,
       signal: AbortSignal,
+      waitDelivery?: (
+        publication: DesktopComputerWaitPublication,
+        ack: DesktopExecutionAck,
+      ) => Promise<boolean>,
     ): Promise<DesktopExecutionAck> => {
       if (frame.type !== "tool.request" || frame.operation !== "computer.execute") {
         throw new AppError("FORBIDDEN");
@@ -408,11 +479,13 @@ async function fixture() {
         webSearchSettings: { search: async () => { throw new AppError("RUNNER_UNAVAILABLE"); } },
         knowledgeSearch: null,
         checkPublication: async () => {},
-        computerExecute: input => {
+        computerWait: binding.toolOperations.includes("computer.execute") &&
+          binding.toolOperations.includes("computer.wait"),
+        computerExecute: (input, publishWait) => {
           if (!routeRef.control) throw new AppError("RUNNER_UNAVAILABLE");
-          return routeRef.control.execute(input);
+          return routeRef.control.execute(input, publishWait);
         },
-      }, scope, frame, signal);
+      }, scope, frame, signal, waitDelivery);
     },
   );
   const control = new DesktopComputerControl({
@@ -439,7 +512,11 @@ async function fixture() {
   return {
     app, leases, store, control, transport, occupancy, audit, authorize, verifyDispatch, cleanup,
     nextVerifyStarted: () => new Promise<void>(resolve => { verifyStartResolvers.push(resolve); }),
+    nextAuditStarted: () => new Promise<void>(resolve => { auditStartResolvers.push(resolve); }),
+    nextFinalCheckStarted: () => new Promise<void>(resolve => { store.finalCheckStartResolvers.push(resolve); }),
+    setFinalCheckGate: (gate: Promise<void> | undefined) => { store.finalCheckGate = gate; },
     setAuthorizeFailure: (error: Error | undefined) => { authorizeFailure = error; },
+    setAuditGate: (gate: Promise<void> | undefined) => { auditGate = gate; },
     setVerifyGate: (gate: Promise<void> | undefined) => { verifyGate = gate; },
     setVerifyFailure: (error: Error | undefined) => { verifyFailure = error; },
   };
@@ -493,7 +570,7 @@ async function issueRun(
 }
 
 function toolRequest(
-  kind: "status" | "observe" | "act", scope: DesktopRunScope, runToken: string,
+  kind: "status" | "observe" | "act" | "wait", scope: DesktopRunScope, runToken: string,
   extra: Record<string, unknown> = {}, nativeCallId = "native-call-1",
 ): ComputerExecuteToolRequest {
   const request = desktopToolRequestSchema.parse({
@@ -503,7 +580,9 @@ function toolRequest(
     operation: "computer.execute",
     body: kind === "act"
       ? { kind: "act", native_call_id: nativeCallId, input: { action: "click", observation_id: "obs-1", ref: "e1" } }
-      : { kind },
+      : kind === "wait"
+        ? { kind: "wait", input: { observation_id: "obs-1", ref: "@obs-1:e1" } }
+        : { kind },
     ...extra,
   });
   if (request.operation !== "computer.execute") throw new Error("unexpected tool operation");
@@ -572,6 +651,51 @@ describe("M1b product computer control", () => {
       socket.send(JSON.stringify(commandResult(command, { kind: "observe", result: observation })));
       expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe", result: observation } });
       expect(await redis.client.exists(localComputerGuiOccupancyKey(scope.deviceId))).toBe(1);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("omits requestKind from every encrypted dispatch admission so a pre-change receiver stays compatible", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      const selected = await select(state, socket, frames, scope);
+      if (!selected.ok) throw new Error("select failed");
+      const send = vi.spyOn(state.transport, "send");
+      const expectLegacyAdmission = (kind: "status" | "observe" | "act") => {
+        const admission = send.mock.calls.at(-1)?.[3];
+        const wire = JSON.parse(JSON.stringify(admission)) as unknown;
+        const parsed = preChangeDispatchAdmissionSchema.safeParse(wire);
+        expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+        expect(admission).not.toHaveProperty("requestKind");
+        expect(admission).toMatchObject({
+          capability: kind === "act" ? "computer.act" : "computer.observe",
+        });
+        expect(state.verifyDispatch.mock.lastCall?.[0]).toMatchObject({ requestKind: kind });
+      };
+
+      socket.send(JSON.stringify(toolRequest("status", scope, runToken)));
+      const status = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("status");
+      socket.send(JSON.stringify(commandResult(status, {
+        kind: "status", result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+      })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("observe");
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("act", scope, runToken)));
+      const act = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("act");
+      socket.send(JSON.stringify(commandResult(act, {
+        kind: "act", result: { ok: true, effect: "done", waited_ms: 1 },
+      })));
+      await frames.until(isToolResult);
     } finally {
       await state.cleanup();
     }
@@ -1137,6 +1261,193 @@ describe("M1b product computer control", () => {
     }
   });
 
+  it("relays one read-only wait on the adopted holder without a native claim or pending input", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } =
+        await prepareSocket(state, "computer.execute,computer.wait");
+      await select(state, socket, frames, scope);
+      const send = vi.spyOn(state.transport, "send");
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      const wait = commandOf(await frames.until(isCommand));
+      expect(send.mock.lastCall?.[3]).not.toHaveProperty("requestKind");
+      expect(wait.body).toMatchObject({
+        session_id: observe.body.session_id,
+        selection_id: selectionA,
+        holder_id: observe.body.holder_id,
+        request: {
+          kind: "wait",
+          input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 },
+        },
+      });
+      expect(wait.body.request).not.toHaveProperty("native_call_id");
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+      expect(await redis.client.keys("linksense:desktop-native-call:*")).toHaveLength(0);
+
+      socket.send(JSON.stringify(commandResult(wait, {
+        kind: "wait", result: { result: "timed_out", waited_ms: 8_000 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "wait", result: { result: "timed_out", waited_ms: 8_000 } },
+      });
+      // Observe admission plus the wait's admission transaction and exact
+      // post-result recheck.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(3);
+      expect(state.verifyDispatch.mock.calls[1]?.[0]).toMatchObject({
+        capability: "computer.observe", requestKind: "wait",
+      });
+      expect(state.verifyDispatch.mock.calls[2]?.[0]).toMatchObject({
+        scope, sessionId: observe.body.session_id, capability: "computer.observe", requestKind: "wait",
+      });
+      const selection = state.store.selections.get(desktopComputerSelectionKey(scope));
+      expect(selection?.pendingInput).toBeNull();
+      expect(JSON.parse(await redis.client.get(localComputerGuiOccupancyKey(device.id)) ?? "null"))
+        .toMatchObject({ holderId: observe.body.holder_id });
+      expect(state.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+        action: "desktop_tool_requested", result: "success",
+        metadata: expect.objectContaining({ operation: "computer.execute" }),
+      }));
+      const lastAudit = JSON.stringify(state.audit.mock.lastCall);
+      expect(lastAudit).not.toContain("computer_action");
+      expect(lastAudit).not.toContain("obs-1");
+      expect(lastAudit).not.toContain("@obs-1:e1");
+      expect(lastAudit).not.toContain("timeout_ms");
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("refuses a wait that the connection did not negotiate before the lane or a command", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("fails a wait closed when the selection renewal, pause, or stop lands before its result", async () => {
+    for (const action of ["renew", "pause", "stop"] as const) {
+      const state = await fixture();
+      try {
+        const { socket, frames, scope, runToken } =
+          await prepareSocket(state, "computer.execute,computer.wait");
+        await select(state, socket, frames, scope);
+        socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+        const observe = commandOf(await frames.until(isCommand));
+        socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+        await frames.until(isToolResult);
+
+        socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+        const wait = commandOf(await frames.until(isCommand));
+        socket.send(JSON.stringify(action === "renew"
+          ? controlFrame("select", scope, selectionA)
+          : controlFrame(action, scope, selectionA)));
+        if (action !== "renew") {
+          // Pause/stop wait for the exact native quiesce ack before releasing.
+          const quiesce = commandOf(await frames.until(isCommand));
+          expect(quiesce.body.request).toEqual({ kind: "quiesce" });
+          socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+        }
+        await frames.until(isControlResult);
+
+        // A result that belonged to the pre-renewal/pre-stop binding is never
+        // published as a success.
+        socket.send(JSON.stringify(commandResult(wait, {
+          kind: "wait", result: { result: "met", waited_ms: 20 },
+        })));
+        expect(await frames.until(isToolResult)).toMatchObject({
+          ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+        });
+        expect(state.store.claimInputCalls).toHaveLength(0);
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("denies an altered wait result and keeps a transport ambiguity a clean timeout", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state, "computer.execute,computer.wait");
+      await select(state, socket, frames, scope);
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      const altered = vi.spyOn(state.transport, "send").mockResolvedValueOnce({
+        type: "command.result", id: randomUUID(), operation: "computer.execute", ok: true,
+        result: { kind: "wait", result: { result: "met", waited_ms: 20_001 } },
+      } as unknown as Awaited<ReturnType<typeof state.transport.send>>);
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      expect(altered).toHaveBeenCalledOnce();
+      altered.mockRestore();
+
+      const uncertain = vi.spyOn(state.transport, "send").mockRejectedValueOnce(
+        new DesktopCommandUncertainError(),
+      );
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TIMEOUT" },
+      });
+      expect(uncertain).toHaveBeenCalledOnce();
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds a wait success when the original grant is no longer live", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state, "computer.execute,computer.wait");
+      await select(state, socket, frames, scope);
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      const wait = commandOf(await frames.until(isCommand));
+      // The command was admitted under the live grant; the grant is then
+      // revoked before the bounded read returns.
+      state.setVerifyFailure(new AppError("FORBIDDEN"));
+      socket.send(JSON.stringify(commandResult(wait, {
+        kind: "wait", result: { result: "met", waited_ms: 3 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+      });
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
   it("retains the adopted observe holder across a native typed failure and a repeated observe", async () => {
     const state = await fixture();
     try {
@@ -1584,6 +1895,362 @@ describe("M1b product computer control", () => {
       expect(await frames.until(isToolResult)).toMatchObject({
         ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
       });
+    } finally {
+      await state.cleanup();
+    }
+  });
+  // ---------------------------------------------------------------------
+  // P1-23 publication repair: a read-only wait success is authoritative only
+  // through the final locked compare immediately before the one socket send.
+  // ---------------------------------------------------------------------
+  async function observingWait(state: Awaited<ReturnType<typeof fixture>>) {
+    const prepared = await prepareSocket(state, "computer.execute,computer.wait");
+    const selected = await select(state, prepared.socket, prepared.frames, prepared.scope);
+    if (!selected.ok) throw new Error("select failed");
+    prepared.socket.send(JSON.stringify(toolRequest("observe", prepared.scope, prepared.runToken)));
+    const observe = commandOf(await prepared.frames.until(isCommand));
+    prepared.socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+    await prepared.frames.until(isToolResult);
+    return { ...prepared, selected, observe };
+  }
+
+  async function startWait(
+    socket: WebSocket, frames: ReturnType<typeof frameQueue>, scope: DesktopRunScope, runToken: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    const request = toolRequest("wait", scope, runToken, extra);
+    socket.send(JSON.stringify(request));
+    const command = commandOf(await frames.until(isCommand));
+    return { request, command };
+  }
+
+  it("publishes exactly one wait success under the original selection and grant", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { command } = await startWait(socket, frames, scope, runToken);
+      const waitAuthorization = await state.authorize.mock.results.at(-1)?.value;
+      if (!waitAuthorization) throw new Error("wait authorization missing");
+
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "wait", result: { result: "met", waited_ms: 4 } },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+      // Observe admission, wait admission, and the final publication compare.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(3);
+      const publication = state.verifyDispatch.mock.calls.at(-1);
+      expect(publication?.[0]).toMatchObject({
+        scope, sessionId: command.body.session_id, grantId: waitAuthorization.grantId,
+        capability: "computer.observe", bundleId, expiresAt: waitAuthorization.expiresAt,
+      });
+      expect(typeof publication?.[1]).toBe("function");
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds a wait success when only the final atomic read spans an elapsed command deadline", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const occupancyKey = localComputerGuiOccupancyKey(scope.deviceId);
+      const held = JSON.parse(await redis.client.get(occupancyKey) ?? "null");
+      await redis.client.set(occupancyKey, JSON.stringify({ ...held, expiresAt: Date.now() + 700 }));
+      let releaseFinal!: () => void;
+      state.setFinalCheckGate(new Promise<void>(resolve => { releaseFinal = resolve; }));
+      const finalStarted = state.nextFinalCheckStarted();
+      const { command } = await startWait(socket, frames, scope, runToken);
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      await Promise.race([
+        finalStarted,
+        delay(1_000).then(() => { throw new Error("final atomic read was not reached"); }),
+      ]);
+      // The callback and session remain live; only the final atomic read
+      // straddles the original command/holder deadline.
+      await delay(800);
+      releaseFinal();
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TIMEOUT" },
+      });
+      expect(state.store.finalCheckCalls).toBe(1);
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds a wait success when the final atomic read sees run or presence lost after earlier reads", async () => {
+    for (const loss of ["run", "presence"] as const) {
+      const state = await fixture();
+      try {
+        const { socket, frames, scope, runToken } = await observingWait(state);
+        let releaseFinal!: () => void;
+        state.setFinalCheckGate(new Promise<void>(resolve => { releaseFinal = resolve; }));
+        const finalStarted = state.nextFinalCheckStarted();
+        const { command } = await startWait(socket, frames, scope, runToken);
+        socket.send(JSON.stringify(commandResult(command, {
+          kind: "wait", result: { result: "met", waited_ms: 4 },
+        })));
+        await Promise.race([
+          finalStarted,
+          delay(1_000).then(() => { throw new Error("final atomic read was not reached"); }),
+        ]);
+        if (loss === "run") state.store.bindingLiveValue = false;
+        else state.store.presenceLiveValue = false;
+        releaseFinal();
+        expect(await frames.until(isToolResult)).toMatchObject({
+          ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+        });
+        expect(state.store.finalCheckCalls).toBe(1);
+        expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("rejects a wait result whose waited_ms exceeds this request's timeout, and accepts the exact bound", async () => {
+    for (const waitedMs of [101, 100] as const) {
+      const state = await fixture();
+      try {
+        const { socket, frames, scope, runToken } = await observingWait(state);
+        const { command } = await startWait(socket, frames, scope, runToken, {
+          body: {
+            kind: "wait",
+            input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 100 },
+          },
+        });
+        socket.send(JSON.stringify(commandResult(command, {
+          kind: "wait", result: { result: "timed_out", waited_ms: waitedMs },
+        })));
+        expect(await frames.until(isToolResult)).toMatchObject(waitedMs === 100
+          ? { ok: true, data: { kind: "wait", result: { result: "timed_out", waited_ms: 100 } } }
+          : { ok: true, data: { kind: "failure", error: "COMPUTER_INVALID" } });
+        expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+        expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("records a wait attempt with unconfirmed delivery and no observation content", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { command } = await startWait(socket, frames, scope, runToken);
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "wait", result: { result: "met", waited_ms: 4 } },
+      });
+      const audit = state.audit.mock.calls.at(-1)?.[0];
+      expect(audit).toMatchObject({
+        action: "desktop_tool_requested", result: "success",
+        metadata: {
+          operation: "computer.execute", computer_request: "wait", delivery: "unconfirmed",
+        },
+      });
+      expect(Object.keys(audit?.metadata ?? {})).not.toEqual(expect.arrayContaining([
+        "observation_id", "ref", "timeout_ms",
+      ]));
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds a wait success whose audit resolves after a same-id renewal", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { command } = await startWait(socket, frames, scope, runToken);
+      const key = desktopComputerSelectionKey(scope);
+      const before = state.store.selections.get(key);
+      if (!before) throw new Error("selection missing");
+      let releaseAudit!: () => void;
+      state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+      const auditStarted = state.nextAuditStarted();
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      await auditStarted;
+      // The device result is already inside the API, but the audit and every
+      // later publication step are still pending. Renewal writes a new control
+      // epoch first; the read that belonged to the old epoch must not publish.
+      socket.send(JSON.stringify(controlFrame("select", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({ ok: true });
+      // Same session and grant identity; only the exact epoch/expiry advanced.
+      expect(state.store.selections.get(key)?.sessionId).toBe(before.sessionId);
+      expect(state.store.selections.get(key)?.controlEpoch).not.toBe(before.controlEpoch);
+      releaseAudit();
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+      // The pre-publication attempt row is already written and stays
+      // unconfirmed after the late denial; it never claims a final publish.
+      const audit = state.audit.mock.calls.at(-1)?.[0];
+      expect(audit).toMatchObject({
+        action: "desktop_tool_requested", result: "success",
+        metadata: { computer_request: "wait", delivery: "unconfirmed" },
+      });
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds a wait success when pause or stop lands during the audit", async () => {
+    for (const action of ["pause", "stop"] as const) {
+      const state = await fixture();
+      try {
+        const { socket, frames, scope, runToken } = await observingWait(state);
+        const { command } = await startWait(socket, frames, scope, runToken);
+        let releaseAudit!: () => void;
+        state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+        const auditStarted = state.nextAuditStarted();
+        socket.send(JSON.stringify(commandResult(command, {
+          kind: "wait", result: { result: "timed_out", waited_ms: 8_000 },
+        })));
+        await auditStarted;
+        socket.send(JSON.stringify(controlFrame(action, scope, selectionA)));
+        const quiesce = commandOf(await frames.until(isCommand));
+        expect(quiesce.body.request).toEqual({ kind: "quiesce" });
+        socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+        expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({ ok: true });
+        releaseAudit();
+        expect(await frames.until(isToolResult)).toMatchObject({
+          ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+        });
+        expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+        expect(state.store.claimInputCalls).toHaveLength(0);
+        expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("withholds a wait success when a same-id renewal commits while the final authorization waits", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { command } = await startWait(socket, frames, scope, runToken);
+      const key = desktopComputerSelectionKey(scope);
+      const before = state.store.selections.get(key);
+      if (!before) throw new Error("selection missing");
+      let releaseVerify!: () => void;
+      state.setVerifyGate(new Promise<void>(resolve => { releaseVerify = resolve; }));
+      const verifyStarted = state.nextVerifyStarted();
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      await verifyStarted;
+      // The final authorization is waiting for the conversation lock; the
+      // renewal commits first. The same session and grant ids are still live,
+      // so only the exact request-local selection/epoch compare can withhold
+      // success.
+      socket.send(JSON.stringify(controlFrame("select", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({ ok: true });
+      expect(state.store.selections.get(key)?.sessionId).toBe(before.sessionId);
+      expect(state.store.selections.get(key)?.controlEpoch).not.toBe(before.controlEpoch);
+      releaseVerify();
+      state.setVerifyGate(undefined);
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("never publishes a wait success after a late tool cancel", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { request, command } = await startWait(socket, frames, scope, runToken);
+      let releaseAudit!: () => void;
+      state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+      const auditStarted = state.nextAuditStarted();
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      await auditStarted;
+      socket.send(JSON.stringify({
+        type: "tool.cancel", id: request.id, operation: "computer.execute",
+        conversation_id: scope.conversationId, turn_id: scope.turnId,
+        runtime_generation: scope.runtimeGeneration,
+      }));
+      releaseAudit();
+      expect((await frames.settle(200)).filter(frame => frame.type === "tool.result")).toEqual([]);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("suppresses an in-flight duplicate wait and answers a settled duplicate as a clean read failure", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { request, command } = await startWait(socket, frames, scope, runToken);
+      let releaseAudit!: () => void;
+      state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+      const auditStarted = state.nextAuditStarted();
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "timed_out", waited_ms: 8_000 },
+      })));
+      await auditStarted;
+      // Existing in-flight identical frame suppression is unchanged.
+      socket.send(JSON.stringify(request));
+      await delay(50);
+      expect((await frames.settle(0)).filter(frame => frame.type === "command")).toEqual([]);
+      releaseAudit();
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "wait" } });
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
+
+      // A settled duplicate is a clean read failure, never mutation uncertainty,
+      // and it never sends the wait again.
+      socket.send(JSON.stringify(request));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("fails a wait closed with a clean read failure when the audit write is rejected", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await observingWait(state);
+      const { command } = await startWait(socket, frames, scope, runToken);
+      state.audit.mockRejectedValueOnce(new Error("audit unavailable"));
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      // Observe admission plus the wait admission; the publication never ran.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(2);
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
     } finally {
       await state.cleanup();
     }

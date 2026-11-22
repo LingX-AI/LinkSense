@@ -70,9 +70,16 @@ let manifest: z.infer<typeof runtimeManifestSchema> | undefined;
 let receipt: Record<string, unknown> | undefined;
 const cleanupFailures: string[] = [];
 const computerAuditMetadataKeys: ReadonlySet<string> = new Set([
-  "operation", "conversation_id", "turn_id", "device_id", "computer_action", "duration_ms", "reason_code",
+  "operation", "conversation_id", "turn_id", "device_id", "computer_request", "delivery",
+  "computer_action", "duration_ms", "reason_code",
 ]);
-const observeAuditKeys = ["conversation_id", "device_id", "duration_ms", "operation", "turn_id"];
+// computer_request is the bounded request kind; a wait attempt carries the
+// existing delivery vocabulary (`unconfirmed`) instead of computer_action and
+// never carries a timeout, an element ref or an observation id.
+const observeAuditKeys = [
+  "computer_request", "conversation_id", "device_id", "duration_ms", "operation", "turn_id",
+].sort();
+const waitAuditKeys = [...observeAuditKeys, "delivery"].sort();
 const actAuditKeys = [...observeAuditKeys, "computer_action"].sort();
 const failedActAuditKeys = [...actAuditKeys, "reason_code"].sort();
 const computerAuditMetadataSchema = z.strictObject({
@@ -80,8 +87,10 @@ const computerAuditMetadataSchema = z.strictObject({
   conversation_id: z.uuid(),
   turn_id: z.uuid(),
   device_id: z.uuid(),
+  computer_request: z.enum(["status", "observe", "act", "wait"]),
   computer_action: z.enum(["click", "type"]).optional(),
-  duration_ms: z.number().int().min(0).max(240_000).optional(),
+  delivery: z.literal("unconfirmed").optional(),
+  duration_ms: z.number().int().min(0).max(240_000),
   reason_code: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u).optional(),
 });
 
@@ -290,6 +299,7 @@ try {
   let modelFailure: string | undefined;
   let phase = 0;
   let lastObservationId = "";
+  let resumeObservationId = "";
   const gate = <T>() => {
     let resolve!: (value: T) => void;
     let reject!: (error: Error) => void;
@@ -313,6 +323,8 @@ try {
   const pausedActResult = gate<Record<string, unknown>>();
   const staleActResult = gate<Record<string, unknown>>();
   const resumeObserved = gate<Record<string, unknown>>();
+  const waitMetResult = gate<Record<string, unknown>>();
+  const waitTimedOutResult = gate<Record<string, unknown>>();
   const stoppedActResult = gate<Record<string, unknown>>();
 
   let rejectModel: ((error: Error) => void) | undefined;
@@ -422,14 +434,36 @@ try {
     if (current === 9) {
       const observation = toolResult(body, "joined-call-9");
       assertObservation(observation, "post-resume observation");
+      resumeObservationId = observation.observation_id;
       resumeObserved.resolve(observation);
-      await stopGate.promise;
-      return toolCall(body, "computer_act", {
-        action: "click", observation_id: observation.observation_id,
-        ref: observation.nodes.find(node => node.name === "Clicked 1")?.ref ?? "@joined:e1",
-      }, "joined-call-10");
+      // One fresh post-resume observation drives both bounded wait outcomes.
+      // Wait is read-only: it consumes no approval and keeps the observation
+      // usable for the later stopped act.
+      return toolCall(body, "computer_wait", {
+        observation_id: resumeObservationId, ref: "@joined:e1", timeout_ms: 1_000,
+      }, "joined-call-11");
     }
     if (current === 10) {
+      const result = toolResult(body, "joined-call-11");
+      assertWaitResult(result, "met", 1_000, "wait on the actionable ref");
+      waitMetResult.resolve(result ?? {});
+      // The alternate ref is never actionable; a 100 ms bound is a normal
+      // predicate expiry, not a tool/transport timeout.
+      return toolCall(body, "computer_wait", {
+        observation_id: resumeObservationId, ref: "@joined:e2", timeout_ms: 100,
+      }, "joined-call-12");
+    }
+    if (current === 11) {
+      const result = toolResult(body, "joined-call-12");
+      assertWaitResult(result, "timed_out", 100, "wait on the non-actionable ref");
+      waitTimedOutResult.resolve(result ?? {});
+      await stopGate.promise;
+      return toolCall(body, "computer_act", {
+        action: "click", observation_id: resumeObservationId,
+        ref: "@joined:e1",
+      }, "joined-call-10");
+    }
+    if (current === 12) {
       const result = toolResult(body, "joined-call-10");
       assertFailure(result, "COMPUTER_UNAVAILABLE", "stopped act");
       stoppedActResult.resolve(result ?? {});
@@ -805,6 +839,45 @@ try {
   const afterResumeObserve = await withTimeout("the post-resume observation", resumeObserved.promise);
   assert.match(afterResumeObserve.observation_id as string, /^[0-9a-f]{32}$/u);
 
+  // Both waits reuse that one fresh observation and its two refs. The met
+  // predicate returns the fixture state immediately; the alternate ref is
+  // never actionable and expires at the explicit 100 ms predicate bound. A
+  // timed_out wait is a normal bounded result, not a tool transport timeout.
+  const waitMet = await withTimeout("the wait met result", waitMetResult.promise);
+  assertWaitResult(waitMet, "met", 1_000, "wait on the actionable ref");
+  const waitTimedOut = await withTimeout("the wait timed_out result", waitTimedOutResult.promise);
+  assertWaitResult(waitTimedOut, "timed_out", 100, "wait on the non-actionable ref");
+  assert.equal(waitMet.observation_id, undefined,
+    "a wait result must not echo the observation id");
+  assert.equal(waitTimedOut.ref, undefined, "a wait result must not echo an element ref");
+  const waitStats = await stats();
+  const waitCounters = waitStats.stats as {
+    waits: number; wait_met: number; wait_timed_out: number; wait_failed: number;
+    wait_in_flight: number; wait_refs: string[]; wait_observation_ids: string[];
+    wait_timeouts: number[]; acts: number; authorizations: number; mutations: number;
+    observes: number; act_native_ids: string[];
+  };
+  assert.equal(waitCounters.waits, 2, "both waits must reach the executor exactly once");
+  assert.equal(waitCounters.wait_met, 1);
+  assert.equal(waitCounters.wait_timed_out, 1);
+  assert.equal(waitCounters.wait_failed, 0, "a predicate expiry is not a wait failure");
+  assert.equal(waitCounters.wait_in_flight, 0);
+  assert.deepEqual(waitCounters.wait_refs, ["@joined:e1", "@joined:e2"]);
+  assert.deepEqual(waitCounters.wait_observation_ids,
+    [afterResumeObserve.observation_id, afterResumeObserve.observation_id],
+    "both waits must reuse the one fresh post-resume observation");
+  assert.deepEqual(waitCounters.wait_timeouts, [1_000, 100]);
+  // Wait never claims an act, an authorization, a native call or a mutation.
+  assert.equal(waitCounters.acts, 1);
+  assert.equal(waitCounters.authorizations, 1);
+  assert.equal(waitCounters.mutations, 1);
+  assert.equal(waitCounters.observes, 4);
+  assert.deepEqual(waitCounters.act_native_ids, [approvedNativeId],
+    "wait must not consume or add a native act call id");
+  assert.equal(await db.conversationUserInputRequest.count({
+    where: { ownerId: owner.id, conversationId, turnId: turn.turn_id, status: "pending" },
+  }), 0, "wait must not open an approval or pending input request");
+
   // The native resume is a new selection id in the same server session. Prove
   // the live API selection and the native adopted holder are exactly that pair
   // before the stop frame uses them.
@@ -825,11 +898,14 @@ try {
   });
   const liveSelection = JSON.parse(await api.redisClient.get(selectionKey) ?? "null") as {
     selectionId?: string; state?: string; expiresAt?: number; controlEpoch?: string;
+    pendingInput?: unknown;
   } | null;
   assert(liveSelection, "the resumed selection metadata must be live before stop");
   assert.equal(liveSelection.selectionId, resumedSelectionId,
     "the server selection must match the native resumed selection before stop");
   assert.equal(liveSelection.state, "active");
+  assert.equal(liveSelection.pendingInput, null,
+    "read-only waits must leave the exact selection's pending input unclaimed");
   const preStopExpiresAt = Number(liveSelection.expiresAt);
   const preStopControlEpoch = String(liveSelection.controlEpoch);
   assert(Number.isFinite(preStopExpiresAt) && preStopExpiresAt > 0,
@@ -993,6 +1069,14 @@ try {
     "no denied, stale or later act may reach the executor");
   assert.equal((finalStats.stats as { mutations: number }).mutations, 1, "the synthetic state mutated more than once");
   assert.equal((finalStats.stats as { observes: number }).observes, 4, "expected four observations");
+  const finalWaitCounters = finalStats.stats as {
+    waits: number; wait_met: number; wait_timed_out: number; wait_failed: number; wait_in_flight: number;
+  };
+  assert.equal(finalWaitCounters.waits, 2, "expected exactly two admitted waits");
+  assert.equal(finalWaitCounters.wait_met, 1);
+  assert.equal(finalWaitCounters.wait_timed_out, 1);
+  assert.equal(finalWaitCounters.wait_failed, 0);
+  assert.equal(finalWaitCounters.wait_in_flight, 0);
   assert.equal(finalStats.picks, 1, "only the initial select may open the native picker");
   assert.equal(finalStats.executors, 1, "only the initial select may build a native executor");
   assert.equal(finalStats.driverProbe, false, "the real agent-desktop driver was invoked");
@@ -1008,6 +1092,8 @@ try {
     });
     return row?.status === "completed" ? row : null;
   }, 60_000);
+  assert.equal(await db.conversationTurn.count({ where: { conversationId } }), 1,
+    "read-only waits must not create another turn");
 
   // Projection/audit must not contain native-only selection details, raw
   // screenshots or typed text. Native Codex private thread history is out of
@@ -1036,8 +1122,8 @@ try {
     assert(!value.includes("data_base64"), `a screenshot payload leaked into Redis key ${key}`);
     assert(!value.includes(providerKey), `the synthetic provider key leaked into Redis key ${key}`);
   }
-  assert.equal(await computerAuditCount("success"), 5,
-    "four observations and the single approved act must be the only successful computer audits");
+  assert.equal(await computerAuditCount("success"), 7,
+    "four observations, two bounded waits and the single approved act must be the only successful computer audits");
   assert.equal(await computerAuditCount("failure"), 4,
     "the pre-renewal, paused, post-resume and stopped acts must each fail closed in the audit projection");
   const failedAuditReasons = auditRows
@@ -1050,46 +1136,93 @@ try {
       "COMPUTER_UNAVAILABLE", "COMPUTER_UNAVAILABLE"]);
   const computerAudits = auditRows.filter(row =>
     row.action === "desktop_tool_requested" && row.targetType === "local_computer");
-  assert.equal(computerAudits.length, 9,
-    "four observations, one approved act and four failed acts must be audited");
-  let successfulActAudits = 0;
+  assert.equal(computerAudits.length, 11,
+    "four observations, two waits, one approved act and four failed acts must be audited");
+  let successfulObserveAudits = 0;
+  let successfulWaitAudits = 0;
+  let successfulClickAudits = 0;
+  let failedClickAudits = 0;
   for (const row of computerAudits) {
     // Strict typed allowlist: the sanitizer must retain only these bounded
-    // fields. A missing producer field (for example a dropped duration) fails
+    // fields. A missing producer field (for example a dropped duration, a
+    // missing computer_request or a wait that lost its delivery tag) fails
     // here instead of silently flattening the audit projection.
     const metadata = computerAuditMetadataSchema.parse(row.metadataJson);
     const keys = Object.keys(metadata).sort();
     for (const key of keys) {
       assert(computerAuditMetadataKeys.has(key),
         `computer audit metadata key ${key} is outside the bounded allowlist`);
-      assert(!/title|text|screenshot|url|path|bundle/iu.test(key),
-        `computer audit metadata key ${key} would carry private detail`);
+      assert(!/title|text|screenshot|url|path|bundle|timeout|ref|observation/iu.test(key),
+        `computer audit metadata key ${key} would carry private or unbounded detail`);
     }
     assert.equal(typeof metadata.duration_ms, "number",
       "the audit lane must retain the bounded computer duration");
+    assert.equal(metadata.conversation_id, conversationId,
+      "every computer audit must name the exact joined conversation");
+    assert.equal(metadata.turn_id, turn.turn_id,
+      "every computer audit must name the exact joined turn");
+    assert.equal(metadata.device_id, device.id,
+      "every computer audit must name the exact joined device");
     if (row.result === "success") {
       assert.equal(metadata.reason_code, undefined,
         "a successful computer audit must not carry a reason code");
-      if (metadata.computer_action === undefined) {
+      if (metadata.computer_request === "wait") {
+        successfulWaitAudits++;
+        assert.equal(metadata.delivery, "unconfirmed",
+          "a wait attempt must be audited as an unconfirmed delivery");
+        assert.equal(metadata.computer_action, undefined,
+          "a wait must not be tagged with computer_action");
+        assert.deepEqual(keys, waitAuditKeys,
+          "a wait attempt must carry only the bounded observe fields plus computer_request and delivery");
+      } else if (metadata.computer_request === "observe") {
+        successfulObserveAudits++;
+        assert.equal(metadata.delivery, undefined,
+          "an observation must not claim a delivery outcome");
+        assert.equal(metadata.computer_action, undefined,
+          "an observation must not name a computer action");
         assert.deepEqual(keys, observeAuditKeys,
-          "an observe success must carry only the bounded observe fields");
-      } else {
-        successfulActAudits++;
+          "an observation success must carry only the bounded observe fields");
+      } else if (metadata.computer_request === "act") {
+        successfulClickAudits++;
         assert.equal(metadata.computer_action, "click");
+        assert.equal(metadata.delivery, undefined,
+          "an act must not claim a delivery outcome");
         assert.deepEqual(keys, actAuditKeys,
-          "an act success must carry only the bounded action, outcome and duration");
+          "a click success must carry only the bounded action and duration");
+      } else {
+        assert.fail(`unexpected successful computer request ${metadata.computer_request}`);
       }
     } else {
       assert.equal(row.result, "failure");
+      assert.equal(metadata.computer_request, "act",
+        "every failed computer audit must name its bounded act request");
       assert.equal(metadata.computer_action, "click",
         "every failed act must name its bounded computer action");
+      assert.equal(metadata.delivery, undefined,
+        "a failed act must not claim a delivery outcome");
       assert.equal(typeof metadata.reason_code, "string",
         "a failed computer audit must carry its stable reason code");
       assert.deepEqual(keys, failedActAuditKeys,
         "a failed act must not add arbitrary audit properties");
+      failedClickAudits++;
     }
   }
-  assert.equal(successfulActAudits, 1, "exactly one successful act must be audited");
+  assert.equal(successfulObserveAudits, 4, "exactly four observations must be audited");
+  assert.equal(successfulWaitAudits, 2, "exactly two wait attempts must be audited");
+  assert.equal(successfulClickAudits, 1, "exactly one successful click must be audited");
+  assert.equal(failedClickAudits, 4, "exactly four failed clicks must be audited");
+  // The two wait attempts are the only synthetic met/timed_out records. Their
+  // strict key set above is the whole story: no timeout value, element ref or
+  // observation id may leak through a wait audit row.
+  const waitAuditProjection = JSON.stringify(computerAudits
+    .filter(row => (row.metadataJson as { computer_request?: unknown }).computer_request === "wait")
+    .map(row => row.metadataJson));
+  assert(!waitAuditProjection.includes("timeout"),
+    "a wait audit leaked a timeout");
+  assert(!waitAuditProjection.includes("observation"),
+    "a wait audit leaked an observation id");
+  assert(!waitAuditProjection.includes("@joined:"),
+    "a wait audit leaked an element ref");
 
   await api.service.revoke(owner.id, device.id);
   await waitEvent("disconnected", () => true, 30_000);
@@ -1110,6 +1243,10 @@ try {
     observations: 4,
     approvedActs: 1,
     failedActs: 4,
+    waits: 2,
+    waitMet: 1,
+    waitTimedOut: 1,
+    waitCallIds: ["joined-call-11", "joined-call-12"],
     renewals: 2,
     deliberationMs,
     renewalExpiryAdvanceMs: renewedExpiresAt - selectedExpiresAt,
@@ -1230,6 +1367,19 @@ function assertFailure(
   // never expose an ok/effect for any act that did not execute.
   assert(result?.ok === false && result.error === code,
     `${label} did not fail closed with ${code}: ${JSON.stringify(result ?? null)}`);
+}
+
+function assertWaitResult(
+  result: Record<string, unknown> | undefined, expected: "met" | "timed_out",
+  timeoutMS: number, label: string,
+): void {
+  assert(result && result.result === expected && typeof result.waited_ms === "number" &&
+    Number.isInteger(result.waited_ms) && result.waited_ms >= 0 && result.waited_ms <= timeoutMS,
+    `${label} did not return a bounded ${expected} wait result: ${JSON.stringify(result ?? null)}`);
+  assert.deepEqual(Object.keys(result).sort(), ["result", "waited_ms"],
+    `${label} returned fields outside the closed wait result`);
+  assert(result.ok === undefined && result.error === undefined,
+    `${label} exposed an act/effect outcome: ${JSON.stringify(result)}`);
 }
 
 async function readRuntimeManifest(

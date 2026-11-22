@@ -331,6 +331,8 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     desktopWorkspace: isDesktopWorker,
     desktopBrowserEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_BROWSER_ENABLED,
     desktopComputerEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_COMPUTER_ENABLED,
+    desktopComputerWaitEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_COMPUTER_ENABLED &&
+      config.LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED,
     desktopNativeApprovalsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
     desktopArtifactsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
     desktopArtifactsWebsiteEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED &&

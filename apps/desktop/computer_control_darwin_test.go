@@ -69,6 +69,8 @@ type controlTestExecutor struct {
 	observes       int
 	actStarted     chan struct{}
 	actRelease     chan struct{}
+	waitStarted    chan struct{}
+	waitRelease    chan struct{}
 	releaseOnce    sync.Once
 	closedDone     chan struct{}
 	closedOnce     sync.Once
@@ -127,6 +129,26 @@ func (executor *controlTestExecutor) observeCount() int {
 	return executor.observes
 }
 
+func (executor *controlTestExecutor) wait(ctx context.Context, _ m1bComputerSelection, _ m1bComputerWait) m1bComputerResult {
+	if executor.waitStarted != nil {
+		select {
+		case executor.waitStarted <- struct{}{}:
+		default:
+		}
+	}
+	if executor.waitRelease != nil {
+		select {
+		case <-executor.waitRelease:
+		case <-ctx.Done():
+			return m1bComputerFailure("COMPUTER_TIMEOUT")
+		}
+	}
+	if ctx.Err() != nil {
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	return m1bComputerWaitOutcome(m1bComputerWaitResult{Result: computerWaitMet, WaitedMS: 1})
+}
+
 func (executor *controlTestExecutor) act(ctx context.Context, _ m1bComputerSelection, _ string, _ m1bComputerAct) m1bComputerResult {
 	if executor.actStarted != nil {
 		select {
@@ -162,6 +184,9 @@ func (executor *controlTestExecutor) close() error {
 	executor.releaseOnce.Do(func() {
 		if executor.actRelease != nil {
 			close(executor.actRelease)
+		}
+		if executor.waitRelease != nil {
+			close(executor.waitRelease)
 		}
 	})
 	executor.closedOnce.Do(func() {

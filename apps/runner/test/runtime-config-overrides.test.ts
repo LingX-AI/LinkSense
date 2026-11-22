@@ -106,6 +106,14 @@ describe("Codex process-level runtime config", () => {
     const relayEnvLine = envLineFor(builtInMcpConfigOverrides({ ...base, computerRelay: true }));
     expect(relayEnvLine).not.toContain("LINKSENSE_COMPUTER_SCREENSHOTS_ENABLED");
     expect(relayEnvLine).not.toContain("LINKSENSE_RUNNER_SHARED_SECRET");
+    // The wait marker is authored only for a relayed worker that negotiated it.
+    expect(baseEnvLine).not.toContain("LINKSENSE_COMPUTER_WAIT");
+    expect(relayEnvLine).not.toContain("LINKSENSE_COMPUTER_WAIT");
+    expect(envLineFor(builtInMcpConfigOverrides({ ...base, computerWait: true })))
+      .not.toContain("LINKSENSE_COMPUTER_WAIT");
+    expect(envLineFor(builtInMcpConfigOverrides({
+      ...base, computerRelay: true, computerWait: true,
+    }))).toContain("LINKSENSE_COMPUTER_WAIT");
     // Browser prompting keeps its existing independent template semantic.
     expect(builtInMcpConfigOverrides({ ...base, promptForBrowserUse: true })).toContain(
       'mcp_servers.linksense_core.tools.browser_use.approval_mode="prompt"',

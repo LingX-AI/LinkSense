@@ -24,6 +24,7 @@ import { desktopRunScopeSchema, type DesktopRunScope } from "../desktop-credenti
 import type {
   LocalComputerActionAuthorization,
   LocalComputerActionCapability,
+  LocalComputerActionKind,
 } from "../local-computer/authorization.js";
 import { localComputerGuiOccupancyKey, type LocalComputerGuiOccupancy } from "../local-computer/occupancy.js";
 import type {
@@ -49,6 +50,7 @@ export type DesktopComputerExecuteAuthorize = (input: {
   capability: LocalComputerActionCapability;
   bundleId: string;
   runToken: string;
+  requestKind: LocalComputerActionKind;
 }) => Promise<LocalComputerActionAuthorization>;
 /** Dependencies supplied by the single API dispatch path, not by the model. */
 export type DesktopComputerExecuteHost = {
@@ -65,6 +67,7 @@ export type DesktopComputerExecuteHost = {
     capability: LocalComputerActionCapability;
     bundleId: string;
     expiresAt: Date;
+    requestKind?: LocalComputerActionKind;
   }) => Promise<void>;
 };
 /** Fixture-lane factory; app.ts never supplies it. */
@@ -212,7 +215,7 @@ export class DesktopComputerExecuteFixture {
     const selectionId = selectionIdSchema.parse(selected.selectionId);
     const bundleId = bundleIdSchema.parse(selected.bundleId);
     const authorization = await this.options.authorize({
-      scope, capability, bundleId, runToken: input.request.run_token,
+      scope, capability, bundleId, runToken: input.request.run_token, requestKind: body.kind,
     });
     if (!sameScope(desktopRunScopeSchema.parse(authorization.scope), scope)) return failure("COMPUTER_ACCESS_DENIED");
     const sessionId = z.uuid().parse(authorization.sessionId);
@@ -253,6 +256,43 @@ export class DesktopComputerExecuteFixture {
         binding, scope, sessionId, selectionId, acquired.holderId, { kind: "observe" }, expiresAt, input.signal, admission,
       );
       return expectKind(result, "observe");
+    }
+
+    if (body.kind === "wait") {
+      // Read-only wait on the exact adopted observe holder. It never claims a
+      // native call, consumes an approval, writes a binding grace copy, or
+      // touches pending input; a transport ambiguity is a clean read timeout.
+      const waitBound = await this.options.bindings.find(scope);
+      if (!waitBound) return failure("COMPUTER_STALE_OBSERVATION");
+      const matched = await this.options.occupancy.match({
+        authorization, selectionId, holderId: waitBound.holderId, preserveStoredExpiry: true,
+      });
+      if (matched.status === "target_changed") return failure("COMPUTER_TARGET_CHANGED");
+      if (matched.status === "not_held") {
+        return failure(matched.reason === "connection" || matched.reason === "malformed"
+          ? "COMPUTER_UNAVAILABLE" : "COMPUTER_STALE_OBSERVATION");
+      }
+      const binding = await this.currentBinding(scope);
+      if (!binding) return failure("COMPUTER_UNAVAILABLE");
+      const expiresAt = Math.min(toolExpiresAt, authorization.expiresAt.getTime(), matched.expiresAt);
+      if (expiresAt <= Date.now()) return failure("COMPUTER_TIMEOUT");
+      let result: ComputerExecuteResult;
+      try {
+        result = await sendComputerExecute(this.options.transport, binding, scope, {
+          sessionId: waitBound.sessionId, selectionId: waitBound.selectionId, holderId: waitBound.holderId,
+          request: body, expiresAt, signal: input.signal, admission,
+        });
+      } catch {
+        return failure(input.signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+      }
+      if (result.kind === "failure" && result.error === "RUNNER_OPERATION_UNCERTAIN") {
+        return failure("COMPUTER_TIMEOUT");
+      }
+      // A mismatched read result is unavailable, never read uncertainty.
+      if (result.kind !== "wait" && result.kind !== "failure") {
+        return failure("COMPUTER_UNAVAILABLE");
+      }
+      return expectKind(result, "wait");
     }
 
     const bound = await this.options.bindings.find(scope);
@@ -317,6 +357,8 @@ export class DesktopComputerExecuteFixture {
       if (input.admission.expiresAt.getTime() <= Date.now()) return false;
       if (input.sessionId !== input.admission.sessionId) return false;
       if (input.selectionId !== selectionId) return false;
+      const requestKind: LocalComputerActionKind | undefined =
+        input.request.kind === "quiesce" ? undefined : input.request.kind;
       if (input.request.kind !== "status") {
         // A newer observe, a different selection, or an occupancy deadline that
         // has passed must not inherit this queued command. The grace copy is
@@ -328,6 +370,7 @@ export class DesktopComputerExecuteFixture {
       await this.options.verifyDispatch({
         scope, sessionId: input.admission.sessionId, grantId: input.admission.grantId,
         capability, bundleId, expiresAt: input.admission.expiresAt,
+        ...(requestKind === undefined ? {} : { requestKind }),
       });
       return true;
     } catch {
@@ -422,7 +465,16 @@ export async function sendComputerExecute(
   signal.throwIfAborted();
   if (!frame.ok) return failure(commandFailure(frame));
   if (frame.operation !== "computer.execute") return failure("RUNNER_OPERATION_UNCERTAIN");
-  return computerExecuteResultSchema.parse(frame.result);
+  const result = computerExecuteResultSchema.parse(frame.result);
+  // The shared wait schema bounds every native result by the global 20s cap,
+  // but this request's effective default/explicit timeout is normally shorter.
+  // A read that overran its own bound is a malformed read result, not a
+  // valid timeout to project.
+  if (request.kind === "wait" && result.kind === "wait" &&
+      result.result.waited_ms > request.input.timeout_ms) {
+    return failure("COMPUTER_INVALID");
+  }
+  return result;
 }
 
 const bindingKey = (scope: DesktopRunScope) =>
@@ -448,7 +500,7 @@ export function computerExecuteFailure(error: ComputerFailureCode): ComputerExec
 
 export function expectComputerExecuteKind(
   result: ComputerExecuteResult,
-  kind: "status" | "observe" | "act",
+  kind: "status" | "observe" | "act" | "wait",
 ): ComputerExecuteResult {
   return result.kind === "failure" || result.kind === kind ? result : computerExecuteFailure("RUNNER_OPERATION_UNCERTAIN");
 }

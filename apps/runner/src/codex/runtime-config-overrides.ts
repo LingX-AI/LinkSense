@@ -173,6 +173,12 @@ export function builtInMcpConfigOverrides(input: {
   computerActApproval?: boolean;
   /** The process received the trusted desktop computer relay endpoint/token. */
   computerRelay?: boolean;
+  /**
+   * The current device connection negotiated the additive wait marker. It is
+   * authored only into a relayed desktop worker; no standalone setting selects
+   * it and Plan never exposes the tool.
+   */
+  computerWait?: boolean;
 }): string[] {
   const knowledgeSearchTimeouts = deriveKnowledgeSearchTimeouts(
     input.knowledgeSearchTimeoutMs ?? DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -194,6 +200,7 @@ export function builtInMcpConfigOverrides(input: {
     `${corePrefix}.env_vars=${JSON.stringify([
       ...coreMcpEnvironmentVariables,
       ...(input.computerRelay === true ? computerRelayEnvironmentVariables : []),
+      ...(input.computerRelay === true && input.computerWait === true ? ["LINKSENSE_COMPUTER_WAIT"] : []),
     ])}`,
     `${corePrefix}.enabled=true`,
     `${corePrefix}.required=false`,

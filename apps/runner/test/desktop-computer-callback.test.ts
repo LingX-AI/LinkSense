@@ -64,6 +64,9 @@ function createProvider(root: string): ConstructorParameters<typeof DesktopTurns
 function defaultResponse(frame: ComputerToolRequest): unknown {
   if (frame.body.kind === "status") return { kind: "status", result: status }
   if (frame.body.kind === "observe") return { kind: "observe", result: observation }
+  if (frame.body.kind === "wait") {
+    return { kind: "wait", result: { result: "met", waited_ms: 3 } }
+  }
   return { kind: "act", result: { ok: true, effect: "done", waited_ms: 5 } }
 }
 
@@ -232,6 +235,34 @@ it("refuses an act when computer.execute was not negotiated", async () => {
     expect(state.httpCalls).toHaveBeenCalledOnce()
   } finally {
     await state.close()
+  }
+})
+
+it("admits the wait kind only through the additive link marker", async () => {
+  const input: ComputerExecuteInput = {
+    kind: "wait",
+    input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 },
+  }
+  const legacy = await fixture(["computer.execute"])
+  try {
+    await expect(legacy.sink.computerExecute({
+      conversationId: legacy.scope.conversation_id, turnId: legacy.scope.turn_id, input,
+    })).resolves.toEqual({ kind: "failure", error: "COMPUTER_UNAVAILABLE" })
+    expect(legacy.requests).toHaveLength(0)
+  } finally {
+    await legacy.close()
+  }
+  const negotiated = await fixture(["computer.execute", "computer.wait"])
+  try {
+    await expect(negotiated.sink.computerExecute({
+      conversationId: negotiated.scope.conversation_id, turnId: negotiated.scope.turn_id, input,
+    })).resolves.toEqual({ kind: "wait", result: { result: "met", waited_ms: 3 } })
+    expect(negotiated.requests).toHaveLength(1)
+    expect(negotiated.requests[0]?.body).toEqual(input)
+    expect(negotiated.requests[0]?.body).not.toHaveProperty("native_call_id")
+    expect(negotiated.cancels).toHaveLength(0)
+  } finally {
+    await negotiated.close()
   }
 })
 

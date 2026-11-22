@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
@@ -15,6 +16,9 @@ import {
   desktopComputerQuiesceLifetimeMs,
   desktopToolProtocolVersion,
   desktopToolRequestSchema,
+  localComputerGrantSchema,
+  timestampSchema,
+  uuidSchema,
   type ComputerObservation,
   type DesktopExecutionAck,
   type DesktopExecutionCallback,
@@ -40,7 +44,7 @@ import {
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
 import { executeDesktopTool } from "../src/modules/desktop-devices/tool-requests.js";
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
-import { DesktopRunLeases, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
+import { DesktopRunLeases, desktopRunScopeSchema, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
 import {
   localComputerGuiOccupancyKey,
   LocalComputerGuiOccupancy,
@@ -63,6 +67,17 @@ const observation: ComputerObservation = {
   truncated: false,
   nodes: [{ ref: "e1", role: "button", name: "Continue" }],
 };
+
+// Exact pre-change admission contract: no requestKind exists on the wire.
+const preChangeDispatchAdmissionSchema = z.strictObject({
+  scope: desktopRunScopeSchema,
+  sessionId: uuidSchema,
+  grantId: uuidSchema,
+  capability: z.enum(["computer.observe", "computer.act"]),
+  bundleId: localComputerGrantSchema.shape.target.shape.bundle_id,
+  expiresAt: timestampSchema.transform(value => new Date(value)),
+  controlEpoch: uuidSchema.optional(),
+});
 
 let redis: Awaited<ReturnType<typeof createRedisFixture>>;
 
@@ -183,6 +198,8 @@ async function fixture(computerExecute: boolean) {
         webSearchSettings: { search: async () => { throw new AppError("RUNNER_UNAVAILABLE"); } },
         knowledgeSearch: null,
         checkPublication: async () => {},
+        computerWait: binding.toolOperations.includes("computer.execute") &&
+          binding.toolOperations.includes("computer.wait"),
         computerExecute: input => {
           if (!routeRef.current) throw new AppError("RUNNER_UNAVAILABLE");
           return routeRef.current.execute(input);
@@ -271,7 +288,7 @@ async function issueRun(
 }
 
 function toolRequest(
-  kind: "status" | "observe" | "act", scope: DesktopRunScope, runToken: string, nativeCallId = "native-call-1",
+  kind: "status" | "observe" | "act" | "wait", scope: DesktopRunScope, runToken: string, nativeCallId = "native-call-1",
 ): ComputerExecuteToolRequest {
   const request = desktopToolRequestSchema.parse({
     type: "tool.request", id: randomUUID(), conversation_id: scope.conversationId,
@@ -280,7 +297,9 @@ function toolRequest(
     operation: "computer.execute",
     body: kind === "act"
       ? { kind: "act", native_call_id: nativeCallId, input: { action: "click", observation_id: "obs-1", ref: "e1" } }
-      : { kind },
+      : kind === "wait"
+        ? { kind: "wait", input: { observation_id: "obs-1", ref: "@obs-1:e1" } }
+        : { kind },
   });
   if (request.operation !== "computer.execute") throw new Error("unexpected tool operation");
   return request;
@@ -297,7 +316,7 @@ describe("M1b fixture computer.execute route", () => {
     const off = await fixture(false);
     try {
       const { token } = await paired(off.app);
-      expect((await connect(off.app, token, "web.search,computer.execute")).ready.tool_operations)
+      expect((await connect(off.app, token, "web.search,computer.execute,computer.wait")).ready.tool_operations)
         .toEqual(["web.search"]);
     } finally {
       await off.cleanup();
@@ -307,6 +326,11 @@ describe("M1b fixture computer.execute route", () => {
       const { token } = await paired(on.app);
       expect((await connect(on.app, token, "web.search,computer.execute")).ready.tool_operations)
         .toEqual(["web.search", "computer.execute"]);
+      // The additive marker is echoed only together with computer.execute.
+      expect((await connect(on.app, (await paired(on.app)).token, "web.search,computer.execute,computer.wait"))
+        .ready.tool_operations).toEqual(["web.search", "computer.execute", "computer.wait"]);
+      expect((await connect(on.app, (await paired(on.app)).token, "web.search,computer.wait")).ready.tool_operations)
+        .toEqual(["web.search"]);
       const legacy = await connect(on.app, (await paired(on.app)).token, "web.search");
       expect(legacy.ready.tool_operations).toEqual(["web.search"]);
       const none = await connect(on.app, (await paired(on.app)).token, undefined);
@@ -363,9 +387,9 @@ describe("M1b fixture computer.execute route", () => {
 
       expect(state.authorization()).toHaveBeenCalledTimes(2);
       expect(Object.keys(state.authorization().mock.calls[0]![0]).sort())
-        .toEqual(["bundleId", "capability", "runToken", "scope"]);
+        .toEqual(["bundleId", "capability", "requestKind", "runToken", "scope"]);
       expect(state.authorization().mock.calls[0]![0]).toMatchObject({
-        capability: "computer.observe", bundleId, runToken, scope,
+        capability: "computer.observe", bundleId, runToken, scope, requestKind: "status",
       });
 
       socket.send(JSON.stringify(toolRequest("act", scope, runToken)));
@@ -387,6 +411,117 @@ describe("M1b fixture computer.execute route", () => {
         metadata: expect.objectContaining({ operation: "computer.execute", turn_id: turnId }),
       }));
       expect(await redis.client.exists(localComputerGuiOccupancyKey(device.id))).toBe(1);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("omits requestKind from every encrypted dispatch admission so a pre-change receiver stays compatible", async () => {
+    const state = await fixture(true);
+    try {
+      const { device, token } = await paired(state.app);
+      const { socket } = await connect(state.app, token, "computer.execute");
+      const frames = frameQueue(socket);
+      const binding = await state.transport.connection(device.id);
+      if (!binding) throw new Error("fixture did not negotiate execution");
+      const conversationId = randomUUID();
+      const turnId = randomUUID();
+      const runtimeGeneration = randomUUID();
+      const scope: DesktopRunScope = {
+        ownerId: owner, deviceId: device.id, connectionId: binding.connectionId,
+        conversationId, turnId, runtimeGeneration,
+      };
+      const runToken = await issueRun(
+        state.leases, device.id, binding.connectionId, conversationId, turnId, runtimeGeneration,
+      );
+      const send = vi.spyOn(state.transport, "send");
+      const expectLegacyAdmission = (kind: "status" | "observe" | "act") => {
+        const admission = send.mock.calls.at(-1)?.[3];
+        const wire = JSON.parse(JSON.stringify(admission)) as unknown;
+        const parsed = preChangeDispatchAdmissionSchema.safeParse(wire);
+        expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+        expect(admission).not.toHaveProperty("requestKind");
+        expect(admission).toMatchObject({
+          capability: kind === "act" ? "computer.act" : "computer.observe",
+        });
+        expect(state.verifyDispatch.mock.lastCall?.[0]).toMatchObject({ requestKind: kind });
+      };
+
+      socket.send(JSON.stringify(toolRequest("status", scope, runToken)));
+      const status = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("status");
+      socket.send(JSON.stringify(commandResult(status, {
+        kind: "status", result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+      })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("observe");
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("act", scope, runToken)));
+      const act = commandOf(await frames.until(isCommand));
+      expectLegacyAdmission("act");
+      socket.send(JSON.stringify(commandResult(act, {
+        kind: "act", result: { ok: true, effect: "done", waited_ms: 1 },
+      })));
+      await frames.until(isToolResult);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("forwards one typed wait on the adopted fixture holder without a native call", async () => {
+    const state = await fixture(true);
+    try {
+      const { device, token } = await paired(state.app);
+      const { socket } = await connect(state.app, token, "computer.execute,computer.wait");
+      const frames = frameQueue(socket);
+      const binding = await state.transport.connection(device.id);
+      if (!binding) throw new Error("fixture did not negotiate execution");
+      const conversationId = randomUUID();
+      const turnId = randomUUID();
+      const runtimeGeneration = randomUUID();
+      const scope: DesktopRunScope = {
+        ownerId: owner, deviceId: device.id, connectionId: binding.connectionId,
+        conversationId, turnId, runtimeGeneration,
+      };
+      const runToken = await issueRun(
+        state.leases, device.id, binding.connectionId, conversationId, turnId, runtimeGeneration,
+      );
+      const send = vi.spyOn(state.transport, "send");
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      socket.send(JSON.stringify(toolRequest("wait", scope, runToken)));
+      const wait = commandOf(await frames.until(isCommand));
+      expect(send.mock.lastCall?.[3]).not.toHaveProperty("requestKind");
+      expect(state.verifyDispatch.mock.lastCall?.[0]).toMatchObject({ requestKind: "wait" });
+      expect(wait.body).toMatchObject({
+        session_id: observe.body.session_id, selection_id: selectionId, holder_id: observe.body.holder_id,
+        request: { kind: "wait", input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 } },
+      });
+      expect(await redis.client.keys("linksense:desktop-native-call:*")).toHaveLength(0);
+      socket.send(JSON.stringify(commandResult(wait, {
+        kind: "wait", result: { result: "met", waited_ms: 4 },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "wait", result: { result: "met", waited_ms: 4 } },
+      });
+      expect(await redis.client.exists(localComputerGuiOccupancyKey(device.id))).toBe(1);
+      expect(await redis.client.exists(desktopComputerFixtureBindingKey(scope))).toBe(1);
+      expect(state.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+        action: "desktop_tool_requested", result: "success",
+        metadata: expect.objectContaining({ operation: "computer.execute" }),
+      }));
+      const lastAudit = JSON.stringify(state.audit.mock.lastCall);
+      expect(lastAudit).not.toContain("computer_action");
+      expect(lastAudit).not.toContain("obs-1");
+      expect(lastAudit).not.toContain("@obs-1:e1");
     } finally {
       await state.cleanup();
     }

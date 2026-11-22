@@ -41,12 +41,54 @@ type computerExecutorGate struct {
 	// A fresh install replaces it and the tombstone deadline bounds it.
 	retiredBinding m1bComputerSelection
 	retiredUntil   time.Time
+
+	// grant is the cancellation lifetime of one exact acknowledged selection.
+	// The host derives an admitted wait's work/publication context from it, so
+	// closing, expiring or renewing that same grant also aborts the bounded
+	// final socket write instead of only the driver call. grantSelection is the
+	// exact identity+expiry it belongs to; a stale transition for an older
+	// expiry can never cancel a newer read.
+	grant          context.Context
+	grantCancel    context.CancelFunc
+	grantSelection m1bComputerSelection
 }
 
 func (gate *computerExecutorGate) selection() m1bComputerSelection {
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
 	return gate.selectionLocked(time.Now())
+}
+
+// waitPublicationContext returns the context of the exact grant the host
+// admitted this wait under. It remains available after cancellation so a wait
+// dispatch racing the transition observes the closed grant rather than falling
+// back to the transport context. A different identity or expiry gets no
+// context and is fenced by the existing exact selection check.
+func (gate *computerExecutorGate) waitPublicationContext(selection m1bComputerSelection) (context.Context, bool) {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	if gate.grant == nil || !sameComputerBinding(gate.grantSelection, selection) {
+		return nil, false
+	}
+	return gate.grant, true
+}
+
+// startGrantLocked installs the cancellation lifetime for the exact current
+// grant. The previous lifetime is canceled first, so no publication admitted
+// under it survives the transition, including one already blocked in a write.
+func (gate *computerExecutorGate) startGrantLocked(selection m1bComputerSelection) {
+	gate.cancelGrantLocked()
+	grant, cancel := context.WithCancel(context.Background())
+	gate.grant = grant
+	gate.grantCancel = cancel
+	gate.grantSelection = selection
+}
+
+func (gate *computerExecutorGate) cancelGrantLocked() {
+	if gate.grantCancel != nil {
+		gate.grantCancel()
+		gate.grantCancel = nil
+	}
 }
 
 func (gate *computerExecutorGate) selectionLocked(now time.Time) m1bComputerSelection {
@@ -83,6 +125,25 @@ func (gate *computerExecutorGate) observe(ctx context.Context, selection m1bComp
 		return m1bComputerFailure(failure)
 	}
 	return inner.observe(ctx, selection)
+}
+
+// wait admits one read-only wait through the same open-boundary and exact
+// binding check as observe/act. It consumes no act proof, sets no act slot, and
+// is canceled through the executor's active-input run when input closes.
+func (gate *computerExecutorGate) wait(ctx context.Context, selection m1bComputerSelection, input m1bComputerWait) m1bComputerResult {
+	if ctx == nil {
+		return m1bComputerFailure("COMPUTER_INVALID")
+	}
+	gate.mu.Lock()
+	inner, failure := gate.readableLocked(selection)
+	gate.mu.Unlock()
+	if failure != "" {
+		return m1bComputerFailure(failure)
+	}
+	if selection.ExpiresAt.IsZero() || !time.Now().Before(selection.ExpiresAt) {
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	return inner.wait(ctx, selection, input)
 }
 
 func (gate *computerExecutorGate) act(ctx context.Context, selection m1bComputerSelection, nativeCallID string, input m1bComputerAct) m1bComputerResult {
@@ -173,6 +234,7 @@ func (gate *computerExecutorGate) install(executor computerProductExecutor) {
 	gate.actDone = nil
 	gate.retiredBinding = m1bComputerSelection{}
 	gate.retiredUntil = time.Time{}
+	gate.startGrantLocked(executor.selection())
 	gate.mu.Unlock()
 }
 
@@ -183,11 +245,21 @@ func (gate *computerExecutorGate) resume(executor computerProductExecutor, selec
 	if !current {
 		return errComputerUnavailable
 	}
+	// Close the old exact grant before the binding transition so a result
+	// already in the bounded write path cannot publish under the old grant.
+	gate.mu.Lock()
+	if gate.inner != executor {
+		gate.mu.Unlock()
+		return errComputerUnavailable
+	}
+	gate.cancelGrantLocked()
+	gate.mu.Unlock()
 	if err := executor.selectHostSelection(selection); err != nil {
 		return err
 	}
 	gate.mu.Lock()
 	if gate.inner == executor {
+		gate.startGrantLocked(selection)
 		gate.inputOpen = true
 	}
 	gate.mu.Unlock()
@@ -201,29 +273,36 @@ func (gate *computerExecutorGate) closeInputIf(executor computerProductExecutor)
 	gate.mu.Lock()
 	if gate.inner == executor {
 		gate.inputOpen = false
+		gate.cancelGrantLocked()
 	}
 	gate.mu.Unlock()
 }
 
 // quiesce closes input, invalidates the exact selection's refs and waits for
 // the in-flight act to become terminal. Both the installed executor and its
-// exact binding must still be the caller's; otherwise the transition is stale
-// and its wait is released immediately without closing input, invalidating or
-// waiting on a newer action (the caller's epoch check then rejects it). The
-// match, input close and actDone capture are
-// one critical section, so a resumed epoch on the same executor is never
-// touched. Invalidation runs synchronously (outside the gate lock) so the
-// executor's preflight is canceled before the caller's network wait starts;
-// the returned channel ends when that exact act is terminal or ctx is done.
+// exact binding, including the acknowledged expiry, must still be the caller's;
+// otherwise the transition is stale and its wait is released immediately
+// without closing input, clearing refs, canceling the renewed grant or waiting
+// on a newer action (the caller's epoch check then rejects it). A same-identity
+// renewal therefore makes a pause/stop snapshot carrying the prior expiry
+// harmless, while the existing wire quiesce keeps its id-keyed takeover. The
+// match, input close, grant cancel and actDone capture are one critical
+// section, so a resumed epoch on the same executor is never touched.
+// Invalidation runs synchronously (outside the gate lock) so the executor's
+// preflight is canceled before the caller's network wait starts; the returned
+// channel ends when that exact act is terminal or ctx is done.
 func (gate *computerExecutorGate) quiesce(ctx context.Context, executor computerProductExecutor, selection m1bComputerSelection) <-chan bool {
 	result := make(chan bool, 1)
 	gate.mu.Lock()
-	if gate.inner != executor || gate.inner.selection().bindingKey() != selection.bindingKey() {
+	if gate.inner != executor || !sameComputerBinding(gate.inner.selection(), selection) {
 		gate.mu.Unlock()
 		result <- true
 		return result
 	}
 	gate.inputOpen = false
+	// This snapshot is the exact current binding, so its grant is the current
+	// publication lifetime and must be closed with the input.
+	gate.cancelGrantLocked()
 	done := gate.actDone
 	gate.mu.Unlock()
 	executor.invalidate(selection)
@@ -251,7 +330,8 @@ func (gate *computerExecutorGate) open() bool {
 }
 
 // busy reports whether one exact act is inside the gate. A renewal must leave
-// an admitted input exactly as it is.
+// an admitted act exactly as it is. A read-only wait intentionally does not set
+// this slot; the executor's generation cancellation fences it instead.
 func (gate *computerExecutorGate) busy() bool {
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
@@ -278,7 +358,15 @@ func (gate *computerExecutorGate) renew(executor computerProductExecutor, select
 	if gate.actDone != nil {
 		return errComputerBusy
 	}
-	return executor.selectHostSelection(selection)
+	// Cancel before the rebind: a wait result blocked in the final write must
+	// observe the closed grant, while a later read for the renewed expiry gets
+	// the fresh lifetime installed below.
+	gate.cancelGrantLocked()
+	if err := executor.selectHostSelection(selection); err != nil {
+		return err
+	}
+	gate.startGrantLocked(selection)
+	return nil
 }
 
 // detachIf releases only the exact executor a product transition owns. An
@@ -289,6 +377,7 @@ func (gate *computerExecutorGate) detachIf(executor computerProductExecutor) {
 	if gate.inner == executor {
 		gate.inner = nil
 		gate.inputOpen = false
+		gate.cancelGrantLocked()
 	}
 	gate.mu.Unlock()
 }
@@ -302,6 +391,7 @@ func (gate *computerExecutorGate) retireBinding(executor computerProductExecutor
 	if gate.inner == executor {
 		gate.inner = nil
 		gate.inputOpen = false
+		gate.cancelGrantLocked()
 		gate.retiredBinding = selection
 		gate.retiredUntil = m1bComputerTombstoneDeadline(selection, time.Now())
 	}

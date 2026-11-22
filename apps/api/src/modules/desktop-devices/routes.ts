@@ -28,6 +28,8 @@ import {
   desktopProtocolVersion,
   desktopToolCancelSchema,
   desktopNegotiatedOperationSchema,
+  desktopComputerExecuteOperation,
+  desktopComputerWaitOperation,
   desktopToolProtocolVersion,
   type DesktopNegotiatedOperation,
 } from "@linksense/shared";
@@ -208,7 +210,12 @@ export async function registerDesktopDeviceRoutes(
                 ? options.artifactTools && options.websiteArtifacts === true && offered.has("artifact.prepare")
                 : operation === "computer.execute"
                   ? options.computerExecute === true
-                  : options.knowledgeTools)));
+                  : operation === desktopComputerWaitOperation
+                    // The marker rides the product Mac lane and is echoed only
+                    // together with computer.execute; an old Mac/API list is
+                    // otherwise unchanged.
+                    ? options.computerExecute === true && offered.has(desktopComputerExecuteOperation)
+                    : options.knowledgeTools)));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);

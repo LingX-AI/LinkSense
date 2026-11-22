@@ -6,7 +6,8 @@ package main
 //
 // Scope: inventory -> the user pins one existing accessible window -> observe
 // that pinned identity -> click or type a ref from that exact observation ->
-// read the effect back. The product reaches this driver only through
+// read the effect back, or run one bounded read-only actionability wait on a
+// ref from that exact observation. The product reaches this driver only through
 // computer_platform_darwin.go, which builds it on demand after the user's
 // select gesture, behind the platform gate. There is no direct renderer or MCP
 // entry point and no startup probing. All types and the constructor are
@@ -41,15 +42,21 @@ package main
 // single-use host authorization; this driver models no rival approval layer.
 //
 // Provenance and host effects (agent-desktop v1.3.1): the driver runs only
-// status, permissions, list-apps, list-windows, snapshot, click and type. It
-// never passes --headed, --trace, --screenshot, launch, clipboard, batch, or
+// status, permissions, list-apps, list-windows, snapshot, click, type and wait.
+// It never passes --headed, --trace, --screenshot, launch, clipboard, batch, or
 // arbitrary --arg/--env/--cwd/--cdp values. Inventory makes one unscoped
 // list-apps call and one unscoped list-windows call, then joins an exact
 // (pid, process_instance) pair to an exact bundle_id. WindowInfo has app_name
-// but no bundle_id, so the bundle can only be proven by that join. Observe and
-// Act never read unscoped: every list-apps, list-windows, and snapshot call is
-// scoped by the pinned bundle_id and must reproduce the pinned window_id, pid,
-// and process_instance. The checksum-pinned clipboard helper is
+// but no bundle_id, so the bundle can only be proven by that join. Observe,
+// Act, and Wait never read unscoped: every list-apps, list-windows, and
+// snapshot call is scoped by the pinned bundle_id and must reproduce the
+// pinned window_id, pid, and process_instance. Wait reuses the session's saved
+// refmap and runs one fixed `wait --element <ref> --predicate actionable
+// --timeout <ms>` invocation without --app/--window/--text/--value/--action/
+// --count/--event/--menu/--notification/--timeout-ms. Its native success
+// envelope carries no window or process identity, so Wait re-proves the exact
+// pinned identity immediately before and after the read. The checksum-pinned
+// clipboard helper is
 // unused here; v1.3.1 spawns it only for clipboard commands, in its own
 // process group, and reaps it. Every invocation also runs upstream
 // stop_legacy_command_hosts, which scans for same-uid processes carrying the
@@ -119,6 +126,10 @@ const (
 	computerListWindowsTimeoutMS      = 5000
 	computerSnapshotTimeoutMS         = 5000
 	computerActionTimeoutMS           = 15000
+	computerWaitMinTimeoutMS          = 100
+	computerWaitDefaultTimeoutMS      = 8000
+	computerWaitMaxTimeoutMS          = 20000
+	computerWaitProcessGrace          = 1 * time.Second
 	computerStatusProcessTimeout      = 10 * time.Second
 	computerPermissionsProcessTimeout = 10 * time.Second
 	computerListWindowsProcessTimeout = 10 * time.Second
@@ -168,22 +179,21 @@ const (
 )
 
 var (
-	// v1.3.1 validates a snapshot id as 3-64 ASCII letters, digits, '-' or '_'
-	// and a ref as @<snapshot_id>:e<digits>. The driver additionally requires
-	// every ref prefix to equal the snapshot id it just observed.
-	computerRefPattern      = regexp.MustCompile(`^@[A-Za-z0-9_-]{3,64}:e[0-9]{1,10}$`)
+	// v1.3.1 validates a snapshot id as 3-64 ASCII letters, digits, '-' or '_'.
 	computerSnapshotPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,64}$`)
 )
 
 // computerDriverAPI is deliberately narrow and package-private. Status,
-// Inventory, and Observe are read-only; Act is the only GUI mutation; Close
-// releases the driver-owned state root and must be called exactly once by the
-// owner.
+// Inventory, Observe, and Wait are read-only; Act is the only GUI mutation;
+// Close releases the driver-owned state root and must be called exactly once
+// by the owner.
 type computerDriverAPI interface {
 	Status(ctx context.Context) (computerStatus, error)
 	Inventory(ctx context.Context) (computerInventory, error)
 	Observe(ctx context.Context, target computerTarget) (computerObservation, error)
+	Wait(ctx context.Context, request computerWaitRequest) (computerWaitResult, error)
 	Act(ctx context.Context, action computerAction) (computerActionResult, error)
+	Invalidate()
 	Close() error
 }
 
@@ -334,6 +344,23 @@ type computerActionResult struct {
 // approval layer; it enforces only the ref, target identity, resource and
 // no-retry fences. Cancel the context on pause, stop, expiry, or task end.
 
+// computerWaitRequest is the fixed read-only element wait: one ref from the
+// exact latest observation and a bounded timeout. The predicate is always
+// actionable; no selector, app, window, text, value, action, event, or count
+// is accepted from a caller.
+type computerWaitRequest struct {
+	ObservationID string
+	Ref           string
+	TimeoutMS     int
+}
+
+// computerWaitResult reports only the bounded predicate outcome. A native
+// wait timeout is a normal observation (timed_out), not a driver error.
+type computerWaitResult struct {
+	Result   string
+	WaitedMS int
+}
+
 type computerCommandResult struct {
 	stdout   []byte
 	exitCode int
@@ -439,6 +466,17 @@ type cliCapturedRef struct {
 // cliCapturedRefMap is the persisted RefMap envelope (refs/mod.rs:40-44).
 type cliCapturedRefMap struct {
 	Inner map[string]cliCapturedRef `json:"inner"`
+}
+
+// cliWaitData is the identity-only slice of the v1.3.1 element wait success
+// envelope (commands/wait_element.rs:64-72). The predicate-specific observed
+// object is deliberately not decoded, so no captured AX text can enter the
+// driver, and nothing here carries window or process identity.
+type cliWaitData struct {
+	Found     bool   `json:"found"`
+	Ref       string `json:"ref"`
+	Predicate string `json:"predicate"`
+	ElapsedMS int64  `json:"elapsed_ms"`
 }
 
 type cliNode struct {
@@ -1160,6 +1198,163 @@ func (d *computerDriver) Act(ctx context.Context, action computerAction) (comput
 		actionErr = markActionErrorSent(actionErr)
 	}
 	return result, actionErr
+}
+
+// Wait runs one bounded read-only actionability wait on a ref from the exact
+// latest observation. It reuses the observation's session/refmap, the fixed
+// sandbox, and the existing process-group cancellation, but sends no input and
+// stores no new observation or refs. A native predicate expiry is returned as
+// timed_out; a driver-side process bound, native deadline, protocol error,
+// pin mismatch, or parent cancellation is a distinct error, never a retry.
+func (d *computerDriver) Wait(ctx context.Context, request computerWaitRequest) (computerWaitResult, error) {
+	if ctx == nil {
+		return computerWaitResult{}, invalidArgument()
+	}
+	timeoutMS := request.TimeoutMS
+	if timeoutMS == 0 {
+		timeoutMS = computerWaitDefaultTimeoutMS
+	}
+	if !validObservationID(request.ObservationID) || !computerRefPattern.MatchString(request.Ref) ||
+		timeoutMS < computerWaitMinTimeoutMS || timeoutMS > computerWaitMaxTimeoutMS {
+		return computerWaitResult{}, invalidArgument()
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return computerWaitResult{}, driverError(computerErrorClosed)
+	}
+	if err := ctx.Err(); err != nil {
+		return computerWaitResult{}, err
+	}
+	observation := d.latest
+	if observation == nil {
+		return computerWaitResult{}, driverError(computerErrorNoObservation)
+	}
+	if request.ObservationID != observation.ID {
+		return computerWaitResult{}, driverError(computerErrorStaleObservation)
+	}
+	if !strings.HasPrefix(request.Ref, "@"+observation.SnapshotID+":") {
+		return computerWaitResult{}, driverError(computerErrorStaleRef)
+	}
+	if _, ok := observation.refs[request.Ref]; !ok {
+		return computerWaitResult{}, driverError(computerErrorStaleRef)
+	}
+
+	window, err := d.resolveWindow(ctx, observation.Target)
+	if err != nil {
+		d.latest = nil
+		if isTargetGone(err) {
+			return computerWaitResult{}, targetChanged()
+		}
+		return computerWaitResult{}, err
+	}
+	if !sameWindow(observation.Window, window) {
+		d.latest = nil
+		return computerWaitResult{}, targetChanged()
+	}
+	// Accessibility and target identity are proven immediately before the
+	// read. The native wait itself carries no window identity, so the exact
+	// same identity is proven again below before any result is published.
+	if err := d.requireAccessibility(ctx); err != nil {
+		d.latest = nil
+		return computerWaitResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return computerWaitResult{}, err
+	}
+
+	args := d.baseArgs("wait",
+		"--element", request.Ref,
+		"--predicate", computerWaitPredicateActionable,
+		"--timeout", strconv.Itoa(timeoutMS))
+	command, err := d.run(ctx, time.Duration(timeoutMS)*time.Millisecond+computerWaitProcessGrace, nil, args...)
+	if !command.started {
+		if err == nil {
+			err = sandboxUnavailable()
+		}
+		return computerWaitResult{}, err
+	}
+	if err != nil {
+		// A parent cancellation or the driver's own process bound is not a
+		// native predicate result and is never retried.
+		return computerWaitResult{}, err
+	}
+	envelope, err := decodeEnvelope(command, "wait")
+	if err != nil {
+		return computerWaitResult{}, err
+	}
+
+	var result computerWaitResult
+	if envelope.OK {
+		var data cliWaitData
+		if json.Unmarshal(envelope.Data, &data) != nil || !data.Found ||
+			data.Ref != request.Ref || data.Predicate != computerWaitPredicateActionable ||
+			data.ElapsedMS < 0 || data.ElapsedMS > int64(timeoutMS) {
+			return computerWaitResult{}, protocolError()
+		}
+		result = computerWaitResult{Result: computerWaitMet, WaitedMS: int(data.ElapsedMS)}
+	} else {
+		code := envelope.Error.Code
+		agentCode, agentKind := stableCLICode(envelope.Error), cliErrorKind(envelope.Error)
+		switch code {
+		case "TIMEOUT":
+			// Only the wait's own bounded predicate expiry is a normal
+			// timed_out observation. A different native deadline stays an
+			// error so it cannot be mistaken for the requested bound.
+			var details struct {
+				Kind      string `json:"kind"`
+				Ref       string `json:"ref"`
+				Predicate string `json:"predicate"`
+				TimeoutMS *int64 `json:"timeout_ms"`
+			}
+			if json.Unmarshal(envelope.Error.Details, &details) == nil &&
+				details.Kind == "wait_timeout" && details.Ref == request.Ref &&
+				details.Predicate == computerWaitPredicateActionable &&
+				details.TimeoutMS != nil && *details.TimeoutMS == int64(timeoutMS) {
+				result = computerWaitResult{Result: computerWaitTimedOut, WaitedMS: timeoutMS}
+				break
+			}
+			return computerWaitResult{}, &computerDriverError{
+				Code: computerErrorTimeout, AgentCode: agentCode, AgentKind: agentKind,
+			}
+		case "STALE_REF":
+			d.latest = nil
+			return computerWaitResult{}, &computerDriverError{
+				Code: computerErrorStaleRef, AgentCode: agentCode, AgentKind: agentKind,
+			}
+		case "AMBIGUOUS_TARGET":
+			d.latest = nil
+			return computerWaitResult{}, &computerDriverError{
+				Code: computerErrorTargetChanged, AgentCode: agentCode, AgentKind: agentKind,
+			}
+		case "PERM_DENIED":
+			d.latest = nil
+			return computerWaitResult{}, &computerDriverError{
+				Code: computerErrorAccessDenied, AgentCode: agentCode, AgentKind: agentKind,
+			}
+		default:
+			return computerWaitResult{}, &computerDriverError{
+				Code: computerErrorCommandFailed, AgentCode: agentCode, AgentKind: agentKind,
+			}
+		}
+	}
+
+	// The externally reported result is attributed to the selected live window
+	// only while the pinned bundle/window/pid/process instance still resolves
+	// exactly. A successor or unprovable identity suppresses met and timed_out.
+	after, err := d.resolveWindow(ctx, observation.Target)
+	if err != nil {
+		d.latest = nil
+		if isTargetGone(err) {
+			return computerWaitResult{}, targetChanged()
+		}
+		return computerWaitResult{}, err
+	}
+	if !sameWindow(observation.Window, after) {
+		d.latest = nil
+		return computerWaitResult{}, targetChanged()
+	}
+	return result, nil
 }
 
 func postActionReadback(result computerActionResult) bool {

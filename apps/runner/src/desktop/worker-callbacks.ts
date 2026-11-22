@@ -368,7 +368,7 @@ function artifactFailure(error: unknown): FileServiceRequestError {
 
 function computerToolFailure(
   code: Extract<DesktopToolResult, { ok: false }>["error_code"],
-  kind: "status" | "observe" | "act",
+  kind: "status" | "observe" | "act" | "wait",
 ): ComputerFailureCode {
   if (code === "FORBIDDEN") return "COMPUTER_ACCESS_DENIED"
   if (code === "RUNNER_OPERATION_UNCERTAIN") {

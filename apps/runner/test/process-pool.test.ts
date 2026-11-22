@@ -3199,6 +3199,102 @@ trust_level = "trusted"
     }
   })
 
+  it("relays a read-only computer_wait only when the worker negotiated it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-wait-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true,
+      desktopComputerWaitEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      const declaredCoreEnv = controlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars="));
+      expect(declaredCoreEnv).toContain("LINKSENSE_COMPUTER_WAIT");
+      expect(controlled.environment?.LINKSENSE_COMPUTER_WAIT).toBe("1");
+      // The read-only tool never gets the act approval mode.
+      expect(controlled.args ?? []).not.toContain(
+        'mcp_servers.linksense_core.tools.computer_wait.approval_mode="prompt"',
+      );
+      const token = controlled.environment?.LINKSENSE_COMPUTER_TOKEN;
+      if (!token) throw new Error("Missing computer token");
+      if (!eventSink.computerExecute) throw new Error("computer relay is unavailable");
+      const request = {
+        kind: "wait" as const,
+        input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 },
+      };
+      eventSink.computerExecute.mockResolvedValueOnce({
+        kind: "wait", result: { result: "met", waited_ms: 3 },
+      });
+      await expect(pool.computerExecute(
+        input.conversationId, token, request, new AbortController().signal,
+      )).resolves.toEqual({ kind: "wait", result: { result: "met", waited_ms: 3 } });
+      expect(eventSink.computerExecute).toHaveBeenCalledWith(expect.objectContaining({
+        conversationId: input.conversationId,
+        turnId: input.projectionTurnId,
+        input: request,
+      }));
+      expect(eventSink.computerExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.closeAll();
+    }
+  })
+
+  it("denies wait on an unnegotiated worker and on Plan without an approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-wait-denied-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      expect(controlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars=")))
+        .not.toContain("LINKSENSE_COMPUTER_WAIT");
+      const token = controlled.environment?.LINKSENSE_COMPUTER_TOKEN;
+      if (!token) throw new Error("Missing computer token");
+      const request = {
+        kind: "wait" as const,
+        input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 },
+      };
+      await expect(pool.computerExecute(
+        input.conversationId, token, request, new AbortController().signal,
+      )).resolves.toEqual({ kind: "failure", error: "COMPUTER_UNAVAILABLE" });
+      expect(eventSink.computerExecute).not.toHaveBeenCalled();
+    } finally {
+      await pool.closeAll();
+    }
+
+    const planRoot = await mkdtemp(join(tmpdir(), "linksense-mac-computer-wait-plan-"));
+    roots.push(planRoot);
+    const planControlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const plan = createStartOperationPool(planRoot, planControlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true,
+      desktopComputerWaitEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await plan.pool.startTurn({ ...input, collaborationMode: "plan" });
+      expect(planControlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars=")))
+        .not.toContain("LINKSENSE_COMPUTER_WAIT");
+      const token = planControlled.environment?.LINKSENSE_COMPUTER_TOKEN;
+      if (!token) throw new Error("Missing computer token");
+      await expect(plan.pool.computerExecute(
+        input.conversationId, token,
+        { kind: "wait", input: { observation_id: "obs-1", ref: "@obs-1:e1", timeout_ms: 8_000 } },
+        new AbortController().signal,
+      )).resolves.toEqual({ kind: "failure", error: "COMPUTER_ACCESS_DENIED" });
+      expect(plan.eventSink.computerExecute).not.toHaveBeenCalled();
+    } finally {
+      await plan.pool.closeAll();
+    }
+  })
+
   it("does not advertise an approval or relay without computer negotiation", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-unnegotiated-"));
     roots.push(root);
@@ -13357,6 +13453,7 @@ function createStartOperationPool(
     desktopWorkspace?: boolean;
     desktopBrowserEnabled?: boolean;
     desktopComputerEnabled?: boolean;
+    desktopComputerWaitEnabled?: boolean;
     desktopNativeApprovalsEnabled?: boolean;
     desktopArtifactsEnabled?: boolean;
     desktopArtifactsWebsiteEnabled?: boolean;
@@ -13413,6 +13510,7 @@ function createStartOperationPool(
     ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
     ...(overrides.desktopBrowserEnabled ? { desktopBrowserEnabled: true } : {}),
     ...(overrides.desktopComputerEnabled ? { desktopComputerEnabled: true } : {}),
+    ...(overrides.desktopComputerWaitEnabled ? { desktopComputerWaitEnabled: true } : {}),
     ...(overrides.desktopNativeApprovalsEnabled ? { desktopNativeApprovalsEnabled: true } : {}),
     ...(overrides.desktopArtifactsEnabled ? { desktopArtifactsEnabled: true } : {}),
     ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),

@@ -52,6 +52,14 @@ type joinedExecutorStats struct {
 	Mutations      int      `json:"mutations"`
 	ActRefs        []string `json:"act_refs"`
 	ActNativeIDs   []string `json:"act_native_ids"`
+	Waits          int      `json:"waits"`
+	WaitMet        int      `json:"wait_met"`
+	WaitTimedOut   int      `json:"wait_timed_out"`
+	WaitFailed     int      `json:"wait_failed"`
+	WaitInFlight   int      `json:"wait_in_flight"`
+	WaitRefs       []string `json:"wait_refs"`
+	WaitObservIDs  []string `json:"wait_observation_ids"`
+	WaitTimeouts   []int    `json:"wait_timeouts"`
 	Closed         bool     `json:"closed"`
 }
 
@@ -66,6 +74,14 @@ type joinedComputerExecutor struct {
 	mutations      int
 	actRefs        []string
 	actNativeIDs   []string
+	waits          int
+	waitMet        int
+	waitTimedOut   int
+	waitFailed     int
+	waitInFlight   int
+	waitRefs       []string
+	waitObservIDs  []string
+	waitTimeouts   []int
 	closed         bool
 }
 
@@ -137,6 +153,56 @@ func (executor *joinedComputerExecutor) observe(context.Context, m1bComputerSele
 	})
 }
 
+// wait is the single synthetic actionability predicate. e1 is actionable and
+// returns met; e2 never becomes actionable and returns timed_out after the
+// caller's bounded timeout. Waits are read-only: unlike act they do not clear
+// the observation, mutate the fixture, claim a native call, or authorize input.
+// The work context is honored while the predicate timer is pending.
+func (executor *joinedComputerExecutor) wait(
+	ctx context.Context, _ m1bComputerSelection, input m1bComputerWait,
+) m1bComputerResult {
+	executor.mu.Lock()
+	if executor.observation == "" || input.ObservationID != executor.observation {
+		executor.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_STALE_OBSERVATION")
+	}
+	if input.Ref != "@joined:e1" && input.Ref != "@joined:e2" {
+		executor.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_STALE_REF")
+	}
+	executor.waits++
+	executor.waitInFlight++
+	executor.waitRefs = append(executor.waitRefs, input.Ref)
+	executor.waitObservIDs = append(executor.waitObservIDs, input.ObservationID)
+	executor.waitTimeouts = append(executor.waitTimeouts, input.TimeoutMS)
+	executor.mu.Unlock()
+	defer func() {
+		executor.mu.Lock()
+		executor.waitInFlight--
+		executor.mu.Unlock()
+	}()
+	if input.Ref == "@joined:e1" {
+		executor.mu.Lock()
+		executor.waitMet++
+		executor.mu.Unlock()
+		return m1bComputerWaitOutcome(m1bComputerWaitResult{Result: computerWaitMet, WaitedMS: 1})
+	}
+	timer := time.NewTimer(time.Duration(input.TimeoutMS) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		executor.mu.Lock()
+		executor.waitFailed++
+		executor.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	case <-timer.C:
+	}
+	executor.mu.Lock()
+	executor.waitTimedOut++
+	executor.mu.Unlock()
+	return m1bComputerWaitOutcome(m1bComputerWaitResult{Result: computerWaitTimedOut, WaitedMS: input.TimeoutMS})
+}
+
 func (executor *joinedComputerExecutor) act(
 	_ context.Context, _ m1bComputerSelection, nativeCallID string, input m1bComputerAct,
 ) m1bComputerResult {
@@ -178,7 +244,12 @@ func (executor *joinedComputerExecutor) stats() joinedExecutorStats {
 		Authorizations: executor.authorizations, Mutations: executor.mutations,
 		ActRefs:      append([]string(nil), executor.actRefs...),
 		ActNativeIDs: append([]string(nil), executor.actNativeIDs...),
-		Closed:       executor.closed,
+		Waits:        executor.waits, WaitMet: executor.waitMet, WaitTimedOut: executor.waitTimedOut,
+		WaitFailed: executor.waitFailed, WaitInFlight: executor.waitInFlight,
+		WaitRefs:      append([]string(nil), executor.waitRefs...),
+		WaitObservIDs: append([]string(nil), executor.waitObservIDs...),
+		WaitTimeouts:  append([]int(nil), executor.waitTimeouts...),
+		Closed:        executor.closed,
 	}
 }
 
@@ -394,6 +465,43 @@ func TestJoinedComputerGateway(t *testing.T) {
 		default:
 			emit(map[string]any{"event": "error", "error": "JOINED_INVALID_ACTION"})
 		}
+	}
+}
+
+// TestJoinedComputerWaitOfferAndOldReady proves the additive capability is
+// offered by the new Mac only when the product computer host exists, while the
+// same bridge still accepts an older ready frame that lists only
+// computer.execute. It reuses the existing fixture socket/server seam and never
+// touches a real driver, window, permission or GUI.
+func TestJoinedComputerWaitOfferAndOldReady(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	host := newM1BComputerHost(newFixtureComputerExecutor(selection))
+	server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+	run := startComputerFixture(t, server, sockets, credential, host)
+	for _, operation := range []string{m1bComputerOperation, "computer.wait"} {
+		if !strings.Contains(run.socket.offer, operation) {
+			t.Fatalf("the new Mac did not offer %s: %q", operation, run.socket.offer)
+		}
+	}
+	// The older ready frame deliberately omits the additive marker. The same
+	// bridge still reaches normal execution readiness, so an old API/Mac pair is
+	// not asked to upgrade or disconnected by the new offer.
+	if status := run.connection.Status(); !status.ExecutionReady || status.ErrorCode != "" {
+		t.Fatalf("an old ready frame without computer.wait was not accepted: %+v", status)
+	}
+
+	// Without the installed product host the additive wait marker is not
+	// offered at all, so an older/no-host Mac keeps the previous readiness
+	// shape and an old API sees only the operations it already knows.
+	serverWithoutHost, socketsWithoutHost := newComputerFixtureServer(
+		t, credential, fixtureReadyOperations, []string{fixtureLink})
+	withoutHost := startComputerFixture(t, serverWithoutHost, socketsWithoutHost, credential, nil)
+	if strings.Contains(withoutHost.socket.offer, "computer.") {
+		t.Fatalf("a host-less fixture still offered a computer capability: %q", withoutHost.socket.offer)
+	}
+	if status := withoutHost.connection.Status(); status.ComputerReady {
+		t.Fatalf("a host-less fixture claimed computer readiness: %+v", status)
 	}
 }
 

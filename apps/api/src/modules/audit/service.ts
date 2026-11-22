@@ -26,6 +26,8 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "device_id",
     "browser_action",
     "computer_action",
+    "computer_request",
+    "delivery",
     "duration_ms",
     "reason_code",
   ],
