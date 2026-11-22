@@ -4,21 +4,25 @@ package main
 
 // Private macOS computer-use driver slice.
 //
-// Scope: status -> observe a caller-trusted window identity -> click or type a
-// ref from that exact observation -> read the effect back. This file is not
-// wired to IPC, MCP, a dispatcher, or application boot. All types and the
-// constructor are package-private; there is no renderer/model-reachable entry
-// point and no environment, PATH, shell, or flag passthrough.
+// Scope: inventory -> the user pins one existing accessible window -> observe
+// that pinned identity -> click or type a ref from that exact observation ->
+// read the effect back. The product reaches this driver only through
+// computer_platform_darwin.go, which builds it on demand after the user's
+// select gesture, behind the platform gate. There is no direct renderer or MCP
+// entry point and no startup probing. All types and the constructor are
+// package-private; there is no environment, PATH, shell, or flag passthrough.
 //
 // Trust boundary: the caller supplies a trusted runtime root, a host-owned
-// state parent, and an explicit runtime proof. Only the prepared boundary is
-// supported: the runtime manifest fields and file hashes produced by
-// scripts/desktop-resources.mjs. That boundary is fake-tested and makes no
-// code-signature or signed-AX claim. Signed proof is recognized but
-// fail-closed until the existing verified installer/build path can supply it;
-// this driver does not build a second signing trust chain. The driver never
-// adopts an existing state directory: it creates a fresh private child and
-// pins its device/inode.
+// state parent, an explicit runtime proof, and the live task context. Signed
+// proof delegates to the release signer-token verifier in
+// macos_signing_proof_darwin.go, which checks the running .app and both fixed
+// agent-desktop executables; the caller's runtime root must resolve to that
+// canonical bundle runtime or construction fails closed. Developer ID signing
+// rewrites executable bytes, so signed proof never falls back to prepared
+// hashes. Prepared remains the fake-tested manifest-hash boundary used by
+// tests only and makes no code-signature or signed-AX claim. This driver does
+// not build a second signing trust chain. The driver never adopts an existing
+// state directory: it creates a fresh private child and pins its device/inode.
 //
 // Every agent-desktop invocation is wrapped in the one fixed
 // /usr/bin/sandbox-exec profile below; there is no unsandboxed fallback.
@@ -28,18 +32,24 @@ package main
 // turns the pre-parse legacy-host SIGKILL into a no-op and denies the CLI's
 // own signal paths. The process_identity kill(pid,0) fallback is denied if
 // reached, and helper-spawning operations are not exposed. AX/TCC behavior
-// under Seatbelt is unverified; this is a private candidate, not a live
-// feature, and makes no signed AX claim. Permission guidance is an app-UI
-// concern for MyGo permissionflow, never the CLI's --guide.
+// under Seatbelt is unverified; this is a development/test-only path, not
+// production-enabled, and makes no signed AX claim. Permission guidance is an
+// app-UI concern for MyGo permissionflow, never the CLI's --guide.
 //
-// Authority contract: Act takes only the caller's context. The future executor
-// owns live-task, grant, pause/stop, toolCallId/turnId, risk and approval
-// checks. This driver models no rival approval layer.
+// Authority contract: Act takes only the caller's context. The product executor
+// gate owns the live task, grant, pause/stop, toolCallId/turnId binding and the
+// single-use host authorization; this driver models no rival approval layer.
 //
 // Provenance and host effects (agent-desktop v1.3.1): the driver runs only
-// status, permissions, list-windows, snapshot, click and type. It never passes
-// --headed, --trace, --screenshot, launch, clipboard, batch, or arbitrary
-// --arg/--env/--cwd/--cdp values. The checksum-pinned clipboard helper is
+// status, permissions, list-apps, list-windows, snapshot, click and type. It
+// never passes --headed, --trace, --screenshot, launch, clipboard, batch, or
+// arbitrary --arg/--env/--cwd/--cdp values. Inventory makes one unscoped
+// list-apps call and one unscoped list-windows call, then joins an exact
+// (pid, process_instance) pair to an exact bundle_id. WindowInfo has app_name
+// but no bundle_id, so the bundle can only be proven by that join. Observe and
+// Act never read unscoped: every list-apps, list-windows, and snapshot call is
+// scoped by the pinned bundle_id and must reproduce the pinned window_id, pid,
+// and process_instance. The checksum-pinned clipboard helper is
 // unused here; v1.3.1 spawns it only for clipboard commands, in its own
 // process group, and reaps it. Every invocation also runs upstream
 // stop_legacy_command_hosts, which scans for same-uid processes carrying the
@@ -85,9 +95,12 @@ const (
 	computerSandboxExec               = "/usr/bin/sandbox-exec"
 	computerSandboxProfile            = "(version 1) (allow default) (deny signal)"
 	computerRuntimeProofPreparedLabel = "prepared"
+	computerRuntimeProofSignedLabel   = "signed"
 
 	computerMaxAppBytes               = 256
 	computerMaxWindowIDBytes          = 128
+	computerMaxProcessInstanceBytes   = 128
+	computerMaxInventoryWindows       = 256
 	computerMaxActionTextBytes        = 8 * 1024
 	computerMaxObservationElements    = 400
 	computerMaxObservationDepth       = 10
@@ -101,6 +114,7 @@ const (
 	computerMaxRuntimeManifestBytes   = 1 * 1024 * 1024
 	computerMaxRuntimeFileBytes       = 256 * 1024 * 1024
 	computerMaxStdoutBytes            = 8 * 1024 * 1024
+	computerMaxRefmapBytes            = 1 * 1024 * 1024
 	computerMaxStderrBytes            = 64 * 1024
 	computerListWindowsTimeoutMS      = 5000
 	computerSnapshotTimeoutMS         = 5000
@@ -118,7 +132,6 @@ const (
 	computerErrorRuntimeUntrusted    = "COMPUTER_USE_RUNTIME_UNTRUSTED"
 	computerErrorRuntimeProofMissing = "COMPUTER_USE_RUNTIME_PROOF_MISSING"
 	computerErrorRuntimeProofInvalid = "COMPUTER_USE_RUNTIME_PROOF_INVALID"
-	computerErrorRuntimeProofUnwired = "COMPUTER_USE_RUNTIME_PROOF_UNWIRED"
 	computerErrorStateUnavailable    = "COMPUTER_USE_STATE_UNAVAILABLE"
 	computerErrorClosed              = "COMPUTER_USE_CLOSED"
 	computerErrorAccessDenied        = "COMPUTER_USE_ACCESS_DENIED"
@@ -162,11 +175,13 @@ var (
 	computerSnapshotPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,64}$`)
 )
 
-// computerDriverAPI is deliberately narrow and package-private. Status and
-// Observe are read-only; Act is the only GUI mutation; Close releases the
-// driver-owned state root and must be called exactly once by the owner.
+// computerDriverAPI is deliberately narrow and package-private. Status,
+// Inventory, and Observe are read-only; Act is the only GUI mutation; Close
+// releases the driver-owned state root and must be called exactly once by the
+// owner.
 type computerDriverAPI interface {
 	Status(ctx context.Context) (computerStatus, error)
+	Inventory(ctx context.Context) (computerInventory, error)
 	Observe(ctx context.Context, target computerTarget) (computerObservation, error)
 	Act(ctx context.Context, action computerAction) (computerActionResult, error)
 	Close() error
@@ -213,12 +228,40 @@ type computerStatus struct {
 	RuntimeProof        string
 }
 
+// computerTarget is the complete first-use identity pin. A target without all
+// four fields is invalid: Observe and Act must never fall back to a window id,
+// a display name, or a fresh process lookup.
 type computerTarget struct {
-	App      string
-	WindowID string
+	BundleID        string
+	WindowID        string
+	PID             int
+	ProcessInstance string
+}
+
+// computerWindowCandidate is one selectable window for the native selector.
+// AppName and Title are display-only and stay in this process; neither is part
+// of the observation handed back for a run.
+type computerWindowCandidate struct {
+	BundleID        string
+	AppName         string
+	WindowID        string
+	PID             int
+	ProcessInstance string
+	Title           string
+}
+
+// computerInventory reports only windows whose owner was joined to an exact
+// bundle_id by (pid, process_instance). Complete is false when upstream skipped
+// app records, so an absent window is unknown rather than proven absent.
+// Truncated is true when the candidate cap was reached.
+type computerInventory struct {
+	Complete   bool
+	Truncated  bool
+	Candidates []computerWindowCandidate
 }
 
 type computerWindow struct {
+	BundleID        string
 	ID              string
 	PID             int
 	ProcessInstance string
@@ -286,10 +329,10 @@ type computerActionResult struct {
 }
 
 // Authority contract: Act performs one action on the caller-supplied context.
-// The future executor owns the live-task, grant, pause/stop, toolCallId/turnId
-// binding, risk and approval checks. This driver models no rival approval
-// layer; it enforces only the ref, target identity, resource and no-retry
-// fences. Cancel the context on pause, stop, expiry, or task end.
+// The product executor gate owns the live task, grant, pause/stop,
+// toolCallId/turnId binding and host authorization. This driver models no rival
+// approval layer; it enforces only the ref, target identity, resource and
+// no-retry fences. Cancel the context on pause, stop, expiry, or task end.
 
 type computerCommandResult struct {
 	stdout   []byte
@@ -343,9 +386,27 @@ type cliStatusData struct {
 type cliWindow struct {
 	ID              string  `json:"id"`
 	Title           string  `json:"title"`
+	AppName         string  `json:"app_name"`
 	PID             int     `json:"pid"`
 	ProcessInstance *string `json:"process_instance"`
 	Accessible      *bool   `json:"accessible"`
+	Visible         *bool   `json:"visible"`
+	Minimized       *bool   `json:"minimized"`
+}
+
+// cliApp is the v1.3.1 list-apps app record. Only the identity fields are
+// retained; the display name and presentation hint are not needed to join a
+// window owner.
+type cliApp struct {
+	PID             int     `json:"pid"`
+	BundleID        *string `json:"bundle_id"`
+	ProcessInstance *string `json:"process_instance"`
+}
+
+type cliAppInventory struct {
+	Apps     []cliApp          `json:"apps"`
+	Complete *bool             `json:"complete"`
+	Skipped  []json.RawMessage `json:"skipped"`
 }
 
 type cliSnapshotData struct {
@@ -362,6 +423,22 @@ type cliSnapshotData struct {
 type cliSnapshotWindow struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+}
+
+// cliCapturedRef is the identity-only slice of one persisted v1.3.1 RefEntry.
+// RefEntry flattens RefProcess and RefSource (refs/ref_entry.rs:4-18), so
+// "pid", "process_instance", and "source_window_id" are top-level entry
+// fields (refs/ref_process.rs:5-10, refs/ref_source.rs:3-9). Observed text and
+// display names in the same entries are deliberately not decoded.
+type cliCapturedRef struct {
+	PID             int     `json:"pid"`
+	ProcessInstance *string `json:"process_instance"`
+	SourceWindowID  *string `json:"source_window_id"`
+}
+
+// cliCapturedRefMap is the persisted RefMap envelope (refs/mod.rs:40-44).
+type cliCapturedRefMap struct {
+	Inner map[string]cliCapturedRef `json:"inner"`
 }
 
 type cliNode struct {
@@ -394,12 +471,16 @@ type computerRuntimeProofKind int
 const (
 	// Zero value is deliberately missing: no proof, no driver.
 	computerRuntimeProofMissing computerRuntimeProofKind = iota
-	// Prepared is the only supported boundary: the runtime manifest and its
-	// file hashes, as produced by scripts/desktop-resources.mjs. It is the
-	// fake-tested candidate and makes no code-signature or signed-AX claim.
+	// Prepared verifies the runtime manifest fields and file hashes produced
+	// by scripts/desktop-resources.mjs. It exists for fixture tests only and
+	// makes no code-signature or signed-AX claim. Developer ID signing rewrites
+	// executable bytes and their hashes, so prepared proof must never stand in
+	// for a signed release.
 	computerRuntimeProofPrepared
-	// Signed is recognized but fail-closed until the existing verified
-	// installer/build path can hand the driver a signed proof.
+	// Signed verifies the running .app and both fixed agent-desktop
+	// executables through the release signer token, and binds the caller's
+	// runtime root to that canonical bundle runtime. It fails closed and never
+	// falls back to prepared hashes.
 	computerRuntimeProofSigned
 )
 
@@ -411,9 +492,17 @@ type computerRuntimeProof struct {
 
 // newComputerDriverDarwin constructs the private driver. Both roots must come
 // from trusted application code, never from the renderer, model, or user input.
-// The runtime proof is explicit; a missing or invalid proof blocks construction.
-// The state root is created owner-only and removed by Close.
-func newComputerDriverDarwin(runtimeRoot, stateParent string, proof computerRuntimeProof) (*computerDriver, error) {
+// The runtime proof is explicit; a missing, invalid, or unverifiable proof
+// blocks construction. ctx bounds signed runtime verification and must be the
+// live task context, canceled on pause, stop, expiry, or task end. The state
+// root is created owner-only and removed by Close.
+func newComputerDriverDarwin(ctx context.Context, runtimeRoot, stateParent string, proof computerRuntimeProof) (*computerDriver, error) {
+	if ctx == nil {
+		return nil, invalidArgument()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	runtimeRoot, err := cleanAbsolutePath(runtimeRoot)
 	if err != nil {
 		return nil, err
@@ -425,7 +514,7 @@ func newComputerDriverDarwin(runtimeRoot, stateParent string, proof computerRunt
 	if pathWithin(runtimeRoot, stateParent) {
 		return nil, invalidArgument()
 	}
-	binaryPath, helperPath, proofLabel, err := verifyComputerRuntime(runtimeRoot, proof)
+	verifiedRoot, binaryPath, helperPath, proofLabel, err := verifyComputerRuntime(ctx, runtimeRoot, proof)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +529,7 @@ func newComputerDriverDarwin(runtimeRoot, stateParent string, proof computerRunt
 	if err != nil {
 		return nil, err
 	}
-	if pathsOverlap(runtimeRoot, stateRoot) {
+	if pathsOverlap(verifiedRoot, stateRoot) {
 		_ = removeCreatedStateDirectory(stateRoot, stateInfo)
 		return nil, invalidArgument()
 	}
@@ -523,29 +612,35 @@ func verifySandboxExec() error {
 	return nil
 }
 
-func verifyComputerRuntime(runtimeRoot string, proof computerRuntimeProof) (string, string, string, error) {
+// verifyComputerRuntime validates the manifest shape, architecture, version,
+// fixed executable layout, and both executable files. Prepared proof
+// additionally compares the manifest hashes; that boundary is test-only.
+// Signed proof delegates to the release signer-token verifier and binds the
+// caller's runtime root to the canonical runtime of the running .app. It never
+// falls back to prepared hashes.
+func verifyComputerRuntime(ctx context.Context, runtimeRoot string, proof computerRuntimeProof) (string, string, string, string, error) {
 	if proof.Kind == computerRuntimeProofMissing {
-		return "", "", "", driverError(computerErrorRuntimeProofMissing)
+		return "", "", "", "", driverError(computerErrorRuntimeProofMissing)
 	}
 	info, err := os.Lstat(runtimeRoot)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
-		return "", "", "", runtimeUntrusted()
+		return "", "", "", "", runtimeUntrusted()
 	}
 	binDir := filepath.Join(runtimeRoot, "bin")
 	binInfo, err := os.Lstat(binDir)
 	if err != nil || !binInfo.IsDir() || binInfo.Mode()&os.ModeSymlink != 0 || binInfo.Mode().Perm()&0o022 != 0 {
-		return "", "", "", runtimeUntrusted()
+		return "", "", "", "", runtimeUntrusted()
 	}
 	manifestBytes, err := readBoundedRegularFile(filepath.Join(runtimeRoot, "manifest.json"), computerMaxRuntimeManifestBytes)
 	if err != nil {
-		return "", "", "", runtimeUntrusted()
+		return "", "", "", "", runtimeUntrusted()
 	}
 	var manifest runtimeManifest
 	if err := decodeSingleJSON(manifestBytes, &manifest); err != nil {
-		return "", "", "", runtimeUntrusted()
+		return "", "", "", "", runtimeUntrusted()
 	}
 	if !validRuntimeManifest(manifest) {
-		return "", "", "", runtimeUntrusted()
+		return "", "", "", "", runtimeUntrusted()
 	}
 	expected := map[string]string{computerBinaryRel: "", computerHelperRel: ""}
 	for _, file := range manifest.Files {
@@ -553,7 +648,7 @@ func verifyComputerRuntime(runtimeRoot string, proof computerRuntimeProof) (stri
 			continue
 		}
 		if expected[file.Path] != "" {
-			return "", "", "", runtimeUntrusted()
+			return "", "", "", "", runtimeUntrusted()
 		}
 		expected[file.Path] = file.SHA256
 	}
@@ -567,10 +662,10 @@ func verifyComputerRuntime(runtimeRoot string, proof computerRuntimeProof) (stri
 		{helperPath, computerHelperRel},
 	} {
 		if expected[item.rel] == "" || !validSHA256(expected[item.rel]) {
-			return "", "", "", runtimeUntrusted()
+			return "", "", "", "", runtimeUntrusted()
 		}
 		if _, err := trustedRuntimeFile(item.path); err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
 		}
 	}
 
@@ -584,16 +679,48 @@ func verifyComputerRuntime(runtimeRoot string, proof computerRuntimeProof) (stri
 			{helperPath, computerHelperRel},
 		} {
 			if err := verifyRuntimeFileHash(item.path, expected[item.rel]); err != nil {
-				return "", "", "", err
+				return "", "", "", "", err
 			}
 		}
-		return binaryPath, helperPath, computerRuntimeProofPreparedLabel, nil
+		return runtimeRoot, binaryPath, helperPath, computerRuntimeProofPreparedLabel, nil
 	case computerRuntimeProofSigned:
-		// Existing installer/build verification is not wired here. Do not
-		// invent a second signing trust chain; fail closed.
-		return "", "", "", driverError(computerErrorRuntimeProofUnwired)
+		signedBinary, signedHelper, err := verifyDesktopMacosSignedRuntime(ctx)
+		if err != nil {
+			return "", "", "", "", computerSignedRuntimeProofError(err)
+		}
+		// The verifier returns both fixed executables under
+		// <current .app>/Contents/Resources/runtime/bin. Recover that canonical
+		// root and require the caller's root to resolve to it, so neither an
+		// alternate nor a prior install can supply the launched bytes.
+		signedRoot := filepath.Dir(filepath.Dir(signedBinary))
+		resolvedRoot, err := filepath.EvalSymlinks(runtimeRoot)
+		if err != nil || resolvedRoot != signedRoot ||
+			signedBinary != filepath.Join(signedRoot, filepath.FromSlash(computerBinaryRel)) ||
+			signedHelper != filepath.Join(signedRoot, filepath.FromSlash(computerHelperRel)) {
+			return "", "", "", "", runtimeUntrusted()
+		}
+		return signedRoot, signedBinary, signedHelper, computerRuntimeProofSignedLabel, nil
 	default:
-		return "", "", "", driverError(computerErrorRuntimeProofInvalid)
+		return "", "", "", "", driverError(computerErrorRuntimeProofInvalid)
+	}
+}
+
+// computerSignedRuntimeProofError maps the signer-token verifier's stable
+// failures onto the driver's fail-closed proof errors. Cancellation is returned
+// unchanged so callers can distinguish a stopped task from a rejected
+// signature. A prepared hash check is never a fallback.
+func computerSignedRuntimeProofError(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return err
+	case errors.Is(err, errDesktopMacosSignerTokenMissing):
+		return driverError(computerErrorRuntimeProofMissing)
+	case errors.Is(err, errDesktopMacosRuntimeUntrusted):
+		return runtimeUntrusted()
+	case errors.Is(err, errDesktopMacosSignerTokenInvalid), errors.Is(err, errDesktopMacosSignatureInvalid):
+		return driverError(computerErrorRuntimeProofInvalid)
+	default:
+		return driverError(computerErrorRuntimeProofInvalid)
 	}
 }
 
@@ -724,6 +851,82 @@ func (d *computerDriver) validateStatus(data cliStatusData) (computerStatus, err
 	}, nil
 }
 
+// Inventory lists selectable windows. It is read-only and never prompts for
+// permission. Only windows whose exact (pid, process_instance) owner record
+// carries an exact bundle_id and reports Accessibility are candidates. Both
+// upstream calls are unscoped here because the user has not chosen an app yet;
+// observing the chosen pin is always scoped.
+func (d *computerDriver) Inventory(ctx context.Context) (computerInventory, error) {
+	if ctx == nil {
+		return computerInventory{}, invalidArgument()
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return computerInventory{}, driverError(computerErrorClosed)
+	}
+	if err := ctx.Err(); err != nil {
+		return computerInventory{}, err
+	}
+	apps, complete, err := d.listApps(ctx, "")
+	if err != nil {
+		return computerInventory{}, err
+	}
+	bundles, err := provenBundles(apps)
+	if err != nil {
+		return computerInventory{}, err
+	}
+	windows, err := d.listWindows(ctx, "")
+	if err != nil {
+		return computerInventory{}, err
+	}
+	inventory := computerInventory{Complete: complete}
+	seen := make(map[string]struct{}, len(windows))
+	for _, window := range windows {
+		if window.ID == "" {
+			continue
+		}
+		if _, ok := seen[window.ID]; ok {
+			return computerInventory{}, protocolError()
+		}
+		seen[window.ID] = struct{}{}
+		if !validWindowID(window.ID) || window.PID <= 0 || window.ProcessInstance == nil {
+			continue
+		}
+		bundle, ok := bundles[processKey{pid: window.PID, instance: *window.ProcessInstance}]
+		if !ok {
+			continue
+		}
+		if window.Accessible == nil || !*window.Accessible {
+			continue
+		}
+		// v1.3.1 WindowState serializes visible and minimized as independent
+		// Option<bool> fields (system/window_state.rs:8-11). Upstream's own
+		// inventory test admits any present minimized (macos
+		// window_inventory.rs:161); this driver is deliberately stricter. A
+		// present false is not evidence: admit only an explicitly visible or
+		// explicitly minimized window, so a hidden, non-minimized window is
+		// excluded.
+		if !((window.Visible != nil && *window.Visible) ||
+			(window.Minimized != nil && *window.Minimized)) {
+			continue
+		}
+		if len(inventory.Candidates) >= computerMaxInventoryWindows {
+			inventory.Truncated = true
+			break
+		}
+		inventory.Candidates = append(inventory.Candidates, computerWindowCandidate{
+			BundleID:        bundle,
+			AppName:         boundedText(window.AppName, computerMaxAppBytes),
+			WindowID:        window.ID,
+			PID:             window.PID,
+			ProcessInstance: *window.ProcessInstance,
+			Title:           boundedText(window.Title, computerMaxNameBytes),
+		})
+	}
+	return inventory, nil
+}
+
 func (d *computerDriver) Observe(ctx context.Context, target computerTarget) (computerObservation, error) {
 	if ctx == nil {
 		return computerObservation{}, invalidArgument()
@@ -788,12 +991,19 @@ func (d *computerDriver) observeLocked(ctx context.Context, target computerTarge
 	// belongs_to_entry), and refuse a no-address entry without
 	// unique_at_capture as identity_not_unique (resolve_saved_ref.rs:97-100).
 	// identity_unproven means the whole-window proof was not obtained, so no
-	// ref from this tree is handed back or stored as actable.
+	// ref from this tree is handed back or stored as actable. That also means
+	// no captured AX content or metadata (element role/name/value/description,
+	// refs, snapshot id, window title) can be attributed to the pinned target,
+	// so none of it survives in the private observation either. Only the
+	// synthetic observation id and an unusable quality remain; a later Observe
+	// may reprove the authorized selection separately.
 	if snapshot.identityUnproven {
+		observation.SnapshotID = ""
 		observation.TreeQuality = computerTreeQualityUnusable
-		for index := range observation.Elements {
-			observation.Elements[index].Ref = ""
-		}
+		observation.Truncated = false
+		observation.Actable = false
+		observation.Elements = nil
+		observation.Window.Title = ""
 		return observation, nil
 	}
 	if !store {
@@ -811,12 +1021,12 @@ func (d *computerDriver) observeLocked(ctx context.Context, target computerTarge
 }
 
 func sameWindow(left, right computerWindow) bool {
-	return left.ID == right.ID && left.PID == right.PID &&
+	return left.BundleID == right.BundleID && left.ID == right.ID && left.PID == right.PID &&
 		left.ProcessInstance == right.ProcessInstance
 }
 
-// Act performs one click or type. Authority belongs to the caller: the future
-// executor must have a live task/grant and must cancel ctx on pause, stop,
+// Act performs one click or type. Authority belongs to the caller: the product
+// executor gate must have a live task/grant and must cancel ctx on pause, stop,
 // expiry, or task end. The driver enforces only ref provenance, target
 // identity, Accessibility, resource caps, one action and at most one
 // post-action readback; it never retries.
@@ -960,6 +1170,16 @@ func postActionReadback(result computerActionResult) bool {
 		result.Delivery == computerDeliveryUnverified
 }
 
+// Invalidate clears the refs bound by the last stored observation without
+// closing the driver. The state root, session, and sandboxed binary stay
+// usable; future input requires a new Observe. A quiesce uses this so stopping
+// one selection never tears down the process for a replacement.
+func (d *computerDriver) Invalidate() {
+	d.mu.Lock()
+	d.latest = nil
+	d.mu.Unlock()
+}
+
 func (d *computerDriver) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1097,38 +1317,118 @@ func (d *computerDriver) requireAccessibility(ctx context.Context) error {
 	return nil
 }
 
-func (d *computerDriver) resolveWindow(ctx context.Context, target computerTarget) (computerWindow, error) {
-	command, err := d.run(ctx, computerListWindowsProcessTimeout, nil,
-		d.baseArgs("list-windows", "--app="+target.App, "--timeout-ms="+strconv.Itoa(computerListWindowsTimeoutMS))...)
+// processKey is the exact owner join key. Neither field may be empty.
+type processKey struct {
+	pid      int
+	instance string
+}
+
+// provenBundles keeps only exact (pid, process_instance) -> bundle_id joins. A
+// blank or malformed field cannot prove a bundle and is dropped. Contradictory
+// records for one process are rejected instead of resolved by preference.
+func provenBundles(apps []cliApp) (map[processKey]string, error) {
+	bundles := make(map[processKey]string, len(apps))
+	instances := make(map[int]string, len(apps))
+	for _, app := range apps {
+		if app.BundleID == nil || app.ProcessInstance == nil || app.PID <= 0 {
+			continue
+		}
+		bundle, instance := *app.BundleID, *app.ProcessInstance
+		if !validBundleID(bundle) || !validProcessInstance(instance) {
+			continue
+		}
+		if previous, ok := instances[app.PID]; ok && previous != instance {
+			return nil, protocolError()
+		}
+		instances[app.PID] = instance
+		key := processKey{pid: app.PID, instance: instance}
+		if previous, ok := bundles[key]; ok {
+			if previous != bundle {
+				return nil, protocolError()
+			}
+			continue
+		}
+		bundles[key] = bundle
+	}
+	return bundles, nil
+}
+
+func (d *computerDriver) listApps(ctx context.Context, bundleID string) ([]cliApp, bool, error) {
+	args := []string{"--timeout-ms=" + strconv.Itoa(computerListWindowsTimeoutMS)}
+	if bundleID != "" {
+		args = append([]string{"--app=" + bundleID}, args...)
+	}
+	command, err := d.run(ctx, computerListWindowsProcessTimeout, nil, d.baseArgs("list-apps", args...)...)
 	if err != nil {
-		return computerWindow{}, err
+		return nil, false, err
+	}
+	envelope, err := decodeEnvelope(command, "list-apps")
+	if err != nil {
+		return nil, false, err
+	}
+	if !envelope.OK {
+		if envelope.Error != nil && envelope.Error.Code == "APP_NOT_FOUND" {
+			return nil, false, driverError(computerErrorTargetUnavailable)
+		}
+		return nil, false, d.commandError(envelope)
+	}
+	var data cliAppInventory
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		return nil, false, protocolError()
+	}
+	complete := (data.Complete == nil || *data.Complete) && len(data.Skipped) == 0
+	return data.Apps, complete, nil
+}
+
+func (d *computerDriver) listWindows(ctx context.Context, bundleID string) ([]cliWindow, error) {
+	args := []string{"--timeout-ms=" + strconv.Itoa(computerListWindowsTimeoutMS)}
+	if bundleID != "" {
+		args = append([]string{"--app=" + bundleID}, args...)
+	}
+	command, err := d.run(ctx, computerListWindowsProcessTimeout, nil, d.baseArgs("list-windows", args...)...)
+	if err != nil {
+		return nil, err
 	}
 	envelope, err := decodeEnvelope(command, "list-windows")
 	if err != nil {
-		return computerWindow{}, err
+		return nil, err
 	}
 	if !envelope.OK {
 		if envelope.Error != nil && (envelope.Error.Code == "APP_NOT_FOUND" || envelope.Error.Code == "WINDOW_NOT_FOUND") {
-			return computerWindow{}, driverError(computerErrorTargetUnavailable)
+			return nil, driverError(computerErrorTargetUnavailable)
 		}
-		return computerWindow{}, d.commandError(envelope)
+		return nil, d.commandError(envelope)
 	}
 	var windows []cliWindow
 	if err := json.Unmarshal(envelope.Data, &windows); err != nil {
-		return computerWindow{}, protocolError()
+		return nil, protocolError()
+	}
+	return windows, nil
+}
+
+func (d *computerDriver) resolveWindow(ctx context.Context, target computerTarget) (computerWindow, error) {
+	apps, _, err := d.listApps(ctx, target.BundleID)
+	if err != nil {
+		return computerWindow{}, err
+	}
+	bundles, err := provenBundles(apps)
+	if err != nil {
+		return computerWindow{}, err
+	}
+	windows, err := d.listWindows(ctx, target.BundleID)
+	if err != nil {
+		return computerWindow{}, err
 	}
 	var found *cliWindow
 	for index := range windows {
 		window := windows[index]
-		if window.ID == "" {
+		if window.ID == "" || window.ID != target.WindowID {
 			continue
 		}
-		if window.ID == target.WindowID {
-			if found != nil {
-				return computerWindow{}, protocolError()
-			}
-			found = &window
+		if found != nil {
+			return computerWindow{}, protocolError()
 		}
+		found = &window
 	}
 	if found == nil {
 		return computerWindow{}, driverError(computerErrorTargetUnavailable)
@@ -1136,10 +1436,19 @@ func (d *computerDriver) resolveWindow(ctx context.Context, target computerTarge
 	if found.PID <= 0 || found.ProcessInstance == nil || *found.ProcessInstance == "" {
 		return computerWindow{}, protocolError()
 	}
+	// The pinned id exists under a different pid or launch instance. That is a
+	// successor or a reused id, never a target to adopt silently.
+	if found.PID != target.PID || *found.ProcessInstance != target.ProcessInstance {
+		return computerWindow{}, targetChanged()
+	}
+	if bundles[processKey{pid: found.PID, instance: *found.ProcessInstance}] != target.BundleID {
+		return computerWindow{}, driverError(computerErrorTargetUnavailable)
+	}
 	if found.Accessible != nil && !*found.Accessible {
 		return computerWindow{}, driverError(computerErrorTargetUnavailable)
 	}
 	return computerWindow{
+		BundleID:        target.BundleID,
 		ID:              found.ID,
 		PID:             found.PID,
 		ProcessInstance: *found.ProcessInstance,
@@ -1159,7 +1468,7 @@ type parsedSnapshot struct {
 func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarget) (parsedSnapshot, error) {
 	command, err := d.run(ctx, computerSnapshotProcessTimeout, nil,
 		d.baseArgs("snapshot",
-			"--app="+target.App,
+			"--app="+target.BundleID,
 			"--window-id="+target.WindowID,
 			"--interactive-only",
 			"--compact",
@@ -1192,15 +1501,23 @@ func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarg
 		return parsedSnapshot{}, targetChanged()
 	}
 	if data.App == "" {
+		// Display name is only presence-checked. It is not an identity: the
+		// bundle can be aliased by a same-display-name app, so the saved
+		// capture refmap below is the proof.
 		return parsedSnapshot{}, protocolError()
 	}
 	elements, refs, textTruncated, err := flattenSnapshot(data.Tree, data.SnapshotID)
 	if err != nil {
 		return parsedSnapshot{}, err
 	}
+	identityUnproven, err := d.verifyCapturedRefIdentity(target, data.SnapshotID, data.RefCount, refs)
+	if err != nil {
+		return parsedSnapshot{}, err
+	}
+	identityUnproven = identityUnproven || data.IdentityUnproven
 	truncated := data.Truncated || textTruncated || !*data.Complete
 	quality := computerTreeQualityGood
-	if !*data.Complete || truncated || data.IdentityUnproven {
+	if !*data.Complete || truncated || identityUnproven {
 		quality = computerTreeQualityPartial
 	}
 	return parsedSnapshot{
@@ -1208,9 +1525,83 @@ func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarg
 		elements:         elements,
 		refs:             refs,
 		truncated:        truncated,
-		identityUnproven: data.IdentityUnproven,
+		identityUnproven: identityUnproven,
 		quality:          quality,
 	}, nil
+}
+
+// verifyCapturedRefIdentity proves that the tree and refs returned by one
+// snapshot were captured from the pinned target instead of merely being routed
+// to a same-titled window. v1.3.1 snapshot output exposes only the app display
+// name and the window id/title (commands/snapshot.rs:135-150), so it cannot
+// carry the process generation. The capture records that generation locally:
+// run_with_context saves the refmap before binding the id it returns
+// (snapshot/mod.rs:28-33,174-186), every RefEntry carries the capture owner's
+// pid, process_instance, and source window id (refs/ref_alloc.rs:22-56 via
+// snapshot/snapshot_owner.rs:47-59), and RefStore keeps the map at
+// <state_root>/sessions/<session>/snapshots/<id>/refmap.json
+// (refs/refs_store.rs:31-37,220-229; the same 1,048,576-byte cap is
+// MAX_REFMAP_BYTES in refs/mod.rs:16). Reading that exact private file is the
+// only in-place proof. Only the identity fields are decoded, so observed text
+// and display names cannot leak from here and are never trusted.
+//
+// A different pid, process_instance, or source window means the capture came
+// from a successor generation or another window: targetChanged. Missing,
+// oversized, malformed, or internally inconsistent evidence (including a tree
+// ref absent from the saved map) is protocolError. Zero saved entries cannot
+// prove any source, so that result is returned as unproven and the caller must
+// hand back a read-only observation rather than actable refs.
+func (d *computerDriver) verifyCapturedRefIdentity(target computerTarget, snapshotID string, refCount int, treeRefs map[string]struct{}) (bool, error) {
+	path := filepath.Join(d.stateRoot, "sessions", d.sessionID, "snapshots", snapshotID, "refmap.json")
+	data, err := readBoundedRegularFile(path, computerMaxRefmapBytes)
+	if err != nil {
+		return false, protocolError()
+	}
+	var refmap cliCapturedRefMap
+	if err := decodeSingleJSON(data, &refmap); err != nil || refmap.Inner == nil {
+		return false, protocolError()
+	}
+	if len(refmap.Inner) != refCount {
+		return false, protocolError()
+	}
+	for key, entry := range refmap.Inner {
+		if !validCapturedRefKey(key) || entry.PID <= 0 || entry.ProcessInstance == nil ||
+			!validProcessInstance(*entry.ProcessInstance) ||
+			entry.SourceWindowID == nil || !validWindowID(*entry.SourceWindowID) {
+			return false, protocolError()
+		}
+	}
+	for _, entry := range refmap.Inner {
+		if entry.PID != target.PID || *entry.ProcessInstance != target.ProcessInstance ||
+			*entry.SourceWindowID != target.WindowID {
+			return false, targetChanged()
+		}
+	}
+	prefix := "@" + snapshotID + ":"
+	for ref := range treeRefs {
+		if !strings.HasPrefix(ref, prefix) {
+			return false, protocolError()
+		}
+		if _, ok := refmap.Inner["@"+strings.TrimPrefix(ref, prefix)]; !ok {
+			return false, protocolError()
+		}
+	}
+	return len(refmap.Inner) == 0, nil
+}
+
+// validCapturedRefKey matches the canonical @e<N> keys v1.3.1 writes:
+// allocated from 1 (refs/mod.rs:73-80), with 1-10 digits and N>0
+// (refs/ref_token.rs:46-53).
+func validCapturedRefKey(key string) bool {
+	if len(key) < 3 || len(key) > 12 || key[0] != '@' || key[1] != 'e' || key[2] == '0' {
+		return false
+	}
+	for index := 2; index < len(key); index++ {
+		if key[index] < '0' || key[index] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func flattenSnapshot(root *cliNode, snapshotID string) ([]computerElement, map[string]struct{}, bool, error) {
@@ -1432,26 +1823,27 @@ func containsString(values []string, wanted string) bool {
 }
 
 func (t computerTarget) validate() error {
-	if !validAppName(t.App) || !validWindowID(t.WindowID) {
+	if !validBundleID(t.BundleID) || !validWindowID(t.WindowID) ||
+		t.PID <= 0 || !validProcessInstance(t.ProcessInstance) {
 		return invalidArgument()
 	}
 	return nil
 }
 
-func validAppName(value string) bool {
-	if value == "" || len(value) > computerMaxAppBytes || strings.TrimSpace(value) == "" || !utf8.ValidString(value) {
-		return false
-	}
-	for _, char := range value {
-		if char == 0 || char < 0x20 || char == 0x7f {
-			return false
-		}
-	}
-	return true
+func validBundleID(value string) bool {
+	return validPrintableToken(value, computerMaxAppBytes)
+}
+
+func validProcessInstance(value string) bool {
+	return validPrintableToken(value, computerMaxProcessInstanceBytes)
 }
 
 func validWindowID(value string) bool {
-	if value == "" || len(value) > computerMaxWindowIDBytes {
+	return validPrintableToken(value, computerMaxWindowIDBytes)
+}
+
+func validPrintableToken(value string, maxBytes int) bool {
+	if value == "" || len(value) > maxBytes {
 		return false
 	}
 	for index := 0; index < len(value); index++ {
@@ -1591,7 +1983,8 @@ func classifyEffect(before, after *computerObservation, action computerAction) s
 	if before == nil || after == nil {
 		return computerEffectUnknown
 	}
-	if before.Window.ID != after.Window.ID || before.Window.PID != after.Window.PID ||
+	if before.Window.BundleID != after.Window.BundleID ||
+		before.Window.ID != after.Window.ID || before.Window.PID != after.Window.PID ||
 		before.Window.ProcessInstance != after.Window.ProcessInstance {
 		return computerEffectPlaceChanged
 	}

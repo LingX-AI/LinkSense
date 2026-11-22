@@ -87,13 +87,47 @@ export function desktopMacosSigningRequirement(team, identifier) {
   ].join(" and ");
 }
 
+export function desktopMacosSignerToken(team, application) {
+  if (!/^[A-Z0-9]{10}$/u.test(team ?? "")) {
+    throw new Error("A macOS release signer token needs the Developer ID team");
+  }
+  if (typeof application !== "string" || !/^[A-Za-z0-9][A-Za-z0-9.-]{0,239}$/u.test(application)) {
+    throw new Error("A macOS release signer token needs the bundled application identifier");
+  }
+  // The release build compiles this token into the signed app; the runtime
+  // primitive in apps/desktop/macos_signing_proof_darwin.go consumes it.
+  // Both requirements are the exact strings the release gate already
+  // verifies; the token adds no second signing chain or key.
+  return {
+    schema_version: 1,
+    app_requirement: desktopMacosSigningRequirement(team, application),
+    runtime_requirement: desktopMacosSigningRequirement(team),
+  };
+}
+
+export function desktopMacosSignerTokenFlag(team, application) {
+  const token = desktopMacosSignerToken(team, application);
+  return `-X main.desktopMacosSignerToken=${Buffer.from(JSON.stringify(token), "utf8").toString("base64url")}`;
+}
+
+export function desktopSigningLdflags(server, update, signing, existing = "") {
+  if (/(?:^|\s)-X(?:\s+|=)main\.desktopMacosSignerToken=/u.test(existing)) {
+    throw new Error("MYGO_LDFLAGS must not set the LinkSense macOS signing token");
+  }
+  const flags = desktopBuildLdflags(server, update, existing);
+  return signing
+    ? `${flags} ${desktopMacosSignerTokenFlag(signing.team, signing.application)}`.trim()
+    : flags;
+}
+
 async function verifySignedDesktopRuntime(app, runtimePath, runtime, team) {
+  const signer = desktopMacosSignerToken(team, runtime.application);
   await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
   await run("/usr/bin/codesign", ["--verify", "--strict", "-R",
-    `=${desktopMacosSigningRequirement(team, runtime.application)}`, app]);
+    `=${signer.app_requirement}`, app]);
   for (const file of runtime.files) {
     await run("/usr/bin/codesign", ["--verify", "--strict", "-R",
-      `=${desktopMacosSigningRequirement(team)}`, path.join(runtimePath, file.path)]);
+      `=${signer.runtime_requirement}`, path.join(runtimePath, file.path)]);
   }
 }
 
@@ -278,12 +312,15 @@ async function main() {
       if (update.signedArtifacts && privateKeyFile && !nativeSmoke) {
         throw new Error("Signing desktop update artifacts requires the packaged runtime smoke on the target platform");
       }
-      const ldflags = desktopBuildLdflags(server, update, process.env.MYGO_LDFLAGS);
       await stageNotices(target);
       const { prepareDesktopResources, verifyDesktopPackageManifest, verifyDesktopRuntimeFiles,
         verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } =
         await import("./desktop-resources.mjs");
       const { runtime, manifestBytes } = await prepareDesktopResources(target);
+      // Only a Developer ID release compiles the trusted signer token. Every
+      // other build leaves it empty, so the runtime verifier fails closed.
+      const ldflags = desktopSigningLdflags(server, update,
+        team ? { team, application: runtime.application } : undefined, process.env.MYGO_LDFLAGS);
       const build = path.join(desktop, "build");
       await mkdir(build, { recursive: true });
       const updateEnvironment = desktopUpdateChildEnvironment(update, privateKeyFile);

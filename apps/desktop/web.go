@@ -36,7 +36,16 @@ type Desktop struct {
 	openBrowser   func(string) error
 	localRuntime  *runtimeSupervisor
 	updates       *desktopUpdates
-	shutdownOnce  sync.Once
+	// computer is the M1b product control host. It is nil on platforms and
+	// builds that cannot construct the signed driver, which keeps the device
+	// operation and the binding unavailable.
+	computer computerControlService
+	// computerShortcut is the optional background Cmd+Shift+Esc binding. It is
+	// installed only on macOS and released on quit; the menu accelerator remains
+	// the app-local fallback.
+	computerShortcut *computerEmergencyShortcut
+	dataRoot         string
+	shutdownOnce     sync.Once
 	// The window and application lifecycle callbacks use these only on the main thread.
 	closeToTray         bool
 	quitting            bool
@@ -45,6 +54,10 @@ type Desktop struct {
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {
 	d.server = server
+	d.dataRoot = dataRoot
+	// The computer driver is built lazily after the user's select gesture from
+	// this private state parent; wiring it here touches no process or TCC state.
+	d.computer = newDesktopComputerControl(d)
 	// The native host answers the per-conversation workspace notice from the
 	// same private runtime root the supervisor uses, without starting it.
 	d.workspaceRoot = filepath.Join(dataRoot, "local-runtime")

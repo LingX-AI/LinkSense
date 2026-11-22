@@ -11,6 +11,7 @@ export * from "./capabilities.js";
 export * from "./clawhub.js";
 export * from "./common.js";
 export * from "./computer-use.js";
+export * from "./desktop-computer-control.js";
 export * from "./conversations.js";
 export * from "./conversation-operation-identity.js";
 export * from "./conversation-forms.js";

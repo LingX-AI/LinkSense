@@ -306,9 +306,7 @@ func (d *Desktop) DeviceStatus(ctx context.Context) (DeviceConnectionStatus, err
 	if err := d.checkCaller(ctx); err != nil {
 		return DeviceConnectionStatus{}, err
 	}
-	d.mu.RLock()
-	device := d.device
-	d.mu.RUnlock()
+	device := d.currentDevice()
 	if device == nil {
 		return DeviceConnectionStatus{State: DeviceUnpaired}, nil
 	}
@@ -330,6 +328,12 @@ func (d *Desktop) connectDevice(credential deviceCredential, lease accountLease)
 	}
 	if runtime.GOOS == "darwin" {
 		connection.runtime = d.localRuntime
+		// The product host attaches the shared computer ingress only when this
+		// build/host can construct the signed driver; otherwise the operation is
+		// not offered and older servers simply never negotiate it.
+		if d.computer != nil {
+			d.computer.prepareConnection(connection)
+		}
 	}
 	d.mu.Lock()
 	d.device = connection
@@ -360,4 +364,12 @@ func (d *Desktop) closeDevice() {
 		device.cancel()
 		<-device.done
 	}
+}
+
+// currentDevice returns the live device connection without holding the
+// Desktop lock for the caller's work.
+func (d *Desktop) currentDevice() *deviceConnection {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.device
 }

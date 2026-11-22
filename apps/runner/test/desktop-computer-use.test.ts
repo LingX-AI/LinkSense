@@ -13,13 +13,9 @@ import { DesktopWorkerProvider } from "../src/controller/desktop-worker-provider
 import { desktopComputerUseExecutor } from "./functional/fixtures/desktop-computer-use-executor.js"
 import { DesktopLink } from "../src/desktop/link.js"
 import { DesktopTurns, type DesktopRuntimeRun } from "../src/desktop/turns.js"
-import {
-  ComputerUseFailureError,
-  type ComputerUseTarget,
-} from "../src/mcp/core-services/computer-use-service.js"
+import { ComputerUseFailureError } from "../src/mcp/core-services/computer-use-service.js"
 
 const logger = pino({ enabled: false })
-const target: ComputerUseTarget = { bundleId: "com.example.Fixture" }
 type ComputerToolRequest = Extract<DesktopToolRequest, { operation: "computer.execute" }>
 const status = {
   available: true,
@@ -87,10 +83,10 @@ it("maps status, observe, and act onto the closed desktop tool channel and unwra
   })
   const executor = desktopComputerUseExecutor(state.link, state.run)
   try {
-    await expect(executor.status({ target, signal: AbortSignal.timeout(5_000) })).resolves.toEqual(status)
-    await expect(executor.observe({ target, signal: AbortSignal.timeout(5_000) })).resolves.toEqual(observation)
+    await expect(executor.status({ signal: AbortSignal.timeout(5_000) })).resolves.toEqual(status)
+    await expect(executor.observe({ signal: AbortSignal.timeout(5_000) })).resolves.toEqual(observation)
     await expect(executor.act({
-      target, nativeCallId: "call-9", observationId: "obs-1", ref: "e1",
+      nativeCallId: "call-9", observationId: "obs-1", ref: "e1",
       action: "type", text: "你好 👋", timeoutMs: 8_000, signal: AbortSignal.timeout(5_000),
     })).resolves.toEqual({ ok: true, effect: "done", waited_ms: 5 })
 
@@ -128,21 +124,21 @@ it("preserves stable failures and never retries after cancellation or a late res
   })
   const executor = desktopComputerUseExecutor(state.link, state.run)
   try {
-    await expect(executor.status({ target, signal: AbortSignal.timeout(5_000) }))
+    await expect(executor.status({ signal: AbortSignal.timeout(5_000) }))
       .rejects.toMatchObject({ name: "ComputerUseFailureError", code: "DEVICE_BUSY" })
     mode = "changed"
-    await expect(executor.observe({ target, signal: AbortSignal.timeout(5_000) }))
+    await expect(executor.observe({ signal: AbortSignal.timeout(5_000) }))
       .rejects.toBeInstanceOf(ComputerUseFailureError)
-    await expect(executor.observe({ target, signal: AbortSignal.timeout(5_000) }))
+    await expect(executor.observe({ signal: AbortSignal.timeout(5_000) }))
       .rejects.toMatchObject({ code: "COMPUTER_TARGET_CHANGED" })
     mode = "forbidden"
-    await expect(executor.status({ target, signal: AbortSignal.timeout(5_000) }))
+    await expect(executor.status({ signal: AbortSignal.timeout(5_000) }))
       .rejects.toMatchObject({ code: "COMPUTER_ACCESS_DENIED" })
 
     mode = "pending"
     const controller = new AbortController()
     const pending = executor.act({
-      target, nativeCallId: "call-1", observationId: "obs-1", ref: "e1",
+      nativeCallId: "call-1", observationId: "obs-1", ref: "e1",
       action: "click", timeoutMs: 8_000, signal: controller.signal,
     })
     await vi.waitFor(() => expect(state.requests).toHaveLength(5))

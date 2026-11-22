@@ -43,18 +43,32 @@ const (
 )
 
 type fakeScenario struct {
-	StatusData      json.RawMessage            `json:"status_data,omitempty"`
-	PermissionsData json.RawMessage            `json:"permissions_data,omitempty"`
-	Windows         json.RawMessage            `json:"windows,omitempty"`
-	WindowsCalls    []json.RawMessage          `json:"windows_calls,omitempty"`
-	Snapshots       []json.RawMessage          `json:"snapshots,omitempty"`
-	ActionData      map[string]json.RawMessage `json:"action_data,omitempty"`
-	ActionError     map[string]json.RawMessage `json:"action_error,omitempty"`
-	DelayMS         int                        `json:"delay_ms,omitempty"`
-	DelayCommand    string                     `json:"delay_command,omitempty"`
-	RawStdout       string                     `json:"raw_stdout,omitempty"`
-	ExitCode        int                        `json:"exit_code,omitempty"`
+	StatusData      json.RawMessage   `json:"status_data,omitempty"`
+	PermissionsData json.RawMessage   `json:"permissions_data,omitempty"`
+	Apps            json.RawMessage   `json:"apps,omitempty"`
+	Windows         json.RawMessage   `json:"windows,omitempty"`
+	WindowsCalls    []json.RawMessage `json:"windows_calls,omitempty"`
+	Snapshots       []json.RawMessage `json:"snapshots,omitempty"`
+	// Refmaps overrides the saved refmap for one snapshot id; RefmapSkips
+	// suppresses it. Otherwise the fixture writes the exact saved evidence an
+	// unmodified v1.3.1 capture would write. Values are raw text, not
+	// json.RawMessage, so a test can present genuinely malformed evidence.
+	Refmaps      map[string]string          `json:"refmaps,omitempty"`
+	RefmapSkips  []string                   `json:"refmap_skips,omitempty"`
+	ActionData   map[string]json.RawMessage `json:"action_data,omitempty"`
+	ActionError  map[string]json.RawMessage `json:"action_error,omitempty"`
+	DelayMS      int                        `json:"delay_ms,omitempty"`
+	DelayCommand string                     `json:"delay_command,omitempty"`
+	RawStdout    string                     `json:"raw_stdout,omitempty"`
+	ExitCode     int                        `json:"exit_code,omitempty"`
 }
+
+const fakeFixtureBundleID = "com.example.fixture"
+
+// defaultFakeApps keeps older fixtures compatible: their windows all use the
+// fixture pid/process_instance, so a scoped list-apps call can still prove the
+// same pinned identity without every test restating the app record.
+var defaultFakeApps = json.RawMessage(`{"apps":[{"name":"Fixture App","pid":4242,"bundle_id":"com.example.fixture","process_instance":"inst-1"}]}`)
 
 type fakeCall struct {
 	Argv      []string `json:"argv"`
@@ -123,6 +137,12 @@ func runFakeAgentDesktop(base string) int {
 			data = json.RawMessage(`{"accessibility":{"state":"granted"},"automation":{"state":"not_required"},"screen_recording":{"state":"not_required"}}`)
 		}
 		return fakeWriteSuccess("permissions", data)
+	case "list-apps":
+		data := scenario.Apps
+		if len(data) == 0 {
+			data = defaultFakeApps
+		}
+		return fakeWriteSuccess("list-apps", data)
 	case "list-windows":
 		data := scenario.Windows
 		if len(scenario.WindowsCalls) > 0 {
@@ -146,6 +166,12 @@ func runFakeAgentDesktop(base string) int {
 			index = len(scenario.Snapshots) - 1
 		}
 		fakeAdvanceCounter(base, fakeSnapshotCounter)
+		// v1.3.1 saves the session refmap before it emits the snapshot envelope
+		// (snapshot/mod.rs:28-33,174-186); the driver then proves the capture
+		// source from that exact file.
+		if !fakePersistRefmap(scenario, scenario.Snapshots[index]) {
+			return 2
+		}
 		return fakeWriteSuccess("snapshot", scenario.Snapshots[index])
 	case "click", "type":
 		if raw, ok := scenario.ActionError[command]; ok {
@@ -341,7 +367,7 @@ func preparedProof() computerRuntimeProof {
 
 func newPreparedDriver(t *testing.T, runtimeRoot, stateParent string) *computerDriver {
 	t.Helper()
-	driver, err := newComputerDriverDarwin(runtimeRoot, stateParent, preparedProof())
+	driver, err := newComputerDriverDarwin(context.Background(), runtimeRoot, stateParent, preparedProof())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +494,12 @@ func fixtureWindow() map[string]any {
 }
 
 func fixtureTarget() computerTarget {
-	return computerTarget{App: "Fixture App", WindowID: "w-4242"}
+	return computerTarget{
+		BundleID:        fakeFixtureBundleID,
+		WindowID:        "w-4242",
+		PID:             4242,
+		ProcessInstance: "inst-1",
+	}
 }
 
 func basicTree(ref string) map[string]any {
@@ -490,6 +521,22 @@ func fakeWindow(id string, pid int, instance, title, app string) map[string]any 
 		"id": id, "pid": pid, "process_instance": instance,
 		"title": title, "app_name": app, "accessible": true, "visible": true,
 	}
+}
+
+func fakeApp(name string, pid int, bundleID, instance string) map[string]any {
+	app := map[string]any{"name": name, "pid": pid}
+	if bundleID != "" {
+		app["bundle_id"] = bundleID
+	}
+	if instance != "" {
+		app["process_instance"] = instance
+	}
+	return app
+}
+
+func fakeApps(t *testing.T, apps ...map[string]any) json.RawMessage {
+	t.Helper()
+	return mustJSON(t, map[string]any{"apps": apps})
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {
@@ -523,12 +570,126 @@ func fakeNode(role, name, ref string, value any, children ...map[string]any) map
 }
 
 func fakeSnapshotData(snapshotID, windowID, title, app string, tree map[string]any) json.RawMessage {
+	refCount := 0
+	walkFakeRefs(tree, func(string) { refCount++ })
 	data, _ := json.Marshal(map[string]any{
-		"app": app, "snapshot_id": snapshotID, "ref_count": 2,
+		"app": app, "snapshot_id": snapshotID, "ref_count": refCount,
 		"complete": true, "tree": tree,
 		"window": map[string]any{"id": windowID, "title": title},
 	})
 	return data
+}
+
+// fakePersistRefmap writes the saved evidence an unmodified v1.3.1 window
+// capture leaves at
+// <AGENT_DESKTOP_HOME>/sessions/<session>/snapshots/<id>/refmap.json
+// (refs/refs_store.rs:31-37,220-229). Each entry carries the identity of the
+// window that supplied it, exactly like RefEntry's flattened
+// pid/process_instance/source_window_id fields (refs/ref_alloc.rs:22-56). A
+// snapshot id in Refmaps is written verbatim so tests can present malformed or
+// successor evidence; RefmapSkips reproduces a missing file.
+func fakePersistRefmap(scenario fakeScenario, raw json.RawMessage) bool {
+	var snapshot struct {
+		SnapshotID string `json:"snapshot_id"`
+		Window     *struct {
+			ID string `json:"id"`
+		} `json:"window"`
+		Tree map[string]any `json:"tree"`
+	}
+	if json.Unmarshal(raw, &snapshot) != nil || snapshot.SnapshotID == "" || snapshot.Window == nil {
+		return false
+	}
+	for _, skipped := range scenario.RefmapSkips {
+		if skipped == snapshot.SnapshotID {
+			return true
+		}
+	}
+	home := os.Getenv("AGENT_DESKTOP_HOME")
+	session := ""
+	for index := 0; index+1 < len(os.Args); index++ {
+		if os.Args[index] == "--session" {
+			session = os.Args[index+1]
+		}
+	}
+	if home == "" || session == "" {
+		return false
+	}
+	payload, overridden := scenario.Refmaps[snapshot.SnapshotID]
+	if !overridden {
+		pid, instance, found := fakeWindowIdentity(scenario, snapshot.Window.ID)
+		if !found {
+			return false
+		}
+		inner := make(map[string]any)
+		counter := 0
+		walkFakeRefs(snapshot.Tree, func(ref string) {
+			local := ref
+			if prefix := "@" + snapshot.SnapshotID + ":"; strings.HasPrefix(ref, prefix) {
+				local = "@" + strings.TrimPrefix(ref, prefix)
+			}
+			inner[local] = map[string]any{
+				"pid": pid, "process_instance": instance, "source_window_id": snapshot.Window.ID,
+			}
+			if parsed, err := strconv.Atoi(strings.TrimPrefix(local, "@e")); err == nil && parsed > counter {
+				counter = parsed
+			}
+		})
+		encoded, _ := json.Marshal(map[string]any{"inner": inner, "counter": counter})
+		payload = string(encoded)
+	}
+	directory := filepath.Join(home, "sessions", session, "snapshots", snapshot.SnapshotID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return false
+	}
+	return os.WriteFile(filepath.Join(directory, "refmap.json"), []byte(payload), 0o600) == nil
+}
+
+// fakeWindowIdentity finds the pinned identity the scenario advertises for a
+// snapshot's window, preferring the single Windows inventory.
+func fakeWindowIdentity(scenario fakeScenario, windowID string) (int, string, bool) {
+	raws := make([]json.RawMessage, 0, 1+len(scenario.WindowsCalls))
+	if len(scenario.Windows) > 0 {
+		raws = append(raws, scenario.Windows)
+	}
+	raws = append(raws, scenario.WindowsCalls...)
+	for _, raw := range raws {
+		var windows []struct {
+			ID              string  `json:"id"`
+			PID             int     `json:"pid"`
+			ProcessInstance *string `json:"process_instance"`
+		}
+		if json.Unmarshal(raw, &windows) != nil {
+			continue
+		}
+		for _, window := range windows {
+			if window.ID == windowID && window.PID > 0 &&
+				window.ProcessInstance != nil && *window.ProcessInstance != "" {
+				return window.PID, *window.ProcessInstance, true
+			}
+		}
+	}
+	return 0, "", false
+}
+
+func walkFakeRefs(node map[string]any, visit func(string)) {
+	if node == nil {
+		return
+	}
+	if ref, ok := node["ref_id"].(string); ok && ref != "" {
+		visit(ref)
+	}
+	switch children := node["children"].(type) {
+	case []map[string]any:
+		for _, child := range children {
+			walkFakeRefs(child, visit)
+		}
+	case []any:
+		for _, raw := range children {
+			if child, ok := raw.(map[string]any); ok {
+				walkFakeRefs(child, visit)
+			}
+		}
+	}
 }
 
 func fakeUnprovenSnapshotData(snapshotID, windowID, title, app string, tree map[string]any) json.RawMessage {
@@ -656,15 +817,269 @@ func TestComputerDriverObserveUsesExactPinnedArgsAndBoundsContent(t *testing.T) 
 	}
 
 	calls := readFakeCalls(t, runtimeRoot)
-	if len(calls) != 3 {
-		t.Fatalf("expected list-windows, snapshot, list-windows; got %d", len(calls))
+	if len(calls) != 5 {
+		t.Fatalf("expected list-apps, list-windows, snapshot, list-apps, list-windows; got %d", len(calls))
 	}
-	assertExactArgs(t, calls[0], driver.sessionID, "list-windows", "--app=Fixture App", "--timeout-ms=5000")
-	assertExactArgs(t, calls[1], driver.sessionID, "snapshot",
-		"--app=Fixture App", "--window-id=w-4242", "--interactive-only", "--compact",
+	assertExactArgs(t, calls[0], driver.sessionID, "list-apps", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
+	assertExactArgs(t, calls[1], driver.sessionID, "list-windows", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
+	assertExactArgs(t, calls[2], driver.sessionID, "snapshot",
+		"--app="+fakeFixtureBundleID, "--window-id=w-4242", "--interactive-only", "--compact",
 		"--max-depth=10", "--timeout-ms=5000")
-	assertExactArgs(t, calls[2], driver.sessionID, "list-windows", "--app=Fixture App", "--timeout-ms=5000")
+	assertExactArgs(t, calls[3], driver.sessionID, "list-apps", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
+	assertExactArgs(t, calls[4], driver.sessionID, "list-windows", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
 	assertNoForbiddenArgs(t, calls)
+}
+
+func TestComputerDriverInventoryJoinsExactPinnedIdentity(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+
+	inaccessible := fakeWindow("w-inaccessible", 4242, "inst-1", "Inaccessible", "Fixture App")
+	inaccessible["accessible"] = false
+	hidden := fakeWindow("w-hidden", 4242, "inst-1", "Hidden", "Fixture App")
+	hidden["visible"] = false
+	bothFalse := fakeWindow("w-both-false", 4242, "inst-1", "Both false", "Fixture App")
+	bothFalse["visible"] = false
+	bothFalse["minimized"] = false
+	visibleNotMinimized := fakeWindow("w-visible", 4242, "inst-1", "Visible", "Fixture App")
+	visibleNotMinimized["minimized"] = false
+	longTitle := strings.Repeat("T", computerMaxNameBytes+20)
+	longApp := strings.Repeat("A", computerMaxAppBytes+20)
+	minimized := fakeWindow("w-minimized", 4242, "inst-1", longTitle, longApp)
+	minimized["visible"] = false
+	minimized["minimized"] = true
+	windows := mustWindows(t,
+		fakeWindow("w-1", 4242, "inst-1", "Fixture", "Fixture App"),
+		visibleNotMinimized,
+		inaccessible,
+		hidden,
+		bothFalse,
+		minimized,
+		fakeWindow("w-other", 777, "inst-7", "Other", "Other App"),
+		fakeWindow("w-no-bundle", 888, "inst-8", "No bundle", "No Bundle"),
+		fakeWindow("w-no-instance", 999, "inst-9", "No instance", "No Instance"),
+		fakeWindow("w-unknown", 1234, "inst-x", "Unknown", "Unknown"),
+	)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Apps: fakeApps(t,
+			fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-1"),
+			fakeApp("Other App", 777, "com.example.other", "inst-7"),
+			fakeApp("No Bundle", 888, "", "inst-8"),
+			fakeApp("No Instance", 999, "com.example.noinstance", ""),
+		),
+		Windows: windows,
+	})
+
+	inventory, err := driver.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inventory.Complete || inventory.Truncated {
+		t.Fatalf("unexpected inventory flags: %+v", inventory)
+	}
+	if len(inventory.Candidates) != 4 {
+		t.Fatalf("expected four proven accessible windows, got %d: %+v", len(inventory.Candidates), inventory.Candidates)
+	}
+	first := inventory.Candidates[0]
+	if first.BundleID != fakeFixtureBundleID || first.WindowID != "w-1" ||
+		first.PID != 4242 || first.ProcessInstance != "inst-1" ||
+		first.AppName != "Fixture App" || first.Title != "Fixture" {
+		t.Fatalf("unexpected first candidate: %+v", first)
+	}
+	if second := inventory.Candidates[1]; second.WindowID != "w-visible" {
+		t.Fatalf("explicit visible=true must be admitted despite minimized=false: %+v", second)
+	}
+	if third := inventory.Candidates[2]; third.WindowID != "w-minimized" ||
+		len(third.Title) != computerMaxNameBytes || len(third.AppName) != computerMaxAppBytes {
+		t.Fatalf("minimized candidate or display bounds are wrong: %+v", third)
+	}
+	if fourth := inventory.Candidates[3]; fourth.WindowID != "w-other" ||
+		fourth.BundleID != "com.example.other" || fourth.PID != 777 || fourth.ProcessInstance != "inst-7" {
+		t.Fatalf("unexpected fourth candidate: %+v", fourth)
+	}
+
+	calls := readFakeCalls(t, runtimeRoot)
+	if len(calls) != 2 {
+		t.Fatalf("expected one list-apps and one list-windows, got %d", len(calls))
+	}
+	assertExactArgs(t, calls[0], driver.sessionID, "list-apps", "--timeout-ms=5000")
+	assertExactArgs(t, calls[1], driver.sessionID, "list-windows", "--timeout-ms=5000")
+	assertNoForbiddenArgs(t, calls)
+}
+
+func TestComputerDriverInventoryReportsIncompleteAppInventory(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	apps := map[string]any{
+		"apps":     []any{fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-1")},
+		"complete": false,
+		"skipped":  []any{map[string]any{"reason": "fixture"}},
+	}
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Apps:            mustJSON(t, apps),
+		Windows:         mustWindows(t, fixtureWindow()),
+	})
+	inventory, err := driver.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Complete {
+		t.Fatal("a skipped app record must report an incomplete inventory")
+	}
+	if len(inventory.Candidates) != 1 || inventory.Candidates[0].WindowID != "w-4242" {
+		t.Fatalf("proven candidates must survive an incomplete inventory: %+v", inventory)
+	}
+}
+
+func TestComputerDriverInventoryRejectsAmbiguousProcessIdentity(t *testing.T) {
+	t.Run("one pid with two launch instances", func(t *testing.T) {
+		runtimeRoot, stateRoot := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			PermissionsData: fakePermissions("granted"),
+			Apps: fakeApps(t,
+				fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-1"),
+				fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-2"),
+			),
+			Windows: mustWindows(t, fixtureWindow()),
+		})
+		_, err := driver.Inventory(context.Background())
+		assertDriverCode(t, err, computerErrorProtocol)
+		if len(callsFor(readFakeCalls(t, runtimeRoot), "list-windows")) != 0 {
+			t.Fatal("ambiguous app identity must fail before windows are read")
+		}
+	})
+
+	t.Run("one process identity with two bundles", func(t *testing.T) {
+		runtimeRoot, stateRoot := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			PermissionsData: fakePermissions("granted"),
+			Apps: fakeApps(t,
+				fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-1"),
+				fakeApp("Fixture App", 4242, "com.example.other", "inst-1"),
+			),
+			Windows: mustWindows(t, fixtureWindow()),
+		})
+		_, err := driver.Inventory(context.Background())
+		assertDriverCode(t, err, computerErrorProtocol)
+	})
+
+	t.Run("duplicate window id", func(t *testing.T) {
+		runtimeRoot, stateRoot := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			PermissionsData: fakePermissions("granted"),
+			Apps: fakeApps(t,
+				fakeApp("Fixture App", 4242, fakeFixtureBundleID, "inst-1"),
+				fakeApp("Other App", 777, "com.example.other", "inst-7"),
+			),
+			Windows: mustWindows(t,
+				fakeWindow("w-dup", 4242, "inst-1", "Fixture", "Fixture App"),
+				fakeWindow("w-dup", 777, "inst-7", "Other", "Other App"),
+			),
+		})
+		_, err := driver.Inventory(context.Background())
+		assertDriverCode(t, err, computerErrorProtocol)
+	})
+}
+
+func TestComputerDriverFirstObserveRejectsSuccessorWindow(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fakeWindow("w-4242", 9999, "inst-2", "Fixture", "Fixture App")),
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree("@spre1:e1")),
+		},
+	})
+	_, err := driver.Observe(context.Background(), fixtureTarget())
+	assertDriverCode(t, err, computerErrorTargetChanged)
+	if driver.latest != nil {
+		t.Fatal("a successor window must not become actable")
+	}
+	if len(callsFor(readFakeCalls(t, runtimeRoot), "snapshot")) != 0 {
+		t.Fatal("a successor window must be rejected before any snapshot")
+	}
+}
+
+func TestComputerDriverInventoryCapsCandidates(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	windows := make([]map[string]any, 0, computerMaxInventoryWindows+1)
+	for index := 0; index <= computerMaxInventoryWindows; index++ {
+		windows = append(windows, fakeWindow("w-"+strconv.Itoa(index), 4242, "inst-1", "Fixture", "Fixture App"))
+	}
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, windows...),
+	})
+	inventory, err := driver.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Candidates) != computerMaxInventoryWindows || !inventory.Truncated {
+		t.Fatalf("candidate cap not applied: candidates=%d truncated=%v", len(inventory.Candidates), inventory.Truncated)
+	}
+}
+
+func TestComputerDriverInventoryCancellationKillsTheProcessGroupWithoutRetry(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fixtureWindow()),
+		DelayMS:         30000,
+		DelayCommand:    "list-apps",
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type outcome struct {
+		inventory computerInventory
+		err       error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		inventory, err := driver.Inventory(ctx)
+		finished <- outcome{inventory: inventory, err: err}
+	}()
+	waitForFakeCommand(t, runtimeRoot, "list-apps")
+	cancel()
+	var got outcome
+	select {
+	case got = <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancelled inventory did not return")
+	}
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", got.err)
+	}
+	if got.inventory.Candidates != nil {
+		t.Fatalf("cancellation must not return candidates: %+v", got.inventory)
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	appCalls := callsFor(calls, "list-apps")
+	if len(appCalls) != 1 {
+		t.Fatalf("expected exactly one cancelled list-apps, got %d", len(appCalls))
+	}
+	if len(callsFor(calls, "list-windows")) != 0 {
+		t.Fatal("cancellation must not continue to list-windows")
+	}
+	pid := appCalls[0].PID
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cancelled inventory process %d still exists", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
@@ -940,37 +1355,363 @@ func TestComputerDriverActionReportedOverlayBlocksWindowRefs(t *testing.T) {
 
 }
 
-func TestComputerDriverIdentityUnprovenIsReadOnly(t *testing.T) {
+const unprovenSentinel = "SENTINEL-CAPTURED-CONTENT"
+
+// sentinelSnapshotTree puts a distinguishable value in every captured field so
+// a regression that returns any AX content or metadata is visible.
+func sentinelSnapshotTree(ref string) map[string]any {
+	button := map[string]any{
+		"role":        unprovenSentinel + "-ROLE",
+		"name":        unprovenSentinel + "-NAME",
+		"value":       unprovenSentinel + "-VALUE",
+		"description": unprovenSentinel + "-DESC",
+	}
+	if ref != "" {
+		button["ref_id"] = ref
+	}
+	return map[string]any{
+		"role":     "window",
+		"name":     unprovenSentinel + "-WINDOW",
+		"children": []map[string]any{button},
+	}
+}
+
+func assertUnprovenObservationIsSanitized(t *testing.T, observation computerObservation) {
+	t.Helper()
+	if observation.ID == "" {
+		t.Fatal("a safe synthetic observation id must remain")
+	}
+	if observation.Actable || observation.TreeQuality != computerTreeQualityUnusable ||
+		observation.Truncated || observation.SnapshotID != "" ||
+		observation.Window.Title != "" || len(observation.Elements) != 0 {
+		t.Fatalf("identity_unproven leaked captured content or metadata: %+v", observation)
+	}
+	encoded, err := json.Marshal(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), unprovenSentinel) {
+		t.Fatalf("captured sentinel survived into the observation: %s", encoded)
+	}
+}
+
+func assertNoStoredSentinel(t *testing.T, stateRoot string) {
+	t.Helper()
+	err := filepath.Walk(stateRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), unprovenSentinel) {
+			t.Fatalf("captured sentinel was stored at %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestComputerDriverExplicitUnprovenCarriesNoCapturedContent(t *testing.T) {
 	runtimeRoot, parent := newFakeRuntime(t)
 	driver := newPreparedDriver(t, runtimeRoot, parent)
 	writeFakeScenario(t, runtimeRoot, fakeScenario{
 		PermissionsData: fakePermissions("granted"),
 		Windows:         mustWindows(t, fixtureWindow()),
 		Snapshots: []json.RawMessage{
-			fakeUnprovenSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree("@spre1:e1")),
+			fakeUnprovenSnapshotData("sidentity1", "w-4242",
+				unprovenSentinel+"-TITLE", unprovenSentinel+"-APP", sentinelSnapshotTree("@sidentity1:e1")),
 		},
 	})
 	observation, err := driver.Observe(context.Background(), fixtureTarget())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.Actable || observation.TreeQuality != computerTreeQualityUnusable || driver.latest != nil {
-		t.Fatalf("identity_unproven must be read-only: %+v latest=%v", observation, driver.latest)
+	assertUnprovenObservationIsSanitized(t, observation)
+	if driver.latest != nil {
+		t.Fatal("identity_unproven must not store an actable observation")
+	}
+	assertNoStoredSentinel(t, driver.stateRoot)
+	_, err = driver.Act(context.Background(), computerAction{
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@sidentity1:e1",
+	})
+	assertDriverCode(t, err, computerErrorNoObservation)
+	calls := readFakeCalls(t, runtimeRoot)
+	if len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("read-only observation must not authorize an action")
+	}
+	if count := len(callsFor(calls, "snapshot")); count != 1 {
+		t.Fatalf("identity_unproven must not retry the snapshot: %d", count)
+	}
+}
+
+// TestComputerDriverObserveRequiresPinnedCaptureEvidence covers the v1.3.1
+// snapshot identity gap: the envelope carries no process generation
+// (commands/snapshot.rs:135-150), so Observe must prove the capture source
+// from the saved session refmap before any ref can be dispatched.
+func TestComputerDriverObserveRequiresPinnedCaptureEvidence(t *testing.T) {
+	validEntry := map[string]any{
+		"pid": 4242, "process_instance": "inst-1", "source_window_id": "w-4242",
+	}
+	refmap := func(counter int, entries map[string]any) string {
+		return string(mustJSON(t, map[string]any{"inner": entries, "counter": counter}))
+	}
+	one := basicTree("@spre1:e1")
+	two := fakeNode("window", "Fixture", "", nil,
+		fakeNode("group", "", "", nil,
+			fakeNode("button", "One", "@spre1:e1", nil),
+			fakeNode("button", "Two", "@spre1:e2", nil)))
+	tests := []struct {
+		name     string
+		tree     map[string]any
+		unproven bool
+		refmaps  map[string]string
+		skips    []string
+		code     string
+	}{
+		{
+			name: "successor pid",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 9999, "process_instance": "inst-1", "source_window_id": "w-4242"},
+			})},
+			code: computerErrorTargetChanged,
+		},
+		{
+			name: "successor process instance",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 4242, "process_instance": "inst-2", "source_window_id": "w-4242"},
+			})},
+			code: computerErrorTargetChanged,
+		},
+		{
+			name: "different source window",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 4242, "process_instance": "inst-1", "source_window_id": "w-9999"},
+			})},
+			code: computerErrorTargetChanged,
+		},
+		{
+			name:     "unproven flag does not bypass successor evidence",
+			tree:     one,
+			unproven: true,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 9999, "process_instance": "inst-2", "source_window_id": "w-4242"},
+			})},
+			code: computerErrorTargetChanged,
+		},
+		{
+			name:  "missing evidence",
+			tree:  one,
+			skips: []string{"spre1"},
+			code:  computerErrorProtocol,
+		},
+		{
+			name:    "malformed evidence",
+			tree:    one,
+			refmaps: map[string]string{"spre1": `{"inner":`},
+			code:    computerErrorProtocol,
+		},
+		{
+			name: "ref count mismatch",
+			tree: two,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": validEntry,
+			})},
+			code: computerErrorProtocol,
+		},
+		{
+			name: "entry without process instance",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 4242, "source_window_id": "w-4242"},
+			})},
+			code: computerErrorProtocol,
+		},
+		{
+			name: "entry without source window",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(1, map[string]any{
+				"@e1": map[string]any{"pid": 4242, "process_instance": "inst-1"},
+			})},
+			code: computerErrorProtocol,
+		},
+		{
+			name: "tree ref absent from saved map",
+			tree: one,
+			refmaps: map[string]string{"spre1": refmap(2, map[string]any{
+				"@e2": validEntry,
+			})},
+			code: computerErrorProtocol,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtimeRoot, stateRoot := newFakeRuntime(t)
+			driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+			snapshot := fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", test.tree)
+			if test.unproven {
+				snapshot = fakeUnprovenSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", test.tree)
+			}
+			writeFakeScenario(t, runtimeRoot, fakeScenario{
+				PermissionsData: fakePermissions("granted"),
+				Windows:         mustWindows(t, fixtureWindow()),
+				Snapshots:       []json.RawMessage{snapshot},
+				Refmaps:         test.refmaps,
+				RefmapSkips:     test.skips,
+			})
+			observation, err := driver.Observe(context.Background(), fixtureTarget())
+			assertDriverCode(t, err, test.code)
+			if observation.ID != "" || observation.SnapshotID != "" || observation.Elements != nil {
+				t.Fatalf("failed capture proof must not return an observation: %+v", observation)
+			}
+			if driver.latest != nil {
+				t.Fatal("failed capture proof must not leave actable refs")
+			}
+			_, err = driver.Act(context.Background(), computerAction{
+				ObservationID: strings.Repeat("a", 32),
+				Kind:          computerActionClick,
+				Ref:           "@spre1:e1",
+			})
+			assertDriverCode(t, err, computerErrorNoObservation)
+			calls := readFakeCalls(t, runtimeRoot)
+			if len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+				t.Fatal("failed capture proof must dispatch no action")
+			}
+			if count := len(callsFor(calls, "snapshot")); count != 1 {
+				t.Fatalf("failed capture proof must not retry the snapshot: %d", count)
+			}
+		})
+	}
+}
+
+func TestComputerDriverZeroRefEvidenceIsReadOnly(t *testing.T) {
+	runtimeRoot, parent := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, parent)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fixtureWindow()),
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("szeroref1", "w-4242",
+				unprovenSentinel+"-TITLE", unprovenSentinel+"-APP", sentinelSnapshotTree("")),
+		},
+	})
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Zero saved refs cannot prove any capture source. Like an explicit
+	// identity_unproven flag it exposes no captured tree or metadata.
+	assertUnprovenObservationIsSanitized(t, observation)
+	if driver.latest != nil {
+		t.Fatal("zero-ref evidence must not store an actable observation")
+	}
+	assertNoStoredSentinel(t, driver.stateRoot)
+	_, err = driver.Act(context.Background(), computerAction{
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@szeroref1:e1",
+	})
+	assertDriverCode(t, err, computerErrorNoObservation)
+	calls := readFakeCalls(t, runtimeRoot)
+	if len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("read-only observation must not authorize an action")
+	}
+	if count := len(callsFor(calls, "snapshot")); count != 1 {
+		t.Fatalf("zero-ref evidence must not retry the snapshot: %d", count)
+	}
+}
+
+// An identity_unproven post-action readback is comparison evidence only when it
+// is attributable. Its tree must never become an effect claim.
+func TestComputerDriverUnprovenReadbackIsNotEffectEvidence(t *testing.T) {
+	runtimeRoot, parent := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, parent)
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fixtureWindow()),
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("seffect1", "w-4242", "Fixture", "Fixture App", basicTree("@seffect1:e1")),
+			fakeUnprovenSnapshotData("seffect2", "w-4242",
+				unprovenSentinel+"-TITLE", unprovenSentinel+"-APP", sentinelSnapshotTree("@seffect2:e1")),
+		},
+	})
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.Actable {
+		t.Fatalf("the proven capture must stay actable: %+v", observation)
+	}
+	result, err := driver.Act(context.Background(), computerAction{
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@seffect1:e1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Effect != computerEffectUnknown || result.EffectError != "" {
+		t.Fatalf("an unproven readback produced an effect: %+v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), unprovenSentinel) {
+		t.Fatalf("captured sentinel survived into the action result: %s", encoded)
+	}
+	if driver.latest != nil {
+		t.Fatal("the readback must not be stored")
+	}
+	calls := readFakeCalls(t, runtimeRoot)
+	if count := len(callsFor(calls, "click")); count != 1 {
+		t.Fatalf("the action was retried: %d clicks", count)
+	}
+	if count := len(callsFor(calls, "snapshot")); count != 2 {
+		t.Fatalf("expected the observe plus one readback, snapshots=%d", count)
+	}
+}
+
+func TestComputerDriverRefmapTextIsNeverDecoded(t *testing.T) {
+	const sentinel = "REFMAP-ONLY-TEXT"
+	runtimeRoot, parent := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, parent)
+	payload := string(mustJSON(t, map[string]any{
+		"inner": map[string]any{"@e1": map[string]any{
+			"pid": 4242, "process_instance": "inst-1", "source_window_id": "w-4242",
+			"source_app": sentinel, "source_window_title": sentinel,
+			"name": sentinel, "value": sentinel, "description": sentinel,
+		}},
+		"counter": 1,
+	}))
+	writeFakeScenario(t, runtimeRoot, fakeScenario{
+		PermissionsData: fakePermissions("granted"),
+		Windows:         mustWindows(t, fixtureWindow()),
+		Snapshots: []json.RawMessage{
+			fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree("@spre1:e1")),
+		},
+		Refmaps: map[string]string{"spre1": payload},
+	})
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.Actable || observation.TreeQuality != computerTreeQualityGood {
+		t.Fatalf("matching identity evidence must remain actable: %+v", observation)
+	}
+	if observation.Window.Title == sentinel {
+		t.Fatal("saved ref text must not replace the pinned window title")
 	}
 	for _, element := range observation.Elements {
-		if element.Ref != "" {
-			t.Fatal("identity_unproven must not return refs")
+		if element.Role == sentinel || element.Name == sentinel ||
+			element.Value == sentinel || element.Description == sentinel {
+			t.Fatalf("saved ref text leaked into the observation: %+v", element)
 		}
-	}
-	_, err = driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
-	})
-	var driverErr *computerDriverError
-	if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
-		t.Fatalf("expected no observation, got %v", err)
-	}
-	if len(callsFor(readFakeCalls(t, runtimeRoot), "click")) != 0 {
-		t.Fatal("read-only observation must not authorize an action")
 	}
 }
 
@@ -1461,13 +2202,14 @@ func TestComputerDriverSandboxWrapperIsFixed(t *testing.T) {
 func TestComputerDriverRuntimeProofGate(t *testing.T) {
 	t.Run("missing proof", func(t *testing.T) {
 		runtimeRoot, parent := newFakeRuntime(t)
-		_, err := newComputerDriverDarwin(runtimeRoot, parent, computerRuntimeProof{})
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, computerRuntimeProof{})
 		assertDriverCode(t, err, computerErrorRuntimeProofMissing)
 	})
-	t.Run("signed proof is unwired", func(t *testing.T) {
+	t.Run("unknown proof kind", func(t *testing.T) {
 		runtimeRoot, parent := newFakeRuntime(t)
-		_, err := newComputerDriverDarwin(runtimeRoot, parent, computerRuntimeProof{Kind: computerRuntimeProofSigned})
-		assertDriverCode(t, err, computerErrorRuntimeProofUnwired)
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent,
+			computerRuntimeProof{Kind: computerRuntimeProofKind(99)})
+		assertDriverCode(t, err, computerErrorRuntimeProofInvalid)
 	})
 }
 
@@ -1483,8 +2225,185 @@ func TestComputerDriverPreparedRuntimeTamper(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, err = newComputerDriverDarwin(runtimeRoot, parent, preparedProof())
+	_, err = newComputerDriverDarwin(context.Background(), runtimeRoot, parent, preparedProof())
 	assertDriverCode(t, err, computerErrorRuntimeUntrusted)
+}
+
+func signedProof() computerRuntimeProof {
+	return computerRuntimeProof{Kind: computerRuntimeProofSigned}
+}
+
+// writeSignedFakeManifest mirrors the release manifest shape with hashes that
+// deliberately do not match the fixture bytes, as Developer ID signing rewrites
+// executables after preparation.
+func writeSignedFakeManifest(t *testing.T, runtimeRoot string) {
+	t.Helper()
+	stale := strings.Repeat("0", sha256.Size*2)
+	manifest := map[string]any{
+		"schema_version": 1,
+		"application":    "org.linksense.desktop",
+		"target":         "darwin/" + goruntime.GOARCH,
+		"runtime_arch":   goruntime.GOARCH,
+		"versions":       map[string]string{"agent_desktop": "1.3.1"},
+		"files": []map[string]string{
+			{"path": computerBinaryRel, "sha256": stale},
+			{"path": computerHelperRel, "sha256": stale},
+		},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeRoot, "manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertNoComputerDriverState(t *testing.T, parent string) {
+	t.Helper()
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "computer-use-") {
+			t.Fatalf("driver created state despite a rejected proof: %q", entry.Name())
+		}
+	}
+}
+
+func TestComputerDriverSignedRuntimeProofAcceptsTheRunningApp(t *testing.T) {
+	app, runtimeRoot, binary, helper := desktopMacosFakeTree(t)
+	writeSignedFakeManifest(t, runtimeRoot)
+	codesign, log := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+	setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, app)
+	parent := t.TempDir()
+
+	driver, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, signedProof())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = driver.Close() })
+	if driver.runtimeProof != computerRuntimeProofSignedLabel {
+		t.Fatalf("proof label = %q, want %q", driver.runtimeProof, computerRuntimeProofSignedLabel)
+	}
+	if driver.binaryPath != binary {
+		t.Fatalf("binary = %q, want %q", driver.binaryPath, binary)
+	}
+	if info, err := os.Lstat(driver.stateRoot); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("private state root was not created: %v", err)
+	}
+	if !slices.Contains(driver.environment, "AGENT_DESKTOP_MACOS_HELPER_PATH="+helper) {
+		t.Fatalf("unexpected environment: %q", driver.environment)
+	}
+	wantCalls := []string{
+		"--verify", "--deep", "--strict", app,
+		"--verify", "--strict", "-R", "=" + testDesktopMacosAppReq, app,
+		"--verify", "--strict", "-R", "=" + testDesktopMacosRuntimeReq, binary,
+		"--verify", "--strict", "-R", "=" + testDesktopMacosRuntimeReq, helper,
+	}
+	if calls := desktopMacosCalls(t, log); !slices.Equal(calls, wantCalls) {
+		t.Fatalf("codesign calls = %q, want %q", calls, wantCalls)
+	}
+
+	// The manifest hashes predate signing, so prepared proof rejects this
+	// fixture. Signed proof must use signatures and never fall back to it.
+	_, err = newComputerDriverDarwin(context.Background(), runtimeRoot, t.TempDir(), preparedProof())
+	assertDriverCode(t, err, computerErrorRuntimeUntrusted)
+}
+
+func TestComputerDriverSignedRuntimeProofRejectsUnboundRuntimeRoots(t *testing.T) {
+	currentApp, currentRoot, _, _ := desktopMacosFakeTree(t)
+	writeSignedFakeManifest(t, currentRoot)
+	codesign, _ := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+	setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, currentApp)
+
+	t.Run("prior install", func(t *testing.T) {
+		_, priorRoot, _, _ := desktopMacosFakeTree(t)
+		writeSignedFakeManifest(t, priorRoot)
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), priorRoot, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeUntrusted)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("aliased runtime root", func(t *testing.T) {
+		_, priorRoot, _, _ := desktopMacosFakeTree(t)
+		writeSignedFakeManifest(t, priorRoot)
+		alias := filepath.Join(t.TempDir(), "runtime")
+		if err := os.Symlink(priorRoot, alias); err != nil {
+			t.Fatal(err)
+		}
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), alias, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeUntrusted)
+		assertNoComputerDriverState(t, parent)
+	})
+}
+
+func TestComputerDriverSignedRuntimeProofFailsClosed(t *testing.T) {
+	app, runtimeRoot, _, _ := desktopMacosFakeTree(t)
+	writeSignedFakeManifest(t, runtimeRoot)
+
+	t.Run("missing signer token", func(t *testing.T) {
+		codesign, log := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+		setDesktopMacosSigningTestSeam(t, "", codesign, app)
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeProofMissing)
+		desktopMacosNoCalls(t, log)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("malformed signer token", func(t *testing.T) {
+		codesign, log := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+		setDesktopMacosSigningTestSeam(t, "not-base64!", codesign, app)
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeProofInvalid)
+		desktopMacosNoCalls(t, log)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("invalid signature", func(t *testing.T) {
+		codesign, _ := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignFails)
+		setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, app)
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeProofInvalid)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("running app is unavailable", func(t *testing.T) {
+		codesign, log := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+		setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, "")
+		parent := t.TempDir()
+		_, err := newComputerDriverDarwin(context.Background(), runtimeRoot, parent, signedProof())
+		assertDriverCode(t, err, computerErrorRuntimeUntrusted)
+		desktopMacosNoCalls(t, log)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("canceled before proof", func(t *testing.T) {
+		codesign, log := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSucceeds)
+		setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, app)
+		parent := t.TempDir()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := newComputerDriverDarwin(ctx, runtimeRoot, parent, signedProof())
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want %v", err, context.Canceled)
+		}
+		desktopMacosNoCalls(t, log)
+		assertNoComputerDriverState(t, parent)
+	})
+	t.Run("deadline stops proof", func(t *testing.T) {
+		codesign, _ := writeDesktopMacosFakeCodesign(t, desktopMacosFakeCodesignSleeps)
+		setDesktopMacosSigningTestSeam(t, desktopMacosTestToken(t, nil), codesign, app)
+		parent := t.TempDir()
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		_, err := newComputerDriverDarwin(ctx, runtimeRoot, parent, signedProof())
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want %v", err, context.DeadlineExceeded)
+		}
+		assertNoComputerDriverState(t, parent)
+	})
 }
 
 func assertDriverCode(t *testing.T, err error, code string) {

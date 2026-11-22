@@ -7,8 +7,10 @@ import {
   browserUseFailure,
   browserUseReadOnly,
   browserUseResultSchema,
+  computerExecuteResultSchema,
   desktopArtifactReceiptSchema,
   desktopArtifactUploadLifetimeMs,
+  desktopComputerExecuteLifetimeMs,
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
@@ -18,6 +20,8 @@ import {
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
   runnerPrivacyMaskingCaptureSchema,
+  type ComputerExecuteInput,
+  type ComputerExecuteResult,
   type DesktopArtifactSourceBinding,
   type ImagePreviewRegistration,
   type RunnerStartSettled,
@@ -136,6 +140,12 @@ export interface RunnerEventSink {
   }): Promise<unknown>;
   readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
   browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
+  computerExecute?(input: {
+    conversationId: string;
+    turnId: string;
+    input: ComputerExecuteInput;
+    signal?: AbortSignal;
+  }): Promise<ComputerExecuteResult>;
   requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
@@ -624,6 +634,55 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     }
   }
 
+  /**
+   * Posts to the supervisor's worker-only loopback callback. The supervisor
+   * relays the closed body to the API over the existing desktop device
+   * WebSocket; the API has no HTTP endpoint for this operation and must not add
+   * one. Send exactly the closed input, never a second native-call proof.
+   */
+  async computerExecute(input: {
+    conversationId: string;
+    turnId: string;
+    input: ComputerExecuteInput;
+    signal?: AbortSignal;
+  }): Promise<ComputerExecuteResult> {
+    const { signal } = input;
+    const body = {
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      input: input.input,
+    };
+    const failure = (): ComputerExecuteResult => ({
+      kind: "failure",
+      error: input.input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
+    });
+    if (!this.options.desktopOutboxScope) {
+      return { kind: "failure", error: "COMPUTER_UNAVAILABLE" };
+    }
+    try {
+      const response = await this.request(
+        "/internal/computer-use/execute",
+        body,
+        this.workspaceManager.ownerFor(input.conversationId),
+        signal,
+      );
+      const payload = await parseResponseBody(response);
+      if (!response.ok) {
+        const code = asRecord(payload).error_code;
+        return {
+          kind: "failure",
+          error: response.status === 401 || response.status === 403 || code === "COMPUTER_ACCESS_DENIED"
+            ? "COMPUTER_ACCESS_DENIED"
+            : input.input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
+        };
+      }
+      const parsed = computerExecuteResultSchema.safeParse(payload);
+      return parsed.success ? parsed.data : failure();
+    } catch {
+      return failure();
+    }
+  }
+
   async emitInteractiveApplicationEvent(input: {
     conversationId: string;
     codexTurnId: string;
@@ -967,6 +1026,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
       : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/computer-use/execute"
+        ? desktopComputerExecuteLifetimeMs + 2_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
       : pathname === "/internal/file-service/register-artifact" && this.options.desktopOutboxScope

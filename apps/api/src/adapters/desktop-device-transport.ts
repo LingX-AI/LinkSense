@@ -80,10 +80,17 @@ type PendingReply = {
   resolve: (frame: DesktopExecutionResult) => void;
   reject: (error: Error) => void;
 };
+type AdmissionFinalizer = {
+  /** Redis dispatch gate, awaited inside the locked authorization transaction. */
+  mayDispatch: () => Promise<boolean>;
+  /** Final synchronous pending/socket/expiry checks and at most one send. */
+  finalize: () => boolean;
+};
 type ExecutionAuthority = (
   binding: DesktopExecutionBinding,
   command: DesktopExecutionCommand,
   admission?: DesktopComputerDispatchAdmission,
+  barrier?: AdmissionFinalizer,
 ) => Promise<boolean>;
 type ExecutionCallback = (
   binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
@@ -494,8 +501,56 @@ export class DesktopDeviceTransport {
     }, remaining);
     const delivery: PendingDelivery = { request, command: frame, timer, expiresAt, lifetime: new AbortController(), state: "checking" };
     socket.pending.set(frame.id, delivery);
-    const authorized = await socket.verifyCredential() &&
-      await this.authorize(socket.binding, frame, request.admission);
+    // Product computer admissions carry the control epoch and finalize the one
+    // send inside the same PostgreSQL authorization transaction as the final
+    // selection/holder/run checks, so a public stop or revoke cannot commit
+    // between the recheck and the socket command. The joined fixture and every
+    // other operation keep the pre-existing dispatch semantics.
+    const productAdmission = frame.operation === "computer.execute" &&
+      request.admission?.controlEpoch !== undefined;
+    let sentByAdmission = false;
+    const barrier: AdmissionFinalizer | undefined = productAdmission ? {
+      mayDispatch: () => this.coordinator.mayDispatch(socket.binding, frame.id),
+      finalize: () => {
+        if (socket.pending.get(frame.id) !== delivery ||
+            this.sockets.get(socket.binding.connectionId) !== socket ||
+            Date.now() >= expiresAt) return false;
+        try {
+          if (!socket.send(frame)) return false;
+        } catch {
+          // The synchronous send invocation threw after the final checks, so
+          // the frame may already be queued. Preserve uncertainty instead of
+          // reporting an undelivered, retryable command.
+          delivery.state = "sent";
+          sentByAdmission = true;
+          return true;
+        }
+        delivery.state = "sent";
+        sentByAdmission = true;
+        return true;
+      },
+    } : undefined;
+    let authorized: boolean;
+    try {
+      authorized = await socket.verifyCredential() &&
+        (barrier === undefined
+          ? await this.authorize(socket.binding, frame, request.admission)
+          : await this.authorize(socket.binding, frame, request.admission, barrier));
+    } catch (error) {
+      // A send that already happened stays uncertain even though the
+      // transaction failed afterwards; it is never retried or reported
+      // undelivered. A failure before the send is a normal undelivered result.
+      this.finish(socket, delivery,
+        sentByAdmission ? deliveryFailure(delivery) : failure(frame, "RUNNER_UNAVAILABLE"));
+      throw error;
+    }
+    if (sentByAdmission) return;
+    if (productAdmission) {
+      // Fail closed: a product admission that did not finalize never falls back
+      // to an unsynchronized send after the authorization lock was released.
+      this.finish(socket, delivery, failure(frame, authorized ? "RUNNER_UNAVAILABLE" : "FORBIDDEN"));
+      return;
+    }
     const current = authorized && await this.coordinator.mayDispatch(socket.binding, frame.id);
     if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
     if (current && frame.operation === "turn.interrupt") {

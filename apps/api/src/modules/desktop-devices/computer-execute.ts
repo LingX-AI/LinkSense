@@ -377,28 +377,52 @@ export class DesktopComputerExecuteFixture {
     signal: AbortSignal,
     admission?: DesktopComputerDispatchAdmissionInput,
   ): Promise<ComputerExecuteResult> {
-    const command = desktopExecutionCommandSchema.parse({
-      type: "command", id: randomUUID(), owner_id: scope.ownerId,
-      conversation_id: scope.conversationId, runtime_generation: scope.runtimeGeneration, turn_id: scope.turnId,
-      expires_at: new Date(expiresAt).toISOString(), operation: "computer.execute",
-      body: desktopComputerExecuteBodySchema.parse({
-        session_id: sessionId, selection_id: selectionId, holder_id: holderId, request,
-      }),
+    return sendComputerExecute(this.options.transport, binding, scope, {
+      sessionId, selectionId, holderId, request, expiresAt, signal,
+      ...(admission === undefined ? {} : { admission }),
     });
-    signal.throwIfAborted();
-    let frame: DesktopExecutionResult;
-    try {
-      frame = await this.options.transport.send(binding, command, signal, admission);
-    } catch (error) {
-      signal.throwIfAborted();
-      if (error instanceof DesktopCommandUncertainError) return failure("RUNNER_OPERATION_UNCERTAIN");
-      return failure("COMPUTER_UNAVAILABLE");
-    }
-    signal.throwIfAborted();
-    if (!frame.ok) return failure(commandFailure(frame));
-    if (frame.operation !== "computer.execute") return failure("RUNNER_OPERATION_UNCERTAIN");
-    return computerExecuteResultSchema.parse(frame.result);
   }
+}
+
+/** Sends one correlated computer command; shared by the fixture and product paths. */
+export async function sendComputerExecute(
+  transport: Pick<DesktopDeviceTransport, "send">,
+  binding: DesktopExecutionBinding,
+  scope: DesktopRunScope,
+  input: {
+    /** Exact generated transport command UUID; the pending-input proof binds to it. */
+    commandId?: string;
+    sessionId: string;
+    selectionId: string;
+    holderId: string | null;
+    request: ComputerExecuteInput | { kind: "quiesce" };
+    expiresAt: number;
+    signal: AbortSignal;
+    admission?: DesktopComputerDispatchAdmissionInput;
+  },
+): Promise<ComputerExecuteResult> {
+  const { commandId, sessionId, selectionId, holderId, request, expiresAt, signal, admission } = input;
+  const command = desktopExecutionCommandSchema.parse({
+    type: "command", id: commandId === undefined ? randomUUID() : z.uuid().parse(commandId), owner_id: scope.ownerId,
+    conversation_id: scope.conversationId, runtime_generation: scope.runtimeGeneration, turn_id: scope.turnId,
+    expires_at: new Date(expiresAt).toISOString(), operation: "computer.execute",
+    body: desktopComputerExecuteBodySchema.parse({
+      session_id: sessionId, selection_id: selectionId, holder_id: holderId, request,
+    }),
+  });
+  signal.throwIfAborted();
+  let frame: DesktopExecutionResult;
+  try {
+    frame = await transport.send(binding, command, signal, admission);
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof DesktopCommandUncertainError) return failure("RUNNER_OPERATION_UNCERTAIN");
+    return failure("COMPUTER_UNAVAILABLE");
+  }
+  signal.throwIfAborted();
+  if (!frame.ok) return failure(commandFailure(frame));
+  if (frame.operation !== "computer.execute") return failure("RUNNER_OPERATION_UNCERTAIN");
+  return computerExecuteResultSchema.parse(frame.result);
 }
 
 const bindingKey = (scope: DesktopRunScope) =>
@@ -413,26 +437,34 @@ function scopeKey(scope: DesktopRunScope): string {
   ].join(":");
 }
 
-function sameScope(a: DesktopRunScope, b: DesktopRunScope): boolean {
+export function sameDesktopRunScope(a: DesktopRunScope, b: DesktopRunScope): boolean {
   return a.ownerId === b.ownerId && a.deviceId === b.deviceId && a.connectionId === b.connectionId &&
     a.conversationId === b.conversationId && a.turnId === b.turnId && a.runtimeGeneration === b.runtimeGeneration;
 }
 
-function failure(error: ComputerFailureCode): ComputerExecuteResult {
+export function computerExecuteFailure(error: ComputerFailureCode): ComputerExecuteResult {
   return { kind: "failure", error };
 }
 
-function expectKind(result: ComputerExecuteResult, kind: "status" | "observe" | "act"): ComputerExecuteResult {
-  return result.kind === "failure" || result.kind === kind ? result : failure("RUNNER_OPERATION_UNCERTAIN");
+export function expectComputerExecuteKind(
+  result: ComputerExecuteResult,
+  kind: "status" | "observe" | "act",
+): ComputerExecuteResult {
+  return result.kind === "failure" || result.kind === kind ? result : computerExecuteFailure("RUNNER_OPERATION_UNCERTAIN");
 }
 
-function acquireFailure(result: Exclude<
+export function acquireComputerExecuteFailure(result: Exclude<
   Awaited<ReturnType<LocalComputerGuiOccupancy["acquire"]>>, { status: "acquired" }
 >): ComputerExecuteResult {
-  if (result.status === "device_busy") return failure("DEVICE_BUSY");
-  if (result.status === "target_changed") return failure("COMPUTER_TARGET_CHANGED");
-  return failure(result.reason === "expired" ? "COMPUTER_ACCESS_DENIED" : "COMPUTER_UNAVAILABLE");
+  if (result.status === "device_busy") return computerExecuteFailure("DEVICE_BUSY");
+  if (result.status === "target_changed") return computerExecuteFailure("COMPUTER_TARGET_CHANGED");
+  return computerExecuteFailure(result.reason === "expired" ? "COMPUTER_ACCESS_DENIED" : "COMPUTER_UNAVAILABLE");
 }
+
+const sameScope = sameDesktopRunScope;
+const failure = computerExecuteFailure;
+const expectKind = expectComputerExecuteKind;
+const acquireFailure = acquireComputerExecuteFailure;
 
 function commandFailure(frame: Extract<DesktopExecutionResult, { ok: false }>): ComputerFailureCode {
   if (frame.error_code === "RUNNER_OPERATION_UNCERTAIN") return "RUNNER_OPERATION_UNCERTAIN";

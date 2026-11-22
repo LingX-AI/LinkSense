@@ -19,6 +19,7 @@ import {
 } from "@linksense/shared";
 
 import { HttpRunnerEventSink } from "../src/event-sink.js";
+import { mapCodexNotification } from "../src/codex/event-mapper.js";
 import type {
   LinkSenseCodexEvent,
   LinkSensePublishedEvent,
@@ -40,6 +41,47 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("persists no computer payload, window title, AX text or raster in the durable outbox", async () => {
+    const { root, workspaceManager } = await createWorkspaceManager();
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
+      fetch: vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined)),
+      desktopOutboxScope: { generation: ownerId, turnId: conversationId },
+    });
+    const secret = "你好 👋 raw keyboard text";
+    const windowTitle = "Private Banking - 1234";
+    const image = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6B";
+    const [event] = mapCodexNotification({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1", turnId: "turn-1",
+        item: {
+          type: "mcpToolCall", id: "computer-call", server: "linksense_core",
+          tool: "computer_act", status: "completed",
+          arguments: { action: "type", observation_id: "obs-1", ref: "e1", text: secret },
+          result: {
+            content: [
+              { type: "text", text: windowTitle },
+              { type: "image", data: image, mimeType: "image/png" },
+            ],
+            structuredContent: { window_title: windowTitle },
+          },
+          error: { message: `${windowTitle}: ${secret}` },
+        },
+      },
+    });
+    if (!event) throw new Error("computer event did not map");
+    await sink.publish(conversationId, event);
+    const files = await filesIn(desktopOutboxDirectory(root, ownerId, conversationId));
+    expect(files).toHaveLength(1);
+    const persisted = await readFile(
+      join(desktopOutboxDirectory(root, ownerId, conversationId), files[0] ?? ""), "utf8",
+    );
+    for (const value of [secret, windowTitle, image, "structuredContent", "arguments", "result"]) {
+      expect(persisted).not.toContain(value);
+    }
+    expect(persisted).toContain("computer_act");
+  });
+
   it("keeps a desktop browser mutation with no confirmed receipt nonretryable", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -1048,6 +1090,21 @@ async function createWorkspaceManager() {
 
 function outboxDirectory(root: string) {
   return join(root, ownerId, "control", "workspaces", conversationId, "outbox");
+}
+
+function desktopOutboxDirectory(root: string, generation: string, turnId: string) {
+  return join(
+    root, ownerId, "control", "workspaces", conversationId,
+    "desktop-outbox", generation, turnId,
+  );
+}
+
+async function filesIn(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory)).filter((file) => file.endsWith(".json")).sort();
+  } catch {
+    return [];
+  }
 }
 
 async function outboxFiles(root: string): Promise<string[]> {

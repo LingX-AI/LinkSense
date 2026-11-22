@@ -61,6 +61,21 @@ func (d *Desktop) installShell(dataRoot string) {
 		log.Print("DESKTOP_PREFERENCES_SAVE_FAILED")
 	}
 	d.preferencesWritable = canSave
+	// The background emergency pause exists only where this build can construct
+	// the signed computer driver, only while a selection is active, and only
+	// while the app is backgrounded. The menu/tray items below stay the
+	// app-local fallback, and the global binding is released whenever the app is
+	// active or quitting so one press can never fire both paths.
+	shortcut := newComputerEmergencyShortcut(func() { d.emergencyPauseComputer() })
+	d.computerShortcut = shortcut
+	if desktopComputerShortcutEligible(d) {
+		shortcut.setEligible(true)
+		shortcut.setForeground(mygo.App.IsActive())
+	}
+	mygo.App.OnDidBecomeActive(func() { shortcut.setForeground(true) })
+	mygo.App.OnDidResignActive(func() { shortcut.setForeground(false) })
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { shortcut.quitBinding() })
+	mygo.App.OnQuitCanceled(shortcut.restore)
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID: "linksense-main", Icon: trayIcon, ToolTip: "LinkSense",
 	})
@@ -70,6 +85,7 @@ func (d *Desktop) installShell(dataRoot string) {
 	} else {
 		mygo.App.OnQuit(tray.Destroy)
 	}
+	mygo.App.OnQuit(shortcut.quitBinding)
 	setMenus := func(locale string) {
 		appMenu, trayMenu := d.shellMenus(locales.In(locale))
 		mygo.App.SetMenu(appMenu)
@@ -93,12 +109,15 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	show := func(*mygo.MenuItem, *mygo.Window) { d.presentMainWindow() }
 	openSettings := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/settings/general") }
 	newTask := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/conversations/new") }
+	// Emergency pause must not block the main thread on the acknowledgement.
+	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
 	app := mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
 			{ID: "desktop-updates", Label: tx.DesktopUpdates(), Click: openSettings},
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
+			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: "Cmd+Shift+Esc", Click: pauseComputer},
 			mygo.Separator(),
 			{Role: mygo.RoleServices},
 			mygo.Separator(),
@@ -121,6 +140,7 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 		{ID: "show-window", Label: tx.ShowWindow(), Click: show},
 		{ID: "new-task", Label: tx.NewTask(), Click: newTask},
 		{ID: "settings", Label: tx.Preferences(), Click: openSettings},
+		{ID: "pause-computer", Label: tx.PauseComputerControl(), Click: pauseComputer},
 		{ID: "close-to-tray", Label: tx.CloseToTray(), Type: mygo.MenuItemCheckbox, Checked: d.closeToTray,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
 				enabled := item.IsChecked()

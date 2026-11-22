@@ -2,14 +2,14 @@ import { timingSafeEqual } from "node:crypto"
 import path from "node:path"
 import Fastify from "fastify"
 import {
-  browserUseFailure, browserUseRequestSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
+  browserUseFailure, browserUseRequestSchema, computerExecuteInputSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
   desktopArtifactSourceBindingSchema,
   desktopArtifactUploadLifetimeMs, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
   desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, desktopWebsiteArtifactPrepareSchema,
   errorCatalog, internalKnowledgeDocumentListRequestSchema,
   internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
   runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
-  type DesktopToolResult,
+  type ComputerExecuteResult, type ComputerFailureCode, type DesktopToolResult,
 } from "@linksense/shared"
 import { z } from "zod"
 import { desktopWorkerSecret } from "../controller/desktop-worker-provider.js"
@@ -302,6 +302,43 @@ export function desktopWorkerCallbacks(
     ({ request }) => ({ operation: "connection.execute", body: request }), 40_000)
   registerTool("/internal/browser-use/execute", toolScope.extend({ input: browserUseRequestSchema }),
     ({ input }) => ({ operation: "browser.execute", body: input }), 64_000)
+  // Worker -> supervisor loopback only. The API must keep using the existing
+  // desktop device WebSocket for this operation and must not add an HTTP relay.
+  // The worker secret plus the bound run authenticate this request; the act's
+  // native_call_id is already bound to the exact native _meta call and its
+  // consumed one-shot approval upstream, so a duplicate wrapper field supplied
+  // by the same worker would be no independent proof.
+  const computerRequest = z.strictObject({
+    conversationId: z.uuid(), turnId: z.uuid(),
+    input: computerExecuteInputSchema,
+  })
+  app.post("/internal/computer-use/execute", { bodyLimit: 16_384 }, async (request, reply) => {
+    const { link, run } = authenticate(request.headers)
+    const body = computerRequest.safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error_code: "COMPUTER_INVALID" })
+    if (body.data.conversationId !== run.scope.conversation_id || body.data.turnId !== run.scope.turn_id) {
+      return reply.code(403).send({ error_code: "COMPUTER_ACCESS_DENIED" })
+    }
+    return whileResponseOpen(reply.raw, async signal => {
+      try {
+        const result = await link.requestTool(run, { operation: "computer.execute", body: body.data.input }, signal)
+        if (result.ok) {
+          return result.operation === "computer.execute"
+            ? result.data
+            : { kind: "failure", error: "RUNNER_OPERATION_UNCERTAIN" } satisfies ComputerExecuteResult
+        }
+        return {
+          kind: "failure",
+          error: computerToolFailure(result.error_code, body.data.input.kind),
+        } satisfies ComputerExecuteResult
+      } catch {
+        return {
+          kind: "failure",
+          error: body.data.input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
+        } satisfies ComputerExecuteResult
+      }
+    })
+  })
   return app
 }
 
@@ -327,4 +364,15 @@ function artifactFailure(error: unknown): FileServiceRequestError {
   return error instanceof FileServiceRequestError
     ? error
     : new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
+}
+
+function computerToolFailure(
+  code: Extract<DesktopToolResult, { ok: false }>["error_code"],
+  kind: "status" | "observe" | "act",
+): ComputerFailureCode {
+  if (code === "FORBIDDEN") return "COMPUTER_ACCESS_DENIED"
+  if (code === "RUNNER_OPERATION_UNCERTAIN") {
+    return kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE"
+  }
+  return "COMPUTER_UNAVAILABLE"
 }

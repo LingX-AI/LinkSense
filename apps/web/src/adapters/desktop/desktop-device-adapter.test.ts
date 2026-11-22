@@ -44,7 +44,12 @@ describe("desktop device native status", () => {
         deviceId: ownerId,
         executionReady: true,
       })
-    ).toEqual({ state: "online", deviceId: ownerId, executionReady: true })
+    ).toEqual({
+      state: "online",
+      deviceId: ownerId,
+      executionReady: true,
+      computerReady: false,
+    })
   })
 
   it("treats an older host's missing executionReady as false", () => {
@@ -52,7 +57,31 @@ describe("desktop device native status", () => {
       state: "online",
       deviceId: undefined,
       executionReady: false,
+      computerReady: false,
     })
+  })
+
+  it("reads the negotiated computer-use flag and fails closed when absent", () => {
+    expect(
+      parseDesktopDeviceStatus({
+        state: "online",
+        deviceId: ownerId,
+        executionReady: true,
+        computerReady: true,
+      })
+    ).toEqual({
+      state: "online",
+      deviceId: ownerId,
+      executionReady: true,
+      computerReady: true,
+    })
+    expect(
+      parseDesktopDeviceStatus({
+        state: "online",
+        deviceId: ownerId,
+        executionReady: true,
+      }).computerReady
+    ).toBe(false)
   })
 
   it("reads DeviceStatus without changing the generated binding", async () => {
@@ -65,6 +94,7 @@ describe("desktop device native status", () => {
       state: "connecting",
       deviceId: ownerId,
       executionReady: true,
+      computerReady: false,
     })
     expect(native.deviceStatus).toHaveBeenCalledOnce()
   })
@@ -89,6 +119,7 @@ describe("desktop device native pairing and resume", () => {
       state: "connecting",
       deviceId: undefined,
       executionReady: false,
+      computerReady: false,
     })
     expect(native.pairDevice).toHaveBeenCalledExactlyOnceWith(code, "Work Mac")
   })

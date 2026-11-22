@@ -187,6 +187,21 @@ export class DesktopRunLeases {
     }
   }
 
+  /**
+   * Tokenless exact binding read for callers that are already under the
+   * conversation database lock (native select/resume carries no run bearer).
+   *
+   * The canonical Redis run lease is the durable authority for the exact
+   * owner/device/connection/conversation/generation/turn; a missing,
+   * malformed, expired, or `revoked` value is not a binding. The caller still
+   * proves the locked database credential and materialized turn separately.
+   */
+  async hasActiveBinding(scope: DesktopRunScope): Promise<boolean> {
+    const expected = desktopRunScopeSchema.parse(scope);
+    const lease = parseLease(await this.redis.get(key(expected.turnId)));
+    return lease !== null && lease.expiresAt > this.now() && matchesScope(expected, lease.scope);
+  }
+
   async claimToolRequest(turnId: string, requestId: string): Promise<boolean> {
     const turn = runIdSchema.parse(turnId);
     const request = runIdSchema.parse(requestId);
@@ -277,6 +292,11 @@ export class DesktopRunLeases {
 
 function key(turnId: string): string {
   return `linksense:desktop-run:${turnId}`;
+}
+
+/** Canonical run-lease key; shared with the selection Lua CAS so it cannot drift. */
+export function desktopRunLeaseKey(turnId: string): string {
+  return key(runIdSchema.parse(turnId));
 }
 
 function artifactPauseKey(turnId: string): string {

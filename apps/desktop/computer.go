@@ -1,20 +1,22 @@
 package main
 
-// Fixture-only native dispatch for the M1b `computer.execute` operation.
+// Native dispatch for the M1b `computer.execute` operation.
 //
 // The Go bridge is the only component that knows both the negotiated device
 // link and the host-picked selection. It consumes this operation before the
 // frame reaches the runtime pipe, so the runner never sees a command outside
-// its accepted closed set. Everything here is inert unless a test injects an
-// executor into a deviceConnection; production leaves connection.computer nil,
-// never offers the operation, and rejects any unexpected computer-prefixed
+// its accepted closed set. On macOS the product controller installs an
+// m1bComputerHost backed by the signed, on-demand executor; a connection with
+// no host (another platform, or a host that cannot build the signed runtime)
+// never offers the operation and rejects any unexpected computer-prefixed
 // command instead of forwarding it.
 //
-// The executor owns the host-picked window and the observation refs. The host
-// binds the API-issued holder UUID on the first matching observe, keeps command
-// ids once per transport command until expiry, and serializes one selection
-// across socket generations. There is no driver, AX/screen access, app/PID/ref
-// selector, live permission or production registration in this slice.
+// The host gate owns pause/stop fencing and the observation refs; the executor
+// owns the host-picked window. The host binds the API-issued holder UUID on the
+// first matching observe, keeps command ids once per transport command until
+// expiry, and serializes one selection across socket generations. This file
+// holds no driver, AX/screen access, app/PID/ref selector, live permission or
+// registration code; those sit behind the executor seam.
 
 import (
 	"bytes"
@@ -32,6 +34,9 @@ import (
 const (
 	m1bComputerOperation = "computer.execute"
 
+	// m1bComputerMaxWork bounds read-only status/observe and the quiesce
+	// control path. Act instead uses its host-validated timeout_ms (default
+	// 8_000, max 20_000), which the shared schema already caps.
 	m1bComputerMaxWork        = 5 * time.Second
 	m1bComputerMaxCommands    = 1024
 	m1bComputerMaxControls    = 1
@@ -79,6 +84,9 @@ func (selection m1bComputerSelection) closedKey() string {
 
 // m1bComputerAct is the validated, normalized action input. Only one action is
 // representable and unknown selector fields are rejected during decoding.
+// timeout_ms is normalized once here (absent means 8_000) and the act is then
+// passed unchanged to the executor so the one-shot host authorization compares
+// the exact validated input.
 type m1bComputerAct struct {
 	Action        string
 	ObservationID string
@@ -180,9 +188,10 @@ func m1bComputerFailure(code string) m1bComputerResult {
 	return m1bComputerResult{kind: "failure", failure: code}
 }
 
-// m1bComputerExecutor is the explicit test injection point. Implementations
-// are host-picked: selection returns the trusted binding for this run, and
-// invalidate clears the refs bound by the last observe after quiesce terminal.
+// m1bComputerExecutor is the host seam implemented by the product gate
+// (computerExecutorGate) and by test fakes. Implementations are host-picked:
+// selection returns the trusted binding for this run, and invalidate clears the
+// refs bound by the last observe after quiesce terminal.
 type m1bComputerExecutor interface {
 	selection() m1bComputerSelection
 	status(context.Context, m1bComputerSelection) m1bComputerResult
@@ -196,6 +205,7 @@ type m1bComputerExecutor interface {
 // quiesce can never ack ahead of an old success.
 type m1bComputerDispatch struct {
 	id           string
+	kind         string
 	token        uint64
 	expiresAt    time.Time
 	deadline     time.Time
@@ -225,12 +235,12 @@ type m1bComputerTombstone struct {
 	holder    string
 }
 
-// m1bComputerHost serializes one injected executor across device connections.
+// m1bComputerHost serializes one executor across device connections.
 //
 // ponytail: one mutex and one current host-picked binding fit the single-device
-// fixture. The holder/closed state is bound to the full selection/link key, so
-// a new socket generation never inherits an old holder. A new selection
-// replaces the state; the fixture expects a resume to use a new selection id.
+// product host. The holder/closed state is bound to the full selection/link
+// key, so a new socket generation never inherits an old holder. A new selection
+// replaces the state; the product controller gives a resume a new selection id.
 type m1bComputerHost struct {
 	executor m1bComputerExecutor
 
@@ -309,10 +319,38 @@ func (host *m1bComputerHost) deliverable(work *m1bComputerDispatch) bool {
 	return !work.canceled && host.holder == work.token
 }
 
+// inputBusy reports whether an act is admitted or its result is still being
+// published. An explicit renewal must not replace the grant while an act may
+// already have reached the native executor under it. Read-only status/observe
+// work is not input and is fenced by the executor's own generation.
+func (host *m1bComputerHost) inputBusy() bool {
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	if host.active != nil && host.active.kind == "act" {
+		return true
+	}
+	return host.last != nil && host.last.kind == "act" && !m1bClosed(host.last.done)
+}
+
 // selectionCurrent revalidates the exact host-picked selection immediately
 // before executor entry or ref invalidation.
 func (host *m1bComputerHost) selectionCurrent(selection m1bComputerSelection) bool {
 	return host.executor.selection().bindingKey() == selection.bindingKey()
+}
+
+// retire closes the exact selection's input binding without forgetting the
+// holder adopted for it. The bound driver may already be detached, so a
+// correlated server quiesce must still be able to match this exact
+// binding/holder and prove the old publication; no observe/act may enter.
+func (host *m1bComputerHost) retire(selection m1bComputerSelection) {
+	if host == nil {
+		return
+	}
+	host.mu.Lock()
+	if host.selectionBinding == selection.bindingKey() {
+		host.selectionClosed = true
+	}
+	host.mu.Unlock()
 }
 
 // sweepLocked keeps unexpired transport command ids and retires only expired
@@ -429,6 +467,7 @@ func (host *m1bComputerHost) beginInput(link *m1bComputerLink, selection m1bComp
 		return m1bComputerBegin{failure: "DEVICE_BUSY"}
 	}
 	work.token = link.token
+	work.kind = command.Request.Kind
 	work.deadline = deadline
 	work.ctx = ctx
 	work.selectionKey = selection.bindingKey()
@@ -481,6 +520,7 @@ func (host *m1bComputerHost) beginQuiesce(link *m1bComputerLink, selection m1bCo
 		return m1bComputerBegin{failure: "DEVICE_BUSY"}
 	}
 	work.token = link.token
+	work.kind = command.Request.Kind
 	work.deadline = deadline
 	work.ctx = ctx
 	work.selectionKey = selection.bindingKey()
@@ -577,7 +617,7 @@ func (host *m1bComputerHost) cancel(id string, token uint64) bool {
 	return true
 }
 
-// m1bComputerLink is the per-socket view of the fixture. ctx is a per-socket
+// m1bComputerLink is the per-socket view of the host. ctx is a per-socket
 // context so socket/read/link shutdown cancels in-flight work before the
 // deferred heartbeat join.
 type m1bComputerLink struct {
@@ -602,7 +642,7 @@ func (link *m1bComputerLink) executable() bool {
 }
 
 // interceptM1BComputerFrame consumes only computer operations and cancels for
-// commands this fixture issued. Every other frame returns false and keeps the
+// commands this host issued. Every other frame returns false and keeps the
 // existing forwarding path unchanged.
 func interceptM1BComputerFrame(link *m1bComputerLink, data []byte) bool {
 	var header struct {
@@ -745,9 +785,12 @@ func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.Cancel
 				outcome = m1bComputerFailure("COMPUTER_INVALID")
 				break
 			}
-			act := *request.Act
-			act.TimeoutMS = m1bClampTimeout(act.TimeoutMS, work.deadline)
-			outcome = link.host.executor.act(ctx, selection, request.NativeCallID, act)
+			// Pass the parser-normalized act unchanged. The host authorization is
+			// bound to this exact input, including timeout_ms, and ctx already
+			// carries the command/selection/requested-wait deadline. Mutating the
+			// wait here would make an exact one-shot proof unmatchable as
+			// transport time elapses.
+			outcome = link.host.executor.act(ctx, selection, request.NativeCallID, *request.Act)
 		}
 	}
 	alive := link.host.finishInput(link, work)
@@ -840,7 +883,15 @@ func m1bComputerInputDeadline(selection m1bComputerSelection, command m1bCompute
 	if selection.ExpiresAt.Before(deadline) {
 		deadline = selection.ExpiresAt
 	}
-	if limit := now.Add(m1bComputerMaxWork); deadline.After(limit) {
+	limit := now.Add(m1bComputerMaxWork)
+	if command.Request.Kind == "act" && command.Request.Act != nil {
+		// The strict parser already validated timeout_ms to 100..20_000 ms
+		// (absent means 8_000). It is the act's bounded effect window, so the
+		// fixed read window must not shorten a conforming act. Command expiry,
+		// selection/proof expiry and caller cancellation still cap it.
+		limit = now.Add(time.Duration(command.Request.Act.TimeoutMS) * time.Millisecond)
+	}
+	if limit.Before(deadline) {
 		deadline = limit
 	}
 	return deadline, ""
@@ -857,17 +908,6 @@ func m1bComputerControlDeadline(command m1bComputerCommand, now time.Time) (time
 		deadline = limit
 	}
 	return deadline, ""
-}
-
-func m1bClampTimeout(timeout int, deadline time.Time) int {
-	remaining := int(time.Until(deadline) / time.Millisecond)
-	if remaining < 0 {
-		remaining = 0
-	}
-	if timeout > remaining {
-		return remaining
-	}
-	return timeout
 }
 
 func m1bClosed(channel <-chan struct{}) bool {

@@ -116,6 +116,15 @@ describe("parseConfig", () => {
       .toThrow("desktop_website_artifacts_require_artifacts")
   })
 
+  it("keeps Mac computer use behind its own local-execution opt-in", () => {
+    const execution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
+    const computer = { LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED: "true" }
+    expect(parseConfig(testEnvironment(execution)).desktopComputerUseEnabled).toBe(false)
+    expect(parseConfig(testEnvironment({ ...execution, ...computer })).desktopComputerUseEnabled).toBe(true)
+    expect(() => parseConfig(testEnvironment(computer)))
+      .toThrow("desktop_computer_use_requires_local_execution")
+  })
+
   it("keeps local filesystem storage out of production and the Full edition", () => {
     expect(() =>
       parseConfig(

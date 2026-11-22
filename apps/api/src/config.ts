@@ -349,6 +349,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     LINKSENSE_TINYTRAFFIC_URL: optionalString,
     LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
@@ -476,6 +480,13 @@ const rawConfigSchema = z
         code: "custom",
         path: ["LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED"],
         message: "desktop_website_artifacts_require_artifacts",
+      });
+    }
+    if (config.LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED"],
+        message: "desktop_computer_use_requires_local_execution",
       });
     }
     // Production admission needs server-side metering, masking and crash cleanup.
@@ -626,6 +637,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     desktopArtifactsEnabled: raw.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
     desktopWebsiteArtifactsEnabled:
       raw.LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED,
+    desktopComputerUseEnabled: raw.LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     appwrite,
     analytics,

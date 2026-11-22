@@ -33,6 +33,13 @@ export class DesktopRunner {
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
     private readonly attachments: Pick<DesktopAttachments, "manifest">,
     private readonly pauseArtifactPublication?: (turnId: string) => Promise<() => Promise<void>>,
+    /** Best-effort product selection cleanup after a confirmed Codex interrupt. */
+    private readonly onTurnInterrupted?: (scope: {
+      ownerId: string;
+      conversationId: string;
+      turnId: string;
+      runtimeGeneration: string;
+    }) => Promise<void>,
   ) {}
 
   async assertAvailable(scope: ConversationScope, needsAttachments = false): Promise<void> {
@@ -117,6 +124,10 @@ export class DesktopRunner {
       const frame = await this.send(target, scope, { operation: "turn.interrupt" });
       if (frame.operation !== "turn.interrupt") throw new DesktopCommandUncertainError();
       if (frame.result.code === RUNNER_TURN_INTERRUPT_NOT_ACTIVE) await release?.();
+      await this.onTurnInterrupted?.({
+        ownerId: scope.ownerId, conversationId: scope.conversationId,
+        turnId: scope.turnId, runtimeGeneration: target.runtimeGeneration,
+      }).catch(() => undefined);
       return frame.result;
     } catch (error) {
       if (error instanceof DesktopCommandUndeliveredError) await release?.();

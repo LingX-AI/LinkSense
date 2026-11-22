@@ -38,6 +38,7 @@
     "desktop:whitebox:os": "node scripts/desktop-browser-os.mjs",
     "desktop:whitebox:engine": "node scripts/desktop-engine-whitebox.mjs",
     "test:desktop:postgres": "pnpm --filter @linksense/shared build && pnpm --filter @linksense/api exec tsx test/integration/desktop-devices-postgres.ts",
+    "test:desktop:computer:postgres": "pnpm --filter @linksense/shared build && pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-control-postgres.ts",
     "build": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present build",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy && tsx --env-file-if-exists=.env prisma/initialize-connection-settings.ts",

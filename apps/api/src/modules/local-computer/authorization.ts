@@ -143,6 +143,7 @@ export async function verifyLocalComputerDispatch(
   prisma: PrismaClient,
   input: LocalComputerDispatchAdmission,
   now: () => Date = () => new Date(),
+  finalize?: () => boolean | Promise<boolean>,
 ): Promise<void> {
   const scope = desktopRunScopeSchema.safeParse(input.scope);
   const target = localComputerGrantSchema.shape.target.safeParse({ bundle_id: input.bundleId });
@@ -179,6 +180,11 @@ export async function verifyLocalComputerDispatch(
     await readGrant(tx, {
       ownerId, deviceId, conversationId, sessionId: session.id, grantId: grantId.data,
     }, input.capability, target.data.bundle_id, at, session.expiresAt);
+    // The final selection/holder/run-binding/mayDispatch checks and the single
+    // synchronous socket send run under the same conversation lock. A public
+    // stop or revoke that needs this lock therefore cannot commit before the
+    // send is invoked, and this transaction never waits for the native reply.
+    if (finalize && !await finalize()) throw new AppError("FORBIDDEN");
   });
 }
 

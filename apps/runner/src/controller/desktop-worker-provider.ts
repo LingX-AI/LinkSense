@@ -791,6 +791,7 @@ export function desktopWorkerEnvironment(
     ...(run ? { LINKSENSE_DESKTOP_TURN_ID: run.turnId, LINKSENSE_DESKTOP_RUNTIME_GENERATION: run.runtimeGeneration } : {}),
     ...(run?.toolOperations?.includes("connection.execute") ? { LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("browser.execute") ? { LINKSENSE_DESKTOP_BROWSER_ENABLED: "true" } : {}),
+    ...(run?.toolOperations?.includes("computer.execute") ? { LINKSENSE_DESKTOP_COMPUTER_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.includes("approval.respond") ? { LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: "true" } : {}),
     ...(run?.toolOperations?.some(operation => operation === "artifact.prepare" || operation === "artifact.website")
       ? { LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: "true" } : {}),

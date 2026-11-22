@@ -1,5 +1,6 @@
 import {
   browserUseToolName,
+  computerActToolName,
   conversationFormToolTimeoutSeconds,
   coreMcpServerKey,
   managedBrowserMcpServerKey,
@@ -97,6 +98,16 @@ export const coreMcpEnvironmentVariables = [
   "LINKSENSE_WEB_SITE_TOKEN",
 ] as const;
 
+/**
+ * Only a desktop process whose supervisor callback was actually provisioned
+ * may allow these into the Core MCP stdio environment. The persistent owner
+ * template never includes them, and neither does an unnegotiated worker.
+ */
+const computerRelayEnvironmentVariables = [
+  "LINKSENSE_COMPUTER_ENDPOINT",
+  "LINKSENSE_COMPUTER_TOKEN",
+] as const;
+
 const managedBrowserEnvironmentVariables = [
   "HOME",
   "CODEX_HOME",
@@ -159,6 +170,9 @@ export function builtInMcpConfigOverrides(input: {
   disableBrowserUse?: boolean;
   disableArtifactRegistration?: boolean;
   promptForBrowserUse?: boolean;
+  computerActApproval?: boolean;
+  /** The process received the trusted desktop computer relay endpoint/token. */
+  computerRelay?: boolean;
 }): string[] {
   const knowledgeSearchTimeouts = deriveKnowledgeSearchTimeouts(
     input.knowledgeSearchTimeoutMs ?? DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -177,13 +191,20 @@ export function builtInMcpConfigOverrides(input: {
   return [
     `${corePrefix}.command=${JSON.stringify(input.command)}`,
     `${corePrefix}.args=${JSON.stringify(input.args)}`,
-    `${corePrefix}.env_vars=${JSON.stringify(coreMcpEnvironmentVariables)}`,
+    `${corePrefix}.env_vars=${JSON.stringify([
+      ...coreMcpEnvironmentVariables,
+      ...(input.computerRelay === true ? computerRelayEnvironmentVariables : []),
+    ])}`,
     `${corePrefix}.enabled=true`,
     `${corePrefix}.required=false`,
     `${corePrefix}.startup_timeout_sec=10`,
     `${corePrefix}.tool_timeout_sec=${String(coreToolTimeoutSeconds)}`,
     ...(disabledTools.length ? [`${corePrefix}.disabled_tools=${JSON.stringify(disabledTools)}`] : []),
     ...(input.promptForBrowserUse ? [`${corePrefix}.tools.${browserUseToolName}.approval_mode="prompt"`] : []),
+    // Prompt always requires the native exact one-shot Allow/Cancel card;
+    // Approve resolves without one (rust-v0.170.0 mcp_tool_call.rs:2808-2819),
+    // so the relay gate could never observe a user decision.
+    ...(input.computerActApproval ? [`${corePrefix}.tools.${computerActToolName}.approval_mode="prompt"`] : []),
     ...(input.managedBrowserArgs
       ? [
           `${managedBrowserPrefix}.command=${JSON.stringify(input.command)}`,

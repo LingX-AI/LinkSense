@@ -18,6 +18,12 @@ export const desktopComputerDispatchAdmissionSchema = z.strictObject({
   capability: z.enum(["computer.observe", "computer.act"]),
   bundleId: localComputerGrantSchema.shape.target.shape.bundle_id,
   expiresAt: timestampSchema.transform(value => new Date(value)),
+  /**
+   * Product-lane renewal fence. Absent in the joined fixture; the product
+   * admission compares it with the live selection so a renewal cannot revive a
+   * command authorized before the new five-minute window.
+   */
+  controlEpoch: uuidSchema.optional(),
 });
 export type DesktopComputerDispatchAdmission = z.infer<typeof desktopComputerDispatchAdmissionSchema>;
 export type DesktopComputerDispatchAdmissionInput = z.input<typeof desktopComputerDispatchAdmissionSchema>;

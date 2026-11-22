@@ -10,6 +10,7 @@ const isolatedTests = [
   "test/http-egress-proxy.test.ts",
   "test/desktop-artifact-upload.test.ts",
   "test/desktop-artifact-callback.test.ts",
+  "test/desktop-computer-callback.test.ts",
   "test/interactive-form-service.test.ts",
   "test/event-outbox.test.ts",
 ]

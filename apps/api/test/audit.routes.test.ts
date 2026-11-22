@@ -768,6 +768,81 @@ describe("AuditService metadata boundary", () => {
       }),
     ).toEqual({ conversation_id: CONVERSATION_ID, queue_no: 2 })
   })
+
+  it("records the bounded computer action and non-negative duration while dropping GUI content, refs, URLs, screenshots, and raw errors", async () => {
+    const create = vi.fn(async () => ({}))
+    const service = new AuditService({ auditLog: { create } } as never)
+
+    await service.write({
+      actorId: OWNER_ID,
+      action: "desktop_tool_requested",
+      result: "success",
+      metadata: {
+        operation: "computer.execute",
+        conversation_id: CONVERSATION_ID,
+        turn_id: "30000000-0000-4000-8000-000000000001",
+        device_id: "40000000-0000-4000-8000-000000000001",
+        computer_action: "click",
+        duration_ms: 0,
+        window_title: "PRIVATE WINDOW",
+        element_ref: "ref-42",
+        typed_text: "secret text",
+        url: "https://private.example/secret",
+        screenshot: "data:image/png;base64,secret",
+        raw_error: "SECRET ERROR",
+        payload: "SECRET PAYLOAD",
+      },
+    })
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadataJson: {
+          operation: "computer.execute",
+          conversation_id: CONVERSATION_ID,
+          turn_id: "30000000-0000-4000-8000-000000000001",
+          device_id: "40000000-0000-4000-8000-000000000001",
+          computer_action: "click",
+          duration_ms: 0,
+        },
+      }),
+    })
+  })
+
+  it("keeps the existing browser action and reason fields while dropping non-allowlisted browser metadata", async () => {
+    const create = vi.fn(async () => ({}))
+    const service = new AuditService({ auditLog: { create } } as never)
+
+    await service.write({
+      actorId: OWNER_ID,
+      action: "desktop_tool_requested",
+      result: "failed",
+      metadata: {
+        operation: "browser.execute",
+        conversation_id: CONVERSATION_ID,
+        turn_id: "30000000-0000-4000-8000-000000000002",
+        device_id: "40000000-0000-4000-8000-000000000002",
+        browser_action: "click",
+        reason_code: "BROWSER_USE_COMMAND_FAILED",
+        window_title: "PRIVATE WINDOW",
+        url: "https://private.example/secret",
+        screenshot: "data:image/png;base64,secret",
+        raw_error: "SECRET ERROR",
+      },
+    })
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadataJson: {
+          operation: "browser.execute",
+          conversation_id: CONVERSATION_ID,
+          turn_id: "30000000-0000-4000-8000-000000000002",
+          device_id: "40000000-0000-4000-8000-000000000002",
+          browser_action: "click",
+          reason_code: "BROWSER_USE_COMMAND_FAILED",
+        },
+      }),
+    })
+  })
 })
 
 class CsvTestWritable extends EventEmitter {

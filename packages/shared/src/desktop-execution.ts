@@ -75,14 +75,15 @@ export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "
 export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website"]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
 /**
- * M1b fixture-only operation. It is a negotiated tool request but deliberately
- * not part of the closed pre-existing tool-operation enum, so old negotiation
- * lists, defaults, and cloud behavior stay the same.
+ * M1b computer operation. It is a negotiated tool request but deliberately not
+ * part of the closed pre-existing tool-operation enum, so old negotiation
+ * lists, defaults, and cloud behavior stay the same. The joined Mac fixture
+ * and the opt-in product controller share this wire operation.
  */
 export const desktopComputerExecuteOperation = "computer.execute" as const;
 export const desktopToolRequestOperationSchema = z.enum([...desktopToolOperationSchema.options, desktopComputerExecuteOperation]);
 export type DesktopToolRequestOperation = z.infer<typeof desktopToolRequestOperationSchema>;
-/** Command operations, including the additive M1b fixture operation. */
+/** Command operations, including the additive M1b computer operation. */
 export const desktopExecutionCommandOperationSchema = z.enum([...desktopExecutionOperation.options, desktopComputerExecuteOperation]);
 export const desktopNegotiatedOperationSchema = z.enum([...desktopToolRequestOperationSchema.options, "approval.respond"]);
 export type DesktopNegotiatedOperation = z.infer<typeof desktopNegotiatedOperationSchema>;
@@ -90,8 +91,11 @@ export function supportsDesktopUserInput(
   operations: readonly DesktopNegotiatedOperation[],
   response?: NativeUserInputResponse,
 ): boolean {
+  // A Mac that negotiated only computer.execute still needs native question
+  // answers; every other operation and the approval method stay unchanged.
   return response && "method" in response ? operations.includes("approval.respond")
-    : operations.includes("browser.execute") || operations.includes("artifact.prepare");
+    : operations.includes("browser.execute") || operations.includes("artifact.prepare") ||
+      operations.includes(desktopComputerExecuteOperation);
 }
 export function desktopToolLifetimeFor(operation: DesktopToolRequestOperation): number {
   if (operation === desktopComputerExecuteOperation) return desktopComputerExecuteLifetimeMs;

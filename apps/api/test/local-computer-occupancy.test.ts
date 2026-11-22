@@ -164,6 +164,38 @@ describe("local computer GUI occupancy", () => {
     expect(replacement.holderId).not.toBe(first.holderId);
   });
 
+  it("reports min(stored, authorized) for a product match without shortening the stored lease", async () => {
+    const binding = scope();
+    await connect(binding);
+    const selectionId = randomUUID();
+    const key = localComputerGuiOccupancyKey(binding.deviceId);
+    const longAccess = authorization(binding, { expiresAt: new Date(Date.now() + 300_000) });
+    const first = acquired(await occupancy.acquire({
+      authorization: longAccess, selectionId, throughAuthorizationExpiry: true,
+    }));
+    const storedExpiry = first.expiresAt;
+    const storedTtl = await redis.client.pttl(key);
+    expect(storedTtl).toBeGreaterThan(200_000);
+
+    // An older but still valid act grant bounds the result of this match but
+    // must not truncate the longer lease acquired through the observe grant.
+    const shortGrantEnd = Date.now() + 60_000;
+    const matched = await occupancy.match({
+      authorization: { ...longAccess, expiresAt: new Date(shortGrantEnd) },
+      selectionId, holderId: first.holderId, preserveStoredExpiry: true,
+    });
+    if (matched.status !== "held") throw new Error(`Expected held, received ${matched.status}`);
+    expect(matched.expiresAt).toBe(shortGrantEnd);
+    expect(JSON.parse(await redis.client.get(key) ?? "null")).toMatchObject({ expiresAt: storedExpiry });
+    expect(await redis.client.pttl(key)).toBeGreaterThan(200_000);
+
+    // A newer authorization reports the stored lease unchanged.
+    expect(await occupancy.match({
+      authorization: longAccess, selectionId, holderId: first.holderId, preserveStoredExpiry: true,
+    })).toEqual({ status: "held", expiresAt: storedExpiry });
+    expect(JSON.parse(await redis.client.get(key) ?? "null")).toMatchObject({ expiresAt: storedExpiry });
+  });
+
   it("never renews an already expired holder and leaves a valid holder untouched by expired authorization", async () => {
     const binding = scope();
     await connect(binding);

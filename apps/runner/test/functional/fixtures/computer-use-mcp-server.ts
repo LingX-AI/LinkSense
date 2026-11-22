@@ -13,7 +13,10 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { runnerNativeIdSchema } from "@linksense/shared";
+import {
+  runnerNativeIdSchema,
+  type ComputerObservation,
+} from "@linksense/shared";
 
 import type {
   CoreMcpModuleDefinition,
@@ -31,16 +34,90 @@ if (!auditPath || (requestedMode !== "default" && requestedMode !== "plan")) {
   throw new Error("computer fixture requires an audit path and mode");
 }
 const mode = requestedMode;
-const target = { bundleId: "com.example.LinkSenseComputerFixture" } as const;
 const audit = (entry: Record<string, unknown>) =>
   appendFileSync(auditPath, `${JSON.stringify(entry)}\n`);
+
+/** Synthetic 2x3 PNG; 74 decoded bytes. */
+const fallbackPng =
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII=";
+/** Signature, IHDR and dimensions survive; IDAT pixel data does not. */
+const truncatedPng = Buffer.from(fallbackPng, "base64").subarray(0, 50).toString("base64");
+
+function observeScenario(count: number): ComputerObservation {
+  const goodNodes = [
+    { ref: "e1", role: "button", name: "Continue" },
+    { ref: "e2", role: "text_field", name: "Name" },
+  ];
+  if (count === 3) {
+    return {
+      observation_id: "obs-3",
+      tree_quality: "unusable",
+      truncated: false,
+      nodes: [],
+      screenshot: {
+        mime_type: "image/png",
+        data_base64: fallbackPng,
+        width: 2,
+        height: 3,
+      },
+    };
+  }
+  if (count === 4) {
+    return {
+      observation_id: "obs-4",
+      tree_quality: "good",
+      truncated: false,
+      nodes: goodNodes,
+      screenshot: {
+        mime_type: "image/png",
+        data_base64: fallbackPng,
+        width: 2,
+        height: 3,
+      },
+    };
+  }
+  if (count === 5) {
+    return {
+      observation_id: "obs-5",
+      tree_quality: "unusable",
+      truncated: false,
+      nodes: [],
+      screenshot: {
+        mime_type: "image/png",
+        data_base64: truncatedPng,
+        width: 2,
+        height: 3,
+      },
+    };
+  }
+  if (count === 6) {
+    return {
+      observation_id: "obs-6",
+      tree_quality: "partial",
+      truncated: true,
+      nodes: [{ ref: "e3", role: "button", name: "Canvas" }],
+      screenshot: {
+        mime_type: "image/jpeg",
+        data_base64: tinyJpeg,
+        width: 1,
+        height: 1,
+      },
+    };
+  }
+  return {
+    observation_id: `obs-${count}`,
+    tree_quality: "good",
+    truncated: false,
+    nodes: goodNodes,
+  };
+}
 
 let observationCount = 0;
 let latest: { id: string; refs: Set<string> } | undefined;
 const executor: ComputerUseExecutor = {
-  async status({ target: selected, signal }) {
+  async status({ signal }) {
     signal.throwIfAborted();
-    audit({ tool: "status", target: selected.bundleId });
+    audit({ tool: "status" });
     return {
       available: true,
       permissions: { accessibility: "granted" },
@@ -48,30 +125,28 @@ const executor: ComputerUseExecutor = {
       agent_desktop_version: "fixture-1.0",
     };
   },
-  async observe({ target: selected, signal }) {
+  async observe({ signal }) {
     signal.throwIfAborted();
     observationCount += 1;
-    const observation = {
-      observation_id: `obs-${observationCount}`,
-      tree_quality: "good" as const,
-      truncated: false,
-      nodes: [
-        { ref: "e1", role: "button", name: "Continue" },
-        { ref: "e2", role: "text_field", name: "Name" },
-      ],
-    };
+    const observation = observeScenario(observationCount);
     latest = {
       id: observation.observation_id,
       refs: new Set(observation.nodes.map((node) => node.ref)),
     };
-    audit({ tool: "observe", target: selected.bundleId, ...observation });
+    // Metadata only: fixture audit never carries screenshot bytes or proof.
+    audit({
+      tool: "observe",
+      observation_id: observation.observation_id,
+      tree_quality: observation.tree_quality,
+      truncated: observation.truncated,
+      node_count: observation.nodes.length,
+    });
     return observation;
   },
   async act(input) {
     input.signal.throwIfAborted();
     const entry = {
       tool: "act",
-      target: input.target.bundleId,
       nativeCallId: input.nativeCallId,
       observationId: input.observationId,
       ref: input.ref,
@@ -134,7 +209,7 @@ const registry = createCoreMcpRegistry({
   mode,
   environment: computerFixtureEnvironment(mode),
   extraModules: [
-    createComputerUseCoreMcpModule({ mode, target, executor }),
+    createComputerUseCoreMcpModule({ mode, executor, screenshots: true }),
     imageModule,
   ],
 });

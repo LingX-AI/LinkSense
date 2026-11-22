@@ -11,6 +11,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { computerScreenshotMaxBytes, computerScreenshotMaxEncodedBytes } from "@linksense/shared";
 import pino from "pino";
 import { z } from "zod";
 
@@ -25,6 +26,9 @@ const tsxCli = require.resolve("tsx/cli");
 const fixtureServer = join(import.meta.dirname, "fixtures/computer-use-mcp-server.ts");
 const tinyJpeg =
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AN//Z";
+/** Synthetic 2x3 PNG used by the computer_use fallback fixture. */
+const fallbackPng =
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII=";
 const typedText = "你好，LinkSense 👋";
 const results: Array<Record<string, unknown>> = [];
 
@@ -161,8 +165,63 @@ for (const mode of ["default", "plan"] as const) {
     if (current === 9) {
       const serialized = JSON.stringify(body);
       imageChecked = serialized.includes('"type":"input_image"') && serialized.includes(tinyJpeg);
-      check("MCP image content reaches the next model input", imageChecked);
-      return message("COMPUTER_IMAGE_OK");
+      check("existing MCP image content reaches the next model input", imageChecked);
+      return toolCall(body, "computer_observe", {}, "call_observe_fallback") ?? message("missing fallback observe");
+    }
+    if (current === 10) {
+      const metadata = output(body, "call_observe_fallback");
+      const image = outputImage(body, "call_observe_fallback");
+      const metadataText = JSON.stringify(metadata);
+      check(
+        "an unusable tree carries a bounded PNG fallback",
+        metadata?.tree_quality === "unusable" &&
+          metadata?.screenshot?.mime_type === "image/png" &&
+          metadata?.screenshot?.width === 2 &&
+          metadata?.screenshot?.height === 3 &&
+          image?.mimeType === "image/png" &&
+          image.data === fallbackPng &&
+          metadataText !== undefined &&
+          !metadataText.includes(fallbackPng) &&
+          !metadataText.includes("capture") &&
+          Buffer.byteLength(image.data, "base64") <= computerScreenshotMaxBytes &&
+          image.data.length <= computerScreenshotMaxEncodedBytes,
+        { metadata, image: image ? { mimeType: image.mimeType, encodedBytes: image.data.length } : undefined },
+      );
+      return toolCall(body, "computer_observe", {}, "call_observe_healthy") ?? message("missing healthy observe");
+    }
+    if (current === 11) {
+      const metadata = output(body, "call_observe_healthy");
+      check(
+        "a healthy tree rejects its screenshot",
+        metadata?.code === "COMPUTER_INVALID" &&
+          outputImage(body, "call_observe_healthy") === undefined,
+        metadata,
+      );
+      return toolCall(body, "computer_observe", {}, "call_observe_truncated") ?? message("missing truncated observe");
+    }
+    if (current === 12) {
+      const metadata = output(body, "call_observe_truncated");
+      check(
+        "a truncated image with valid metadata is rejected",
+        metadata?.code === "COMPUTER_INVALID" &&
+          outputImage(body, "call_observe_truncated") === undefined,
+        metadata,
+      );
+      return toolCall(body, "computer_observe", {}, "call_observe_partial") ?? message("missing partial observe");
+    }
+    if (current === 13) {
+      const metadata = output(body, "call_observe_partial");
+      const image = outputImage(body, "call_observe_partial");
+      check(
+        "a partial tree carries a bounded JPEG fallback",
+        metadata?.tree_quality === "partial" &&
+          metadata?.truncated === true &&
+          metadata?.screenshot?.mime_type === "image/jpeg" &&
+          image?.mimeType === "image/jpeg" &&
+          image.data === tinyJpeg,
+        { metadata, image: image ? { mimeType: image.mimeType, encodedBytes: image.data.length } : undefined },
+      );
+      return message("COMPUTER_SCREENSHOT_OK");
     }
     return message("COMPUTER_MCP_OK");
   }
@@ -292,8 +351,8 @@ for (const mode of ["default", "plan"] as const) {
       const type = acts.find((entry) => entry.action === "type" && entry.nativeCallId === "call_type");
       check("act received the actual native call id",
         click?.nativeCallId === "call_click" && type?.nativeCallId === "call_type", acts);
-      check("act received the latest observation id and host-selected target",
-        click?.observationId === observationId && click?.target === "com.example.LinkSenseComputerFixture", acts);
+      check("act received the latest observation id without a model-supplied target",
+        click?.observationId === observationId && !acts.some((entry) => "target" in entry), acts);
       check("UTF-8 text reached the executor exactly", type?.text === typedText, acts);
       check("the rejected selector never reached the executor", !acts.some((entry) => entry.nativeCallId === "call_reject"), acts);
       const outputText = captures.flatMap(toolOutputText).join("\n");
@@ -395,7 +454,11 @@ type ToolResult = {
   ok?: boolean;
   effect?: string;
   observation_id?: string;
+  code?: string;
+  tree_quality?: string;
+  truncated?: boolean;
   nodes?: Array<{ name?: string }>;
+  screenshot?: { mime_type?: string; width?: number; height?: number };
   [key: string]: unknown;
 };
 
@@ -426,6 +489,23 @@ function output(body: Record<string, unknown>, callId: string): ToolResult | und
     } catch {
       // Codex adds a "Wall time..." text part before the MCP content.
     }
+  }
+  return undefined;
+}
+
+function outputImage(
+  body: Record<string, unknown>,
+  callId: string,
+): { mimeType: string; data: string } | undefined {
+  const inputs = Array.isArray(body.input) ? body.input : [];
+  const item = inputs.find((candidate) => {
+    const record = candidate as { type?: string; call_id?: string };
+    return record.type === "function_call_output" && record.call_id === callId;
+  }) as { output?: Array<{ type?: string; image_url?: string }> } | undefined;
+  for (const part of item?.output ?? []) {
+    if (part.type !== "input_image" || typeof part.image_url !== "string") continue;
+    const match = /^data:(image\/(?:png|jpeg));base64,(.+)$/u.exec(part.image_url);
+    if (match?.[1] && match[2]) return { mimeType: match[1], data: match[2] };
   }
   return undefined;
 }

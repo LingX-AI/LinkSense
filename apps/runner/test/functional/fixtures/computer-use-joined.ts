@@ -81,7 +81,7 @@ export async function createJoinedDesktopLink(input: {
  */
 export async function startComputerUseMcpFixture(input: {
   executor: ComputerUseExecutor;
-  target: { bundleId: string };
+  screenshots?: boolean;
   mode?: "default" | "plan";
 }): Promise<{ url: string; close(): Promise<void> }> {
   const mode = input.mode ?? "default";
@@ -89,7 +89,9 @@ export async function startComputerUseMcpFixture(input: {
     mode,
     environment: computerFixtureEnvironment(mode),
     workspaceRoot: process.cwd(),
-    extraModules: [createComputerUseCoreMcpModule({ mode, target: input.target, executor: input.executor })],
+    extraModules: [createComputerUseCoreMcpModule({
+      mode, executor: input.executor, screenshots: input.screenshots === true,
+    })],
   });
   const server = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/mcp") {

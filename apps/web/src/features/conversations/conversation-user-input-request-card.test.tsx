@@ -13,6 +13,7 @@ import { browserUseActionSchema, supportedLocales, type DesktopApprovalRequest }
 import type { ConversationUserInputRequest } from "@/api/contracts"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
+import { desktopComputerUseMessages } from "@/features/desktop-computer-use/messages"
 import i18n from "@/i18n"
 import conversationStyles from "@/index.css?raw"
 
@@ -76,6 +77,74 @@ const tallRequest: Extract<
     })
   ),
 }
+
+type UserInputQuestion = Extract<
+  ConversationUserInputRequest,
+  { kind: "questions" }
+>["questions"][number]
+
+function computerActApprovalQuestion(summary: string): UserInputQuestion {
+  return {
+    id: "mcp_tool_call_approval_native-call-1",
+    header: "computer_act",
+    question: summary,
+    is_other: false,
+    is_secret: false,
+    options: [
+      { label: "Allow", description: "" },
+      { label: "Cancel", description: "" },
+    ],
+  }
+}
+
+const computerActRequest: Extract<
+  ConversationUserInputRequest,
+  { kind: "questions" }
+> = {
+  ...request,
+  item_id: "native-call-1",
+  questions: [computerActApprovalQuestion("computer_act: click")],
+}
+
+const computerActNearMissRequests: ReadonlyArray<{
+  label: string
+  request: Extract<ConversationUserInputRequest, { kind: "questions" }>
+}> = [
+  {
+    label: "an unknown action summary",
+    request: {
+      ...computerActRequest,
+      questions: [computerActApprovalQuestion("computer_act: drag")],
+    },
+  },
+  {
+    label: "a mismatched item correlation",
+    request: {
+      ...computerActRequest,
+      questions: [
+        {
+          ...computerActApprovalQuestion("computer_act: click"),
+          id: "mcp_tool_call_approval_native-call-2",
+        },
+      ],
+    },
+  },
+  {
+    label: "non-empty option descriptions",
+    request: {
+      ...computerActRequest,
+      questions: [
+        {
+          ...computerActApprovalQuestion("computer_act: click"),
+          options: [
+            { label: "Allow", description: "Native detail" },
+            { label: "Cancel", description: "" },
+          ],
+        },
+      ],
+    },
+  },
+]
 
 const formRequest: Extract<ConversationUserInputRequest, { kind: "form" }> = {
   id: "30000000-0000-4000-8000-000000000007",
@@ -355,6 +424,130 @@ describe("ConversationUserInputRequestCard", () => {
           content: { browser_action: choice },
         })
       }
+    }
+  )
+
+  it.each(supportedLocales)(
+    "localizes the exact Computer Use approval question and submits the native value in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const messages = desktopComputerUseMessages[locale]
+      const onSubmit = vi.fn()
+      const interaction = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={computerActRequest}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+
+      const card = screen.getByTestId("conversation-user-input-request")
+      const legend = card.querySelector("legend")
+      expect(legend).not.toBeNull()
+      expect(legend).toHaveTextContent(messages.title)
+      expect(legend).toHaveTextContent(messages.approvalClickQuestion)
+      expect(card).not.toHaveTextContent("computer_act")
+
+      const allow = screen.getByRole("radio", {
+        name: i18n.t("desktopApproval.allowOnce"),
+      })
+      const cancel = screen.getByRole("radio", {
+        name: i18n.t("conversation.userInput.cancel"),
+      })
+      expect(screen.getAllByRole("radio")).toHaveLength(2)
+      expect(screen.queryByRole("textbox")).toBeNull()
+      for (const radio of [allow, cancel]) {
+        const radioLabel = radio.closest("label")
+        expect(radioLabel).not.toBeNull()
+        expect(document.getElementById(radioLabel!.htmlFor)).toHaveAttribute(
+          "type",
+          "radio"
+        )
+      }
+
+      await interaction.click(allow)
+      expect(allow).toBeChecked()
+      expect(onSubmit).not.toHaveBeenCalled()
+      await interaction.click(
+        screen.getByRole("button", {
+          name: i18n.t("conversation.userInput.submit"),
+        })
+      )
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+        action: "accept",
+        content: { "mcp_tool_call_approval_native-call-1": "Allow" },
+      })
+    }
+  )
+
+  it("distinguishes clicking from typing and submits the native Cancel value", async () => {
+    await i18n.changeLanguage("en-US")
+    const messages = desktopComputerUseMessages["en-US"]
+    const onSubmit = vi.fn()
+    const interaction = userEvent.setup()
+    const { rerender } = render(
+      <ConversationUserInputRequestCard
+        request={{
+          ...computerActRequest,
+          questions: [computerActApprovalQuestion("computer_act: type")],
+        }}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+
+    const card = screen.getByTestId("conversation-user-input-request")
+    expect(card).toHaveTextContent(messages.approvalTypeQuestion)
+    expect(card).not.toHaveTextContent(messages.approvalClickQuestion)
+
+    await interaction.click(
+      screen.getByRole("radio", {
+        name: i18n.t("conversation.userInput.cancel"),
+      })
+    )
+    expect(onSubmit).not.toHaveBeenCalled()
+    await interaction.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.userInput.submit"),
+      })
+    )
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+      action: "accept",
+      content: { "mcp_tool_call_approval_native-call-1": "Cancel" },
+    })
+
+    rerender(
+      <ConversationUserInputRequestCard
+        request={{
+          ...computerActRequest,
+          questions: [computerActApprovalQuestion("computer_act")],
+        }}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    expect(card).toHaveTextContent(messages.approvalQuestion)
+    expect(card).not.toHaveTextContent(messages.approvalTypeQuestion)
+  })
+
+  it.each(computerActNearMissRequests)(
+    "keeps the native question text for $label",
+    ({ request: nearMissRequest }) => {
+      render(
+        <ConversationUserInputRequestCard
+          request={nearMissRequest}
+          submitting={false}
+          onSubmit={vi.fn()}
+        />
+      )
+
+      const card = screen.getByTestId("conversation-user-input-request")
+      expect(card).toHaveTextContent("computer_act")
+      expect(card).toHaveTextContent(nearMissRequest.questions[0]!.question)
+      expect(screen.getAllByRole("radio")).toHaveLength(2)
+      expect(screen.getByText("Allow")).toBeVisible()
+      expect(screen.getByText("Cancel")).toBeVisible()
     }
   )
 

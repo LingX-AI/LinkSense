@@ -66,6 +66,56 @@ func (msgs Messages) CloseToTray() string {
 	return Catalog.Format(msgs.locale, "closeToTray", nil)
 }
 
+// ComputerPickerTitle says "选择要控制的窗口"
+// in the language the app shows.
+func ComputerPickerTitle() string { return In(i18n.Locale()).ComputerPickerTitle() }
+
+// ComputerPickerTitle says "选择要控制的窗口"
+// in the language of msgs.
+func (msgs Messages) ComputerPickerTitle() string {
+	return Catalog.Format(msgs.locale, "computerPickerTitle", nil)
+}
+
+// ComputerPickerHint says "LinkSense 控制你选择的窗口。它可能会将该窗口的辅助功能标签发送给模型。"
+// in the language the app shows.
+func ComputerPickerHint() string { return In(i18n.Locale()).ComputerPickerHint() }
+
+// ComputerPickerHint says "LinkSense 控制你选择的窗口。它可能会将该窗口的辅助功能标签发送给模型。"
+// in the language of msgs.
+func (msgs Messages) ComputerPickerHint() string {
+	return Catalog.Format(msgs.locale, "computerPickerHint", nil)
+}
+
+// ComputerPickerEmpty says "没有找到可控制的窗口。请打开要使用的应用后重试。"
+// in the language the app shows.
+func ComputerPickerEmpty() string { return In(i18n.Locale()).ComputerPickerEmpty() }
+
+// ComputerPickerEmpty says "没有找到可控制的窗口。请打开要使用的应用后重试。"
+// in the language of msgs.
+func (msgs Messages) ComputerPickerEmpty() string {
+	return Catalog.Format(msgs.locale, "computerPickerEmpty", nil)
+}
+
+// ComputerPickerConfirm says "使用此窗口"
+// in the language the app shows.
+func ComputerPickerConfirm() string { return In(i18n.Locale()).ComputerPickerConfirm() }
+
+// ComputerPickerConfirm says "使用此窗口"
+// in the language of msgs.
+func (msgs Messages) ComputerPickerConfirm() string {
+	return Catalog.Format(msgs.locale, "computerPickerConfirm", nil)
+}
+
+// ComputerPickerCancel says "取消"
+// in the language the app shows.
+func ComputerPickerCancel() string { return In(i18n.Locale()).ComputerPickerCancel() }
+
+// ComputerPickerCancel says "取消"
+// in the language of msgs.
+func (msgs Messages) ComputerPickerCancel() string {
+	return Catalog.Format(msgs.locale, "computerPickerCancel", nil)
+}
+
 // NewTask says "新建任务"
 // in the language the app shows.
 func NewTask() string { return In(i18n.Locale()).NewTask() }
@@ -74,6 +124,16 @@ func NewTask() string { return In(i18n.Locale()).NewTask() }
 // in the language of msgs.
 func (msgs Messages) NewTask() string {
 	return Catalog.Format(msgs.locale, "newTask", nil)
+}
+
+// PauseComputerControl says "暂停电脑控制"
+// in the language the app shows.
+func PauseComputerControl() string { return In(i18n.Locale()).PauseComputerControl() }
+
+// PauseComputerControl says "暂停电脑控制"
+// in the language of msgs.
+func (msgs Messages) PauseComputerControl() string {
+	return Catalog.Format(msgs.locale, "pauseComputerControl", nil)
 }
 
 // Preferences says "偏好设置…"

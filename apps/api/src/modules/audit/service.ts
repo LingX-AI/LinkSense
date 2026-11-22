@@ -15,7 +15,20 @@ export type AuditEntry = AuditContext & {
 };
 
 const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
-  desktop_tool_requested: ["operation", "conversation_id", "turn_id", "device_id", "browser_action", "reason_code"],
+  // computer_action is the bounded computerActInputSchema action ("click" | "type")
+  // emitted only for act requests, and duration_ms is a finite non-negative
+  // elapsed-millisecond count. Neither carries GUI content, refs, window titles,
+  // URLs, screenshots, typed text, or raw errors.
+  desktop_tool_requested: [
+    "operation",
+    "conversation_id",
+    "turn_id",
+    "device_id",
+    "browser_action",
+    "computer_action",
+    "duration_ms",
+    "reason_code",
+  ],
   desktop_approval_responded: [
     "conversation_id",
     "turn_id",

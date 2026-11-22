@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { desktopBuildServerUrl, desktopChildEnvironment, desktopCommandInvocation, desktopMacosReleaseTeam, desktopMacosSigningRequirement, desktopMygoBuildArguments, desktopTarget, desktopTestArguments, stageDesktopDependencyNotices, stageDesktopMacosRelease, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { desktopBuildServerUrl, desktopChildEnvironment, desktopCommandInvocation, desktopMacosReleaseTeam, desktopMacosSignerToken, desktopMacosSignerTokenFlag, desktopMacosSigningRequirement, desktopMygoBuildArguments, desktopSigningLdflags, desktopTarget, desktopTestArguments, stageDesktopDependencyNotices, stageDesktopMacosRelease, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
 import { desktopBuildLdflags, desktopUpdateArtifactNames, desktopUpdateChildEnvironment, desktopUpdateConfiguration, desktopUpdateKeyFile, desktopUpdateLdflags, requireDesktopReleaseUpdateSigning, signDesktopUpdateManifest, stageDesktopUpdatePrivateKey, verifyDesktopUpdateArtifacts } from "./desktop-update.mjs";
 import { desktopSlug, desktopVersion } from "../apps/desktop/version.mjs";
 import { buildDesktopAnnotationPreload, desktopAnnotationPreloadOutput } from "./desktop-preload.mjs";
@@ -462,6 +462,43 @@ test("macOS release requires native ARM64, HTTPS and an explicit Developer ID te
     assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", server, invalid, "darwin", "arm64"), /Developer ID Application/u);
   }
   assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", "http://localhost", identity, "darwin", "arm64"), /HTTPS/u);
+});
+
+test("the macOS release signer token carries the exact existing Developer ID requirement", () => {
+  const team = "ABCDE12345";
+  const application = "org.linksense.desktop";
+  const token = desktopMacosSignerToken(team, application);
+  assert.deepEqual(token, {
+    schema_version: 1,
+    app_requirement: desktopMacosSigningRequirement(team, application),
+    runtime_requirement: desktopMacosSigningRequirement(team),
+  });
+  assert.match(token.app_requirement, /identifier "org\.linksense\.desktop"/u);
+  assert.match(token.app_requirement, /certificate leaf\[subject\.OU\] = "ABCDE12345"/u);
+  assert.doesNotMatch(token.runtime_requirement, /identifier /u);
+  const flag = desktopMacosSignerTokenFlag(team, application);
+  const match = /^-X main\.desktopMacosSignerToken=([A-Za-z0-9_-]+)$/u.exec(flag);
+  assert.ok(match);
+  assert.deepEqual(JSON.parse(Buffer.from(match[1], "base64url").toString("utf8")), token);
+  for (const invalid of [undefined, "", "-", "abcde12345", "ABCDE1234", "ABCDE123456", "ABCDE1234!"]) {
+    assert.throws(() => desktopMacosSignerToken(invalid, application), /Developer ID team/u);
+  }
+  for (const invalid of [undefined, "", "-org", "org/linksense", "org linksense", "a".repeat(241)]) {
+    assert.throws(() => desktopMacosSignerToken(team, invalid), /application identifier/u);
+  }
+});
+
+test("release ldflags carry the signer token and reject an environment override", () => {
+  const update = { configured: false, signedArtifacts: false };
+  const flags = desktopSigningLdflags("https://linksense.example.test", update,
+    { team: "ABCDE12345", application: "org.linksense.desktop" });
+  assert.match(flags, /main\.desktopServerURL=https:\/\/linksense\.example\.test/u);
+  assert.match(flags, /main\.desktopMacosSignerToken=[A-Za-z0-9_-]+/u);
+  assert.doesNotMatch(desktopSigningLdflags("https://linksense.example.test", update), /desktopMacosSignerToken/u);
+  assert.throws(() => desktopSigningLdflags("https://linksense.example.test", update, undefined,
+    "-X main.desktopMacosSignerToken=forged"), /must not set/u);
+  assert.throws(() => desktopSigningLdflags("https://linksense.example.test", update, undefined,
+    "-X=main.desktopMacosSignerToken=forged"), /must not set/u);
 });
 
 test("MyGo scopes notarization and Node's entitlement override to release builds", () => {

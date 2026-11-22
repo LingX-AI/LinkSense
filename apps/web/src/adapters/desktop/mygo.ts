@@ -13,6 +13,15 @@ export interface CompletionNotificationInput {
 }
 
 /**
+ * ComputerControlStatus is the only selection state the trusted page receives.
+ * It carries no application, window, process, bundle or permission detail.
+ */
+export interface ComputerControlStatus {
+  state: string;
+  expiresAt?: string;
+}
+
+/**
  * ComputerPermissionKind is the closed set of macOS permissions the shared UI
  * may inspect or guide. The WebView cannot name another platform permission,
  * a path, a target or an external URL.
@@ -101,6 +110,13 @@ export interface DeviceConnectionStatus {
    * report false.
    */
   executionReady?: boolean;
+  /**
+   * ComputerReady reports that the live socket negotiated the computer
+   * operation, the runtime link for that exact generation is still live, and
+   * this host can build a signed, packaged computer driver. An older server
+   * that negotiates no computer operation reports false without an error.
+   */
+  computerReady?: boolean;
 }
 
 export interface HostInfo {
@@ -160,6 +176,13 @@ export const Desktop = {
   checkForUpdate: bind<[], DesktopUpdateResult>("Desktop.CheckForUpdate", () => []),
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
+  /**
+   * ComputerControl is the closed M1b control binding. It is available only to
+   * the trusted main page and supports exactly the six documented actions. A
+   * renewal is an explicit gesture for the host's existing selection; it never
+   * opens a picker or names another target.
+   */
+  computerControl: bind<[string, string, string], ComputerControlStatus>("Desktop.ComputerControl", (conversationID: string, turnID: string, action: string) => [conversationID, turnID, action]),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
   getUpdateState: bind<[], DesktopUpdateResult>("Desktop.GetUpdateState", () => []),
   /**

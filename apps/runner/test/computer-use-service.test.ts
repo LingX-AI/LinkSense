@@ -1,14 +1,65 @@
-import { describe, expect, it, vi } from "vitest"
+import {
+  computerScreenshotMaxResultBytes,
+  computerScreenshotSchema,
+  type ComputerObservation,
+} from "@linksense/shared"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   ComputerUseFailureError,
   createComputerUseCoreMcpModule,
   type ComputerUseExecutor,
-  type ComputerUseTarget,
 } from "../src/mcp/core-services/computer-use-service.js"
 import { createCoreMcpRegistry } from "../src/mcp/core-service-registry.js"
+import { deferred } from "./deferred.js"
 
-const target: ComputerUseTarget = { bundleId: "com.example.Fixture" }
+const sharpControl = vi.hoisted(() => ({
+  created: 0,
+  decoding: 0,
+  gate: undefined as Promise<void> | undefined,
+}))
+
+/**
+ * Delegating sharp mock at the module boundary: a test can hold the pixel
+ * pipeline while metadata resolves, and can assert the loader was never
+ * invoked. Production code has no seam purely for tests.
+ */
+vi.mock("sharp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sharp")>()
+  const create = actual.default
+  const factory = (
+    input: Parameters<typeof create>[0],
+    options?: Parameters<typeof create>[1],
+  ) => {
+    sharpControl.created += 1
+    const image = create(input, options)
+    const pipeline = {
+      metadata: () => image.metadata(),
+      timeout: (options: Parameters<typeof image.timeout>[0]) => {
+        image.timeout(options)
+        return pipeline
+      },
+      raw: () => {
+        image.raw()
+        return pipeline
+      },
+      toBuffer: async () => {
+        sharpControl.decoding += 1
+        await sharpControl.gate
+        return image.toBuffer({ resolveWithObject: true })
+      },
+    }
+    return pipeline
+  }
+  return { ...actual, default: factory }
+})
+
+beforeEach(() => {
+  sharpControl.created = 0
+  sharpControl.decoding = 0
+  sharpControl.gate = undefined
+})
+
 const observation = {
   observation_id: "obs-1",
   tree_quality: "good" as const,
@@ -17,6 +68,36 @@ const observation = {
     { ref: "e1", role: "button", name: "Continue" },
     { ref: "e2", role: "text_field", name: "Name" },
   ],
+}
+/** Synthetic 2x3 PNG; 74 decoded bytes. */
+const png =
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII="
+/** Synthetic 1x1 JPEG; 159 decoded bytes. */
+const jpeg =
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AN//Z"
+/** Signature, IHDR and dimensions survive; IDAT pixel data does not. */
+const truncatedPng = Buffer.from(png, "base64").subarray(0, 50).toString("base64")
+/** Missing EOI after a readable header. */
+const truncatedJpeg = Buffer.from(jpeg, "base64").subarray(0, 158).toString("base64")
+/** Valid header and CRC; one compressed IDAT byte is corrupt. */
+const corruptPng =
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D5gMGAwAWwsHY0R/UFYAAAAASUVORK5CYII="
+/** Declared as PNG but not a raster; must not reach a sharp loader. */
+const disguisedSvg = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"/>',
+).toString("base64")
+const fallbackScreenshot = {
+  mime_type: "image/png" as const,
+  data_base64: png,
+  width: 2,
+  height: 3,
+}
+const fallbackObservation: ComputerObservation = {
+  observation_id: "obs-fallback",
+  tree_quality: "unusable",
+  truncated: false,
+  nodes: [],
+  screenshot: fallbackScreenshot,
 }
 const status = {
   available: true,
@@ -36,25 +117,23 @@ function fakeExecutor(overrides: Partial<ComputerUseExecutor> = {}) {
   return executor
 }
 
-function moduleFor(executor: ComputerUseExecutor, mode: "default" | "plan" = "default") {
-  return createComputerUseCoreMcpModule({ mode, target, executor })
+function moduleFor(
+  executor: ComputerUseExecutor,
+  mode: "default" | "plan" = "default",
+  screenshots = true,
+) {
+  return createComputerUseCoreMcpModule({ mode, executor, screenshots })
 }
 
-function toolFor(executor: ComputerUseExecutor, mode: "default" | "plan" = "default") {
-  return moduleFor(executor, mode).create({ environment: {}, workspaceRoot: "/tmp" })
+function toolFor(
+  executor: ComputerUseExecutor,
+  mode: "default" | "plan" = "default",
+  screenshots = true,
+) {
+  return moduleFor(executor, mode, screenshots).create({ environment: {}, workspaceRoot: "/tmp" })
 }
 
 describe("computer_use Core MCP module", () => {
-  it("rejects a malformed host-selected target before registration", () => {
-    expect(() =>
-      createComputerUseCoreMcpModule({
-        mode: "default",
-        target: { bundleId: "*" },
-        executor: fakeExecutor(),
-      }),
-    ).toThrow()
-  })
-
   it("registers status and observe in Plan mode and never exposes act", () => {
     const executor = fakeExecutor()
     const definition = moduleFor(executor, "plan")
@@ -151,7 +230,6 @@ describe("computer_use Core MCP module", () => {
 
     expect(executor.act).toHaveBeenCalledTimes(1)
     expect(executor.act).toHaveBeenCalledWith(expect.objectContaining({
-      target,
       nativeCallId: "call-42",
       observationId: "obs-1",
       ref: "e2",
@@ -366,7 +444,7 @@ describe("computer_use Core MCP module", () => {
     expect(executor.observe).not.toHaveBeenCalled()
   })
 
-  it("binds status and observe to the host-selected target and accepts no extra arguments", async () => {
+  it("accepts no extra arguments on status and observe", async () => {
     const executor = fakeExecutor()
     const tool = toolFor(executor)
 
@@ -390,12 +468,208 @@ describe("computer_use Core MCP module", () => {
       expect(extra.isError).toBe(true)
     }
 
-    expect(executor.status).toHaveBeenCalledWith(expect.objectContaining({ target }))
-    expect(executor.observe).toHaveBeenCalledWith(expect.objectContaining({ target }))
+    expect(executor.status).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+    expect(executor.observe).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     expect(executor.status).toHaveBeenCalledTimes(1)
     expect(executor.observe).toHaveBeenCalledTimes(1)
   })
+
+  it("keeps the existing text-only tree result unchanged", async () => {
+    const result = await observeWith(fakeExecutor())
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: JSON.stringify(observation) }],
+      isError: false,
+    })
+  })
+
+  it("strips a fallback screenshot when the host has not proven raster support", async () => {
+    const result = await observeWith(
+      fakeExecutor({ observe: vi.fn(async () => fallbackObservation) }),
+      "default",
+      false,
+    )
+
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{
+      type: "text",
+      text: JSON.stringify({
+        observation_id: "obs-fallback",
+        tree_quality: "unusable",
+        truncated: false,
+        nodes: [],
+      }),
+    }])
+    expect(JSON.stringify(result.content)).not.toContain(png)
+    expect(sharpControl.created).toBe(0)
+  })
+
+  it("serializes an eligible fallback as text plus one image and no structuredContent", async () => {
+    const result = await observeWith(
+      fakeExecutor({ observe: vi.fn(async () => fallbackObservation) }),
+    )
+
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          observation_id: "obs-fallback",
+          tree_quality: "unusable",
+          truncated: false,
+          nodes: [],
+          screenshot: { mime_type: "image/png", width: 2, height: 3 },
+        }),
+      },
+      { type: "image", data: png, mimeType: "image/png" },
+    ])
+    expect(result.isError).toBe(false)
+    expect("structuredContent" in result).toBe(false)
+    expect(Buffer.byteLength(JSON.stringify(result), "utf8")).toBeLessThanOrEqual(
+      computerScreenshotMaxResultBytes,
+    )
+  })
+
+  it("emits an eligible fallback in Plan mode", async () => {
+    const result = await observeWith(
+      fakeExecutor({ observe: vi.fn(async () => fallbackObservation) }),
+      "plan",
+    )
+
+    expect(result.isError).toBe(false)
+    expect(result.content.some((part) => part.type === "image")).toBe(true)
+  })
+
+  it.each([
+    ["PNG", truncatedPng, "image/png", 2, 3],
+    ["JPEG", truncatedJpeg, "image/jpeg", 1, 1],
+  ] as const)(
+    "rejects a valid-header but truncated %s image",
+    async (_name, data, mimeType, width, height) => {
+      const screenshot = {
+        mime_type: mimeType,
+        data_base64: data,
+        width,
+        height,
+      }
+      // The transport metadata is valid; only a real decode can reject this.
+      expect(computerScreenshotSchema.safeParse(screenshot).success).toBe(true)
+
+      const result = await observeWith(
+        fakeExecutor({
+          observe: vi.fn(async () => ({ ...fallbackObservation, screenshot })),
+        }),
+      )
+
+      expect(result.isError).toBe(true)
+      expect(result.content.some((part) => part.type === "image")).toBe(false)
+      expect(JSON.stringify(result.content)).toContain("COMPUTER_INVALID")
+    },
+  )
+
+  it("rejects a corrupt pixel payload under valid PNG metadata", async () => {
+    const screenshot = {
+      mime_type: "image/png" as const,
+      data_base64: corruptPng,
+      width: 2,
+      height: 3,
+    }
+    // The transport metadata is valid; only the full pixel decode can reject this.
+    expect(computerScreenshotSchema.safeParse(screenshot).success).toBe(true)
+
+    const result = await observeWith(
+      fakeExecutor({
+        observe: vi.fn(async () => ({ ...fallbackObservation, screenshot })),
+      }),
+    )
+
+    expect(sharpControl.created).toBe(1)
+    expect(result.isError).toBe(true)
+    expect(result.content.some((part) => part.type === "image")).toBe(false)
+    expect(JSON.stringify(result.content)).toContain("COMPUTER_INVALID")
+  })
+
+  it("rejects disguised non-raster bytes before sharp selects a loader", async () => {
+    const screenshot = {
+      mime_type: "image/png" as const,
+      data_base64: disguisedSvg,
+      width: 2,
+      height: 3,
+    }
+    expect(computerScreenshotSchema.safeParse(screenshot).success).toBe(true)
+
+    const result = await observeWith(
+      fakeExecutor({
+        observe: vi.fn(async () => ({ ...fallbackObservation, screenshot })),
+      }),
+    )
+
+    expect(sharpControl.created).toBe(0)
+    expect(result.isError).toBe(true)
+    expect(result.content.some((part) => part.type === "image")).toBe(false)
+  })
+
+  it("returns no image when the caller cancels while the decoder is queued", async () => {
+    const gate = deferred<void>()
+    sharpControl.gate = gate.promise
+    const controller = new AbortController()
+    const executor = fakeExecutor({
+      observe: vi.fn(async () => fallbackObservation),
+    })
+    const pending = toolFor(executor).callTool({
+      toolName: "computer_observe",
+      argumentsValue: {},
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(sharpControl.decoding).toBe(1))
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    gate.resolve()
+  })
+
+  it.each([
+    ["a healthy tree", () => ({ ...fallbackObservation, tree_quality: "good" })],
+    ["a mismatched image type", () => ({
+      ...fallbackObservation,
+      screenshot: { ...fallbackScreenshot, mime_type: "image/jpeg" },
+    })],
+    ["mismatched dimensions", () => ({
+      ...fallbackObservation,
+      screenshot: { ...fallbackScreenshot, width: 4 },
+    })],
+    ["permission metadata", () => ({
+      ...fallbackObservation,
+      screenshot: {
+        ...fallbackScreenshot,
+        capture: { user_opt_in: true, screen_recording: "granted" },
+      },
+    })],
+    ["an oversized image", () => ({
+      ...fallbackObservation,
+      screenshot: { ...fallbackScreenshot, data_base64: "A".repeat(300_000) },
+    })],
+  ])("rejects %s without emitting an image", async (_name, candidate) => {
+    const result = await observeWith(
+      fakeExecutor({ observe: vi.fn(async () => candidate() as never) }),
+    )
+
+    expect(result.isError).toBe(true)
+    expect(result.content.some((part) => part.type === "image")).toBe(false)
+    expect(JSON.stringify(result.content)).toContain("COMPUTER_INVALID")
+  })
 })
+
+async function observeWith(
+  executor: ComputerUseExecutor,
+  mode: "default" | "plan" = "default",
+  screenshots = true,
+) {
+  return toolFor(executor, mode, screenshots).callTool({
+    toolName: "computer_observe",
+    argumentsValue: {},
+    signal: signal(),
+  })
+}
 
 function clickArguments() {
   return { action: "click" as const, observation_id: "obs-1", ref: "e1" }

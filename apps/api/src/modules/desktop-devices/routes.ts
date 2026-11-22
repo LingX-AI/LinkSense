@@ -18,6 +18,8 @@ import {
   desktopDeviceRenameInputSchema,
   desktopDeviceRenameResultSchema,
   desktopAttachmentProtocolVersion,
+  desktopComputerControlResultSchema,
+  desktopComputerControlSchema,
   desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
@@ -35,6 +37,7 @@ import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
 import type { DesktopDeviceRecord } from "./repository.js";
 import type { DesktopDeviceService } from "./service.js";
+import type { DesktopComputerControl } from "./computer-control.js";
 
 const deviceParamsSchema = z.strictObject({ id: z.uuid() });
 const revocationCheckIntervalMs = 5_000;
@@ -52,8 +55,10 @@ export async function registerDesktopDeviceRoutes(
     nativeApprovals?: boolean;
     artifactTools?: boolean;
     websiteArtifacts?: boolean;
-    /** Fixture-only negotiation gate; app.ts never enables it. */
+    /** Fixture-only negotiation gate; app.ts enables it only for the product controller. */
     computerExecute?: boolean;
+    /** Product M1b selection/control path; absent in the joined fixture lane. */
+    computerControl?: Pick<DesktopComputerControl, "handle" | "releaseConnection" | "revokeTurn">;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -101,7 +106,17 @@ export async function registerDesktopDeviceRoutes(
     noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
   });
   const connected = new Map<WebSocket, {
-    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: readonly DesktopNegotiatedOperation[]; detach?: () => void;
+    device: DesktopDeviceRecord; connectionId: string; execution: boolean;
+    tools: readonly DesktopNegotiatedOperation[]; detach?: () => void;
+    ready: boolean; controls: Set<string>; /** Exact id of the one open transition. */
+    controlInFlight: string | null;
+    /** Exact action and target of the open transition for the one stop takeover. */
+    controlKind: "select" | "pause" | "resume" | "stop" | null;
+    controlTarget: { conversationId: string; turnId: string; selectionId: string } | null;
+    /** The one reserved exact stop id, or null. */
+    controlTakeover: string | null;
+    /** Resolves once the open transition's handler has fully settled. */
+    controlSettled: Promise<void> | null;
   }>();
   const backgroundWork = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
@@ -129,6 +144,8 @@ export async function registerDesktopDeviceRoutes(
       subscription = service.coordinator.subscribe(notice => {
         if (notice.type === "run_revoked") {
           execution?.cancelRunTools(notice.turnId);
+          void options.computerControl?.revokeTurn(notice.turnId)
+            .catch(() => app.log.warn({ turnId: notice.turnId }, "desktop computer selection revocation failed"));
           return;
         }
         for (const [socket, current] of connected) {
@@ -220,6 +237,159 @@ export async function registerDesktopDeviceRoutes(
           execution?.cancelTool(current.connectionId, cancel.data);
           return;
         }
+        if (options.computerControl) {
+          const control = desktopComputerControlSchema.safeParse(value);
+          if (control.success) {
+            if (!current.tools.includes("computer.execute") || !current.ready) {
+              socket.close(4400);
+              return;
+            }
+            // Synchronous single-send continuation. The control handler invokes
+            // it at most once; a positive active ack invokes it inside the
+            // final locked DB session/grant check.
+            const reply = (result: unknown): boolean => {
+              if (connected.get(socket) !== current || !current.ready || socket.readyState !== WebSocket.OPEN ||
+                  socket.bufferedAmount >= desktopExecutionMaxFrameBytes) return false;
+              try {
+                const parsed = desktopComputerControlResultSchema.parse(result);
+                // A reserved matching stop owns the next transition; it
+                // suppresses the stale positive select/renewal ack so the Mac
+                // cannot activate a selection it has already stopped locally.
+                // A negative result for the earlier request may still be sent.
+                if (parsed.ok && current.controlTakeover !== null) return false;
+                socket.send(JSON.stringify(parsed), error => {
+                  if (error) socket.terminate();
+                });
+                return true;
+              } catch {
+                return false;
+              }
+            };
+            const rememberControl = (id: string) => {
+              current.controls.add(id);
+              if (current.controls.size > 64) {
+                const oldest = current.controls.values().next().value;
+                if (oldest !== undefined) current.controls.delete(oldest);
+              }
+            };
+            // One correlated control transition per socket; a duplicate id or
+            // an overlapping request is never replayed. A duplicate of the
+            // exact open id is dropped so the original transition keeps its
+            // one answer; a different overlapping id fails immediately, and a
+            // finished id is rejected by the bounded set below.
+            //
+            // The single exception is an exact same-socket Stop for the
+            // identical conversation/turn/selection while that selection's
+            // select or renewal is still settling. It is reserved
+            // synchronously here and runs only after the prior transition has
+            // settled, so a Stop can never overtake a select and let the old
+            // frame recreate authority. Everything else keeps the existing
+            // immediate rejection.
+            const body = control.data.body;
+            if (current.controlInFlight !== null) {
+              if (current.controlInFlight === control.data.id) return;
+              if (current.controlTakeover === control.data.id) return;
+              const pendingSelect = current.controlTarget;
+              if (body.action === "stop" && current.controlTakeover === null &&
+                  !current.controls.has(control.data.id) && current.controlKind === "select" &&
+                  current.controlSettled !== null && pendingSelect !== null &&
+                  pendingSelect.conversationId === body.conversation_id &&
+                  pendingSelect.turnId === body.turn_id &&
+                  pendingSelect.selectionId === body.selection_id) {
+                current.controlTakeover = control.data.id;
+                const prior = current.controlSettled;
+                await prior;
+                try {
+                  // The wait may have lost the exact link. Recheck readiness
+                  // and presence with the existing guards before one stop.
+                  if (connected.get(socket) !== current || !current.ready ||
+                      socket.readyState !== WebSocket.OPEN) return;
+                  if (!await service.coordinator.isCurrentConnection(current.device.id, current.connectionId)) return;
+                  current.controlInFlight = control.data.id;
+                  current.controlKind = "stop";
+                  current.controlTarget = {
+                    conversationId: body.conversation_id, turnId: body.turn_id,
+                    selectionId: body.selection_id,
+                  };
+                  current.controlTakeover = null;
+                  let settle!: () => void;
+                  current.controlSettled = new Promise<void>(resolve => { settle = resolve; });
+                  try {
+                    await options.computerControl.handle({
+                      ownerId: current.device.ownerId, deviceId: current.device.id,
+                      connectionId: current.connectionId,
+                      verifyCredential: () => service.hasCurrentCredential(current.device),
+                      frame: control.data,
+                    }, reply);
+                  } finally {
+                    settle();
+                    current.controlSettled = null;
+                    current.controlInFlight = null;
+                    current.controlKind = null;
+                    current.controlTarget = null;
+                    rememberControl(control.data.id);
+                  }
+                } finally {
+                  // A failed recheck abandoned the reserved stop; leave the
+                  // socket free instead of a permanently busy transition.
+                  if (current.controlTakeover === control.data.id) {
+                    current.controlTakeover = null;
+                    current.controlInFlight = null;
+                    current.controlKind = null;
+                    current.controlTarget = null;
+                  }
+                }
+                return;
+              }
+              reply({
+                type: "computer.control.result", id: control.data.id, ok: false,
+                error_code: "RUNNER_OPERATION_UNCERTAIN",
+              });
+              return;
+            }
+            if (current.controls.has(control.data.id)) {
+              reply({
+                type: "computer.control.result", id: control.data.id, ok: false,
+                error_code: "RUNNER_OPERATION_UNCERTAIN",
+              });
+              return;
+            }
+            current.controlInFlight = control.data.id;
+            current.controlKind = body.action;
+            current.controlTarget = {
+              conversationId: body.conversation_id, turnId: body.turn_id,
+              selectionId: body.selection_id,
+            };
+            let settle!: () => void;
+            current.controlSettled = new Promise<void>(resolve => { settle = resolve; });
+            try {
+              // A result for a superseded link would let the Mac activate a
+              // selection the API no longer considers current. The final
+              // active check repeats presence while the DB lock is held.
+              if (!await service.coordinator.isCurrentConnection(current.device.id, current.connectionId)) return;
+              // The handler performs the one reply through the continuation.
+              // It never rejects; a lost continuation fails closed with no ack.
+              await options.computerControl.handle({
+                ownerId: current.device.ownerId, deviceId: current.device.id,
+                connectionId: current.connectionId,
+                verifyCredential: () => service.hasCurrentCredential(current.device),
+                frame: control.data,
+              }, reply);
+            } finally {
+              settle();
+              current.controlSettled = null;
+              // A reserved exact stop owns the next transition; keep this slot
+              // busy until it has run so unrelated frames cannot interleave.
+              if (current.controlTakeover === null) {
+                current.controlInFlight = null;
+                current.controlKind = null;
+                current.controlTarget = null;
+              }
+              rememberControl(control.data.id);
+            }
+            return;
+          }
+        }
       }
       if (handling) { socket.close(4400); return; }
       handling = true;
@@ -234,6 +404,8 @@ export async function registerDesktopDeviceRoutes(
           const state: NonNullable<ReturnType<typeof connected.get>> = {
             device, connectionId, execution: supportsExecution && device.platform === "darwin",
             tools: device.platform === "darwin" ? tools : [],
+            ready: false, controls: new Set(), controlInFlight: null,
+            controlKind: null, controlTarget: null, controlTakeover: null, controlSettled: null,
           };
           connected.set(socket, state);
           const active = await service.maintain(device, connectionId);
@@ -278,6 +450,7 @@ export async function registerDesktopDeviceRoutes(
             } : {}),
           }) : ready));
           readySent = true;
+          state.ready = true;
           if (reportedAppVersion.success) {
             // Descriptive metadata only; readiness and the message handler must not wait for it.
             const refresh = service.refreshAppVersion(device, connectionId, reportedAppVersion.data)
@@ -331,8 +504,13 @@ export async function registerDesktopDeviceRoutes(
       const current = connected.get(socket);
       connected.delete(socket);
       current?.detach?.();
-      if (current) void service.coordinator.disconnect(current.device.id, current.connectionId)
-        .catch(() => app.log.warn("desktop device disconnect cleanup failed"));
+      if (current) {
+        void service.coordinator.disconnect(current.device.id, current.connectionId)
+          .catch(() => app.log.warn("desktop device disconnect cleanup failed"));
+        // Compare-delete only this exact connection's selection and holder.
+        void options.computerControl?.releaseConnection(current.device.id, current.connectionId)
+          .catch(() => app.log.warn("desktop computer selection disconnect cleanup failed"));
+      }
     });
   });
   app.addHook("preClose", async () => {

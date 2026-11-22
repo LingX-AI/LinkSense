@@ -3690,6 +3690,7 @@ function TurnSummary({
   conversationId,
   running,
   startingTask,
+  runningTurnAccessory,
   activityOpen,
   activityCollapseAvailable,
   onActivityOpenChange,
@@ -3737,6 +3738,7 @@ function TurnSummary({
   conversationId: string
   running: boolean
   startingTask: boolean
+  runningTurnAccessory?: ReactNode
   activityOpen: boolean
   activityCollapseAvailable: boolean
   onActivityOpenChange: (open: boolean) => void
@@ -4656,6 +4658,9 @@ function TurnSummary({
             {renderGuidedMessage(message)}
           </div>
         ))}
+      {runningTurnAccessory ? (
+        <div className="pt-2">{runningTurnAccessory}</div>
+      ) : null}
       <ArtifactFiles
         files={artifacts}
         loadPreview={loadArtifactPreview}
@@ -4671,6 +4676,7 @@ export function ConversationThread({
   conversation,
   siteDeliveries,
   startingTaskTurnId,
+  runningTurnAccessory,
   knowledgeBases = emptyKnowledgeBases,
   applicationKnowledgeBases = emptyApplicationKnowledgeBases,
   modelCatalog = emptyModelCatalog,
@@ -4722,6 +4728,11 @@ export function ConversationThread({
   siteDeliveries?: readonly ConversationWebSite[]
   messageReferenceAction?: MessageReferenceAction
   startingTaskTurnId?: string
+  /**
+   * A small accessory anchored to the current running turn. The page supplies
+   * it only for eligible local turns; the thread never invents one.
+   */
+  runningTurnAccessory?: ReactNode
   knowledgeBases?: KnowledgeBase[]
   applicationKnowledgeBases?: readonly ApplicationKnowledgeBase[]
   modelCatalog?: ModelPreference["models"]
@@ -5508,6 +5519,11 @@ export function ConversationThread({
         }
         hasProcessedContent={hasProcessedContent}
         startingTask={startingTaskTurnId === turn.id}
+        runningTurnAccessory={
+          turn.id === activeRunningTurnId
+            ? runningTurnAccessory
+            : undefined
+        }
         hasActiveProcessing={hasActiveProcessing}
         reasoningActivities={reasoningActivities}
         reasoningSummary={reasoningSummary?.text}

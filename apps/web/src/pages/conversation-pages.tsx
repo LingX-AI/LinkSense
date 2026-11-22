@@ -89,6 +89,7 @@ import {
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
 import { DesktopExecutionTargetBadge } from "@/features/desktop-execution/desktop-execution-target-badge"
 import { DesktopExecutionTargetPicker } from "@/features/desktop-execution/desktop-execution-target-picker"
+import { DesktopComputerUseCard } from "@/features/desktop-computer-use/desktop-computer-use-card"
 import {
   desktopExecutionFreshDeviceCheck,
   desktopExecutionLocalDeviceId,
@@ -6803,6 +6804,22 @@ export function ConversationPage({
               : undefined
         }
         startingTaskTurnId={startingTaskTurnId}
+        runningTurnAccessory={
+          isMacDesktopHost() &&
+          displayConversation.execution_target === "local" &&
+          displayConversation.running_turn?.status === "running" &&
+          !embedded &&
+          !developmentRole &&
+          !readOnly ? (
+            <DesktopComputerUseCard
+              ownerId={user?.id}
+              conversationId={displayConversation.id}
+              turnId={displayConversation.running_turn.id}
+              deviceId={displayConversation.desktop_device_id}
+              executionTarget={displayConversation.execution_target}
+            />
+          ) : undefined
+        }
         showReasoning={personalizationQuery.data?.show_reasoning ?? false}
         liveReasoningContentEvents={liveReasoningContentEvents}
         navigationRef={threadNavigationRef}

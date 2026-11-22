@@ -899,6 +899,12 @@ export const conversationSchema = z
     id: z.string(),
     title: z.string(),
     execution_target: conversationExecutionTargetSchema.optional(),
+    /**
+     * The Mac device recorded for a local conversation. Older servers omit it;
+     * the Computer Use card then relies on the native device check instead of
+     * guessing another device.
+     */
+    desktop_device_id: z.string().nullable().optional(),
     title_source: z.enum(["generated", "fallback", "manual"]).optional(),
     archived: z.boolean().optional(),
     archive_status: z.enum(["active", "archived"]).optional(),

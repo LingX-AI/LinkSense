@@ -16,12 +16,14 @@ const desktopDeviceStateSchema = z.enum([
 ])
 
 // The native bridge may add fields before the generated binding is refreshed.
-// Read the optional executionReady capability without editing the binding.
+// Read the optional execution and computer-use capabilities without editing
+// the binding.
 const nativeDeviceStatusSchema = z
   .object({
     state: desktopDeviceStateSchema,
     deviceId: z.uuid().optional(),
     executionReady: z.boolean().optional(),
+    computerReady: z.boolean().optional(),
   })
   .passthrough()
 
@@ -35,6 +37,12 @@ export type DesktopDeviceStatus = {
    * omit the field, which means false.
    */
   executionReady?: boolean
+  /**
+   * The negotiated Computer Use capability. Only a host that advertised the
+   * computer-control operation reports true; a missing field means false and
+   * the Web UI omits every control without probing TCC.
+   */
+  computerReady?: boolean
 }
 
 export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
@@ -43,6 +51,7 @@ export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
     deviceId: parsed.deviceId,
     state: parsed.state,
     executionReady: parsed.executionReady === true,
+    computerReady: parsed.computerReady === true,
   }
 }
 

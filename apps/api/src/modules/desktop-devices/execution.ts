@@ -16,10 +16,17 @@ import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import { authorizeLocalComputerAction, verifyLocalComputerDispatch } from "../local-computer/authorization.js";
 import { LocalComputerGuiOccupancy } from "../local-computer/occupancy.js";
 import { DesktopComputerFixtureBindings, type DesktopComputerExecuteFactory, type DesktopComputerExecuteFixture } from "./computer-execute.js";
+import {
+  DesktopComputerControl,
+  DesktopComputerRedisSelection,
+  PrismaDesktopComputerControl,
+  type DesktopComputerAdmitBarrier,
+} from "./computer-control.js";
 import type { RedisDesktopDeviceCoordinator } from "./coordinator.js";
 import { registerDesktopBrowserScreenshotRoute, type DesktopBrowserUse } from "./browser-use.js";
 import { assertDesktopKnowledgeAssetCurrent } from "./knowledge-publication.js";
 import { executeDesktopTool } from "./tool-requests.js";
+import type { RunnerEventBatch } from "../events/service.js";
 
 type ExecutionServices = Pick<AppServices,
   "config" | "redis" | "prisma" | "runner" | "conversations" | "events" |
@@ -37,6 +44,10 @@ export async function registerDesktopExecution(
   },
   coordinator: RedisDesktopDeviceCoordinator,
   leases: DesktopRunLeases,
+  options: {
+    /** Product composition only; the joined fixture never receives it. */
+    onComputerControl?: (control: DesktopComputerControl) => void;
+  } = {},
 ): Promise<DesktopDeviceTransport | undefined> {
   const { config, prisma, redis } = services;
   if (!config.desktopLocalExecutionEnabled) return undefined;
@@ -80,8 +91,18 @@ export async function registerDesktopExecution(
     turnId: frame.turn_id,
     runtimeGeneration: frame.runtime_generation,
   });
-  let computerExecute: DesktopComputerExecuteFixture | undefined;
-  const transport = new DesktopDeviceTransport(redis.client, async (binding, command, admission) => {
+  type ComputerExecuteLane = {
+    execute: DesktopComputerExecuteFixture["execute"];
+    admit: (
+      /** `commandId` is the exact generated transport command UUID (product lane only). */
+      input: Parameters<DesktopComputerExecuteFixture["admit"]>[0] & { commandId: string },
+      barrier?: DesktopComputerAdmitBarrier,
+    ) => Promise<boolean>;
+  };
+  let computerExecute: ComputerExecuteLane | undefined;
+  let computerControl: DesktopComputerControl | undefined;
+  const guiOccupancy = new LocalComputerGuiOccupancy(redis.client);
+  const transport = new DesktopDeviceTransport(redis.client, async (binding, command, admission, barrier) => {
     const scope = {
       deviceId: binding.deviceId, connectionId: binding.connectionId, ownerId: command.owner_id, ...turnScope(command),
     };
@@ -101,11 +122,15 @@ export async function registerDesktopExecution(
       // and admit rechecks the exact session/application/capability/grant in
       // PostgreSQL. Quiescence is the only control that outlives this.
       if (!await isDesktopRunActive(prisma, coordinator, scope, "use")) return false;
+      // The product lane finalizes its one socket send inside the final locked
+      // dispatch transaction. The joined fixture ignores the barrier and keeps
+      // the pre-existing transport send path.
       return await computerExecute.admit({
         scope, request: command.body.request,
+        commandId: command.id,
         sessionId: command.body.session_id, selectionId: command.body.selection_id,
         holderId: command.body.holder_id, admission,
-      });
+      }, barrier);
     }
     return command.operation === "user-input.respond"
       ? leases.isActiveToolScope(scope)
@@ -164,7 +189,12 @@ export async function registerDesktopExecution(
       }
       if (frame.operation === "turn.exited") {
         const { turnId: projectionTurnId, ...binding } = scope;
+        // Product mode: the runtime already exited, so abort any computer tool
+        // request still projecting before clearing this turn's selection.
+        if (computerControl) transport.cancelRunTools(scope.turnId);
         await services.events.scheduleDesktopRecovery({ ...binding, projectionTurnId });
+        await computerControl?.revokeScope(scope).catch(() =>
+          app.log.warn({ turnId: scope.turnId }, "desktop computer selection turn-exit cleanup failed"));
         return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true };
       }
       const questions = frame.type === "execution.callback" && supportsDesktopUserInput(toolOperations);
@@ -172,6 +202,13 @@ export async function registerDesktopExecution(
       const accepted = await services.events.ingestDesktopBatch({ scope, check, questions, approvals }, frame.body, (error, deliveryId) => {
         app.log.warn({ deliveryId, errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR" }, "desktop event batch stopped before acknowledgement");
       });
+      if (computerControl && terminalDeliveryIds(frame.body).some(id => accepted.includes(id))) {
+        // A terminal native turn must not let a late computer result project as
+        // a live action for a selection that is already over.
+        transport.cancelRunTools(scope.turnId);
+        await computerControl.revokeScope(scope).catch(() =>
+          app.log.warn({ turnId: scope.turnId }, "desktop computer selection terminal cleanup failed"));
+      }
       return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true, data: { accepted_delivery_ids: accepted } };
     },
   );
@@ -184,11 +221,28 @@ export async function registerDesktopExecution(
         leases, connections: coordinator,
       }, input),
       bindings: new DesktopComputerFixtureBindings(redis.client),
-      occupancy: new LocalComputerGuiOccupancy(redis.client),
+      occupancy: guiOccupancy,
       transport,
       claimNativeCall: (turnId, nativeCallId) => leases.claimComputerNativeCall(turnId, nativeCallId),
       verifyDispatch: input => verifyLocalComputerDispatch(prisma, input),
     });
+  }
+  if (config.desktopComputerUseEnabled) {
+    computerControl = new DesktopComputerControl({
+      store: new PrismaDesktopComputerControl(
+        prisma, new DesktopComputerRedisSelection(redis.client), leases, guiOccupancy,
+      ),
+      transport,
+      occupancy: guiOccupancy,
+      authorize: input => authorizeLocalComputerAction(prisma, {
+        leases, connections: coordinator,
+      }, input),
+      verifyDispatch: (input, finalize) => verifyLocalComputerDispatch(prisma, input, undefined, finalize),
+      claimNativeCall: (turnId, nativeCallId) => leases.claimComputerNativeCall(turnId, nativeCallId),
+    });
+    // The joined fixture keeps precedence in tests; production never injects it.
+    computerExecute ??= computerControl;
+    options.onComputerControl?.(computerControl);
   }
   services.runner.useDesktopRunner(new DesktopRunner(({ ownerId, conversationId }) => prisma.conversation.findFirst({
     where: { id: conversationId, ownerId, archiveStatus: "active", executionTarget: "local" },
@@ -203,7 +257,9 @@ export async function registerDesktopExecution(
     return async () => {
       await release().catch(() => app.log.warn({ turnId }, "desktop artifact pause could not be released"));
     };
-  } : undefined));
+  } : undefined, computerControl
+    ? async scope => computerControl!.revokeTurn(scope.turnId)
+    : undefined));
   registerDesktopAttachmentRoute(app, attachments, leases, () => reserveDesktopAttachmentSlot(redis.client), async (scope, commandId) => {
     const binding = await coordinator.executionConnection(scope.deviceId);
     if (binding?.connectionId !== scope.connectionId || !await coordinator.mayDispatch(binding, commandId)) {
@@ -231,4 +287,15 @@ export async function registerDesktopExecution(
   });
   if (services.browserUse) registerDesktopBrowserScreenshotRoute(app, services.browserUse, leases);
   return transport;
+}
+
+/** A terminal native turn completion, not an intermediate or stale event. */
+function terminalDeliveryIds(body: RunnerEventBatch): string[] {
+  const ids: string[] = [];
+  for (const { deliveryId, event } of body.events) {
+    if (!("method" in event) || event.method !== "turn/completed") continue;
+    const status = event.params.turn.status;
+    if (status === "completed" || status === "failed" || status === "interrupted") ids.push(deliveryId);
+  }
+  return ids;
 }

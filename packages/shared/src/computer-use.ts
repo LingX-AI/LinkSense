@@ -30,11 +30,56 @@ export const computerObservationNodeSchema = z.strictObject({
   role: z.string().min(1).max(64),
   name: z.string().max(500).optional(),
 });
+
+/**
+ * Bounded transport metadata for a screenshot fallback on an observation whose
+ * accessibility tree is not good. The native producer owns consent, Screen
+ * Recording and the host-chosen exact window; this schema carries no permission
+ * claim. The Runner verifies the bounded PNG/JPEG bytes with sharp before they
+ * become MCP image content, so these caps keep the serialized result well below
+ * the existing 1 MiB desktop frame.
+ *
+ * Upstream agent-desktop v1.3.1 captures an exact window as PNG only and
+ * verifies the process/window before and after; it falls back to a full display
+ * only when no target is supplied, and its MCP envelope also carries
+ * structuredContent. LinkSense emits text plus image without structuredContent
+ * and accepts a bounded JPEG as well. A native PNG can exceed these caps and
+ * must be produced within them.
+ */
+export const computerScreenshotMaxBytes = 192 * 1024;
+export const computerScreenshotMaxEncodedBytes =
+  Math.ceil(computerScreenshotMaxBytes / 3) * 4;
+export const computerScreenshotMaxResultBytes = 384 * 1024;
+export const computerScreenshotMaxDimension = 8_192;
+export const computerScreenshotMaxPixels = 16_000_000;
+
+export const computerScreenshotMimeTypeSchema = z.enum([
+  "image/png",
+  "image/jpeg",
+]);
+export type ComputerScreenshotMimeType = z.infer<
+  typeof computerScreenshotMimeTypeSchema
+>;
+
+export const computerScreenshotSchema = z.strictObject({
+  mime_type: computerScreenshotMimeTypeSchema,
+  data_base64: z
+    .string()
+    .min(4)
+    // Reject oversize strings before allocating their decoded data.
+    .max(computerScreenshotMaxEncodedBytes)
+    .pipe(z.base64()),
+  width: z.number().int().min(1).max(computerScreenshotMaxDimension),
+  height: z.number().int().min(1).max(computerScreenshotMaxDimension),
+});
+export type ComputerScreenshot = z.infer<typeof computerScreenshotSchema>;
+
 export const computerObservationSchema = z.strictObject({
   observation_id: observationIdSchema,
   tree_quality: z.enum(["good", "partial", "unusable"]),
   truncated: z.boolean(),
   nodes: z.array(computerObservationNodeSchema).max(400),
+  screenshot: computerScreenshotSchema.optional(),
 });
 export type ComputerObservation = z.infer<typeof computerObservationSchema>;
 

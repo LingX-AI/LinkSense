@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 import { renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
@@ -69,6 +73,33 @@ describe("useDesktopDeviceStatus", () => {
       executionReady: true,
     })
     expect(native.read).toHaveBeenCalledOnce()
+  })
+
+  it("reads the native status when the WebView starts offline", async () => {
+    const previousOnline = onlineManager.isOnline()
+    onlineManager.setOnline(false)
+    try {
+      native.read.mockResolvedValue({
+        state: "online",
+        deviceId: ownerA,
+        executionReady: true,
+        computerReady: true,
+      })
+      const { result } = renderHook(() => useDesktopDeviceStatus(ownerA), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() =>
+        expect(result.current.data).toMatchObject({
+          state: "online",
+          deviceId: ownerA,
+          executionReady: true,
+          computerReady: true,
+        })
+      )
+      expect(native.read).toHaveBeenCalledOnce()
+    } finally {
+      onlineManager.setOnline(previousOnline)
+    }
   })
 
   it("does not reuse one account's status for another account", async () => {

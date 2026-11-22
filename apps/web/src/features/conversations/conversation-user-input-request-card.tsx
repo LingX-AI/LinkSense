@@ -15,10 +15,11 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import { useTranslation } from "react-i18next"
 import remarkGfm from "remark-gfm"
 
-import type {
-  BrowserUseApproval,
-  ConversationUserInputResponse,
-  DesktopApprovalRequest,
+import {
+  computerActToolName,
+  type BrowserUseApproval,
+  type ConversationUserInputResponse,
+  type DesktopApprovalRequest,
 } from "@linksense/shared"
 
 import type {
@@ -70,6 +71,12 @@ import { cn } from "@/lib/utils"
 
 const otherChoice = "__linksense_other__"
 const optionChoice = (index: number) => `option:${index}`
+const computerActApprovalQuestionIdPrefix = "mcp_tool_call_approval_"
+
+type ComputerActApprovalQuestionKey =
+  | "desktopComputerUse.approvalQuestion"
+  | "desktopComputerUse.approvalClickQuestion"
+  | "desktopComputerUse.approvalTypeQuestion"
 
 type DesktopApprovalDecision = NonNullable<
   DesktopApprovalRequest["resolved_action"]
@@ -224,6 +231,7 @@ export function ConversationUserInputRequestCard({
         <QuestionUserInputForm
           key={`${request.id}:${request.status}:${request.updated_at}`}
           request={request}
+          browserApproval={browserApproval}
           formId={formId}
           disabled={disabled}
           submitting={submitting}
@@ -479,8 +487,61 @@ function DesktopApprovalDetails({
   )
 }
 
+/**
+ * Matches only the exact projection the Runner makes for a native computer_act
+ * approval: one blocking question correlated to the item, the tool name as
+ * header and summary (or summary with the projected click/type action), and the
+ * exact Allow/Cancel options with no free text. Any other question keeps its
+ * native text.
+ */
+function getComputerActApprovalQuestionKey(
+  request: Extract<
+    ConversationUserInputRequest,
+    { kind: "questions" | "async_questions" }
+  >,
+  browserApproval: BrowserUseApproval | undefined
+): ComputerActApprovalQuestionKey | null {
+  if (
+    request.kind !== "questions" ||
+    browserApproval ||
+    request.questions.length !== 1 ||
+    request.auto_resolve_at !== null
+  ) {
+    return null
+  }
+  const [question] = request.questions
+  if (!question) return null
+  const options = question.options
+  if (options?.length !== 2) return null
+  const [allow, cancel] = options
+  if (
+    question.id !==
+      `${computerActApprovalQuestionIdPrefix}${request.item_id}` ||
+    question.header !== computerActToolName ||
+    question.is_other !== false ||
+    question.is_secret !== false ||
+    allow?.label !== "Allow" ||
+    allow?.description !== "" ||
+    cancel?.label !== "Cancel" ||
+    cancel?.description !== ""
+  ) {
+    return null
+  }
+  if (question.question === computerActToolName) {
+    return "desktopComputerUse.approvalQuestion"
+  }
+  if (question.question === `${computerActToolName}: click`) {
+    return "desktopComputerUse.approvalClickQuestion"
+  }
+  if (question.question === `${computerActToolName}: type`) {
+    return "desktopComputerUse.approvalTypeQuestion"
+  }
+  return null
+}
+
 function QuestionUserInputForm({
   request,
+  browserApproval,
   formId,
   disabled,
   submitting,
@@ -490,12 +551,17 @@ function QuestionUserInputForm({
     ConversationUserInputRequest,
     { kind: "questions" | "async_questions" }
   >
+  browserApproval?: BrowserUseApproval
   formId: string
   disabled: boolean
   submitting: boolean
   onSubmit: (response: ConversationUserInputResponse) => void
 }) {
   const { t } = useTranslation()
+  const computerActApprovalQuestionKey = getComputerActApprovalQuestionKey(
+    request,
+    browserApproval
+  )
   const savedAnswers =
     request.kind === "async_questions" ? request.response_content : null
   const fieldsDisabled = disabled || savedAnswers !== null
@@ -580,11 +646,15 @@ function QuestionUserInputForm({
                 <FieldLegend variant="label" className="mb-1.5 w-full">
                   {request.kind !== "async_questions" && (
                     <span className="block text-xs font-semibold text-[var(--app-muted)]">
-                      {question.header}
+                      {computerActApprovalQuestionKey
+                        ? t("desktopComputerUse.title")
+                        : question.header}
                     </span>
                   )}
                   <span className="mt-0.5 flex items-start gap-2 text-sm leading-5 text-[var(--app-text)]">
-                    {question.question}
+                    {computerActApprovalQuestionKey
+                      ? t(computerActApprovalQuestionKey)
+                      : question.question}
                     <RequiredIndicator />
                   </span>
                 </FieldLegend>
@@ -603,6 +673,14 @@ function QuestionUserInputForm({
                   >
                     {options.map((option, optionIndex) => {
                       const optionId = `${inputId}-option-${optionIndex}`
+                      const optionLabel =
+                        computerActApprovalQuestionKey === null
+                          ? option.label
+                          : t(
+                              optionIndex === 0
+                                ? "desktopApproval.allowOnce"
+                                : "conversation.userInput.cancel"
+                            )
                       return (
                         <RadioGroupOption
                           key={`${option.label}:${optionIndex}`}
@@ -617,7 +695,7 @@ function QuestionUserInputForm({
                           />
                           <span className="min-w-0">
                             <span className="block text-sm font-medium text-[var(--app-text)]">
-                              {option.label}
+                              {optionLabel}
                             </span>
                             {option.description && (
                               <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">

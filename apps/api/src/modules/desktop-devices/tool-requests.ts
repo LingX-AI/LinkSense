@@ -26,7 +26,7 @@ type ToolRequestServices = {
   connections?: Pick<ConnectionService, "executeScoped">;
   browserUse?: Pick<DesktopBrowserUse, "execute">;
   artifacts?: Pick<DesktopArtifacts, "prepare">;
-  /** Fixture-only injection; production never supplies this operation. */
+  /** Supplied by the API composition (product controller or joined fixture), never by the model. */
   computerExecute?: (input: {
     scope: DesktopRunScope;
     request: Extract<DesktopToolRequest, { operation: "computer.execute" }>;
@@ -37,6 +37,7 @@ type ToolRequestServices = {
 export async function executeDesktopTool(
   services: ToolRequestServices, scope: DesktopRunScope, frame: DesktopToolRequest, signal: AbortSignal,
 ): Promise<DesktopToolResult> {
+  const startedAt = Date.now();
   const base = { type: "tool.result", id: frame.id, operation: frame.operation } as const;
   const authorize = async () => {
     signal.throwIfAborted();
@@ -122,6 +123,12 @@ export async function executeDesktopTool(
       metadata: {
         operation: frame.operation, conversation_id: scope.conversationId, turn_id: scope.turnId, device_id: scope.deviceId,
         ...(frame.operation === "browser.execute" ? { browser_action: frame.body.action } : {}),
+        // Bounded action kind, outcome, and duration only; never AX trees,
+        // window titles, typed text, screenshots, or filesystem paths.
+        ...(frame.operation === "computer.execute" && frame.body.kind === "act"
+          ? { computer_action: frame.body.input.action } : {}),
+        ...(frame.operation === "computer.execute"
+          ? { duration_ms: Math.max(0, Date.now() - startedAt) } : {}),
         ...(reason ? { reason_code: reason } : {}),
       },
     });

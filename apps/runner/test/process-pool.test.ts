@@ -13,7 +13,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
-import { desktopApprovalTimeoutMs, runnerEventBatchSchema } from "@linksense/shared";
+import {
+  desktopApprovalTimeoutMs,
+  privacyMaskingRuntimeSchema,
+  runnerEventBatchSchema,
+} from "@linksense/shared";
 import pino, { type Logger } from "pino";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,6 +39,7 @@ import {
   SubAgentDetailNotFoundError,
   UserInputRequestUnavailableError,
   selectAuthoritativeSubAgentTurn,
+  type ComputerActRelayScope,
   type StartTurnInput,
 } from "../src/process-pool.js";
 import { StartOperationStore } from "../src/start-operation.js";
@@ -167,6 +172,9 @@ describe("AppServerProcessPool", () => {
           approvalPolicy: "untrusted", permissions: "linksense-workspace", runtimeWorkspaceRoots: [workspace],
         });
       expect(controlled.args).toContain("permissions.linksense-workspace.network.enabled=false");
+      expect(controlled.args).not.toContain(
+        'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+      );
     } finally {
       await pool.closeAll();
     }
@@ -892,6 +900,9 @@ describe("AppServerProcessPool", () => {
         "mcp_servers.linksense_managed_browser.enabled=false",
         "mcp_servers.linksense_managed_browser.required=false",
       ]),
+    );
+    expect(controlled.args).not.toContain(
+      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
     );
 
     await pool.closeAll();
@@ -2713,6 +2724,644 @@ trust_level = "trusted"
       await pool.closeAll();
     }
   });
+
+  it("authorizes one exact Mac computer_act relay and rejects every substitution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-gate-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      const requestEvent = eventSink.publish.mock.calls.find(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )?.[1];
+      expect(JSON.stringify(requestEvent)).not.toContain(computerActNativeArguments.text);
+      const scope = computerActRelayScope(input);
+      await expect(pool.claimComputerActRelay(scope)).resolves.toBe(false);
+      await respondComputerActAllow(controlled, pool, input, 77);
+      const substitutions: Array<Partial<ComputerActRelayScope>> = [
+        { toolName: "computer_status" },
+        { ownerId: "01900000-0000-7000-8000-000000000003" },
+        { runtimeGeneration: "01900000-0000-7000-8000-000000000011" },
+        { conversationId: "01900000-0000-7000-8000-000000000009" },
+        { codexThreadId: "thread-native-2" },
+        { nativeTurnId: "turn-native-2" },
+        { projectionTurnId: "01900000-0000-7000-8000-000000000098" },
+        { nativeCallId: "call-native-other" },
+        { input: { ...(scope.input as Record<string, unknown>), text: "你好 👋!" } },
+        { input: { ...(scope.input as Record<string, unknown>), timeout_ms: 8_001 } },
+        { input: { ...(scope.input as Record<string, unknown>), ref: "e2" } },
+        { input: { ...(scope.input as Record<string, unknown>), observation_id: "obs-2" } },
+        { input: { ...(scope.input as Record<string, unknown>), extra: true } },
+        { input: { action: "click", observation_id: "obs-1", ref: "e1", timeout_ms: 8_000 } },
+        { input: { action: "type", observation_id: "obs-1", ref: "e1", timeout_ms: 8_000 } },
+      ];
+      for (const substitution of substitutions) {
+        await expect(pool.claimComputerActRelay({ ...scope, ...substitution })).resolves.toBe(false);
+      }
+      await expect(pool.claimComputerActRelay(scope)).resolves.toBe(true);
+      await expect(pool.claimComputerActRelay(scope)).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("revokes the Mac computer_act gate for a malformed answer or denial", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-deny-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      const malformed = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        itemId: computerActCallId,
+        response: { action: "accept", content: {
+          [computerActQuestionId]: "Allow", extra: "not part of the approval",
+        } },
+      });
+      await expect(malformed).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      const scope = computerActRelayScope(input);
+      await expect(pool.claimComputerActRelay(scope)).resolves.toBe(false);
+      const denied = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        itemId: computerActCallId,
+        response: { action: "accept", content: { [computerActQuestionId]: "Cancel" } },
+      });
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 77, result: { answers: { [computerActQuestionId]: { answers: ["Cancel"] } } },
+      }));
+      controlled.notify({
+        method: "serverRequest/resolved",
+        params: { threadId: "thread-native-1", requestId: 77 },
+      });
+      await expect(denied).resolves.toEqual({ accepted: true });
+      await expect(pool.claimComputerActRelay(scope)).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("expires the Mac computer_act gate and cancels the native request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-expire-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      await vi.advanceTimersByTimeAsync(desktopApprovalTimeoutMs);
+      expect(controlled.requests).toContainEqual({ id: 77, result: { answers: {} } });
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+      await expect(pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        itemId: computerActCallId,
+        response: { action: "accept", content: { [computerActQuestionId]: "Allow" } },
+      })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+    } finally {
+      vi.useRealTimers();
+      await pool.closeAll();
+    }
+  });
+
+  it("rejects a late Mac computer_act relay after the native turn is terminal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-terminal-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      await respondComputerActAllow(controlled, pool, input, 77);
+      controlled.notify({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-native-1",
+          turn: { id: "turn-native-1", status: "completed", items: [], error: null },
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId,
+        expect.objectContaining({ method: "turn/completed" }),
+      ));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("rejects the Mac computer_act relay after the app-server disconnects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-disconnect-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      await respondComputerActAllow(controlled, pool, input, 77);
+      controlled.exit(1);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("holds the Mac computer_act claim until the native Allow write completes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-write-"));
+    roots.push(root);
+    let finishWrite: ((error?: Error) => void) | undefined;
+    const controlled = createControlledAppServer({
+      turnStartNotification: "before-response",
+      holdUserInputWrite: (finish) => { finishWrite = finish; },
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      const response = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        itemId: computerActCallId,
+        response: { action: "accept", content: { [computerActQuestionId]: "Allow" } },
+      });
+      await waitForFast(() => expect(finishWrite).toBeDefined());
+      let claimed = false;
+      const claim = pool.claimComputerActRelay(computerActRelayScope(input)).then((value) => {
+        claimed = value;
+        return value;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(claimed).toBe(false);
+      const finish = finishWrite;
+      finishWrite = undefined;
+      if (!finish) throw new Error("Native write did not start");
+      finish();
+      await expect(claim).resolves.toBe(true);
+      controlled.notify({
+        method: "serverRequest/resolved",
+        params: { threadId: "thread-native-1", requestId: 77 },
+      });
+      await expect(response).resolves.toEqual({ accepted: true });
+    } finally {
+      finishWrite?.();
+      await pool.closeAll();
+    }
+  });
+
+  it("rejects a Mac computer_act relay when the turn ends while the Allow write is held", async () => {
+    const held = await beginHeldComputerActAllow("linksense-mac-computer-act-held-terminal-");
+    try {
+      held.controlled.notify({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-native-1",
+          turn: { id: "turn-native-1", status: "completed", items: [], error: null },
+        },
+      });
+      await waitForFast(() => expect(held.eventSink.publish).toHaveBeenCalledWith(
+        held.input.conversationId,
+        expect.objectContaining({ method: "turn/completed" }),
+      ));
+      expect(held.claimSettled()).toBe(false);
+      held.releaseWrite();
+      await expect(held.claim).resolves.toBe(false);
+      await expect(held.responseOutcome).resolves.toEqual({ accepted: false });
+    } finally {
+      held.releaseHeldWrite();
+      await held.pool.closeAll();
+    }
+  });
+
+  it("rejects a Mac computer_act relay when the app-server exits while the Allow write is held", async () => {
+    const held = await beginHeldComputerActAllow("linksense-mac-computer-act-held-exit-");
+    try {
+      held.controlled.exit(1);
+      expect(held.claimSettled()).toBe(false);
+      held.releaseWrite();
+      await expect(held.claim).resolves.toBe(false);
+      await expect(held.responseOutcome).resolves.toEqual({ accepted: false });
+    } finally {
+      held.releaseHeldWrite();
+      await held.pool.closeAll();
+    }
+  });
+
+  it("rejects a Mac computer_act relay that expires while the Allow write is held", async () => {
+    const held = await beginHeldComputerActAllow("linksense-mac-computer-act-held-expiry-");
+    const expiredNow = Date.now() + desktopApprovalTimeoutMs + 1;
+    try {
+      const now = vi.spyOn(Date, "now").mockReturnValue(expiredNow);
+      try {
+        held.releaseWrite();
+        await expect(held.claim).resolves.toBe(false);
+      } finally {
+        now.mockRestore();
+      }
+    } finally {
+      held.releaseHeldWrite();
+      await held.pool.closeAll();
+    }
+  });
+
+  it("refuses a second Mac computer_act request for the same native call before and after Allow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-duplicate-request-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    const approvalCards = () => eventSink.publish.mock.calls.filter(
+      ([, event]) => event.method === "item/tool/requestUserInput",
+    );
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      controlled.notify(computerActApprovalNotification(78));
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 78, result: { answers: {} },
+      }));
+      expect(approvalCards()).toHaveLength(1);
+      await respondComputerActAllow(controlled, pool, input, 77);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(true);
+      controlled.notify(computerActApprovalNotification(79));
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 79, result: { answers: {} },
+      }));
+      expect(approvalCards()).toHaveLength(1);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("refuses a Mac computer_act approval after a repeated native item start", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-duplicate-start-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      notifyComputerActItem(controlled, computerActCallId);
+      notifyComputerActItem(controlled, computerActCallId, {
+        ...computerActNativeArguments,
+        text: "replaced",
+      });
+      controlled.notify(computerActApprovalNotification(77));
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 77, result: { answers: {} },
+      }));
+      expect(eventSink.publish.mock.calls.filter(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )).toHaveLength(0);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("does not arm a Mac computer_act gate from a non-exact native request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-shape-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      notifyComputerActItem(controlled, computerActCallId);
+      controlled.notify({
+        id: 77,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1", itemId: computerActCallId,
+          questions: [{
+            id: "approval", header: "Approval", question: "Continue?",
+            isOther: false, isSecret: false,
+            options: [{ label: "Allow", description: "" }, { label: "Cancel", description: "" }],
+          }],
+          isBlocking: true, autoResolutionMs: null,
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/tool/requestUserInput" }),
+      ));
+      const response = pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId: 77,
+        codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        itemId: computerActCallId,
+        response: { action: "accept", content: { approval: "Allow" } },
+      });
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 77, result: { answers: { approval: { answers: ["Allow"] } } },
+      }));
+      controlled.notify({
+        method: "serverRequest/resolved",
+        params: { threadId: "thread-native-1", requestId: 77 },
+      });
+      await expect(response).resolves.toEqual({ accepted: true });
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("never arms a Mac computer_act gate in Plan mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-act-plan-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+      desktopNativeApprovalsEnabled: true,
+      managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn({ ...input, collaborationMode: "plan" });
+      expect(controlled.args).not.toContain(
+        'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+      );
+      notifyComputerActItem(controlled, computerActCallId);
+      controlled.notify(computerActApprovalNotification(77));
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 77, result: { answers: {} },
+      }));
+      expect(eventSink.publish.mock.calls.filter(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )).toHaveLength(0);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("relays one exact computer_act when computer.execute is the sole negotiated tool", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-sole-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      expect(controlled.args).toContain(
+        'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+      );
+      const declaredCoreEnv = controlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars="));
+      expect(declaredCoreEnv).toContain("LINKSENSE_COMPUTER_ENDPOINT");
+      expect(declaredCoreEnv).toContain("LINKSENSE_COMPUTER_TOKEN");
+      expect(controlled.environment?.LINKSENSE_COMPUTER_ENDPOINT).toContain(
+        `/mcp-current-user/${input.conversationId}/computer-execute`,
+      );
+      await requestComputerActApproval(controlled, eventSink, input, 77);
+      const requestEvent = eventSink.publish.mock.calls.find(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )?.[1];
+      expect(JSON.stringify(requestEvent)).not.toContain(computerActNativeArguments.text);
+      await respondComputerActAllow(controlled, pool, input, 77);
+
+      if (!eventSink.computerExecute) throw new Error("computer relay is unavailable");
+      eventSink.computerExecute.mockResolvedValueOnce({
+        kind: "act", result: { ok: true, effect: "done", waited_ms: 5 },
+      });
+      const token = controlled.environment?.LINKSENSE_COMPUTER_TOKEN;
+      if (!token) throw new Error("Missing computer token");
+      const request = {
+        kind: "act" as const,
+        native_call_id: computerActCallId,
+        input: { ...computerActNativeArguments, timeout_ms: 8_000 },
+      };
+      await expect(pool.computerExecute(
+        input.conversationId, token, request, new AbortController().signal, computerActCallId,
+      )).resolves.toEqual({ kind: "act", result: { ok: true, effect: "done", waited_ms: 5 } });
+      expect(eventSink.computerExecute).toHaveBeenCalledWith(expect.objectContaining({
+        conversationId: input.conversationId,
+        turnId: input.projectionTurnId,
+        input: request,
+      }));
+
+      // The one native Allow is consumed synchronously: a second relay is denied.
+      await expect(pool.computerExecute(
+        input.conversationId, token, request, new AbortController().signal, computerActCallId,
+      )).resolves.toEqual({ kind: "failure", error: "COMPUTER_ACCESS_DENIED" });
+      expect(eventSink.computerExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.closeAll();
+    }
+  })
+
+  it("does not advertise an approval or relay without computer negotiation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-unnegotiated-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      notifyComputerActItem(controlled, computerActCallId);
+      controlled.notify(computerActApprovalNotification(77));
+      await waitForFast(() => expect(controlled.requests).toContainEqual({
+        id: 77, result: { answers: {} },
+      }));
+      expect(eventSink.publish.mock.calls.filter(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )).toHaveLength(0);
+      const declaredCoreEnv = controlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars="));
+      expect(declaredCoreEnv).not.toContain("LINKSENSE_COMPUTER_ENDPOINT");
+      expect(declaredCoreEnv).not.toContain("LINKSENSE_COMPUTER_TOKEN");
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(false);
+      await expect(pool.computerExecute(
+        input.conversationId, "unnegotiated-token", { kind: "status" },
+        new AbortController().signal,
+      )).resolves.toEqual({ kind: "failure", error: "COMPUTER_ACCESS_DENIED" });
+      expect(eventSink.computerExecute).not.toHaveBeenCalled();
+    } finally {
+      await pool.closeAll();
+    }
+  })
+
+  it("redacts a misleading native computer_act question before the durable outbox", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-redact-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn(input);
+      notifyComputerActItem(controlled, computerActCallId);
+      controlled.notify({
+        id: 77,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1", itemId: computerActCallId,
+          questions: [{
+            id: computerActQuestionId,
+            header: "Secret Window",
+            question: `Type ${computerActNativeArguments.text} into /Users/private/secret`,
+            isOther: false,
+            isSecret: false,
+            options: [
+              { label: "Allow", description: "Type the secret password" },
+              { label: "Cancel", description: "Open /Users/private/other" },
+            ],
+          }],
+          isBlocking: true, autoResolutionMs: null,
+        },
+      });
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId, expect.objectContaining({ method: "item/tool/requestUserInput" }),
+      ));
+      const published = eventSink.publish.mock.calls.find(
+        ([, event]) => event.method === "item/tool/requestUserInput",
+      )?.[1];
+      const serialized = JSON.stringify(published);
+      expect(serialized).not.toContain(computerActNativeArguments.text);
+      expect(serialized).not.toContain("Secret Window");
+      expect(serialized).not.toContain("/Users/private/secret");
+      expect(serialized).not.toContain("Type the secret password");
+      expect(serialized).not.toContain("/Users/private/other");
+      expect(serialized).toContain("computer_act: type");
+      expect(serialized).toContain('"Allow"');
+
+      await respondComputerActAllow(controlled, pool, input, 77);
+      await expect(pool.claimComputerActRelay(computerActRelayScope(input))).resolves.toBe(true);
+    } finally {
+      await pool.closeAll();
+    }
+  })
+
+  it("keeps Plan computer reads and refuses act without a native approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-plan-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      await pool.startTurn({ ...input, collaborationMode: "plan" });
+      const declaredCoreEnv = controlled.args?.find(argument =>
+        argument.startsWith("mcp_servers.linksense_core.env_vars="));
+      expect(declaredCoreEnv).toContain("LINKSENSE_COMPUTER_ENDPOINT");
+      expect(declaredCoreEnv).toContain("LINKSENSE_COMPUTER_TOKEN");
+      expect(controlled.args).not.toContain(
+        'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+      );
+      const token = controlled.environment?.LINKSENSE_COMPUTER_TOKEN;
+      if (!token) throw new Error("Missing computer token");
+      if (!eventSink.computerExecute) throw new Error("computer relay is unavailable");
+      eventSink.computerExecute.mockResolvedValueOnce({
+        kind: "status",
+        result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+      });
+      await expect(pool.computerExecute(
+        input.conversationId, token, { kind: "status" }, new AbortController().signal,
+      )).resolves.toMatchObject({ kind: "status" });
+      await expect(pool.computerExecute(
+        input.conversationId, token,
+        { kind: "act", native_call_id: computerActCallId, input: { ...computerActNativeArguments, timeout_ms: 8_000 } },
+        new AbortController().signal, computerActCallId,
+      )).resolves.toEqual({ kind: "failure", error: "COMPUTER_ACCESS_DENIED" });
+      expect(eventSink.computerExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.closeAll();
+    }
+  })
+
+  it.each([
+    ["a text-only native model", { protocolMode: "native_responses" as const }],
+    [
+      "a bridge model with declared image input",
+      { protocolMode: "chat_completions_bridge" as const, supportsImageInput: true },
+    ],
+    [
+      "a privacy-masked image model",
+      {
+        protocolMode: "native_responses" as const,
+        supportsImageInput: true,
+        privacyMasking: privacyMaskingRuntimeSchema.parse({
+          revision: 1, secrets: true, personal: true, kinds: {}, words: [],
+          words_any_case: false, words_whole: false, actions: {}, allow: [],
+          placeholder_key: "a".repeat(64),
+        }),
+      },
+    ],
+    [
+      "an apparently image-capable native model",
+      { protocolMode: "native_responses" as const, supportsImageInput: true },
+    ],
+  ] as const)("never publishes a production computer raster capability for %s", async (_label, provider) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-mac-computer-raster-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool } = createStartOperationPool(root, controlled.factory, undefined, {
+      desktopWorkspace: true, desktopComputerEnabled: true, managedBrowserEnabled: false,
+    });
+    try {
+      const input = startOperationInput();
+      input.modelProvider = { ...input.modelProvider, ...provider };
+      await pool.startTurn(input);
+      // The desktop proxy omits the API masking preference, so no worker-side
+      // provider check can prove the raster path; production stays text-only.
+      expect(controlled.environment).not.toHaveProperty("LINKSENSE_COMPUTER_SCREENSHOTS_ENABLED");
+    } finally {
+      await pool.closeAll();
+    }
+  })
 
   it("keeps Plan mode available without exposing a disabled managed browser runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-plan-no-browser-"));
@@ -12497,6 +13146,201 @@ async function createKnowledgeSkill(root: string): Promise<{
   };
 }
 
+const computerActCallId = "call-native-computer-1";
+const computerActQuestionId = `mcp_tool_call_approval_${computerActCallId}`;
+const computerActNativeArguments = {
+  action: "type",
+  observation_id: "obs-1",
+  ref: "e1",
+  text: "你好 👋",
+} as const;
+
+function computerActApprovalNotification(requestId: number) {
+  return {
+    id: requestId,
+    method: "item/tool/requestUserInput",
+    params: {
+      threadId: "thread-native-1",
+      turnId: "turn-native-1",
+      itemId: computerActCallId,
+      questions: [{
+        id: computerActQuestionId,
+        header: "Approval",
+        question: "Allow this action?",
+        isOther: false,
+        isSecret: false,
+        options: [
+          { label: "Allow", description: "" },
+          { label: "Cancel", description: "" },
+        ],
+      }],
+      isBlocking: true,
+      autoResolutionMs: null,
+    },
+  };
+}
+
+function notifyComputerActItem(
+  controlled: ReturnType<typeof createControlledAppServer>,
+  itemId: string,
+  argumentsValue: unknown = computerActNativeArguments,
+) {
+  controlled.notify({
+    method: "item/started",
+    params: {
+      threadId: "thread-native-1",
+      turnId: "turn-native-1",
+      item: {
+        type: "mcpToolCall",
+        id: itemId,
+        server: "linksense_core",
+        tool: "computer_act",
+        status: "inProgress",
+        arguments: argumentsValue,
+      },
+    },
+  });
+}
+
+async function requestComputerActApproval(
+  controlled: ReturnType<typeof createControlledAppServer>,
+  eventSink: ReturnType<typeof createStartOperationPool>["eventSink"],
+  input: ReturnType<typeof startOperationInput>,
+  requestId: number,
+): Promise<void> {
+  notifyComputerActItem(controlled, computerActCallId);
+  controlled.notify(computerActApprovalNotification(requestId));
+  await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(
+    input.conversationId,
+    expect.objectContaining({
+      method: "item/tool/requestUserInput",
+      params: expect.objectContaining({ itemId: computerActCallId }),
+    }),
+  ));
+}
+
+async function respondComputerActAllow(
+  controlled: ReturnType<typeof createControlledAppServer>,
+  pool: AppServerProcessPool,
+  input: ReturnType<typeof startOperationInput>,
+  requestId: number,
+): Promise<void> {
+  const response = pool.respondUserInputRequest({
+    conversationId: input.conversationId,
+    ownerId: input.ownerId,
+    requestId,
+    codexThreadId: "thread-native-1",
+    codexTurnId: "turn-native-1",
+    itemId: computerActCallId,
+    response: {
+      action: "accept",
+      content: { [computerActQuestionId]: "Allow" },
+    },
+  });
+  await waitForFast(() => expect(controlled.requests).toContainEqual({
+    id: requestId,
+    result: { answers: { [computerActQuestionId]: { answers: ["Allow"] } } },
+  }));
+  controlled.notify({
+    method: "serverRequest/resolved",
+    params: { threadId: "thread-native-1", requestId },
+  });
+  await expect(response).resolves.toEqual({ accepted: true });
+}
+
+/**
+ * Allow a native computer_act request while holding the JSON-RPC response
+ * write, and start one relay claim. The claim is proven to be waiting on that
+ * write before this resolves, so callers can change lifecycle or the clock and
+ * then release the write.
+ */
+async function beginHeldComputerActAllow(prefix: string): Promise<{
+  pool: AppServerProcessPool;
+  controlled: ReturnType<typeof createControlledAppServer>;
+  eventSink: ReturnType<typeof createStartOperationPool>["eventSink"];
+  input: ReturnType<typeof startOperationInput>;
+  claim: Promise<boolean>;
+  claimSettled: () => boolean;
+  responseOutcome: Promise<{ accepted: boolean }>;
+  releaseWrite: () => void;
+  releaseHeldWrite: () => void;
+}> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  roots.push(root);
+  let finishWrite: ((error?: Error) => void) | undefined;
+  const controlled = createControlledAppServer({
+    turnStartNotification: "before-response",
+    holdUserInputWrite: (finish) => { finishWrite = finish; },
+  });
+  const { pool, eventSink } = createStartOperationPool(root, controlled.factory, undefined, {
+    desktopWorkspace: true, desktopBrowserEnabled: true, desktopComputerEnabled: true,
+    desktopNativeApprovalsEnabled: true,
+    managedBrowserEnabled: false,
+  });
+  const input = startOperationInput();
+  await pool.startTurn(input);
+  await requestComputerActApproval(controlled, eventSink, input, 77);
+  const responseOutcome = pool.respondUserInputRequest({
+    conversationId: input.conversationId,
+    ownerId: input.ownerId,
+    requestId: 77,
+    codexThreadId: "thread-native-1",
+    codexTurnId: "turn-native-1",
+    itemId: computerActCallId,
+    response: {
+      action: "accept",
+      content: { [computerActQuestionId]: "Allow" },
+    },
+  }).then(
+    () => ({ accepted: true }),
+    () => ({ accepted: false }),
+  );
+  await waitForFast(() => expect(finishWrite).toBeDefined());
+  let settled = false;
+  const claim = pool.claimComputerActRelay(computerActRelayScope(input)).finally(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  if (settled) throw new Error("Native write did not hold the claim");
+  return {
+    pool,
+    controlled,
+    eventSink,
+    input,
+    claim,
+    claimSettled: () => settled,
+    responseOutcome,
+    releaseWrite: () => {
+      const finish = finishWrite;
+      finishWrite = undefined;
+      if (!finish) throw new Error("Native write did not start");
+      finish();
+    },
+    releaseHeldWrite: () => {
+      finishWrite?.();
+      finishWrite = undefined;
+    },
+  };
+}
+
+function computerActRelayScope(
+  input: ReturnType<typeof startOperationInput>,
+  overrides: Partial<ComputerActRelayScope> = {},
+): ComputerActRelayScope {
+  return {
+    ownerId: input.ownerId,
+    conversationId: input.conversationId,
+    runtimeGeneration: input.expectedRuntimeGeneration,
+    codexThreadId: "thread-native-1",
+    nativeTurnId: "turn-native-1",
+    projectionTurnId: input.projectionTurnId,
+    nativeCallId: computerActCallId,
+    toolName: "computer_act",
+    input: { ...computerActNativeArguments, timeout_ms: 8_000 },
+    ...overrides,
+  };
+}
+
 function createStartOperationPool(
   root: string,
   childProcessFactory: ChildProcessFactory,
@@ -12512,6 +13356,7 @@ function createStartOperationPool(
     managedBrowserEnabled?: boolean;
     desktopWorkspace?: boolean;
     desktopBrowserEnabled?: boolean;
+    desktopComputerEnabled?: boolean;
     desktopNativeApprovalsEnabled?: boolean;
     desktopArtifactsEnabled?: boolean;
     desktopArtifactsWebsiteEnabled?: boolean;
@@ -12554,6 +13399,9 @@ function createStartOperationPool(
     manageAutomation: vi.fn(async () => ({})),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     browserUse: vi.fn<NonNullable<RunnerEventSink["browserUse"]>>(async () => ({ ok: true, browser: "local", data: {} })),
+    computerExecute: vi.fn<NonNullable<RunnerEventSink["computerExecute"]>>(async () => ({
+      kind: "failure", error: "COMPUTER_UNAVAILABLE",
+    })),
     alignConversationThread: vi.fn(async () => undefined),
   } satisfies RunnerEventSink;
   const capabilityRuntimeManager =
@@ -12564,6 +13412,7 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
     ...(overrides.desktopBrowserEnabled ? { desktopBrowserEnabled: true } : {}),
+    ...(overrides.desktopComputerEnabled ? { desktopComputerEnabled: true } : {}),
     ...(overrides.desktopNativeApprovalsEnabled ? { desktopNativeApprovalsEnabled: true } : {}),
     ...(overrides.desktopArtifactsEnabled ? { desktopArtifactsEnabled: true } : {}),
     ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),

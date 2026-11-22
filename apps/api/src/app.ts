@@ -16,6 +16,7 @@ import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
 import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
+import type { DesktopComputerControl } from "./modules/desktop-devices/computer-control.js";
 import { DesktopBrowserUse } from "./modules/desktop-devices/browser-use.js";
 import { isDesktopRunActive } from "./modules/desktop-credentials/run-authority.js";
 import { DesktopRunLeases } from "./modules/desktop-credentials/run-leases.js";
@@ -694,6 +695,7 @@ export async function buildApi(
     socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, browserStore, services.modelProviderSettings, services.usageAnalytics),
   });
+  let desktopComputerControl: DesktopComputerControl | undefined;
   const desktopExecution = await registerDesktopExecution(app, {
     ...services, connections,
     ...(config.desktopBrowserUseEnabled ? {
@@ -701,7 +703,9 @@ export async function buildApi(
         services.prisma, browser, browserStore, { credentialMasterKey, credentialKeyId }, services.webSites,
       ),
     } : {}),
-  }, desktopCoordinator, desktopLeases);
+  }, desktopCoordinator, desktopLeases, {
+    onComputerControl: control => { desktopComputerControl = control; },
+  });
   if (desktopExecution) await app.register(localComputerRoutes, {
     prefix: "/api/v1/conversations",
     service: new LocalComputerService(services.prisma),
@@ -721,6 +725,8 @@ export async function buildApi(
       nativeApprovals: config.desktopNativeApprovalsEnabled,
       artifactTools: config.desktopArtifactsEnabled,
       websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
+      computerExecute: desktopComputerControl !== undefined,
+      ...(desktopComputerControl ? { computerControl: desktopComputerControl } : {}),
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

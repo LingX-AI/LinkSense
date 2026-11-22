@@ -37,6 +37,11 @@ type DeviceConnectionStatus struct {
 	// revoked, disconnected, shut-down, or account-invalidated connections
 	// report false.
 	ExecutionReady bool `json:"executionReady,omitempty"`
+	// ComputerReady reports that the live socket negotiated the computer
+	// operation, the runtime link for that exact generation is still live, and
+	// this host can build a signed, packaged computer driver. An older server
+	// that negotiates no computer operation reports false without an error.
+	ComputerReady bool `json:"computerReady,omitempty"`
 }
 
 type deviceConnection struct {
@@ -58,10 +63,31 @@ type deviceConnection struct {
 	status  DeviceConnectionStatus
 	runtime *runtimeSupervisor
 	link    atomic.Pointer[runtimeLink]
-	// computer is the explicit test-injected fixture host for computer.execute.
-	// Production leaves it nil, so the operation is never offered and any
-	// unexpected computer command is rejected instead of entering the runtime.
+	// computer is the product computer executor ingress, or the explicit
+	// test-injected fixture host. It is non-nil only when this host can offer
+	// the operation; production builds always use the product gate.
 	computer *m1bComputerHost
+	// computerEligible is the host-side driver eligibility check. Status
+	// derives ComputerReady from it on every read, so a removed runtime,
+	// unsigned build, revoked account, or dead link fails closed.
+	computerEligible func() bool
+	// onLinkEnded lets the product controller invalidate a selection before a
+	// reconnect. It receives the exact socket generation that ended, so a stale
+	// callback can never reset a newer generation's selection. It runs without
+	// any connection lock held.
+	onLinkEnded func(*deviceControlSession)
+	// onRuntimeFrame observes one bounded frame published by the local runtime
+	// before its result is forgotten. The product controller uses it only to
+	// release a selection whose exact run reached terminal; it never authorizes
+	// input and never rewrites the frame. It runs without connection locks.
+	onRuntimeFrame func([]byte)
+	// computerNegotiated is true only for the live socket generation that
+	// negotiated computer.execute. It is cleared whenever readiness is lost.
+	computerNegotiated bool
+
+	controlMu      sync.Mutex
+	controlPending map[string]*pendingComputerControl
+	control        *deviceControlSession
 }
 
 const (
@@ -140,6 +166,7 @@ func (connection *deviceConnection) runtimeWriteAdmission(ctx context.Context) f
 func (connection *deviceConnection) Status() DeviceConnectionStatus {
 	connection.mu.RLock()
 	status := connection.status
+	computerNegotiated := connection.computerNegotiated
 	// Derive authority after taking the status snapshot. Checking before this
 	// lock let a sign-out, switch, or expiry that landed while a caller waited
 	// on connection.mu publish the previous account's id, name, and state.
@@ -158,6 +185,13 @@ func (connection *deviceConnection) Status() DeviceConnectionStatus {
 			status.ExecutionReady = false
 		}
 	}
+	if status.ComputerReady {
+		if !status.ExecutionReady || !computerNegotiated || connection.computer == nil ||
+			connection.computerEligible == nil || !connection.computerEligible() ||
+			connection.ctx.Err() != nil {
+			status.ComputerReady = false
+		}
+	}
 	return status
 }
 
@@ -165,6 +199,8 @@ func (connection *deviceConnection) setStatus(state DeviceConnectionState, code 
 	connection.mu.Lock()
 	connection.status.State, connection.status.ErrorCode = state, code
 	connection.status.ExecutionReady = false
+	connection.status.ComputerReady = false
+	connection.computerNegotiated = false
 	connection.mu.Unlock()
 }
 
@@ -172,12 +208,31 @@ func (connection *deviceConnection) setOnline(executionReady bool) {
 	connection.mu.Lock()
 	connection.status.State, connection.status.ErrorCode = DeviceOnline, ""
 	connection.status.ExecutionReady = executionReady
+	connection.status.ComputerReady = false
+	connection.computerNegotiated = false
+	connection.mu.Unlock()
+}
+
+// setComputerNegotiated accepts only a live negotiated generation. The
+// eligibility closure is evaluated before the lock so a status read never
+// waits behind a filesystem check.
+func (connection *deviceConnection) setComputerNegotiated(negotiated bool) {
+	eligible := false
+	if negotiated {
+		eligible = connection.computer != nil && connection.computerEligible != nil &&
+			connection.computerEligible()
+	}
+	connection.mu.Lock()
+	connection.computerNegotiated = negotiated
+	connection.status.ComputerReady = negotiated && eligible
 	connection.mu.Unlock()
 }
 
 func (connection *deviceConnection) clearExecutionReady() {
 	connection.mu.Lock()
 	connection.status.ExecutionReady = false
+	connection.status.ComputerReady = false
+	connection.computerNegotiated = false
 	connection.mu.Unlock()
 }
 
@@ -329,6 +384,21 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	// Execution readiness exists only for an accepted execution_protocol_version
 	// with a live link; a presence-only server stays online without it.
 	connection.setOnline(link != nil)
+	// Control frames belong to this exact hello generation. The session is
+	// published before readiness so a status read can never see ComputerReady
+	// for a socket that cannot carry computer.control, and it is withdrawn
+	// with the link so a late result can never complete a newer operation.
+	controlSession := &deviceControlSession{socket: socket, linkID: ready.ConnectionID}
+	connection.setControlSession(controlSession)
+	defer func() {
+		connection.clearControlSession(controlSession)
+		if connection.onLinkEnded != nil {
+			connection.onLinkEnded(controlSession)
+		}
+	}()
+	if link != nil {
+		connection.setComputerNegotiated(connection.computer != nil && hasM1BComputerOperation(ready.ToolOperations))
+	}
 	// The per-socket context cancels computer work immediately when this
 	// socket/read/link generation ends, before the deferred heartbeat join.
 	socketContext, socketCancel := context.WithCancel(connection.ctx)
@@ -366,6 +436,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			frames, runtimeDone = link.frames, link.pipe.done
 		}
 		frame := []byte(`{"type":"ping"}`)
+		runtimeFrame := false
 		for {
 			// Account loss is an actual lease loss: cancel the connection rather
 			// than letting the socket unwind into a reconnect attempt.
@@ -391,6 +462,15 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 				_ = socket.CloseNow()
 				return
 			}
+			if runtimeFrame {
+				// The exact runtime frame reached the server on this socket
+				// generation. Let the product controller release a selection whose
+				// run it proves terminal; the frame itself is unchanged.
+				if connection.onRuntimeFrame != nil {
+					connection.onRuntimeFrame(frame)
+				}
+				runtimeFrame = false
+			}
 			select {
 			case <-heartbeatContext.Done():
 				return
@@ -399,12 +479,14 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 				_ = socket.CloseNow()
 				return
 			case frame = <-frames:
+				runtimeFrame = true
 			case <-ticker.C:
 				if !offerExecution && connection.runtime != nil && connection.runtime.ready.Load() {
 					_ = socket.CloseNow()
 					return
 				}
 				frame = []byte(`{"type":"ping"}`)
+				runtimeFrame = false
 			}
 		}
 	}()
@@ -429,6 +511,11 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			return true, "AUTH_REQUIRED"
 		}
 		if decodeDevicePong(data) {
+			continue
+		}
+		// A control result completes only its exact pending request on this
+		// exact socket generation. It is never forwarded to the runtime.
+		if connection.deliverComputerControlResult(controlSession, data) {
 			continue
 		}
 		// The fixture operation is consumed here, before the runtime pipe.
@@ -515,6 +602,163 @@ func deviceSocketError(err error) (bool, string) {
 	default:
 		return false, "RUNNER_UNAVAILABLE"
 	}
+}
+
+// deviceControlSession is one hello generation that can carry
+// computer.control. A pending control request is bound to the exact pointer:
+// a replacement socket fails it instead of letting a late result activate a
+// selection on the newer link.
+type deviceControlSession struct {
+	socket *websocket.Conn
+	linkID string
+}
+
+type pendingComputerControl struct {
+	session *deviceControlSession
+	reply   chan computerControlReply
+}
+
+type computerControlReply struct {
+	data    json.RawMessage
+	session *deviceControlSession
+	err     error
+}
+
+func (connection *deviceConnection) setControlSession(session *deviceControlSession) {
+	connection.mu.Lock()
+	connection.control = session
+	connection.mu.Unlock()
+}
+
+func (connection *deviceConnection) currentControlSession() *deviceControlSession {
+	connection.mu.RLock()
+	defer connection.mu.RUnlock()
+	return connection.control
+}
+
+// clearControlSession withdraws the generation and releases every waiter bound
+// to it. A request that was written but not answered becomes an explicit
+// supersession, never a silent success or a replay on the next socket.
+func (connection *deviceConnection) clearControlSession(session *deviceControlSession) {
+	connection.mu.Lock()
+	if connection.control == session {
+		connection.control = nil
+	}
+	connection.mu.Unlock()
+	connection.controlMu.Lock()
+	for id, pending := range connection.controlPending {
+		if pending.session != session {
+			continue
+		}
+		delete(connection.controlPending, id)
+		select {
+		case pending.reply <- computerControlReply{session: session, err: errComputerControlSuperseded}:
+		default:
+		}
+	}
+	connection.controlMu.Unlock()
+}
+
+// computerControl writes one control frame on the exact live generation and
+// waits for its correlated result. No connection lock is held across the write
+// or the wait, so the socket reader and every other status caller keep going.
+func (connection *deviceConnection) computerControl(ctx context.Context, id string, frame []byte) (json.RawMessage, *deviceControlSession, error) {
+	if ctx == nil || !validUUID(id) || len(frame) == 0 || len(frame) > computerControlMaxResultBytes {
+		return nil, nil, errComputerInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if !connection.authorized() {
+		return nil, nil, errAccountRequired
+	}
+	session := connection.currentControlSession()
+	if session == nil {
+		return nil, nil, errComputerUnavailable
+	}
+	pending := &pendingComputerControl{session: session, reply: make(chan computerControlReply, 1)}
+	connection.controlMu.Lock()
+	if connection.controlPending == nil {
+		connection.controlPending = make(map[string]*pendingComputerControl)
+	}
+	if len(connection.controlPending) >= 4 {
+		connection.controlMu.Unlock()
+		return nil, nil, errComputerBusy
+	}
+	if _, exists := connection.controlPending[id]; exists {
+		connection.controlMu.Unlock()
+		return nil, nil, errComputerInvalid
+	}
+	connection.controlPending[id] = pending
+	connection.controlMu.Unlock()
+	defer connection.removeComputerControl(id)
+
+	writeContext, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
+	err := session.socket.Write(writeContext, websocket.MessageText, frame)
+	cancelWrite()
+	if err != nil {
+		return nil, nil, errComputerUnavailable
+	}
+	select {
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	case <-connection.ctx.Done():
+		return nil, nil, errComputerUnavailable
+	case reply := <-pending.reply:
+		if reply.err != nil {
+			return nil, nil, reply.err
+		}
+		if reply.session != session || connection.currentControlSession() != session {
+			return nil, nil, errComputerControlSuperseded
+		}
+		// Re-check the native principal after the wait: a result that arrived
+		// across a sign-out or account switch is never used.
+		if !connection.authorized() {
+			return nil, nil, errAccountRequired
+		}
+		return reply.data, session, nil
+	}
+}
+
+func (connection *deviceConnection) removeComputerControl(id string) {
+	connection.controlMu.Lock()
+	delete(connection.controlPending, id)
+	connection.controlMu.Unlock()
+}
+
+// deliverComputerControlResult consumes a control result for its exact pending
+// request. Unknown, late, malformed-id and oversized results are consumed
+// without affecting a connection; a result for another socket generation is
+// left for clearControlSession to fail.
+func (connection *deviceConnection) deliverComputerControlResult(session *deviceControlSession, data []byte) bool {
+	var header struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+	}
+	if !json.Valid(data) || json.Unmarshal(data, &header) != nil {
+		return false
+	}
+	if header.Type != computerControlResultType {
+		return false
+	}
+	if session == nil || len(data) > computerControlMaxResultBytes || !validUUID(header.ID) {
+		return true
+	}
+	connection.controlMu.Lock()
+	pending := connection.controlPending[header.ID]
+	if pending != nil && pending.session == session {
+		delete(connection.controlPending, header.ID)
+	}
+	connection.controlMu.Unlock()
+	if pending == nil {
+		return true
+	}
+	reply := computerControlReply{data: append(json.RawMessage(nil), data...), session: session}
+	select {
+	case pending.reply <- reply:
+	default:
+	}
+	return true
 }
 
 // desktopAppVersionHeaderValue returns the packaged application version only

@@ -16,9 +16,33 @@ export interface Messages {
    */
   closeToTray(): string;
   /**
+   * `选择要控制的窗口`
+   */
+  computerPickerTitle(): string;
+  /**
+   * `LinkSense 控制你选择的窗口。它可能会将该窗口的辅助功能标签发送给模型。`
+   */
+  computerPickerHint(): string;
+  /**
+   * `没有找到可控制的窗口。请打开要使用的应用后重试。`
+   */
+  computerPickerEmpty(): string;
+  /**
+   * `使用此窗口`
+   */
+  computerPickerConfirm(): string;
+  /**
+   * `取消`
+   */
+  computerPickerCancel(): string;
+  /**
    * `新建任务`
    */
   newTask(): string;
+  /**
+   * `暂停电脑控制`
+   */
+  pauseComputerControl(): string;
   /**
    * `偏好设置…`
    */
@@ -52,7 +76,13 @@ const catalog = createCatalog<Messages>({
     "buildConfigurationTitle": [],
     "buildConfigurationInvalid": [],
     "closeToTray": [],
+    "computerPickerTitle": [],
+    "computerPickerHint": [],
+    "computerPickerEmpty": [],
+    "computerPickerConfirm": [],
+    "computerPickerCancel": [],
     "newTask": [],
+    "pauseComputerControl": [],
     "preferences": [],
     "quit": [],
     "showWindow": [],
@@ -63,7 +93,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "无法启动 LinkSense",
       "buildConfigurationInvalid": "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。",
       "closeToTray": "关闭窗口后在菜单栏继续运行",
+      "computerPickerTitle": "选择要控制的窗口",
+      "computerPickerHint": "LinkSense 控制你选择的窗口。它可能会将该窗口的辅助功能标签发送给模型。",
+      "computerPickerEmpty": "没有找到可控制的窗口。请打开要使用的应用后重试。",
+      "computerPickerConfirm": "使用此窗口",
+      "computerPickerCancel": "取消",
       "newTask": "新建任务",
+      "pauseComputerControl": "暂停电脑控制",
       "preferences": "偏好设置…",
       "quit": "退出",
       "showWindow": "显示 LinkSense",
@@ -73,7 +109,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "Unable to start LinkSense",
       "buildConfigurationInvalid": "This application package has no valid server address. Contact your administrator for a correctly configured installer.",
       "closeToTray": "Keep Running in the Menu Bar When the Window Closes",
+      "computerPickerTitle": "Choose a Window to Control",
+      "computerPickerHint": "LinkSense controls the window you select. It may send that window's accessibility labels to the model.",
+      "computerPickerEmpty": "No controllable windows were found. Open the app you want to use, then try again.",
+      "computerPickerConfirm": "Use This Window",
+      "computerPickerCancel": "Cancel",
       "newTask": "New Task",
+      "pauseComputerControl": "Pause Computer Control",
       "preferences": "Preferences…",
       "quit": "Quit",
       "showWindow": "Show LinkSense",
@@ -83,7 +125,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
       "buildConfigurationInvalid": "Este paquete no tiene una dirección de servidor válida. Contacta con el administrador para obtener un instalador configurado correctamente.",
       "closeToTray": "Seguir en la barra de menús al cerrar la ventana",
+      "computerPickerTitle": "Elige una ventana para controlar",
+      "computerPickerHint": "LinkSense controla la ventana que eliges. Puede enviar al modelo las etiquetas de accesibilidad de esa ventana.",
+      "computerPickerEmpty": "No se encontraron ventanas que se puedan controlar. Abre la aplicación que quieres usar y vuelve a intentarlo.",
+      "computerPickerConfirm": "Usar esta ventana",
+      "computerPickerCancel": "Cancelar",
       "newTask": "Nueva tarea",
+      "pauseComputerControl": "Pausar el control del equipo",
       "preferences": "Preferencias…",
       "quit": "Salir",
       "showWindow": "Mostrar LinkSense",
@@ -93,7 +141,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
       "buildConfigurationInvalid": "Ce paquet ne contient pas d’adresse de serveur valide. Contactez votre administrateur pour obtenir un programme d’installation correctement configuré.",
       "closeToTray": "Rester dans la barre des menus après fermeture de la fenêtre",
+      "computerPickerTitle": "Choisir une fenêtre à contrôler",
+      "computerPickerHint": "LinkSense contrôle la fenêtre que vous choisissez. Il peut envoyer au modèle les étiquettes d’accessibilité de cette fenêtre.",
+      "computerPickerEmpty": "Aucune fenêtre contrôlable n’a été trouvée. Ouvrez l’application souhaitée, puis réessayez.",
+      "computerPickerConfirm": "Utiliser cette fenêtre",
+      "computerPickerCancel": "Annuler",
       "newTask": "Nouvelle tâche",
+      "pauseComputerControl": "Suspendre le contrôle de l’ordinateur",
       "preferences": "Préférences…",
       "quit": "Quitter",
       "showWindow": "Afficher LinkSense",
@@ -103,7 +157,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "LinkSense を起動できません",
       "buildConfigurationInvalid": "このアプリには有効なサーバーアドレスが設定されていません。正しく設定されたインストーラーを管理者に依頼してください。",
       "closeToTray": "ウィンドウを閉じてもメニューバーに残す",
+      "computerPickerTitle": "操作するウインドウを選択",
+      "computerPickerHint": "LinkSense は、選択したウインドウを操作します。そのウインドウのアクセシビリティラベルをモデルへ送信することがあります。",
+      "computerPickerEmpty": "操作できるウインドウが見つかりません。使用するアプリを開いてから、もう一度お試しください。",
+      "computerPickerConfirm": "このウインドウを使用",
+      "computerPickerCancel": "キャンセル",
       "newTask": "新しいタスク",
+      "pauseComputerControl": "コンピューター操作を一時停止",
       "preferences": "環境設定…",
       "quit": "終了",
       "showWindow": "LinkSense を表示",
@@ -113,7 +173,13 @@ const catalog = createCatalog<Messages>({
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
       "buildConfigurationInvalid": "Este pacote não tem um endereço de servidor válido. Entre em contato com o administrador para obter um instalador configurado corretamente.",
       "closeToTray": "Continuar na barra de menus ao fechar a janela",
+      "computerPickerTitle": "Escolha uma janela para controlar",
+      "computerPickerHint": "O LinkSense controla a janela que você escolher. Ele pode enviar ao modelo os rótulos de acessibilidade dessa janela.",
+      "computerPickerEmpty": "Nenhuma janela controlável foi encontrada. Abra o aplicativo que deseja usar e tente novamente.",
+      "computerPickerConfirm": "Usar esta janela",
+      "computerPickerCancel": "Cancelar",
       "newTask": "Nova tarefa",
+      "pauseComputerControl": "Pausar o controle do computador",
       "preferences": "Preferências…",
       "quit": "Sair",
       "showWindow": "Mostrar o LinkSense",

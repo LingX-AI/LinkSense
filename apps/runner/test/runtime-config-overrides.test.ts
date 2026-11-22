@@ -79,6 +79,39 @@ describe("Codex process-level runtime config", () => {
     );
   });
 
+  it("asks for the native computer_act approval and relay environment only for an admitted worker", () => {
+    const base = { command: "/usr/local/bin/node", args: ["/app/dist/mcp/core-service-server.js"] };
+    expect(builtInMcpConfigOverrides(base)).not.toContain(
+      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+    );
+    expect(builtInMcpConfigOverrides({ ...base, computerActApproval: true })).toContain(
+      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
+    );
+    const envLineFor = (overrides: string[]) => overrides.find(value =>
+      value.startsWith("mcp_servers.linksense_core.env_vars="));
+    // The persistent template and every unnegotiated/cloud process keep the
+    // original allowlist; the callback names exist only where it was actually
+    // provisioned.
+    const baseEnvLine = envLineFor(builtInMcpConfigOverrides(base));
+    for (const variable of [
+      "LINKSENSE_COMPUTER_ENDPOINT",
+      "LINKSENSE_COMPUTER_TOKEN",
+    ]) {
+      expect(baseEnvLine).not.toContain(variable);
+      expect(envLineFor(builtInMcpConfigOverrides({ ...base, computerRelay: true })))
+        .toContain(variable);
+    }
+    // Production raster stays unavailable, and the stdio MCP process never
+    // receives the worker/supervisor secret.
+    const relayEnvLine = envLineFor(builtInMcpConfigOverrides({ ...base, computerRelay: true }));
+    expect(relayEnvLine).not.toContain("LINKSENSE_COMPUTER_SCREENSHOTS_ENABLED");
+    expect(relayEnvLine).not.toContain("LINKSENSE_RUNNER_SHARED_SECRET");
+    // Browser prompting keeps its existing independent template semantic.
+    expect(builtInMcpConfigOverrides({ ...base, promptForBrowserUse: true })).toContain(
+      'mcp_servers.linksense_core.tools.browser_use.approval_mode="prompt"',
+    );
+  });
+
   it("projects all built-in MCP settings and keeps Plan overrides able to win", () => {
     const overrides = builtInMcpConfigOverrides({
       command: "/usr/local/bin/node",

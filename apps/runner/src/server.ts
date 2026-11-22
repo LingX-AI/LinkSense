@@ -27,6 +27,7 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   conversationFormWaitingPolicySchema,
+  computerExecuteInputSchema,
   nativeUserInputResponseSchema,
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
@@ -45,6 +46,7 @@ import {
   runnerKnowledgeBaseSelectionSchema,
   runnerCodexAgentKeySchema,
   runnerCodexAgentKeysSchema,
+  runnerNativeIdSchema,
   runtimeMcpServerSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
   RUNNER_TURN_INTERRUPT_REQUESTED,
@@ -1517,6 +1519,36 @@ export function buildRunnerServer(
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
     finally { reply.raw.off("close", abort); }
   });
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-current-user/:conversationId/computer-execute",
+    { bodyLimit: 40_000 },
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = z.strictObject({
+        input: computerExecuteInputSchema,
+        // Reads carry no native call id; an act without one is denied below.
+        nativeCallId: runnerNativeIdSchema.optional(),
+      }).safeParse(request.body);
+      if (!token) return reply.code(401).send({ error_code: "COMPUTER_ACCESS_DENIED" });
+      if (!conversationId.success || !body.success) {
+        return reply.code(400).send({ error_code: "COMPUTER_INVALID" });
+      }
+      const controller = new AbortController();
+      const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+      reply.raw.once("close", abort);
+      try {
+        return await pool.computerExecute(
+          conversationId.data, token, body.data.input, controller.signal, body.data.nativeCallId,
+        );
+      } catch {
+        return reply.code(503).send({ error_code: "COMPUTER_UNAVAILABLE" });
+      } finally {
+        reply.raw.off("close", abort);
+      }
+    },
+  );
 
   app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/referenced-conversation", async (request, reply) => {
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");

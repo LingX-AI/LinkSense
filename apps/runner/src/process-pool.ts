@@ -53,6 +53,10 @@ import {
   builtInCapabilityId,
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
+  computerActInputSchema,
+  computerActToolName,
+  computerExecuteInputSchema,
+  computerExecuteResultSchema,
   conversationFormRecommendationDelayMs,
   conversationFormWaitingPolicySchema,
   conversationFormWaitingPolicyMatchesSchema,
@@ -78,6 +82,9 @@ import {
   skillCreatorArchivePathSchema,
   skillManagementRequestSchema,
   type SkillManagementRequest,
+  type ComputerExecuteInput,
+  type ComputerExecuteResult,
+  type ComputerFailureCode,
 } from "@linksense/shared";
 
 import {
@@ -158,6 +165,7 @@ import type {
   TurnInterruptParams,
   AskForApproval,
   ToolRequestUserInputQuestion,
+  ToolRequestUserInputParams,
   ToolRequestUserInputResponse,
 } from "./codex/protocol.js";
 import type { RunnerEventSink } from "./event-sink.js";
@@ -420,6 +428,25 @@ export type RespondUserInputRequestInput = {
   response: NativeUserInputResponse;
 };
 
+/**
+ * Trusted scope for one desktop `computer_act` relay. Every field is supplied
+ * by the admitted desktop run and the exact native MCP call, never by the model
+ * or the tool request. The production computer_act relay calls
+ * `claimComputerActRelay` before its first outbound request and aborts on
+ * `false`.
+ */
+export type ComputerActRelayScope = Readonly<{
+  ownerId: string;
+  conversationId: string;
+  runtimeGeneration: string;
+  codexThreadId: string;
+  nativeTurnId: string;
+  projectionTurnId: string;
+  nativeCallId: string;
+  toolName: string;
+  input: unknown;
+}>;
+
 export type InteractiveFormRequestInput = {
   message: string;
   requestedSchema: ConversationFormRequestedSchema;
@@ -470,6 +497,7 @@ const DEFAULT_CODEX_HEALTH_PROBE_TTL_MS = 60_000;
 const NATIVE_TURN_REGISTRATION_TIMEOUT_MS = 5_000;
 const NATIVE_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
 const NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS = 5_000;
+const MAX_COMPUTER_ACT_APPROVALS = 64;
 const MODEL_TRANSITION_COMPACTION_TIMEOUT_MS = 180_000;
 const SUB_AGENT_THREAD_SOURCE_KINDS = [
   "subAgent",
@@ -767,12 +795,15 @@ type ManagedProcess = {
   skillManagementToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
+  computerToken: string;
   webSearchToken: string;
   automationToken: string;
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
   browserApprovalItems: Map<string, string>;
+  computerActItems: Map<string, ComputerActItem>;
+  computerActApprovals: Map<string, ComputerActApproval>;
   /** Sanitized operations from the item/started fileChange item; diffs are never cached. */
   fileChangeApprovalItems: Map<string, { turnId: string; changes: DesktopApprovalFileChange[] }>;
   userInputConfirmations: Map<number, {
@@ -821,6 +852,7 @@ type CachedSubAgentRuntime = {
 };
 
 type PendingUserInputRequestBase = {
+  requestId: number;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -834,6 +866,8 @@ type PendingUserInputRequest =
       resolve: (response: ToolRequestUserInputResponse) => void;
       responseWritten: Promise<boolean>;
       browserApproval: boolean;
+      /** Exact native mcp_tool_call approval for a computer_act item. */
+      computerActApproval: boolean;
     })
   | (PendingUserInputRequestBase & {
       kind: "form";
@@ -849,6 +883,40 @@ type PendingUserInputRequest =
       /** Native expects only `{decision}` as the server-request result. */
       resolve: (response: { decision: DesktopApprovalDecision }) => void;
     });
+
+/** Exact native computer_act arguments, retained as a one-way fingerprint. */
+type ComputerActItem = {
+  turnId: string;
+  inputFingerprint: string;
+  /** Safe bounded summary for the native confirmation card; never raw text. */
+  action: "click" | "type";
+  /**
+   * One native approval per call. `requested` survives every answer, expiry,
+   * and claim until the item or turn ends, so a duplicate native request or
+   * start can never re-arm the call. `invalid` is a repeated start.
+   */
+  state: "open" | "requested" | "invalid";
+};
+
+/**
+ * One native approval for a computer_act call. Memory-only: it is bounded,
+ * cleared with the turn or process, and never projected into events or logs.
+ */
+type ComputerActApproval = {
+  requestId: number;
+  ownerId: string;
+  conversationId: string;
+  runtimeGeneration: string;
+  codexThreadId: string;
+  nativeTurnId: string;
+  projectionTurnId: string;
+  nativeCallId: string;
+  inputFingerprint: string;
+  state: "armed" | "allowed" | "consumed";
+  responseWritten: Promise<boolean> | null;
+  expiresAt: number;
+  timer: NodeJS.Timeout | null;
+};
 
 type PendingStopHook = {
   turnId: string;
@@ -958,6 +1026,7 @@ export class AppServerProcessPool {
       codexProcessIdentity?: { uid: number; gid: number };
       desktopWorkspace?: boolean;
       desktopBrowserEnabled?: boolean;
+      desktopComputerEnabled?: boolean;
       desktopArtifactsEnabled?: boolean;
       desktopArtifactsWebsiteEnabled?: boolean;
       desktopNativeApprovalsEnabled?: boolean;
@@ -1749,6 +1818,7 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
@@ -1788,6 +1858,12 @@ export class AppServerProcessPool {
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
+              ...(this.options.desktopComputerEnabled ? {
+                LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
+                LINKSENSE_COMPUTER_TOKEN: computerToken,
+                // Production stays text-only until the end-to-end raster and
+                // masking contract is proven; no environment flag enables it.
+              } : {}),
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE: input.collaborationMode,
               ...managedBrowserTurnEnvironment(
@@ -2628,6 +2704,7 @@ export class AppServerProcessPool {
       ? this.interruptNativeGoal(managed)
       : this.interruptRegisteredTurn(managed, turnId);
     managed.interruptRequest = { targetKey, result };
+    this.clearComputerActApprovals(managed);
     for (const confirmation of managed.userInputConfirmations.values()) {
       if (confirmation.turnId === managed.activeTurnId) confirmation.settle(false);
     }
@@ -2791,6 +2868,23 @@ export class AppServerProcessPool {
       );
     }
     if (pending.kind === "questions") {
+      let computerActAllowed = false;
+      if (pending.computerActApproval) {
+        const exactAllow = response.action === "accept" &&
+          isExactComputerActAllow(pending.questions, pending.itemId, response.content);
+        if (!exactAllow) {
+          // Any decline, cancel, or substituted answer revokes the one-shot gate.
+          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
+        } else if (!this.allowComputerActApproval(managed, pending)) {
+          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
+          cancelPendingUserInputRequest(pending);
+          throw new UserInputRequestUnavailableError(
+            "computer act approval is not available",
+          );
+        } else {
+          computerActAllowed = true;
+        }
+      }
       const answers = response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
         Object.entries(response.content).map(([fieldId, value]) => [
           fieldId,
@@ -2806,6 +2900,9 @@ export class AppServerProcessPool {
         : null;
       pending.resolve({ answers });
       if (confirmation && !await confirmation) {
+        if (computerActAllowed) {
+          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
+        }
         throw new CodexProtocolError("app-server answer unconfirmed");
       }
       return { accepted: true as const };
@@ -2823,6 +2920,240 @@ export class AppServerProcessPool {
     }
     pending.resolve(response);
     return { accepted: true as const };
+  }
+
+  /**
+   * Consume the one native approval that exactly matches this desktop relay.
+   * The caller supplies the trusted run scope; any missing or changed field,
+   * any non-Allow reply, and every stale/duplicate claim fails closed.
+   *
+   * Call this before executing a desktop `computer_act` and abort the relay
+   * when it returns `false`. The claim is consumed synchronously, then the
+   * native Allow write is awaited and the process, turn, fence, and deadline
+   * are checked again: a turn that ends, an interrupt, a closing process, or
+   * an expired permission while that write is in flight never relays.
+   */
+  async claimComputerActRelay(scope: ComputerActRelayScope): Promise<boolean> {
+    if (this.shuttingDown || !this.options.desktopWorkspace ||
+        !this.options.desktopComputerEnabled) {
+      return false;
+    }
+    if (!isComputerActRelayScope(scope) || scope.toolName !== computerActToolName) {
+      return false;
+    }
+    const managed = this.processes.get(scope.conversationId);
+    if (
+      !managed ||
+      managed.closing ||
+      managed.ownerId !== scope.ownerId ||
+      managed.runtimeGeneration !== scope.runtimeGeneration ||
+      managed.codexThreadId !== scope.codexThreadId ||
+      managed.activeTurnId !== scope.nativeTurnId ||
+      managed.activeProjectionTurnId !== scope.projectionTurnId ||
+      managed.activeCollaborationMode === "plan" ||
+      managed.nativeTerminalTurnIds.has(scope.nativeTurnId) ||
+      managed.interruptRequest !== null
+    ) {
+      return false;
+    }
+    const approval = managed.computerActApprovals.get(scope.nativeCallId);
+    const item = managed.computerActItems.get(scope.nativeCallId);
+    if (
+      !approval ||
+      !item ||
+      item.state !== "requested" ||
+      approval.state !== "allowed" ||
+      approval.expiresAt <= Date.now() ||
+      approval.ownerId !== scope.ownerId ||
+      approval.conversationId !== scope.conversationId ||
+      approval.runtimeGeneration !== scope.runtimeGeneration ||
+      approval.codexThreadId !== scope.codexThreadId ||
+      approval.nativeTurnId !== scope.nativeTurnId ||
+      approval.projectionTurnId !== scope.projectionTurnId ||
+      approval.nativeCallId !== scope.nativeCallId ||
+      item.turnId !== scope.nativeTurnId
+    ) {
+      return false;
+    }
+    const inputFingerprint = computerActInputFingerprint(scope.input);
+    if (
+      !inputFingerprint ||
+      inputFingerprint !== approval.inputFingerprint ||
+      inputFingerprint !== item.inputFingerprint
+    ) {
+      return false;
+    }
+    // Consume synchronously before waiting on the native write so concurrent
+    // or repeated relays can never reuse this approval. The permit stays in
+    // the bounded map, consumed, until the item or turn ends.
+    approval.state = "consumed";
+    const responseWritten = approval.responseWritten;
+    const written = responseWritten !== null &&
+      await settleWithinTimeout(
+        responseWritten,
+        NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS,
+        false,
+      );
+    if (!written) return false;
+    return this.isComputerActRelayLive(managed, scope, approval, item);
+  }
+
+  /**
+   * Re-read every bound after the native write settles. The write only proves
+   * Codex received the Allow reply; permission to relay can still disappear
+   * while that write is pending.
+   */
+  private isComputerActRelayLive(
+    managed: ManagedProcess,
+    scope: ComputerActRelayScope,
+    approval: ComputerActApproval,
+    item: ComputerActItem,
+  ): boolean {
+    return !this.shuttingDown &&
+      this.processes.get(scope.conversationId) === managed &&
+      !managed.closing &&
+      managed.ownerId === scope.ownerId &&
+      managed.runtimeGeneration === scope.runtimeGeneration &&
+      managed.codexThreadId === scope.codexThreadId &&
+      managed.activeTurnId === scope.nativeTurnId &&
+      managed.activeProjectionTurnId === scope.projectionTurnId &&
+      managed.activeCollaborationMode !== "plan" &&
+      !managed.nativeTerminalTurnIds.has(scope.nativeTurnId) &&
+      managed.interruptRequest === null &&
+      managed.computerActApprovals.get(scope.nativeCallId) === approval &&
+      approval.state === "consumed" &&
+      approval.expiresAt > Date.now() &&
+      managed.computerActItems.get(scope.nativeCallId) === item &&
+      item.state === "requested";
+  }
+
+  private armComputerActApproval(
+    managed: ManagedProcess,
+    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
+    projectionTurnId: string | null,
+  ): boolean {
+    const item = managed.computerActItems.get(pending.itemId);
+    if (
+      !item ||
+      item.state !== "open" ||
+      item.turnId !== pending.turnId ||
+      managed.computerActApprovals.has(pending.itemId) ||
+      projectionTurnId === null ||
+      managed.activeTurnId !== pending.turnId ||
+      managed.activeProjectionTurnId !== projectionTurnId ||
+      managed.activeCollaborationMode === "plan" ||
+      managed.nativeTerminalTurnIds.has(pending.turnId) ||
+      managed.interruptRequest !== null
+    ) {
+      pending.computerActApproval = false;
+      return false;
+    }
+    if (managed.computerActApprovals.size >= MAX_COMPUTER_ACT_APPROVALS) {
+      pending.computerActApproval = false;
+      return false;
+    }
+    item.state = "requested";
+    const approval: ComputerActApproval = {
+      requestId: pending.requestId,
+      ownerId: managed.ownerId,
+      conversationId: managed.conversationId,
+      runtimeGeneration: managed.runtimeGeneration,
+      codexThreadId: pending.threadId,
+      nativeTurnId: pending.turnId,
+      projectionTurnId,
+      nativeCallId: pending.itemId,
+      inputFingerprint: item.inputFingerprint,
+      state: "armed",
+      responseWritten: null,
+      expiresAt: Date.now() + desktopApprovalTimeoutMs,
+      timer: null,
+    };
+    rememberBounded(
+      managed.computerActApprovals,
+      pending.itemId,
+      approval,
+      MAX_COMPUTER_ACT_APPROVALS,
+    );
+    approval.timer = setTimeout(() => {
+      if (approval.state !== "armed") return;
+      this.forgetComputerActApproval(managed, approval.nativeCallId, approval.requestId);
+      if (managed.pendingUserInputRequests.get(pending.requestId) === pending) {
+        cancelPendingUserInputRequest(pending);
+      }
+    }, desktopApprovalTimeoutMs);
+    approval.timer.unref();
+    return true;
+  }
+
+  private allowComputerActApproval(
+    managed: ManagedProcess,
+    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
+  ): boolean {
+    const approval = managed.computerActApprovals.get(pending.itemId);
+    const item = managed.computerActItems.get(pending.itemId);
+    if (
+      !approval ||
+      !item ||
+      item.state !== "requested" ||
+      approval.requestId !== pending.requestId ||
+      approval.state !== "armed" ||
+      approval.expiresAt <= Date.now() ||
+      approval.codexThreadId !== pending.threadId ||
+      approval.nativeTurnId !== pending.turnId ||
+      approval.projectionTurnId !== managed.activeProjectionTurnId ||
+      item.turnId !== pending.turnId ||
+      item.inputFingerprint !== approval.inputFingerprint ||
+      managed.activeTurnId !== pending.turnId ||
+      managed.activeCollaborationMode === "plan" ||
+      managed.nativeTerminalTurnIds.has(pending.turnId) ||
+      managed.interruptRequest !== null
+    ) {
+      this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
+      pending.computerActApproval = false;
+      return false;
+    }
+    approval.state = "allowed";
+    approval.responseWritten = pending.responseWritten;
+    approval.expiresAt = Date.now() + desktopApprovalTimeoutMs;
+    if (approval.timer) clearTimeout(approval.timer);
+    approval.timer = setTimeout(() => {
+      // Expiry also releases a consumed permit; a claim waiting on the native
+      // write re-reads the deadline and never relays.
+      this.forgetComputerActApproval(managed, approval.nativeCallId, approval.requestId);
+    }, desktopApprovalTimeoutMs);
+    approval.timer.unref();
+    return true;
+  }
+
+  private forgetComputerActApproval(
+    managed: ManagedProcess,
+    nativeCallId: string,
+    requestId?: number,
+  ): void {
+    const approval = managed.computerActApprovals.get(nativeCallId);
+    if (!approval || (requestId !== undefined && approval.requestId !== requestId)) {
+      return;
+    }
+    if (approval.timer) clearTimeout(approval.timer);
+    managed.computerActApprovals.delete(nativeCallId);
+  }
+
+  private clearComputerActApprovals(
+    managed: ManagedProcess,
+    turnId?: string,
+  ): void {
+    for (const [nativeCallId, approval] of managed.computerActApprovals) {
+      if (turnId === undefined || approval.nativeTurnId === turnId) {
+        this.forgetComputerActApproval(managed, nativeCallId);
+      }
+    }
+    if (turnId === undefined) {
+      managed.computerActItems.clear();
+      return;
+    }
+    for (const [nativeCallId, item] of managed.computerActItems) {
+      if (item.turnId === turnId) managed.computerActItems.delete(nativeCallId);
+    }
   }
 
   private confirmNativeUserInputResponse(
@@ -2913,6 +3244,7 @@ export class AppServerProcessPool {
     const response = new Promise<ConversationUserInputResponse>((resolve) => {
       const createdPending: PendingUserInputRequest = {
         kind: "form",
+        requestId,
         threadId,
         turnId,
         itemId,
@@ -3992,6 +4324,7 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
@@ -4029,6 +4362,12 @@ export class AppServerProcessPool {
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
+              ...(this.options.desktopComputerEnabled ? {
+                LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
+                LINKSENSE_COMPUTER_TOKEN: computerToken,
+                // Production stays text-only until the end-to-end raster and
+                // masking contract is proven; no environment flag enables it.
+              } : {}),
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE:
                 recoveryStartInput.collaborationMode ?? "default",
@@ -4822,6 +5161,72 @@ export class AppServerProcessPool {
     const result = await this.options.eventSink.browserUse({ conversationId, turnId, input, signal });
     if (this.options.desktopWorkspace && (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId))
       return browserUseFailure(browserUseReadOnly(input) ? "BROWSER_USE_CANCELLED" : "RUNNER_OPERATION_UNCERTAIN");
+    return result;
+  }
+
+  /**
+   * Relay one model computer_status/observe/act call to the Mac engine. The
+   * worker callback token, the active native thread/turn, and the exact native
+   * approval are all required; the act claim is consumed before the first
+   * outbound request and is never retried.
+   */
+  async computerExecute(
+    conversationId: string,
+    token: string,
+    input: ComputerExecuteInput,
+    signal: AbortSignal,
+    nativeCallId?: string,
+  ): Promise<ComputerExecuteResult> {
+    const failure = (error: ComputerFailureCode): ComputerExecuteResult => ({ kind: "failure", error });
+    const request = computerExecuteInputSchema.safeParse(input);
+    if (!request.success) return failure("COMPUTER_INVALID");
+    input = request.data;
+    const managed = this.processes.get(conversationId);
+    if (this.shuttingDown || !this.options.desktopWorkspace || !this.options.desktopComputerEnabled ||
+        !managed || managed.closing || !safeTokenEqual(token, managed.computerToken)) {
+      return failure("COMPUTER_ACCESS_DENIED");
+    }
+    if (!managed.activeTurnId || !managed.activeProjectionTurnId || !managed.codexThreadId ||
+        managed.nativeTerminalTurnIds.has(managed.activeTurnId) || managed.interruptRequest !== null) {
+      return failure(input.kind === "act" ? "COMPUTER_ACCESS_DENIED" : "COMPUTER_UNAVAILABLE");
+    }
+    if (managed.activeCollaborationMode === "plan" && input.kind === "act") {
+      return failure("COMPUTER_ACCESS_DENIED");
+    }
+    if (input.kind === "act") {
+      if (!nativeCallId || nativeCallId !== input.native_call_id) {
+        return failure("COMPUTER_ACCESS_DENIED");
+      }
+      const approved = await this.claimComputerActRelay({
+        ownerId: managed.ownerId,
+        conversationId,
+        runtimeGeneration: managed.runtimeGeneration,
+        codexThreadId: managed.codexThreadId,
+        nativeTurnId: managed.activeTurnId,
+        projectionTurnId: managed.activeProjectionTurnId,
+        nativeCallId,
+        toolName: computerActToolName,
+        input: input.input,
+      });
+      if (!approved) return failure("COMPUTER_ACCESS_DENIED");
+    }
+    const projectionTurnId = managed.activeProjectionTurnId;
+    if (!this.options.eventSink.computerExecute) return failure("COMPUTER_UNAVAILABLE");
+    let result: ComputerExecuteResult;
+    try {
+      const raw = await this.options.eventSink.computerExecute({
+        conversationId, turnId: projectionTurnId, input, signal,
+      });
+      const parsed = computerExecuteResultSchema.safeParse(raw);
+      result = parsed.success ? parsed.data : failure(
+        input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
+      );
+    } catch {
+      result = failure(input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE");
+    }
+    if (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== projectionTurnId) {
+      return failure(input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE");
+    }
     return result;
   }
 
@@ -5739,6 +6144,10 @@ export class AppServerProcessPool {
       const webSearchToken = input.environment.LINKSENSE_WEB_SEARCH_TOKEN;
       if (!webSearchToken) throw new CodexProtocolError("web search token is missing");
       const currentUserToken = input.environment.LINKSENSE_CURRENT_USER_TOKEN;
+      const computerToken = input.environment.LINKSENSE_COMPUTER_TOKEN;
+      if (this.options.desktopComputerEnabled && !computerToken) {
+        throw new CodexProtocolError("computer relay token is missing");
+      }
       const automationToken = input.environment.LINKSENSE_AUTOMATION_TOKEN;
       if (!automationToken) throw new CodexProtocolError("automation token is missing");
       const connectionToken = input.environment.LINKSENSE_CONNECTION_TOKEN;
@@ -5840,6 +6249,12 @@ export class AppServerProcessPool {
               disableBrowserUse: this.options.desktopWorkspace === true && !this.options.desktopBrowserEnabled,
               disableArtifactRegistration: this.options.desktopWorkspace === true && !this.options.desktopArtifactsEnabled,
               promptForBrowserUse: this.options.desktopWorkspace === true && this.options.desktopBrowserEnabled === true,
+              computerActApproval: this.options.desktopWorkspace === true &&
+                this.options.desktopComputerEnabled === true && input.collaborationMode !== "plan",
+              // Plan keeps the relay for authorized status/observe reads; only
+              // the act approval is default-mode-only.
+              computerRelay: this.options.desktopWorkspace === true &&
+                this.options.desktopComputerEnabled === true,
               command: this.options.mcpCommand,
               args: this.options.mcpArgs,
               ...(this.options.managedBrowserMcpArgs
@@ -5943,6 +6358,7 @@ export class AppServerProcessPool {
         skillManagementToken,
         interactiveFormToken,
         currentUserToken,
+        computerToken: computerToken ?? "",
         webSearchToken,
         automationToken,
         connectionToken,
@@ -5956,6 +6372,8 @@ export class AppServerProcessPool {
         ),
         pendingUserInputRequests: new Map(),
         browserApprovalItems: new Map(),
+        computerActItems: new Map(),
+        computerActApprovals: new Map(),
         fileChangeApprovalItems: new Map(),
         userInputConfirmations: new Map(),
         assistantMessageProjections: new Map(),
@@ -6008,6 +6426,37 @@ export class AppServerProcessPool {
                     confirmation.itemId === item.id) confirmation.settle(true);
               }
             }
+          }
+        }
+        if (this.options.desktopWorkspace && this.options.desktopComputerEnabled &&
+            params.threadId === managed.codexThreadId && typeof params.turnId === "string" &&
+            typeof item.id === "string" && item.type === "mcpToolCall" &&
+            item.server === coreMcpServerKey && item.tool === computerActToolName) {
+          const nativeCallId = boundedCorrelationId(item.id, 240);
+          if (nativeCallId && notification.method === "item/started") {
+            const existing = managed.computerActItems.get(nativeCallId);
+            if (existing) {
+              // A repeated native start is not a second call. Poison this call
+              // for the rest of its lifetime instead of replacing its item.
+              existing.state = "invalid";
+              this.forgetComputerActApproval(managed, nativeCallId);
+            } else {
+              // Keep the exact native arguments only as a one-way fingerprint
+              // plus the bounded action summary. Never evict another call's
+              // item: a full bound refuses new items and fails them closed.
+              const act = computerActInputSchema.safeParse(item.arguments);
+              if (act.success && managed.computerActItems.size < MAX_COMPUTER_ACT_APPROVALS) {
+                managed.computerActItems.set(nativeCallId, {
+                  turnId: params.turnId,
+                  inputFingerprint: hashCanonicalValue(act.data),
+                  action: act.data.action,
+                  state: "open",
+                });
+              }
+            }
+          } else if (nativeCallId && notification.method === "item/completed") {
+            managed.computerActItems.delete(nativeCallId);
+            this.forgetComputerActApproval(managed, nativeCallId);
           }
         }
         if (this.options.desktopWorkspace && this.options.desktopNativeApprovalsEnabled &&
@@ -6752,6 +7201,7 @@ export class AppServerProcessPool {
           cancelPendingUserInputRequest(pending);
         }
       }
+      this.clearComputerActApprovals(managed, activeTurnId ?? undefined);
       await this.withProcessLifecycleLock(managed.conversationId, async () => {
         if (
           this.processes.get(managed.conversationId) !== managed ||
@@ -7142,7 +7592,8 @@ export class AppServerProcessPool {
       );
     }
     if (mapped.method === "item/tool/requestUserInput" && this.options.desktopWorkspace &&
-        !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled) {
+        !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled &&
+        !this.options.desktopComputerEnabled) {
       // Older peers cannot present or answer questions; resolve without granting anything.
       return { response: Promise.resolve({ answers: {} }) };
     }
@@ -7161,8 +7612,17 @@ export class AppServerProcessPool {
     }
 
     let pending: PendingUserInputRequest | undefined;
+    let computerActApproval = false;
+    if (mapped.method === "item/tool/requestUserInput" && this.options.desktopWorkspace &&
+        this.options.desktopComputerEnabled) {
+      const item = managed.computerActItems.get(itemId);
+      computerActApproval = item !== undefined &&
+        item.turnId === mapped.params.turnId &&
+        isExactComputerActApprovalRequest(mapped.params);
+    }
     const response = new Promise<ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">>((resolve) => {
       const base = {
+        requestId: request.id,
         threadId: mapped.params.threadId,
         turnId: mapped.params.turnId,
         itemId,
@@ -7183,11 +7643,19 @@ export class AppServerProcessPool {
         ? {
             ...base, kind: "questions", questions: mapped.params.questions,
             browserApproval: managed.browserApprovalItems.get(itemId) === mapped.params.turnId,
+            computerActApproval,
           }
         : { ...base, kind: "approval", method: mapped.method, decisions: mapped.params.approval.decisions };
       pending = createdPending;
       managed.pendingUserInputRequests.set(request.id, createdPending);
     });
+    if (pending?.kind === "questions" && pending.computerActApproval &&
+        !this.armComputerActApproval(managed, pending, managed.activeProjectionTurnId)) {
+      // The exact native request has no trusted run scope to bind to; cancel it
+      // instead of showing an approval that could never authorize a relay.
+      cancelPendingUserInputRequest(pending);
+      return { response };
+    }
     const timeout = mapped.method === "item/tool/requestUserInput"
       ? mapped.params.isBlocking ? null : mapped.params.autoResolutionMs
       : desktopApprovalTimeoutMs;
@@ -7201,12 +7669,19 @@ export class AppServerProcessPool {
       pending.timer.unref();
     }
     try {
-      await this.options.eventSink.publish(managed.conversationId, mapped);
+      // The native question text is not trusted. Publish a stable tool/action
+      // summary while keeping the exact native id and Allow/Cancel options the
+      // response must echo.
+      const published = pending?.kind === "questions" && pending.computerActApproval
+        ? redactComputerActApproval(mapped, managed.computerActItems.get(itemId)?.action)
+        : mapped;
+      await this.options.eventSink.publish(managed.conversationId, published);
     } catch (error) {
       if (pending && managed.pendingUserInputRequests.get(request.id) === pending) {
         managed.pendingUserInputRequests.delete(request.id);
         if (pending.timer) clearTimeout(pending.timer);
       }
+      this.forgetComputerActApproval(managed, itemId, request.id);
       throw error;
     }
     return { response };
@@ -7773,6 +8248,7 @@ export class AppServerProcessPool {
     for (const pending of [...managed.pendingUserInputRequests.values()]) {
       cancelPendingUserInputRequest(pending);
     }
+    this.clearComputerActApprovals(managed);
     try {
       await managed.client.close();
     } catch (error) {
@@ -7811,6 +8287,7 @@ export class AppServerProcessPool {
       managed.internalModelTransitionCompaction = null;
       managed.suppressedNativeTurnIds.clear();
       managed.pendingStopHooks.clear();
+      this.clearComputerActApprovals(managed);
       managed.modelGatewayLease.release();
       this.removeUserMcpProxyRuntime(
         managed.conversationId,
@@ -8204,6 +8681,125 @@ function browserApprovalDecision(
     if (question?.options?.[0]?.label === selected) return "allow";
   }
   return "cancel";
+}
+
+/**
+ * Only the exact native question id and options are required to answer a
+ * computer_act approval. Replace every free-text field with a bounded tool
+ * summary so model arguments, typed text, window titles or paths can never
+ * reach the durable outbox through a misleading native question.
+ */
+function redactComputerActApproval(
+  event: LinkSenseCodexEvent,
+  action: "click" | "type" | undefined,
+): LinkSenseCodexEvent {
+  if (event.method !== "item/tool/requestUserInput") return event;
+  const summary = action ? `${computerActToolName}: ${action}` : computerActToolName;
+  return {
+    ...event,
+    params: {
+      ...event.params,
+      questions: event.params.questions.map(question => ({
+        ...question,
+        header: computerActToolName,
+        question: summary,
+        // Native option labels are exact; descriptions are untrusted free text.
+        ...(question.options
+          ? {
+              options: question.options.map(option => ({
+                ...option,
+                description: "",
+              })),
+            }
+          : {}),
+      })),
+    },
+  };
+}
+
+function isExactComputerActApprovalRequest(
+  params: ToolRequestUserInputParams,
+): boolean {
+  return params.isBlocking === true &&
+    params.autoResolutionMs === null &&
+    isExactComputerActApprovalQuestions(params.questions, params.itemId);
+}
+
+function isExactComputerActApprovalQuestions(
+  questions: ToolRequestUserInputQuestion[],
+  nativeCallId: string,
+): boolean {
+  if (questions.length !== 1) return false;
+  const question = questions[0];
+  if (!question) return false;
+  return question.id === `mcp_tool_call_approval_${nativeCallId}` &&
+    question.isOther === false &&
+    question.isSecret === false &&
+    question.options?.length === 2 &&
+    question.options[0]?.label === "Allow" &&
+    question.options[1]?.label === "Cancel";
+}
+
+function isExactComputerActAllow(
+  questions: ToolRequestUserInputQuestion[],
+  nativeCallId: string,
+  content: Record<string, unknown>,
+): boolean {
+  if (!isExactComputerActApprovalQuestions(questions, nativeCallId)) return false;
+  const entries = Object.entries(content);
+  return entries.length === 1 &&
+    entries[0]?.[0] === `mcp_tool_call_approval_${nativeCallId}` &&
+    entries[0]?.[1] === "Allow";
+}
+
+/**
+ * Normalized fingerprint of every act field. Zod defaults timeout_ms before
+ * hashing, so omitted and explicit 8000 match; any changed field does not.
+ */
+function computerActInputFingerprint(input: unknown): string | null {
+  const parsed = computerActInputSchema.safeParse(input);
+  return parsed.success ? hashCanonicalValue(parsed.data) : null;
+}
+
+function isComputerActRelayScope(
+  value: unknown,
+): value is ComputerActRelayScope {
+  if (!value || typeof value !== "object") return false;
+  const scope = value as Record<string, unknown>;
+  return [
+    scope.ownerId,
+    scope.conversationId,
+    scope.runtimeGeneration,
+    scope.codexThreadId,
+    scope.nativeTurnId,
+    scope.projectionTurnId,
+    scope.nativeCallId,
+    scope.toolName,
+  ].every(
+    (field) =>
+      typeof field === "string" && field.length > 0 && field.length <= 512,
+  );
+}
+
+function settleWithinTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), timeoutMs);
+    timer.unref();
+    void promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
 }
 
 function startRequestFingerprint(input: StartTurnInput): string {

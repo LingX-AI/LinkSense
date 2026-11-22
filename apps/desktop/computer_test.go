@@ -58,6 +58,7 @@ type fixtureComputerExecutor struct {
 	actCalls        int
 	invalidations   int
 	lastTimeout     int
+	lastDeadline    time.Time
 }
 
 func newFixtureComputerExecutor(target m1bComputerSelection) *fixtureComputerExecutor {
@@ -136,6 +137,12 @@ func (f *fixtureComputerExecutor) actTimeout() int {
 	return f.lastTimeout
 }
 
+func (f *fixtureComputerExecutor) actDeadline() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastDeadline
+}
+
 func (f *fixtureComputerExecutor) status(ctx context.Context, selection m1bComputerSelection) m1bComputerResult {
 	f.record()
 	if ctx.Err() != nil {
@@ -165,6 +172,7 @@ func (f *fixtureComputerExecutor) act(ctx context.Context, selection m1bComputer
 	f.actCalls++
 	f.calls++
 	f.lastTimeout = input.TimeoutMS
+	f.lastDeadline, _ = ctx.Deadline()
 	f.mu.Unlock()
 	select {
 	case f.started <- nativeCallID:
@@ -356,7 +364,12 @@ func computerCommandJSON(id string, selection m1bComputerSelection, holder strin
 
 func nextComputerFrame(t *testing.T, fixture *fixtureComputerSocket, match func(map[string]any) bool) map[string]any {
 	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
+	return nextComputerFrameWithin(t, fixture, match, 5*time.Second)
+}
+
+func nextComputerFrameWithin(t *testing.T, fixture *fixtureComputerSocket, match func(map[string]any) bool, wait time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
 	for {
 		select {
@@ -828,8 +841,10 @@ func TestComputerPostEntryTimeoutIsUncertain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the native selection deadline did not cancel the action")
 	}
-	if timeout := fake.actTimeout(); timeout >= 20000 || timeout < 0 {
-		t.Fatalf("the per-act timeout was not clamped: %d", timeout)
+	// The executor receives the parser-normalized input unchanged. The shorter
+	// selection deadline bounds the wait through the caller context instead.
+	if timeout := fake.actTimeout(); timeout != m1bComputerMaxTimeout {
+		t.Fatalf("the validated per-act timeout was mutated: %d", timeout)
 	}
 	close(terminal)
 	frame := awaitComputerResult(t, run.socket, actID)
@@ -1473,6 +1488,122 @@ func TestComputerCommandShapeCapsUTF16AndNullTimeout(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatal("an invalid command was accepted")
+			}
+		})
+	}
+}
+
+// The host act window is the validated input timeout, not the 5s read window.
+// Command expiry, selection expiry and caller cancellation stay hard caps.
+func TestComputerInputDeadlineHonorsValidatedActTimeout(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	longSelection := m1bComputerSelection{ExpiresAt: now.Add(time.Hour)}
+	act := func(timeoutMS int, expiresAt time.Time) m1bComputerCommand {
+		return m1bComputerCommand{
+			ExpiresAt: expiresAt,
+			Request: m1bComputerRequest{
+				Kind: "act",
+				Act:  &m1bComputerAct{Action: "click", TimeoutMS: timeoutMS},
+			},
+		}
+	}
+	read := func(kind string) m1bComputerCommand {
+		return m1bComputerCommand{ExpiresAt: now.Add(time.Hour), Request: m1bComputerRequest{Kind: kind}}
+	}
+	for _, test := range []struct {
+		name      string
+		selection m1bComputerSelection
+		command   m1bComputerCommand
+		want      time.Time
+		failure   string
+	}{
+		{"act explicit short", longSelection, act(100, now.Add(time.Hour)), now.Add(100 * time.Millisecond), ""},
+		{"act default", longSelection, act(m1bComputerDefaultTimeout, now.Add(time.Hour)), now.Add(8 * time.Second), ""},
+		{"act max long", longSelection, act(m1bComputerMaxTimeout, now.Add(time.Hour)), now.Add(20 * time.Second), ""},
+		{"act command expiry caps", longSelection, act(m1bComputerMaxTimeout, now.Add(3*time.Second)), now.Add(3 * time.Second), ""},
+		{"act selection expiry caps", m1bComputerSelection{ExpiresAt: now.Add(2 * time.Second)},
+			act(m1bComputerMaxTimeout, now.Add(time.Hour)), now.Add(2 * time.Second), ""},
+		{"status keeps read window", longSelection, read("status"), now.Add(m1bComputerMaxWork), ""},
+		{"observe keeps read window", longSelection, read("observe"), now.Add(m1bComputerMaxWork), ""},
+		{"expired command", longSelection, act(m1bComputerDefaultTimeout, now), time.Time{}, "COMPUTER_TIMEOUT"},
+		{"expired selection", m1bComputerSelection{ExpiresAt: now},
+			act(m1bComputerDefaultTimeout, now.Add(time.Hour)), time.Time{}, "COMPUTER_TIMEOUT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deadline, failure := m1bComputerInputDeadline(test.selection, test.command, now)
+			if failure != test.failure {
+				t.Fatalf("failure = %q, want %q", failure, test.failure)
+			}
+			if !deadline.Equal(test.want) {
+				t.Fatalf("deadline = %s, want %s", deadline, test.want)
+			}
+		})
+	}
+}
+
+// Quiesce keeps its short control window independent of grant expiry.
+func TestComputerControlDeadlineKeepsShortWindow(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	command := m1bComputerCommand{ExpiresAt: now.Add(time.Hour), Request: m1bComputerRequest{Kind: "quiesce"}}
+	deadline, failure := m1bComputerControlDeadline(command, now)
+	if failure != "" || !deadline.Equal(now.Add(m1bComputerMaxWork)) {
+		t.Fatalf("default control deadline = %s (%q), want %s", deadline, failure, now.Add(m1bComputerMaxWork))
+	}
+	command.ExpiresAt = now.Add(2 * time.Second)
+	deadline, failure = m1bComputerControlDeadline(command, now)
+	if failure != "" || !deadline.Equal(now.Add(2*time.Second)) {
+		t.Fatalf("command-expiry control deadline = %s (%q), want %s", deadline, failure, now.Add(2*time.Second))
+	}
+	command.ExpiresAt = now
+	if _, failure := m1bComputerControlDeadline(command, now); failure != "COMPUTER_TIMEOUT" {
+		t.Fatalf("an expired control was not rejected: %q", failure)
+	}
+}
+
+// The admitted act context and the executor input carry the exact validated
+// timeout; the parser normalizes it once and dispatch never rewrites it.
+func TestComputerActDeadlineCarriesValidatedTimeout(t *testing.T) {
+	credential := deviceFixtureCredential()
+	selection := fixtureComputerSelection(credential)
+	for _, test := range []struct {
+		name      string
+		request   string
+		timeoutMS int
+		minBudget time.Duration
+	}{
+		{
+			"default",
+			`{"kind":"act","native_call_id":"call-1","input":{"action":"click","observation_id":"obs-1","ref":"e1"}}`,
+			m1bComputerDefaultTimeout,
+			8 * time.Second,
+		},
+		{
+			"max long",
+			`{"kind":"act","native_call_id":"call-1","input":{"action":"click","observation_id":"obs-1","ref":"e1","timeout_ms":20000}}`,
+			m1bComputerMaxTimeout,
+			20 * time.Second,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newFixtureComputerExecutor(selection)
+			host := newM1BComputerHost(fake)
+			server, sockets := newComputerFixtureServer(t, credential, fixtureReadyOperations, []string{fixtureLink})
+			run := startComputerFixture(t, server, sockets, credential, host)
+
+			sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000700", selection, fixtureHolder, false, `{"kind":"observe"}`)
+			start := time.Now()
+			frame := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000701", selection, fixtureHolder, false, test.request)
+			if kind, nested := typedComputerFrame(t, frame); kind != "act" || nested["ok"] != true {
+				t.Fatalf("the act was not admitted: %+v", frame)
+			}
+			// The host context deadline is set at admission, so allow the few
+			// milliseconds spent between admission and executor entry.
+			slack := 250 * time.Millisecond
+			if budget := fake.actDeadline().Sub(start); budget < test.minBudget-slack {
+				t.Fatalf("the executor context budget = %s, want at least %s", budget, test.minBudget-slack)
+			}
+			if timeout := fake.actTimeout(); timeout != test.timeoutMS {
+				t.Fatalf("the executor input timeout = %d, want the exact validated %d", timeout, test.timeoutMS)
 			}
 		})
 	}
