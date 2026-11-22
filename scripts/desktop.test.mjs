@@ -717,6 +717,64 @@ func main() {}
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+if (process.platform === "darwin") {
+  test("whitebox launches Go tests with a finite suite timeout and the staged Mac annotation resources", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-whitebox-"));
+    const bin = path.join(directory, "bin");
+    const capture = path.join(directory, "capture");
+    const record = name => `#!/bin/sh
+{
+  printf 'arg=%s\\n' "$@"
+  printf 'annotation=%s\\n' "\${LINKSENSE_DESKTOP_ANNOTATION_RESOURCES-__UNSET__}"
+  printf 'dist=%s\\n' "\${LINKSENSE_DESKTOP_WEB_DIST-__UNSET__}"
+} > "$CAPTURE_DIR/${name}-$$.txt"
+`;
+    try {
+      await mkdir(bin);
+      await mkdir(capture);
+      for (const name of ["go", "pnpm"]) {
+        await writeFile(path.join(bin, name), record(name), { mode: 0o755 });
+      }
+      const environment = {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        CAPTURE_DIR: capture,
+      };
+      delete environment.npm_execpath;
+      delete environment.LINKSENSE_DESKTOP_ANNOTATION_RESOURCES;
+      const invoke = async (extra = {}) => {
+        for (const file of await readdir(capture)) await rm(path.join(capture, file));
+        execFileSync(process.execPath, [path.join(import.meta.dirname, "desktop.mjs"), "whitebox"], {
+          env: { ...environment, ...extra },
+        });
+        return Promise.all((await readdir(capture)).map(async file => {
+          const lines = (await readFile(path.join(capture, file), "utf8")).trim().split("\n");
+          const value = prefix => lines.find(line => line.startsWith(prefix)).slice(prefix.length);
+          return {
+            args: lines.filter(line => line.startsWith("arg=")).map(line => line.slice(4)),
+            annotation: value("annotation="),
+            dist: value("dist="),
+          };
+        }));
+      };
+      const root = path.resolve(import.meta.dirname, "..");
+      const testRun = (await invoke()).filter(entry => entry.args[0] === "test");
+      assert.equal(testRun.length, 1);
+      assert.deepEqual(testRun[0].args,
+        ["test", "-tags", "desktop_whitebox", "-count=1", "-timeout", "4m", "./..."]);
+      assert.equal(testRun[0].dist, path.join(root, "apps/web/dist"));
+      assert.equal(testRun[0].annotation, path.join(root, "apps/desktop/resources"));
+      assert.ok(path.isAbsolute(testRun[0].annotation));
+      const override = path.join(directory, "annotation-resources");
+      const [overridden] = (await invoke({ LINKSENSE_DESKTOP_ANNOTATION_RESOURCES: override }))
+        .filter(entry => entry.args[0] === "test");
+      assert.equal(overridden.annotation, override);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 test("desktop native locales have matching nonempty keys", async () => {
   const directory = path.resolve(import.meta.dirname, "../apps/desktop/locales");
   const locales = ["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"];

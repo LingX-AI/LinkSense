@@ -280,8 +280,16 @@ async function main() {
   if (mode === "whitebox") {
     await run("go", ["tool", "mygo", "generate"]);
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["desktop:build-web"], { cwd: root });
-    await run("go", ["test", "-tags", "desktop_whitebox", "-count=1", "-timeout", "90s", "./..."], {
-      env: { LINKSENSE_DESKTOP_WEB_DIST: path.join(root, "apps/web/dist") },
+    await run("go", ["test", "-tags", "desktop_whitebox", "-count=1", "-timeout", "4m", "./..."], {
+      env: {
+        LINKSENSE_DESKTOP_WEB_DIST: path.join(root, "apps/web/dist"),
+        // desktop:build-web stages the Mac preload under the platform
+        // resources; the whitebox TestMain reads this root unless overridden.
+        ...(process.platform === "darwin" ? {
+          LINKSENSE_DESKTOP_ANNOTATION_RESOURCES:
+            process.env.LINKSENSE_DESKTOP_ANNOTATION_RESOURCES ?? path.join(desktop, "resources"),
+        } : {}),
+      },
     });
     return;
   }

@@ -137,16 +137,19 @@ func setDesktopMarker(t *testing.T, page *mygo.Page, marker string) {
 	}
 }
 
-func waitForWindow(t *testing.T, timeout time.Duration, condition func() bool, description string) {
+// waitForNativeFullScreen waits for the windowDidEnterFullScreen or
+// windowDidExitFullScreen notification MyGo forwards. It does not consult the
+// style mask: macOS sets it while animating the Space transition and reverts
+// it when the transition is aborted, so only the notification proves that the
+// transition completed.
+func waitForNativeFullScreen(t *testing.T, win *mygo.Window, done <-chan struct{}, wantFullScreen bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
+	select {
+	case <-done:
+		return
+	case <-time.After(20 * time.Second):
 	}
-	t.Fatalf("native window condition failed: %s", description)
+	t.Fatalf("the native full-screen notification did not arrive (wanted full screen=%t; appActive=%t windowFocused=%t styleMaskFullScreen=%t); macOS may have aborted the transition, which needs an active, unlocked session", wantFullScreen, mygo.App.IsActive(), win.IsFocused(), win.IsFullScreen())
 }
 
 // TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable covers the P1-09
@@ -378,8 +381,27 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	}
 
 	// Full screen hides the native controls; the page must not keep their room.
+	// A CLI-launched whitebox app is not active; focus it as a user would,
+	// then wait for the native completion instead of the transient style mask.
+	mygo.App.Focus()
+	win.Focus()
+	focusDeadline := time.Now().Add(3 * time.Second)
+	for !(mygo.App.IsActive() && win.IsFocused()) && time.Now().Before(focusDeadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !mygo.App.IsActive() || !win.IsFocused() {
+		t.Logf("the whitebox app did not become active (appActive=%t windowFocused=%t); macOS may refuse the full-screen transition", mygo.App.IsActive(), win.IsFocused())
+	}
+	entered := make(chan struct{}, 1)
+	offEnter := win.OnEnterFullScreen(func() {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(offEnter)
 	win.SetFullScreen(true)
-	waitForWindow(t, 20*time.Second, win.IsFullScreen, "enter full screen")
+	waitForNativeFullScreen(t, win, entered, true)
 	whiteboxWait(t, page, `(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--mygo-titlebar-inset-left")) || 0) === 0`)
 	fullscreen := titleBarProbe(t, page)
 	t.Logf("full-screen surface=%+v", fullscreen)
@@ -392,8 +414,16 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	if math.Abs(fullscreen.BrandTop-(fullscreen.BarHeight-fullscreen.BrandLogoHeight)/2) > 1 {
 		t.Fatalf("full screen did not restore the centered brand: %+v", fullscreen)
 	}
+	left := make(chan struct{}, 1)
+	offLeave := win.OnLeaveFullScreen(func() {
+		select {
+		case left <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(offLeave)
 	win.SetFullScreen(false)
-	waitForWindow(t, 20*time.Second, func() bool { return !win.IsFullScreen() }, "leave full screen")
+	waitForNativeFullScreen(t, win, left, false)
 	whiteboxWait(t, page, `(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--mygo-titlebar-inset-left")) || 0) > 0`)
 	win.SetSize(1200, 800)
 	whiteboxWait(t, page, `window.innerWidth > 767`)
