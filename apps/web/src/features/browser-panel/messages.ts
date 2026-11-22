@@ -1,6 +1,7 @@
 export const browserPanelMessages = {
   "zh-CN": {
     title: "浏览器",
+    resize: "调整浏览器预览宽度",
     open: "查看任务浏览器",
     close: "关闭浏览器面板",
     refresh: "刷新画面",
@@ -25,6 +26,7 @@ export const browserPanelMessages = {
   },
   "en-US": {
     title: "Browser",
+    resize: "Resize browser preview",
     open: "View task browser",
     close: "Close browser panel",
     refresh: "Refresh view",
@@ -52,6 +54,7 @@ export const browserPanelMessages = {
   },
   "es-ES": {
     title: "Navegador",
+    resize: "Cambiar el tamaño de la vista previa del navegador",
     open: "Ver navegador de la tarea",
     close: "Cerrar panel del navegador",
     refresh: "Actualizar vista",
@@ -79,6 +82,7 @@ export const browserPanelMessages = {
   },
   "pt-BR": {
     title: "Navegador",
+    resize: "Redimensionar visualização do navegador",
     open: "Ver navegador da tarefa",
     close: "Fechar painel do navegador",
     refresh: "Atualizar visualização",
@@ -106,6 +110,7 @@ export const browserPanelMessages = {
   },
   "fr-FR": {
     title: "Navigateur",
+    resize: "Redimensionner l’aperçu du navigateur",
     open: "Voir le navigateur de la tâche",
     close: "Fermer le panneau du navigateur",
     refresh: "Actualiser l’affichage",
@@ -133,6 +138,7 @@ export const browserPanelMessages = {
   },
   "ja-JP": {
     title: "ブラウザー",
+    resize: "ブラウザープレビューのサイズを変更",
     open: "タスクのブラウザーを表示",
     close: "ブラウザーパネルを閉じる",
     refresh: "画面を更新",

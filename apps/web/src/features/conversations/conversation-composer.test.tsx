@@ -1901,6 +1901,58 @@ describe("conversation voice input", () => {
     expect(input).toHaveFocus()
   })
 
+  it("submits imperatively without moving focus to the textarea", () => {
+    const ref = createRef<ConversationComposerHandle>()
+    const onSubmit = vi.fn()
+    const props: React.ComponentProps<typeof ConversationComposer> = {
+      value: "Existing text",
+      onValueChange: vi.fn(),
+      capabilities: [],
+      selectedIds: [],
+      onSelectedIdsChange: vi.fn(),
+      attachments: [],
+      isRunning: false,
+      interrupting: false,
+      submitting: false,
+      uploading: false,
+      onSubmit,
+      onStartNewTask: vi.fn(),
+      onStartApplication: vi.fn(),
+      onInterrupt: vi.fn(),
+      onAttach: vi.fn(),
+      loadAttachmentPreview: vi.fn(async () => new Blob()),
+      onRemoveAttachment: vi.fn(),
+      onClearAttachments: vi.fn(),
+      onError: vi.fn(),
+    }
+    render(<ConversationComposer ref={ref} {...props} />)
+    const otherControl = document.createElement("button")
+    otherControl.textContent = "Another control"
+    document.body.append(otherControl)
+    otherControl.focus()
+
+    expect(ref.current?.trySubmit("Existing text")).toBe(true)
+
+    expect(onSubmit).toHaveBeenCalledWith("Existing text")
+    expect(otherControl).toHaveFocus()
+    expect(
+      screen.getByRole("textbox", { name: "任务输入框" })
+    ).not.toHaveFocus()
+    otherControl.remove()
+  })
+
+  it("returns focus to the textarea when the form itself submits", async () => {
+    const interaction = userEvent.setup()
+    const { props } = renderComposer()
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+    const send = screen.getByRole("button", { name: "发送" })
+
+    await interaction.click(send)
+
+    expect(props.onSubmit).toHaveBeenCalledWith("Existing text")
+    expect(input).toHaveFocus()
+  })
+
   it("keeps the text input visible without a microphone connection prompt while permission is pending", async () => {
     installMediaRecorder({
       getUserMedia: () => new Promise<MediaStream>(() => undefined),

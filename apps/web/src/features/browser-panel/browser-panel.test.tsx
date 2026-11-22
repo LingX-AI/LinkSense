@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -91,11 +92,33 @@ describe("browser panel control", () => {
   it("shows the task frame and leaves Plan mode read only", async () => {
     host({ readOnly: true })
     expect(await screen.findByRole("img", { name: "Test page" })).toBeVisible()
+    expect(screen.queryByRole("application")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Take control" })
     ).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("img", { name: "Test page" }))
     expect(sent()).toEqual([expect.objectContaining({ action: "frame" })])
+  })
+  it("shows no text input for a read-only frame even if control is held", async () => {
+    vi.mocked(apiRequest).mockImplementation(
+      async () =>
+        ({
+          ...frame,
+          mode: "human",
+          has_control: true,
+          lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+        }) as never
+    )
+    host({ readOnly: true })
+    expect(await screen.findByRole("img", { name: "Test page" })).toBeVisible()
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Text for the focused page field",
+      })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Return control" })
+    ).not.toBeInTheDocument()
   })
   it("claims the existing session and sends Chinese text without interpreting it", async () => {
     const user = userEvent.setup()
@@ -155,6 +178,72 @@ describe("browser panel control", () => {
     expect(sent()).toContainEqual(
       expect.objectContaining({ action: "release" })
     )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Refresh view" })).toHaveFocus()
+    )
+  })
+  it("moves focus to the enabled refresh control after returning control", async () => {
+    const user = userEvent.setup()
+    host()
+    await user.click(
+      await screen.findByRole("button", { name: "Take control" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Return control" })
+    )
+    const refresh = await screen.findByRole("button", { name: "Refresh view" })
+    await waitFor(() => expect(refresh).toHaveFocus())
+    expect(refresh).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Take control" })).toBeVisible()
+  })
+  it("keeps refresh disabled and continues once while the release is in flight", async () => {
+    const user = userEvent.setup()
+    let holdRelease = true
+    let resolveRelease!: (state: BrowserPanelState) => void
+    vi.mocked(apiRequest).mockImplementation(async (_path, options) => {
+      const body = options.body as { action: string }
+      if (body.action === "claim") claimed = true
+      if (body.action === "release") claimed = false
+      if (body.action === "release" && holdRelease) {
+        holdRelease = false
+        return new Promise<BrowserPanelState>((resolve) => {
+          resolveRelease = resolve
+        }) as never
+      }
+      return {
+        ...frame,
+        mode: claimed ? "human" : "agent",
+        has_control: claimed,
+        lease_expires_at: claimed
+          ? new Date(Date.now() + 30_000).toISOString()
+          : null,
+      } as never
+    })
+    const view = host()
+    await user.click(
+      await screen.findByRole("button", { name: "Take control" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Return and continue task" })
+    )
+    const refresh = screen.getByRole("button", { name: "Refresh view" })
+    const continueButton = screen.getByRole("button", {
+      name: "Return and continue task",
+    })
+    await waitFor(() => expect(refresh).toBeDisabled())
+    expect(continueButton).toBeDisabled()
+    await user.click(refresh)
+    expect(continueButton).toBeDisabled()
+    const releases = () =>
+      sent().filter((body) => (body as { action: string }).action === "release")
+    expect(releases()).toHaveLength(1)
+    await act(async () => {
+      resolveRelease({ ...frame, mode: "agent", has_control: false })
+    })
+    await waitFor(() => expect(view.onContinue).toHaveBeenCalledOnce())
+    expect(releases()).toHaveLength(1)
+    expect(refresh).toBeEnabled()
+    await waitFor(() => expect(refresh).toHaveFocus())
   })
   it("does not forward composing Enter and lets Escape leave the viewport", async () => {
     const user = userEvent.setup()
@@ -174,7 +263,50 @@ describe("browser panel control", () => {
     expect(sent()).toHaveLength(before)
     expect(screen.getByRole("button", { name: "Refresh view" })).toHaveFocus()
   })
-  it("keeps the panel open when releasing control fails", async () => {
+  it("does not continue when the release still reports control", async () => {
+    const user = userEvent.setup()
+    const view = host()
+    await user.click(
+      await screen.findByRole("button", { name: "Take control" })
+    )
+    await screen.findByRole("button", { name: "Return control" })
+    vi.mocked(apiRequest).mockResolvedValueOnce({
+      ...frame,
+      mode: "human",
+      has_control: true,
+      lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+    })
+    await user.click(
+      screen.getByRole("button", { name: "Return and continue task" })
+    )
+    await waitFor(() =>
+      expect(
+        sent().filter(
+          (body) => (body as { action: string }).action === "release"
+        )
+      ).toHaveLength(1)
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(view.onContinue).not.toHaveBeenCalled()
+  })
+  it("keeps the panel open when returning control fails", async () => {
+    const user = userEvent.setup()
+    const view = host()
+    await user.click(
+      await screen.findByRole("button", { name: "Take control" })
+    )
+    await screen.findByRole("button", { name: "Return control" })
+    vi.mocked(apiRequest).mockRejectedValueOnce(
+      new ApiError({ status: 409, errorCode: "BROWSER_CONTROL_BUSY" })
+    )
+    await user.click(screen.getByRole("button", { name: "Return control" }))
+    await screen.findByText(
+      "A browser action is in progress. Try again shortly."
+    )
+    expect(view.onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Return control" })).toBeVisible()
+  })
+  it("closes immediately without waiting for a rejected release", async () => {
     const user = userEvent.setup()
     const view = host()
     await user.click(
@@ -187,10 +319,7 @@ describe("browser panel control", () => {
     await user.click(
       screen.getByRole("button", { name: "Close browser panel" })
     )
-    await screen.findByText(
-      "A browser action is in progress. Try again shortly."
-    )
-    expect(view.onClose).not.toHaveBeenCalled()
+    expect(view.onClose).toHaveBeenCalledOnce()
   })
   it.each(supportedLocales)(
     "keeps labels and interpolation complete in %s",

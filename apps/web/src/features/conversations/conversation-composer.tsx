@@ -442,6 +442,8 @@ function VoiceRecordingControls({
 
 export type ConversationComposerHandle = Readonly<{
   focus: () => void
+  /** Runs the ordinary send path only when the composer can send right now. */
+  trySubmit: (input: string) => boolean
 }>
 
 export type KnowledgeBaseSelectionStatus =
@@ -646,6 +648,7 @@ export const ConversationComposer = forwardRef<
   const [pastedTextAttachmentContents, setPastedTextAttachmentContents] =
     useState<Record<string, string>>({})
   const latestValueRef = useRef(value)
+  const trySubmitRef = useRef<(input: string) => boolean>(() => false)
   const voiceBaseValueRef = useRef(value)
   const voiceLastAppliedValueRef = useRef(value)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -663,6 +666,7 @@ export const ConversationComposer = forwardRef<
     ref,
     () => ({
       focus: () => textareaRef.current?.focus({ preventScroll: true }),
+      trySubmit: (input) => trySubmitRef.current(input),
     }),
     []
   )
@@ -1201,16 +1205,25 @@ export const ConversationComposer = forwardRef<
     onStartApplication(application)
   }
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    const nextValue = latestValueRef.current
-    if (!canSendValue(nextValue)) return
+  // Enter and the imperative panel submit keep whatever control currently has
+  // focus; only the form's own submit event returns focus to the textarea.
+  const trySubmitValue = (nextValue: string, focusTextarea = false) => {
+    if (!canSendValue(nextValue)) return false
     if (!textOnly && isConversationContextCompactionCommand(nextValue)) {
       onCompact()
-      return
+      return true
     }
-    textareaRef.current?.focus({ preventScroll: true })
+    if (focusTextarea) textareaRef.current?.focus({ preventScroll: true })
     onSubmit(nextValue)
+    return true
+  }
+  useLayoutEffect(() => {
+    trySubmitRef.current = trySubmitValue
+  })
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    trySubmitValue(latestValueRef.current, true)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1262,13 +1275,7 @@ export const ConversationComposer = forwardRef<
       !event.nativeEvent.isComposing
     ) {
       event.preventDefault()
-      const nextValue = latestValueRef.current
-      if (!canSendValue(nextValue)) return
-      if (!textOnly && isConversationContextCompactionCommand(nextValue)) {
-        onCompact()
-        return
-      }
-      onSubmit(nextValue)
+      trySubmitValue(latestValueRef.current)
     }
   }
 

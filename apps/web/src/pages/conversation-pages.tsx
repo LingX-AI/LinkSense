@@ -37,6 +37,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import {
+  AppWindowIcon,
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
@@ -239,6 +240,7 @@ import { buildOfficeAnnotationInput } from "@/features/conversations/conversatio
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { BrowserUsePreview } from "@/features/browser-use/browser-use-preview"
 import { BrowserUsePrompt } from "@/features/browser-use/browser-use-prompt"
+import { BrowserPanel } from "@/features/browser-panel/browser-panel"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -823,6 +825,19 @@ export function ConversationPage({
   const [filePreviewClosing, setFilePreviewClosing] = useState(false)
   const [selectedSubAgent, setSelectedSubAgent] =
     useState<ConversationSubAgentSelection | null>(null)
+  const [browserPanelTarget, setBrowserPanelTarget] = useState<{
+    conversationId: string
+    ownerId: string
+  } | null>(null)
+  const browserPanelToggleRef = useRef<HTMLButtonElement>(null)
+  // A close restores focus only after the commit that removed the panel and
+  // its narrow-layout inert region, and only while this owner and route still
+  // own the header control that was captured.
+  const browserPanelCloseFocusRef = useRef<{
+    toggle: HTMLButtonElement
+    conversationId: string
+    ownerId: string
+  } | null>(null)
   const autoPreviewedCompletedTurnIdsRef = useRef(new Set<string>())
   const handlePreviewOfficeDocument = useCallback(
     (file: ConversationFile) => {
@@ -830,6 +845,7 @@ export function ConversationPage({
       setHtmlCodePreview(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setOfficePreview((current) => ({
         conversationId,
         file,
@@ -1535,6 +1551,60 @@ export function ConversationPage({
   const planMode = collaborationMode === "plan"
   const goalMode =
     goalModeState.conversationId === conversationId && goalModeState.enabled
+  // The Mac cloud browser preview is the only preview entry added for P2-02.
+  // It is mounted into the shared conversation preview slot and only after the
+  // current owner, conversation and surface have loaded; the server still
+  // authorizes every frame and control request.
+  const browserPanelAvailable = Boolean(
+    isMacDesktopHost() &&
+    user &&
+    conversation &&
+    conversation.id === conversationId &&
+    !isNew &&
+    !embedded &&
+    !readOnly &&
+    showHeader &&
+    surfaceActive &&
+    (conversation.execution_target ?? "cloud") === "cloud"
+  )
+  const browserPanelOpen = Boolean(
+    browserPanelAvailable &&
+    user &&
+    browserPanelTarget?.conversationId === conversationId &&
+    browserPanelTarget?.ownerId === user.id
+  )
+  const browserPanelCompetingPreview =
+    sideChat.open ||
+    Boolean(activeSubAgent) ||
+    Boolean(activeHtmlCodePreview) ||
+    Boolean(activeImagePreview) ||
+    Boolean(officeFile) ||
+    (surfaceActive && taskOverviewOpen && !sideChat.open)
+  // Adjust the open target during render so navigation, an account switch, an
+  // inactive tab or another preview pane unmounts the panel before commit.
+  if (
+    browserPanelTarget &&
+    (!browserPanelAvailable ||
+      browserPanelCompetingPreview ||
+      browserPanelTarget.conversationId !== conversationId ||
+      browserPanelTarget.ownerId !== user?.id)
+  )
+    setBrowserPanelTarget(null)
+  const showBrowserPanel = browserPanelOpen && !browserPanelCompetingPreview
+  useLayoutEffect(() => {
+    const pending = browserPanelCloseFocusRef.current
+    if (!pending || showBrowserPanel) return
+    browserPanelCloseFocusRef.current = null
+    if (
+      pending.conversationId !== currentRouteConversationId ||
+      pending.conversationId !== routeConversationIdRef.current ||
+      pending.ownerId !== user?.id ||
+      pending.toggle !== browserPanelToggleRef.current ||
+      !pending.toggle.isConnected
+    )
+      return
+    pending.toggle.focus()
+  }, [currentRouteConversationId, showBrowserPanel, user?.id])
   const {
     state: nativeReconnectState,
     start: startNativeReconnect,
@@ -5809,6 +5879,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
     },
     [conversationId]
   )
@@ -5820,6 +5891,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setHtmlCodePreview((current) => ({
         conversationId,
         html,
@@ -5837,6 +5909,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setHtmlCodePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setImagePreview((current) => ({
         conversationId,
         item,
@@ -5860,6 +5933,19 @@ export function ConversationPage({
     setOfficePreview(null)
     setOfficePreviewUpdate(null)
   }, [])
+
+  const openBrowserPanel = () => {
+    if (!browserPanelAvailable || !conversationId || !user) return
+    sideChat.close()
+    setTaskOverviewOpen(false)
+    setSelectedSubAgent(null)
+    setHtmlCodePreview(null)
+    setImagePreview(null)
+    setOfficePreview(null)
+    setOfficePreviewUpdate(null)
+    setFilePreviewClosing(false)
+    setBrowserPanelTarget({ conversationId, ownerId: user.id })
+  }
 
   const regenerateMessage = regenerateMutation.mutateAsync
   const handleRegenerateMessage = useCallback(
@@ -6326,6 +6412,48 @@ export function ConversationPage({
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
+  // This runs only after BrowserPanel released its own token for this instance.
+  // The callback is refreshed each commit while the panel is open, and the
+  // draft is read live because typing re-renders only the composer child.
+  const continueBrowserPanelTask = (panelConversationId: string) => {
+    if (
+      !browserPanelAvailable ||
+      !browserPanelOpen ||
+      panelConversationId !== conversationId ||
+      routeConversationIdRef.current !== panelConversationId ||
+      executionOwnerIdRef.current !== user?.id ||
+      executionBlocked ||
+      planMode ||
+      Boolean(conversation?.archived)
+    )
+      return
+    const prompt = t("browserPanel.continuePrompt")
+    const draft = composerValue.getSnapshot()
+    const canUseOrdinaryComposer =
+      showConversationComposer &&
+      !turnExecutionActive &&
+      draft.length === 0 &&
+      attachments.length === 0 &&
+      taskReferences.length === 0 &&
+      optionalCapabilityIds.length === 0 &&
+      selectedKnowledgeBaseIds.length === 0 &&
+      !goalMode &&
+      !displayGoal &&
+      !displayGoalSynchronizing &&
+      !attachmentOperationPending &&
+      !collaborationModeMutationPending &&
+      !composerSubmissionInFlightRef.current &&
+      !composerAttachmentOperationInFlightRef.current &&
+      !composerModelPreferenceOperationInFlightRef.current
+    if (
+      canUseOrdinaryComposer &&
+      composerRef.current?.trySubmit(prompt) === true
+    )
+      return
+    // Keep the existing draft, attachments, references and selections: only
+    // prefill the localized continuation so the ordinary composer sends it.
+    setValue((value) => (value.length > 0 ? `${value}\n\n${prompt}` : prompt))
+  }
   const handleInterrupt = () => {
     const pending = activePendingTurnSubmission
     if (pending) {
@@ -6363,7 +6491,7 @@ export function ConversationPage({
 
   return (
     <ConversationOfficeLayout
-      previewBlocksWorkspace={sideChat.open}
+      previewBlocksWorkspace={sideChat.open || showBrowserPanel}
       taskOverviewOpen={taskOverviewVisible}
       defaultPreviewViewportRatio={
         sideChat.open
@@ -6377,7 +6505,9 @@ export function ConversationPage({
           ? "sideChat.resize"
           : activeSubAgent
             ? "conversation.subAgentActivities.resizeDetails"
-            : "officePreview.resizePreview"
+            : showBrowserPanel
+              ? "browserPanel.resize"
+              : "officePreview.resizePreview"
       )}
       previewClosing={
         !sideChat.open &&
@@ -6479,6 +6609,27 @@ export function ConversationPage({
                 : undefined
             }
             onClose={() => setFilePreviewClosing(true)}
+          />
+        ) : showBrowserPanel && conversationId && user ? (
+          <BrowserPanel
+            key={`${user.id}:${conversationId}`}
+            conversationId={conversationId}
+            readOnly={planMode || Boolean(conversation?.archived)}
+            running={turnExecutionActive}
+            onClose={() => {
+              // The close commit removes the narrow-layout inert region; the
+              // layout effect above restores the captured control only if this
+              // owner, conversation and header button are still current.
+              const toggle = browserPanelToggleRef.current
+              if (toggle && conversationId && user)
+                browserPanelCloseFocusRef.current = {
+                  toggle,
+                  conversationId,
+                  ownerId: user.id,
+                }
+              setBrowserPanelTarget(null)
+            }}
+            onContinue={() => continueBrowserPanelTask(conversationId)}
           />
         ) : undefined
       }
@@ -6655,6 +6806,22 @@ export function ConversationPage({
               <HeaderIcon name="share" className="size-4" />
             </ConversationHeaderButton>
           )}
+          {browserPanelAvailable && (
+            <ConversationHeaderButton
+              ref={browserPanelToggleRef}
+              label={t("browserPanel.open")}
+              aria-expanded={browserPanelOpen}
+              onClick={() => {
+                if (browserPanelOpen) {
+                  setBrowserPanelTarget(null)
+                  return
+                }
+                openBrowserPanel()
+              }}
+            >
+              <AppWindowIcon aria-hidden="true" />
+            </ConversationHeaderButton>
+          )}
           <div
             ref={setBrowserPreviewToolbar}
             className="min-w-0 empty:hidden"
@@ -6683,7 +6850,10 @@ export function ConversationPage({
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
               onOpenChange={(open) => {
-                if (open) sideChat.close()
+                if (open) {
+                  sideChat.close()
+                  setBrowserPanelTarget(null)
+                }
                 setTaskOverviewOpen(open)
               }}
             />
@@ -6693,7 +6863,10 @@ export function ConversationPage({
             <ConversationHeaderButton
               label={t("sideChat.reopen")}
               aria-expanded={sideChat.open}
-              onClick={sideChat.show}
+              onClick={() => {
+                setBrowserPanelTarget(null)
+                sideChat.show()
+              }}
             >
               <MessagesSquareIcon aria-hidden="true" />
             </ConversationHeaderButton>
