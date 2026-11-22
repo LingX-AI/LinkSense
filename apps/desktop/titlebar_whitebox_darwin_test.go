@@ -11,44 +11,52 @@ import (
 )
 
 type titleBarSurface struct {
-	InsetLeft        float64 `json:"insetLeft"`
-	InsetRight       float64 `json:"insetRight"`
-	ControlsBottom   float64 `json:"controlsBottom"`
-	TitleBarHeight   float64 `json:"titleBarHeight"`
-	ViewportWidth    float64 `json:"viewportWidth"`
-	SidebarVisible   bool    `json:"sidebarVisible"`
-	BrandBarRegion   string  `json:"brandBarRegion"`
-	BrandLeft        float64 `json:"brandLeft"`
-	BrandTop         float64 `json:"brandTop"`
-	BrandRight       float64 `json:"brandRight"`
-	BrandLogoWidth   float64 `json:"brandLogoWidth"`
-	BrandLogoHeight  float64 `json:"brandLogoHeight"`
-	BarHeight        float64 `json:"barHeight"`
-	ActionsLeft      float64 `json:"actionsLeft"`
-	ActionsWidth     float64 `json:"actionsWidth"`
-	TopBarRegion     string  `json:"topBarRegion"`
-	TopBarPadding    float64 `json:"topBarPadding"`
-	TriggerDisplay   string  `json:"triggerDisplay"`
-	TriggerLeft      float64 `json:"triggerLeft"`
-	TriggerTop       float64 `json:"triggerTop"`
-	CollapseLeft     float64 `json:"collapseLeft"`
-	CollapseTop      float64 `json:"collapseTop"`
-	CollapseBottom   float64 `json:"collapseBottom"`
-	HeaderPadding    float64 `json:"headerPadding"`
-	HeaderRegion     string  `json:"headerRegion"`
-	LogoLeft         float64 `json:"logoLeft"`
-	LogoTop          float64 `json:"logoTop"`
-	AuthRegion       string  `json:"authRegion"`
-	AuthChildRegion  string  `json:"authChildRegion"`
-	AuthTopRowRegion string  `json:"authTopRowRegion"`
-	AuthButtonLeft   float64 `json:"authButtonLeft"`
-	AuthButtonTop    float64 `json:"authButtonTop"`
-	AuthButtonRight  float64 `json:"authButtonRight"`
-	FailureRegion    string  `json:"failureRegion"`
-	FailureChild     string  `json:"failureChildRegion"`
-	MobileHeader     bool    `json:"mobileHeaderVisible"`
-	MobileHeaderPad  float64 `json:"mobileHeaderPadding"`
-	MobileHeaderLeft float64 `json:"mobileHeaderLeft"`
+	InsetLeft         float64 `json:"insetLeft"`
+	InsetRight        float64 `json:"insetRight"`
+	ControlsBottom    float64 `json:"controlsBottom"`
+	TitleBarHeight    float64 `json:"titleBarHeight"`
+	ViewportWidth     float64 `json:"viewportWidth"`
+	SidebarVisible    bool    `json:"sidebarVisible"`
+	BrandBarRegion    string  `json:"brandBarRegion"`
+	BrandLeft         float64 `json:"brandLeft"`
+	BrandTop          float64 `json:"brandTop"`
+	BrandRight        float64 `json:"brandRight"`
+	BrandBottom       float64 `json:"brandBottom"`
+	BrandLogoLeft     float64 `json:"brandLogoLeft"`
+	BrandLogoTop      float64 `json:"brandLogoTop"`
+	BrandLogoWidth    float64 `json:"brandLogoWidth"`
+	BrandLogoHeight   float64 `json:"brandLogoHeight"`
+	BrandLogoBottom   float64 `json:"brandLogoBottom"`
+	ActionButtonWidth float64 `json:"actionButtonWidth"`
+	BarHeight         float64 `json:"barHeight"`
+	ActionsLeft       float64 `json:"actionsLeft"`
+	ActionsWidth      float64 `json:"actionsWidth"`
+	TopBarRegion      string  `json:"topBarRegion"`
+	TopBarPadding     float64 `json:"topBarPadding"`
+	TriggerDisplay    string  `json:"triggerDisplay"`
+	TriggerLeft       float64 `json:"triggerLeft"`
+	TriggerTop        float64 `json:"triggerTop"`
+	CollapseLeft      float64 `json:"collapseLeft"`
+	CollapseTop       float64 `json:"collapseTop"`
+	CollapseBottom    float64 `json:"collapseBottom"`
+	HeaderPadding     float64 `json:"headerPadding"`
+	HeaderRegion      string  `json:"headerRegion"`
+	LogoLeft          float64 `json:"logoLeft"`
+	LogoTop           float64 `json:"logoTop"`
+	LogoWidth         float64 `json:"logoWidth"`
+	LogoHeight        float64 `json:"logoHeight"`
+	LogoBottom        float64 `json:"logoBottom"`
+	AuthRegion        string  `json:"authRegion"`
+	AuthChildRegion   string  `json:"authChildRegion"`
+	AuthTopRowRegion  string  `json:"authTopRowRegion"`
+	AuthButtonLeft    float64 `json:"authButtonLeft"`
+	AuthButtonTop     float64 `json:"authButtonTop"`
+	AuthButtonRight   float64 `json:"authButtonRight"`
+	FailureRegion     string  `json:"failureRegion"`
+	FailureChild      string  `json:"failureChildRegion"`
+	MobileHeader      bool    `json:"mobileHeaderVisible"`
+	MobileHeaderPad   float64 `json:"mobileHeaderPadding"`
+	MobileHeaderLeft  float64 `json:"mobileHeaderLeft"`
 }
 
 // nativeTitleBarProbe reads the native control room MyGo reported and the
@@ -59,10 +67,11 @@ const nativeTitleBarProbe = `(() => {
 	const region = element => element ? getComputedStyle(element).getPropertyValue("--app-region").trim() : ""
 	const box = element => element ? element.getBoundingClientRect() : null
 	const visible = element => !!element && getComputedStyle(element).display !== "none" && element.getClientRects().length > 0
-	const bar = Array.from(document.querySelectorAll(".sidebar-brand-bar")).find(visible) ?? document.querySelector(".sidebar-brand-bar")
+	const bar = Array.from(document.querySelectorAll(".sidebar-brand-bar, .settings-brand-bar")).find(visible) ?? document.querySelector(".sidebar-brand-bar")
 	const brand = bar?.querySelector(".sidebar-brand-link")
 	const brandLogo = brand?.querySelector("img")
 	const actions = bar?.querySelector(".sidebar-header-actions")
+	const actionButton = actions?.querySelector("button")
 	const topBar = Array.from(document.querySelectorAll(".conversation-top-bar, [data-slot='page-top-bar']")).find(visible)
 	const trigger = document.querySelector(".desktop-sidebar-trigger, .mobile-shell-trigger")
 	const collapse = document.querySelector(".sidebar-collapse-control")
@@ -74,7 +83,7 @@ const nativeTitleBarProbe = `(() => {
 	const failure = document.querySelector("[data-slot='public-failure-screen']")
 	const mobileHeader = document.querySelector(".settings-mobile-header")
 	const mobileHeaderLink = mobileHeader?.querySelector("a")
-	const br = box(brand), bl = box(brandLogo), bb = box(bar), ar = box(actions), cr = box(collapse), lr = box(logo), tr = box(trigger), ab = box(authButton), mh = box(mobileHeaderLink)
+	const br = box(brand), bl = box(brandLogo), bb = box(bar), ar = box(actions), cr = box(collapse), lr = box(logo), tr = box(trigger), ab = box(authButton), mh = box(mobileHeaderLink), af = box(actionButton)
 	return {
 		insetLeft: px("--mygo-titlebar-inset-left"),
 		insetRight: px("--mygo-titlebar-inset-right"),
@@ -86,8 +95,13 @@ const nativeTitleBarProbe = `(() => {
 		brandLeft: br ? br.left : -1,
 		brandTop: br ? br.top : -1,
 		brandRight: br ? br.right : -1,
+		brandBottom: br ? br.bottom : -1,
+		brandLogoLeft: bl ? bl.left : -1,
+		brandLogoTop: bl ? bl.top : -1,
 		brandLogoWidth: bl ? bl.width : -1,
 		brandLogoHeight: bl ? bl.height : -1,
+		brandLogoBottom: bl ? bl.bottom : -1,
+		actionButtonWidth: af ? af.width : -1,
 		barHeight: bb ? bb.height : -1,
 		actionsLeft: ar ? ar.left : -1,
 		actionsWidth: ar ? ar.width : -1,
@@ -103,6 +117,9 @@ const nativeTitleBarProbe = `(() => {
 		headerRegion: region(header),
 		logoLeft: lr ? lr.left : -1,
 		logoTop: lr ? lr.top : -1,
+		logoWidth: lr ? lr.width : -1,
+		logoHeight: lr ? lr.height : -1,
+		logoBottom: lr ? lr.bottom : -1,
 		authRegion: region(auth),
 		authChildRegion: auth ? region(auth.firstElementChild) : "",
 		authTopRowRegion: region(authTopRow),
@@ -152,6 +169,16 @@ func waitForNativeFullScreen(t *testing.T, win *mygo.Window, done <-chan struct{
 	t.Fatalf("the native full-screen notification did not arrive (wanted full screen=%t; appActive=%t windowFocused=%t styleMaskFullScreen=%t); macOS may have aborted the transition, which needs an active, unlocked session", wantFullScreen, mygo.App.IsActive(), win.IsFocused(), win.IsFullScreen())
 }
 
+// The link carries the standard 2 px focus ring plus its 2 px offset, so its
+// top must clear the native controls by at least this much. The logo itself
+// keeps the documented 6–8 px visual clearance at normal zoom.
+const (
+	titleBarFocusClearance = 4.0
+	titleBarLogoClearance  = 6.0
+	titleBarLogoMaxHeight  = 18.0
+	titleBarLockupAspect   = 348.0 / 94.0
+)
+
 // TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable covers the P1-09
 // desktop visual acceptance: the page fills the frame, the native traffic
 // lights stay, and every existing top-area control stays outside their room.
@@ -183,19 +210,70 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	if surface.BrandBarRegion != "drag" {
 		t.Fatalf("the sidebar brand is not a drag surface: %+v", surface)
 	}
-	if !surface.SidebarVisible || surface.BrandTop < surface.ControlsBottom {
-		t.Fatalf("sidebar brand content is not clear of the traffic lights: %+v", surface)
+	if !surface.SidebarVisible || surface.BrandTop < surface.ControlsBottom+titleBarFocusClearance-0.5 {
+		t.Fatalf("the sidebar brand focus surface is under the traffic lights: %+v", surface)
+	}
+	if math.Abs(surface.BrandTop-(surface.ControlsBottom+titleBarFocusClearance)) > 1 {
+		t.Fatalf("the sidebar brand does not use the reported control buffer: %+v", surface)
+	}
+	if surface.BrandLogoTop < surface.ControlsBottom+titleBarLogoClearance-0.5 ||
+		surface.BrandLogoTop > surface.ControlsBottom+titleBarLogoClearance+2.5 {
+		t.Fatalf("the sidebar lockup has the wrong clearance from the traffic lights: %+v", surface)
+	}
+	if surface.BrandLogoHeight > titleBarLogoMaxHeight+0.5 {
+		t.Fatalf("the sidebar lockup is not compact: %+v", surface)
+	}
+	if surface.BrandBottom > surface.BarHeight+0.5 || surface.BrandLogoBottom > surface.BrandBottom+0.5 {
+		t.Fatalf("the sidebar brand escaped the header: %+v", surface)
+	}
+	if surface.BrandLogoLeft < surface.BrandLeft-0.5 ||
+		surface.BrandLogoLeft+surface.BrandLogoWidth > surface.BrandRight+0.5 {
+		t.Fatalf("the sidebar lockup escaped its focus surface: %+v", surface)
 	}
 	if surface.BrandRight > surface.ActionsLeft {
 		t.Fatalf("sidebar brand content overlaps its actions: %+v", surface)
 	}
+	if surface.ActionButtonWidth < 27.5 {
+		t.Fatalf("the compact lockup reduced a standard sidebar button: %+v", surface)
+	}
 	if surface.BrandLogoWidth > 0 && surface.BrandLogoHeight > 0 &&
-		math.Abs(surface.BrandLogoWidth/surface.BrandLogoHeight-348.0/94.0) > 0.12 {
-		t.Fatalf("the squeezed sidebar lockup lost its aspect ratio: %+v", surface)
+		math.Abs(surface.BrandLogoWidth/surface.BrandLogoHeight-titleBarLockupAspect) > 0.12 {
+		t.Fatalf("the sidebar lockup lost its aspect ratio: %+v", surface)
 	}
 	if surface.CollapseLeft < surface.InsetLeft {
 		t.Fatalf("the sidebar collapse control is under the traffic lights: %+v", surface)
 	}
+
+	// Focusing the link must not move the content inside its ring buffer, and
+	// both themes must keep the same compact geometry.
+	if _, err := page.Eval(`document.querySelector(".sidebar-brand-link")?.focus()`); err != nil {
+		t.Fatal(err)
+	}
+	focused := titleBarProbe(t, page)
+	t.Logf("focused surface=%+v", focused)
+	if math.Abs(focused.BrandTop-surface.BrandTop) > 0.5 ||
+		math.Abs(focused.BrandLogoTop-surface.BrandLogoTop) > 0.5 ||
+		math.Abs(focused.BrandLogoHeight-surface.BrandLogoHeight) > 0.5 {
+		t.Fatalf("focus moved the sidebar brand inside its ring buffer: %+v", focused)
+	}
+	if _, err := page.Eval(`document.activeElement?.blur()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.Eval(`document.documentElement.dataset.theme = "dark"; document.documentElement.classList.add("dark")`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `document.querySelector(".sidebar-brand-link img")?.getAttribute("src")?.includes("linksense-lockup-on-dark")`)
+	darkBrand := titleBarProbe(t, page)
+	t.Logf("dark sidebar surface=%+v", darkBrand)
+	if math.Abs(darkBrand.BrandTop-surface.BrandTop) > 0.5 ||
+		math.Abs(darkBrand.BrandLogoTop-surface.BrandLogoTop) > 0.5 ||
+		math.Abs(darkBrand.BrandLogoHeight-surface.BrandLogoHeight) > 0.5 {
+		t.Fatalf("dark mode changed the sidebar brand geometry: %+v", darkBrand)
+	}
+	if _, err := page.Eval(`document.documentElement.dataset.theme = "light"; document.documentElement.classList.remove("dark")`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `document.querySelector(".sidebar-brand-link img")?.getAttribute("src")?.includes("linksense-lockup-primary")`)
 
 	// A management page shows the shared PageTopBar in the same top area.
 	if err := page.LoadURL("/capabilities"); err != nil {
@@ -221,8 +299,8 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	setDesktopMarker(t, page, "darwin")
 	darwinExpanded := titleBarProbe(t, page)
 	if darwinExpanded.TopBarRegion != "drag" ||
-		darwinExpanded.ControlsBottom > plainExpanded.BrandTop &&
-			darwinExpanded.BrandTop < darwinExpanded.ControlsBottom-0.5 {
+		darwinExpanded.BrandTop < darwinExpanded.ControlsBottom+titleBarFocusClearance-0.5 ||
+		darwinExpanded.BrandLogoTop < darwinExpanded.ControlsBottom+titleBarLogoClearance-0.5 {
 		t.Fatalf("the darwin marker did not restore the macOS title-bar layout: %+v", darwinExpanded)
 	}
 
@@ -313,8 +391,9 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	whiteboxWait(t, page, `document.querySelector(".mobile-navigation-sheet .sidebar-brand-bar") !== null`)
 	whiteboxWait(t, page, `(document.querySelector(".mobile-navigation-sheet")?.getAnimations() ?? []).every(animation => animation.playState === "finished")`)
 	sheet := titleBarProbe(t, page)
-	if sheet.BrandTop >= 0 && sheet.BrandTop < sheet.ControlsBottom ||
-		sheet.BrandRight > sheet.ActionsLeft {
+	if sheet.BrandTop >= 0 && (sheet.BrandTop < sheet.ControlsBottom+titleBarFocusClearance-0.5 ||
+		sheet.BrandLogoTop < sheet.ControlsBottom+titleBarLogoClearance-0.5 ||
+		sheet.BrandRight > sheet.ActionsLeft) {
 		t.Fatalf("mobile navigation content is under the traffic lights: %+v", sheet)
 	}
 	if _, err := page.Eval(`document.querySelector(".mobile-navigation-close")?.click()`); err != nil {
@@ -348,9 +427,12 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	large := titleBarProbe(t, page)
 	t.Logf("large native-controls surface=%+v", large)
 	if !large.SidebarVisible ||
-		large.BrandTop < large.ControlsBottom-0.5 ||
-		large.BrandTop+large.BrandLogoHeight > large.BarHeight+0.5 ||
-		large.BrandRight > large.ActionsLeft {
+		large.BrandTop < large.ControlsBottom+titleBarFocusClearance-0.5 ||
+		large.BrandLogoTop < large.ControlsBottom+titleBarLogoClearance-0.5 ||
+		large.BrandLogoBottom > large.BarHeight+0.5 ||
+		large.BrandBottom > large.BarHeight+0.5 ||
+		large.BrandRight > large.ActionsLeft ||
+		large.ActionButtonWidth < 27.5 {
 		t.Fatalf("the brand escaped the safe header height under large native controls: %+v", large)
 	}
 	page.SetZoomFactor(1)
@@ -358,7 +440,8 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	recovered := titleBarProbe(t, page)
 	t.Logf("recovered surface=%+v", recovered)
 	if math.Abs(recovered.BrandTop-surface.BrandTop) > 1 ||
-		math.Abs(recovered.BrandLogoHeight-24) > 0.5 {
+		math.Abs(recovered.BrandLogoTop-surface.BrandLogoTop) > 1 ||
+		math.Abs(recovered.BrandLogoHeight-surface.BrandLogoHeight) > 0.5 {
 		t.Fatalf("the brand did not recover after the large-controls zoom: %+v", recovered)
 	}
 
@@ -373,8 +456,18 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	if narrow.TopBarRegion != "drag" || narrow.ActionsLeft < narrow.InsetLeft {
 		t.Fatalf("the narrow sidebar top area is not usable: %+v", narrow)
 	}
-	if narrow.BrandTop >= 0 && (narrow.BrandTop < narrow.ControlsBottom || narrow.BrandRight > narrow.ActionsLeft) {
+	if narrow.BrandTop >= 0 && (narrow.BrandTop < narrow.ControlsBottom+titleBarFocusClearance-0.5 ||
+		narrow.BrandLogoTop < narrow.ControlsBottom+titleBarLogoClearance-0.5 ||
+		narrow.BrandLogoBottom > narrow.BarHeight+0.5 ||
+		narrow.BrandRight > narrow.ActionsLeft) {
 		t.Fatalf("the narrow sidebar brand collides with the traffic lights or its actions: %+v", narrow)
+	}
+	if narrow.BrandLogoWidth > 0 && narrow.BrandLogoHeight > 0 &&
+		math.Abs(narrow.BrandLogoWidth/narrow.BrandLogoHeight-titleBarLockupAspect) > 0.12 {
+		t.Fatalf("the narrow sidebar lockup is distorted: %+v", narrow)
+	}
+	if narrow.ActionButtonWidth < 27.5 {
+		t.Fatalf("the narrow sidebar reduced a standard button: %+v", narrow)
 	}
 	if _, err := page.Eval(`localStorage.removeItem("linksense.sidebarWidth")`); err != nil {
 		t.Fatal(err)
@@ -411,7 +504,8 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	if fullscreen.TopBarPadding < 27 || fullscreen.TopBarPadding > 29 {
 		t.Fatalf("full screen retained phantom top-bar padding: %+v", fullscreen)
 	}
-	if math.Abs(fullscreen.BrandTop-(fullscreen.BarHeight-fullscreen.BrandLogoHeight)/2) > 1 {
+	if math.Abs(fullscreen.BrandLogoTop-(fullscreen.BarHeight-fullscreen.BrandLogoHeight)/2) > 1 ||
+		math.Abs((fullscreen.BrandTop+fullscreen.BrandBottom)/2-fullscreen.BarHeight/2) > 1 {
 		t.Fatalf("full screen did not restore the centered brand: %+v", fullscreen)
 	}
 	left := make(chan struct{}, 1)
@@ -438,8 +532,14 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	if settings.HeaderRegion != "drag" {
 		t.Fatalf("settings navigation is not a drag surface: %+v", settings)
 	}
-	if settings.LogoTop < settings.ControlsBottom {
-		t.Fatalf("settings branding is under the traffic lights: %+v", settings)
+	if settings.LogoTop < settings.ControlsBottom+titleBarLogoClearance-0.5 ||
+		settings.LogoHeight > titleBarLogoMaxHeight+0.5 ||
+		settings.LogoBottom > settings.BarHeight+0.5 {
+		t.Fatalf("settings branding is under the traffic lights or not compact: %+v", settings)
+	}
+	if settings.LogoWidth > 0 && settings.LogoHeight > 0 &&
+		math.Abs(settings.LogoWidth/settings.LogoHeight-titleBarLockupAspect) > 0.12 {
+		t.Fatalf("the settings lockup is distorted: %+v", settings)
 	}
 
 	setDesktopMarker(t, page, "windows")
@@ -454,8 +554,7 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	setDesktopMarker(t, page, "darwin")
 	restoredSettingsDesktop := titleBarProbe(t, page)
 	if restoredSettingsDesktop.HeaderRegion != "drag" ||
-		restoredSettingsDesktop.ControlsBottom > plainSettingsDesktop.LogoTop &&
-			restoredSettingsDesktop.LogoTop < restoredSettingsDesktop.ControlsBottom-0.5 {
+		restoredSettingsDesktop.LogoTop < restoredSettingsDesktop.ControlsBottom+titleBarLogoClearance-0.5 {
 		t.Fatalf("the darwin marker did not restore the settings title-bar layout: %+v", restoredSettingsDesktop)
 	}
 

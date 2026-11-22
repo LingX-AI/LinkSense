@@ -1162,30 +1162,63 @@ html[data-desktop-platform="darwin"] .account-access-top-row {
   --app-region: drag;
 }
 
-/* The lockup crosses the traffic-light x-range. Start it at the reported
-   control boundary and cap it to the remaining header height; otherwise it
-   keeps its natural centered position, including in full screen. */
-html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-link,
-html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
-  align-self: flex-start;
-  margin-top: max(
-    calc((var(--conversation-top-bar-height) - 24px) / 2),
-    var(--mygo-titlebar-controls-bottom, 0px)
-  );
-}
-
-html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-logo,
-html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
-  height: min(
+/* The lockup crosses the traffic-light x-range. Reserve the 2px focus ring
+   and its 2px offset below the reported controls, keep a 6-8px visual gap,
+   and cap the compact lockup to the remaining header height. The small-page-
+   zoom case shrinks the image before it can reach the header edge; the
+   toolbar height and nearby 28px buttons stay unchanged. Full screen reports
+   zero control room, so the same formulas center the lockup. */
+html[data-desktop-platform="darwin"] .sidebar-brand-bar,
+html[data-desktop-platform="darwin"] .settings-brand-bar {
+  --mac-brand-hit-height: min(
     24px,
     max(
       0px,
       calc(
         var(--conversation-top-bar-height) -
-          var(--mygo-titlebar-controls-bottom, 0px)
+          var(--mygo-titlebar-controls-bottom, 0px) - 4px
       )
     )
   );
+  --mac-brand-logo-height: min(
+    18px,
+    max(0px, calc(var(--mac-brand-hit-height) - 4px))
+  );
+  --mac-brand-top: max(
+    calc(
+      (var(--conversation-top-bar-height) - var(--mac-brand-hit-height)) / 2
+    ),
+    calc(var(--mygo-titlebar-controls-bottom, 0px) + 4px)
+  );
+  --mac-brand-logo-top: calc(
+    var(--mac-brand-top) +
+      (var(--mac-brand-hit-height) - var(--mac-brand-logo-height)) / 2
+  );
+}
+
+html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-link {
+  display: grid;
+  align-items: center;
+  justify-items: start;
+  align-self: flex-start;
+  height: var(--mac-brand-hit-height);
+  margin-top: var(--mac-brand-top);
+}
+
+html[data-desktop-platform="darwin"]
+  .settings-brand-bar
+  > .sidebar-brand-logo {
+  align-self: flex-start;
+  margin-top: var(--mac-brand-logo-top);
+}
+
+html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-logo,
+html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: var(--mac-brand-logo-height);
+  object-fit: contain;
 }
 
 .sidebar-resize-handle {

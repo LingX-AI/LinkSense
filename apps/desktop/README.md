@@ -109,10 +109,13 @@ server and account, with the same unsaved-change prompt as in-app navigation.
 
 The macOS main window uses mygo's `TitleBarHidden` style, so the shared Web
 page fills the window while the native red/yellow/green controls stay at the
-top left. Sidebar and settings lockups start at the reported controls bottom
-(`--mygo-titlebar-controls-bottom`) and shrink only when the remaining header
-height is smaller; other top-area controls reserve the reported horizontal
-inset (`--mygo-titlebar-inset-left`). Otherwise unused surfaces are
+top left. Sidebar and settings lockups use a compact 18 px height at normal
+zoom and sit 6–8 px below the reported controls bottom
+(`--mygo-titlebar-controls-bottom`); the sidebar link keeps a 24 px focus
+surface at that zoom. At smaller page zoom the lockup shrinks before it
+reaches the unchanged header edge, and the focus ring stays inside a 4 px
+buffer from the native controls. Other top-area controls reserve the reported
+horizontal inset (`--mygo-titlebar-inset-left`). Otherwise unused surfaces are
 `--app-region: drag`, and interactive elements keep their events.
 
 Every added rule is scoped to `html[data-desktop-platform="darwin"]`, which
