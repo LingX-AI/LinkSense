@@ -1162,28 +1162,19 @@ html[data-desktop-platform="darwin"] .account-access-top-row {
   --app-region: drag;
 }
 
-/* The lockup crosses the traffic-light x-range. Reserve the 2px focus ring
-   and its 2px offset below the reported controls, keep a 6-8px visual gap,
-   and cap the compact lockup to the remaining header height. The small-page-
-   zoom case shrinks the image before it can reach the header edge; the
-   toolbar height and nearby 28px buttons stay unchanged. Full screen reports
-   zero control room, so the same formulas center the lockup. */
+/* The lockup crosses the traffic-light x-range. The Mac brand bars reserve
+   4px for the focus ring above the 24px link, 4px below the ring, and the 1px
+   border. When the reported controls bottom needs more room than the shared
+   top bar, only these bars grow; the compact lockup stays centered in the
+   link, so the default and full-screen geometry is unchanged. */
 html[data-desktop-platform="darwin"] .sidebar-brand-bar,
 html[data-desktop-platform="darwin"] .settings-brand-bar {
-  --mac-brand-hit-height: min(
-    24px,
-    max(
-      0px,
-      calc(
-        var(--conversation-top-bar-height) -
-          var(--mygo-titlebar-controls-bottom, 0px) - 4px
-      )
-    )
+  --mac-brand-bar-height: max(
+    var(--conversation-top-bar-height),
+    calc(var(--mygo-titlebar-controls-bottom, 0px) + 33px)
   );
-  --mac-brand-logo-height: min(
-    18px,
-    max(0px, calc(var(--mac-brand-hit-height) - 4px))
-  );
+  --mac-brand-hit-height: 24px;
+  --mac-brand-logo-height: 18px;
   --mac-brand-top: max(
     calc(
       (var(--conversation-top-bar-height) - var(--mac-brand-hit-height)) / 2
@@ -1194,6 +1185,34 @@ html[data-desktop-platform="darwin"] .settings-brand-bar {
     var(--mac-brand-top) +
       (var(--mac-brand-hit-height) - var(--mac-brand-logo-height)) / 2
   );
+  height: var(--mac-brand-bar-height);
+  min-height: var(--mac-brand-bar-height);
+}
+
+/* The desktop sidebar keeps its stored pixel width while page zoom inflates
+   rem values. Pin its brand row to the normal-zoom 4px spacing step, and keep
+   the -mx-4 bleed on the parent's rem padding with -1rem, so the row still
+   spans the sidebar. Reserve the taller 28px actions' 4px focus envelope
+   under the native controls. */
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-bar {
+  --spacing: 4px;
+  --mac-brand-bar-height: max(
+    var(--conversation-top-bar-height),
+    calc(var(--mygo-titlebar-controls-bottom, 0px) + 37px)
+  );
+  margin-inline: -1rem;
+}
+
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-bar
+  .sidebar-header-actions {
+  align-self: flex-start;
+  margin-top: var(--mac-brand-top);
 }
 
 html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-link {

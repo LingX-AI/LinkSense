@@ -109,20 +109,23 @@ server and account, with the same unsaved-change prompt as in-app navigation.
 
 The macOS main window uses mygo's `TitleBarHidden` style, so the shared Web
 page fills the window while the native red/yellow/green controls stay at the
-top left. Sidebar and settings lockups use a compact 18 px height at normal
-zoom and sit 6–8 px below the reported controls bottom
-(`--mygo-titlebar-controls-bottom`); the sidebar link keeps a 24 px focus
-surface at that zoom. At smaller page zoom the lockup shrinks before it
-reaches the unchanged header edge, and the focus ring stays inside a 4 px
-buffer from the native controls. Other top-area controls reserve the reported
-horizontal inset (`--mygo-titlebar-inset-left`). Otherwise unused surfaces are
-`--app-region: drag`, and interactive elements keep their events.
+top left. The Mac brand bars grow only when the reported controls bottom
+(`--mygo-titlebar-controls-bottom`) needs more room than the shared toolbar;
+otherwise their height does not change. When the bar grows, the sidebar link
+starts 4 px below that reported bottom and keeps a 24 px surface; the logo
+keeps its 18 px cap, and the 28 px toolbar actions keep the reserved 4 px
+focus envelope. The desktop sidebar keeps that row at fixed CSS-pixel spacing
+under page zoom; the settings bar and mobile drawer keep the shared top-bar
+rules. These are layout targets, not OS-wide measurements, keyboard focus
+evidence, or full-screen acceptance. Other top-area controls reserve the
+reported horizontal inset (`--mygo-titlebar-inset-left`). Otherwise unused
+surfaces are `--app-region: drag`, and interactive elements keep their events.
 
 Every added rule is scoped to `html[data-desktop-platform="darwin"]`, which
 the desktop adapter sets from the native platform before host info resolves.
 A markerless Web layout and the Windows host keep their original cascades,
-geometry, and drag behavior. The title-bar values are zero in full screen, so
-no phantom inset remains.
+geometry, and drag behavior. Full-screen title-bar behavior remains a separate
+native check.
 
 To enable **Check for updates**, supply the update directories and the
 base64 Ed25519 public key at build time. Signed artifacts are a macOS build
