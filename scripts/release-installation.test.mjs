@@ -31,16 +31,32 @@ test("the release gateway preserves the public protocol reported by a reverse pr
     gateway,
     /map \$http_x_forwarded_proto \$linksense_forwarded_proto \{[\s\S]*default \$\{NGINX_EXTERNAL_SCHEME\};[\s\S]*~\*\^http\$ http;[\s\S]*~\*\^https\$ https;[\s\S]*\}/u,
   )
-  assert.equal(
-    gateway.match(
-      /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/gu,
-    )?.length,
-    7,
+  // A top-level location's own proxy_pass is indented four spaces; nested
+  // locations are indented further and must not stand in for the parent route.
+  const proxyingLocations = [
+    ...gateway.matchAll(/^ {2}location (.+?) \{([\s\S]*?)^ {2}\}$/gmu),
+  ].filter(([, , body]) => /^ {4}proxy_pass /mu.test(body))
+  assert.deepEqual(
+    proxyingLocations.map(([, declaration]) => declaration).sort(),
+    [
+      "^~ /html-preview/",
+      "^~ /app/",
+      "^~ /web/",
+      "= /api/v1/local-browser/socket",
+      "= /api/v1/browser-use/socket",
+      "= /api/v1/desktop/devices/socket",
+      "/api/",
+      "~ ^/linksense-(?:files|knowledge)(?:/|$)",
+      "/",
+    ].sort(),
   )
-  assert.match(
-    gateway,
-    /location \^~ \/html-preview\/ \{[^}]*proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u,
-  )
+  for (const [, declaration, body] of proxyingLocations) {
+    assert.match(
+      body,
+      /^ {4}proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;$/mu,
+      `location ${declaration} must forward the normalized public protocol`,
+    )
+  }
   assert.doesNotMatch(
     gateway,
     /proxy_set_header X-Forwarded-Proto \$\{NGINX_EXTERNAL_SCHEME\};/u,
