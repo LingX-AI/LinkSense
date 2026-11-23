@@ -83,23 +83,87 @@ describe("BillingStatementService", () => {
     });
   });
 
-  it("is idempotent when the natural-month statement already exists", async () => {
-    const tx = {
-      $executeRaw: vi.fn().mockResolvedValue(0),
-      billingStatement: {
-        findUnique: vi.fn().mockResolvedValue({ id: statementId }),
-      },
-    };
-    const prisma = {
-      $transaction: vi.fn(async (operation) => operation(tx)),
-    };
-    const service = new BillingStatementService(prisma as never, {
-      timeZone: "Asia/Shanghai",
-      now: () => new Date("2026-03-02T00:00:00.000Z"),
-    });
+  it.each([
+    {
+      month: "2026-03",
+      from: "2026-03-01T05:00:00.000Z",
+      to: "2026-04-01T04:00:00.000Z",
+      generationAt: "2026-04-01T04:05:00.000Z",
+    },
+    {
+      month: "2026-11",
+      from: "2026-11-01T04:00:00.000Z",
+      to: "2026-12-01T05:00:00.000Z",
+      generationAt: "2026-12-01T05:05:00.000Z",
+    },
+  ])("uses the same local boundaries for preview and generation in $month", async ({
+    month, from, to, generationAt,
+  }) => {
+    let now = new Date(`${month}-15T12:00:00.000Z`);
+    const { service, prisma } = newYorkBillingFixture(() => now);
 
-    await expect(service.generateStatement("2026-02")).resolves.toBe(false);
-    expect(tx.billingStatement.findUnique).toHaveBeenCalledOnce();
+    const preview = await service.list();
+    now = new Date(generationAt);
+    const generated = await service.generateMissingStatements();
+    const next = await service.list();
+
+    expect.soft(preview.current_period).toEqual({
+      period: { month, from, to_exclusive: to, time_zone: "America/New_York" },
+      expected_generation_at: generationAt,
+    });
+    expect.soft(generated).toBe(1);
+    expect.soft(prisma.billingStatement.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        periodStart: new Date(from),
+        periodEndExclusive: new Date(to),
+      }),
+    });
+    for (const ledger of [prisma.tokenUsageRecord, prisma.modelUsageRecord]) {
+      expect.soft(ledger.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { observedAt: { gte: new Date(from), lt: new Date(to) } },
+        }),
+      );
+    }
+    expect(next.current_period.period.from).toBe(to);
+  });
+
+  it("does not regenerate or reinterpret a statement issued before the DST fix", async () => {
+    const { service, prisma } = newYorkBillingFixture(
+      () => new Date("2026-04-01T04:05:00.000Z"),
+    );
+    const saved = {
+      id: statementId,
+      statementNumber: "LS-202603",
+      periodStart: new Date("2026-03-01T05:00:00.000Z"),
+      periodEndExclusive: new Date("2026-04-01T05:00:00.000Z"),
+      timeZone: "America/New_York",
+      totalCostPicoUsd: 320_000_000_000n,
+      unpricedTokens: 0n,
+      generatedAt: new Date("2026-04-01T05:05:00.000Z"),
+    };
+    prisma.billingStatement.findUnique.mockResolvedValue(saved);
+    prisma.billingStatement.findMany.mockResolvedValue([saved]);
+
+    await expect(service.generateStatement("2026-03")).resolves.toBe(false);
+    expect(prisma.billingStatement.findUnique).toHaveBeenCalledWith({
+      where: {
+        periodStart_timeZone: {
+          periodStart: saved.periodStart,
+          timeZone: saved.timeZone,
+        },
+      },
+      select: { id: true },
+    });
+    expect(prisma.billingStatement.create).not.toHaveBeenCalled();
+
+    const persisted = {
+      id: statementId,
+      period: { to_exclusive: "2026-04-01T05:00:00.000Z" },
+      total_cost: "0.32",
+    };
+    expect((await service.list()).statements[0]).toMatchObject(persisted);
+    await expect(service.detail(statementId)).resolves.toMatchObject(persisted);
   });
 
   it("does not finalize the current calendar month", async () => {
@@ -115,6 +179,37 @@ describe("BillingStatementService", () => {
 });
 
 const statementId = "00000000-0000-4000-8000-000000000901";
+
+function newYorkBillingFixture(now: () => Date) {
+  const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    billingStatement: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue({ id: statementId }),
+    },
+    tokenUsageRecord: {
+      aggregate: vi.fn().mockResolvedValue({ _min: { observedAt: null } }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    modelUsageRecord: {
+      aggregate: vi.fn().mockResolvedValue({ _min: { observedAt: null } }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  };
+  const prisma = {
+    ...tx,
+    billingStatementLine: { findMany: vi.fn().mockResolvedValue([]) },
+    $transaction: vi.fn(async (operation) => operation(tx)),
+  };
+  return {
+    prisma,
+    service: new BillingStatementService(prisma as never, {
+      timeZone: "America/New_York",
+      now,
+    }),
+  };
+}
 
 function usageFact(
   overrides: Partial<{

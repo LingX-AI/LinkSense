@@ -6,6 +6,45 @@ const USER_ID = "00000000-0000-4000-8000-000000000010"
 const NOW = new Date("2026-08-06T04:00:00.000Z")
 
 describe("CreditLimitService", () => {
+  it.each([
+    {
+      transition: "spring",
+      at: "2026-03-09T03:59:00.000Z",
+      from: "2026-03-02T05:00:00.000Z",
+      to: "2026-03-09T04:00:00.000Z",
+    },
+    {
+      transition: "autumn",
+      at: "2026-11-02T04:59:00.000Z",
+      from: "2026-10-26T04:00:00.000Z",
+      to: "2026-11-02T05:00:00.000Z",
+    },
+  ])("uses local Monday midnight for quota enforcement across the $transition transition", async ({ at, from, to }) => {
+    const fixture = creditLimitFixture({
+      user: { status: "active", weeklyCreditLimitMicros: 1n },
+      now: new Date(at),
+      timeZone: "America/New_York",
+      tokenUsageTotal: 1n,
+    })
+
+    await expect(fixture.service.personalOverview(USER_ID)).resolves.toMatchObject({
+      reset_at: to,
+    })
+    await expect(fixture.service.assertCanStartTask(USER_ID)).rejects.toMatchObject({
+      code: "CREDIT_LIMIT_EXCEEDED",
+      params: { reset_at: to },
+    })
+    for (const ledger of [fixture.prisma.tokenUsageRecord, fixture.prisma.modelUsageRecord]) {
+      expect(ledger.aggregate).toHaveBeenLastCalledWith({
+        where: {
+          ownerId: USER_ID,
+          observedAt: { gte: new Date(from), lt: new Date(to) },
+        },
+        _sum: { usedCreditMicros: true },
+      })
+    }
+  })
+
   it("shows the full current-week consumption for unlimited members after a manual reset", async () => {
     const fixture = creditLimitFixture({
       user: { status: "active", weeklyCreditLimitMicros: null },
@@ -155,6 +194,8 @@ function creditLimitFixture(input: {
     status: string
     weeklyCreditLimitMicros: bigint | null
   }
+  now?: Date
+  timeZone?: string
   resetAt?: Date
   tokenUsageTotal?: bigint
   modelUsageTotal?: bigint
@@ -177,8 +218,8 @@ function creditLimitFixture(input: {
   return {
     prisma,
     service: new CreditLimitService(prisma as never, {
-      timeZone: "Asia/Shanghai",
-      now: () => new Date(NOW),
+      timeZone: input.timeZone ?? "Asia/Shanghai",
+      now: () => new Date(input.now ?? NOW),
     }),
   }
 }
