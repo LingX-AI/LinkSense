@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:4c26d7de85c4bbf120df38961a5f4580274a8550880fdda222b7937cf509b159
-ARG BASELINE_API_IMAGE=ghcr.io/lingx-ai/linksense-runtime-api@sha256:e844c5884230a10a39c9c6edb482ae2f014c00c2a62bedb82766a30e24fcf262
+ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:9413f3ec2faec1a34a395962c1784231b2c99aa443d3b0a5b2f0cd645604037b
+ARG BASELINE_API_IMAGE=ghcr.io/lingx-ai/linksense-runtime-api@sha256:7ad29f5cbbab8759d851da0e336af7ac4e31fad03bcc0d98cb0e4a11fac6fe6a
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
 ARG PRISMA_ENGINES_MIRROR=https://binaries.prisma.sh
 
