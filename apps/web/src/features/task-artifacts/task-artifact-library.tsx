@@ -19,8 +19,12 @@ import {
 import { useTranslation } from "react-i18next"
 import { Link, useSearchParams } from "react-router-dom"
 
-import { downloadApiFile } from "@/api/client"
+import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { getErrorMessage } from "@/api/error-message"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+} from "@/api/session"
 import {
   EmptyState,
   ErrorState,
@@ -47,10 +51,10 @@ import {
 } from "@/features/conversations/conversation-file-preview"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime, formatFileSize } from "@/i18n/date"
-import { downloadBlob } from "@/lib/download-blob"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
 
 import { getTaskArtifacts, type TaskArtifact } from "./task-artifact-api"
+import { downloadTaskArtifact } from "./task-artifact-download"
 import { TaskArtifactThumbnail } from "./task-artifact-thumbnail"
 
 const fileTypes = ["all", ...taskArtifactFileTypeSchema.options] as const
@@ -151,15 +155,15 @@ export function TaskArtifactLibrary({
 
   const download = async (file: TaskArtifact) => {
     if (downloadInFlightRef.current) return
+    const boundary = isMacDesktopHost() ? getLoginSessionBoundary() : null
     downloadInFlightRef.current = true
     setDownloadingFileId(file.id)
     try {
-      const blob = await downloadApiFile(
-        `/conversations/${file.conversation_id}/files/${file.id}/download`
-      )
-      downloadBlob(blob, file.name)
+      await downloadTaskArtifact(file)
     } catch (error) {
-      notify.error(getErrorMessage(error, t))
+      if (boundary === null || isLoginSessionCurrent(boundary)) {
+        notify.error(getErrorMessage(error, t))
+      }
     } finally {
       downloadInFlightRef.current = false
       setDownloadingFileId(undefined)

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,13 +24,25 @@ import (
 )
 
 const (
-	cloudConversation = "20000000-0000-4000-8000-000000000001"
-	cloudTurn         = "20000000-0000-4000-8000-000000000002"
-	cloudArtifact     = "20000000-0000-4000-8000-000000000003"
-	cloudTitle        = "Desktop whitebox cloud task"
-	cloudFile         = "desktop-whitebox-artifact.txt"
-	cloudFileContent  = "Downloaded the expected LinkSense desktop artifact.\n"
-	fixtureTime       = "2026-07-11T08:00:00Z"
+	cloudConversation       = "20000000-0000-4000-8000-000000000001"
+	cloudTurn               = "20000000-0000-4000-8000-000000000002"
+	cloudArtifact           = "20000000-0000-4000-8000-000000000003"
+	cloudTitle              = "Desktop whitebox cloud task"
+	cloudFile               = "desktop-whitebox-artifact.txt"
+	cloudFileContent        = "Downloaded the expected LinkSense desktop artifact.\n"
+	cloudShowInFinderButton = `Array.from(document.querySelectorAll("[data-sonner-toast]"))
+		.filter(toast => toast.getAttribute("data-removed") !== "true" && toast.getAttribute("data-visible") !== "false")
+		.flatMap(toast => Array.from(toast.querySelectorAll("button")))
+		.find(button => button.textContent.trim() === "Show in Finder")`
+	// The account menu trigger exposes the signed-in user's accessible name;
+	// the menu item and the confirmation dialog both use the shared en-US
+	// "Sign Out" label.
+	cloudAccountMenuTrigger = `document.querySelector('button[aria-label="Eli"]')`
+	cloudSignOutMenuItem    = `Array.from(document.querySelectorAll('[role="menuitem"]'))
+		.find(item => item.textContent.trim() === "Sign Out")`
+	cloudSignOutConfirm = `Array.from(document.querySelectorAll('[role="dialog"] button'))
+		.find(button => button.textContent.trim() === "Sign Out")`
+	fixtureTime = "2026-07-11T08:00:00Z"
 
 	cloudSiblingConversation = "20000000-0000-4000-8000-000000000011"
 	cloudSiblingTitle        = "Desktop whitebox sibling cloud task"
@@ -39,12 +52,22 @@ const (
 	cloudBrowserFrameHeight  = 6
 )
 
+// cloudVisibleNoticeWithFile requires a visible sonner toast naming the exact
+// saved file. WKWebView disambiguates a repeated destination with a " (n)"
+// suffix, so callers must pass the basename the save actually produced.
+func cloudVisibleNoticeWithFile(file string) string {
+	return `Array.from(document.querySelectorAll("[data-sonner-toast]"))
+		.filter(toast => toast.getAttribute("data-removed") !== "true" && toast.getAttribute("data-visible") !== "false")
+		.some(toast => toast.textContent.includes(` + strconv.Quote(file) + `))`
+}
+
 type cloudWhitebox struct {
 	allowReconnect chan struct{}
 	firstStream    chan struct{}
 	nextStream     chan string
 	streams        atomic.Int32
 	downloads      atomic.Int32
+	contents       atomic.Int32
 	// browser is installed only by the BrowserPanel regression. The legacy
 	// stream/download fixture keeps the same paths and responses without it.
 	browser *cloudBrowserFixture
@@ -97,6 +120,15 @@ func (c *cloudWhitebox) serve(w http.ResponseWriter, r *http.Request) bool {
 			"downloadable": true, "created_at": fixtureTime, "updated_at": fixtureTime,
 			"task": map[string]string{"id": cloudConversation, "title": cloudTitle, "archive_status": "active"},
 		}}}
+	case conversationPath + "/files/" + cloudArtifact + "/content":
+		if !cloudAuthorized(w, r) {
+			return true
+		}
+		c.contents.Add(1)
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Disposition", `inline; filename="`+cloudFile+`"`)
+		_, _ = w.Write([]byte(cloudFileContent))
+		return true
 	case conversationPath + "/files/" + cloudArtifact + "/download":
 		if !cloudAuthorized(w, r) {
 			return true
@@ -148,6 +180,22 @@ func TestNativeCloudConversationStreamReconnectsAndDownloadsArtifact(t *testing.
 	destination := t.TempDir()
 	mygo.App.SetPath(mygo.PathDownloads, destination)
 	defer mygo.App.SetPath(mygo.PathDownloads, "")
+	// The reveal primitive is injected: this fixture records the exact path it
+	// would hand Finder and never activates Finder or touches real Downloads.
+	var revealMu sync.Mutex
+	var revealed []string
+	previousReveal := showItemInFolder
+	showItemInFolder = func(path string) {
+		revealMu.Lock()
+		revealed = append(revealed, path)
+		revealMu.Unlock()
+	}
+	defer func() { showItemInFolder = previousReveal }()
+	revealCalls := func() []string {
+		revealMu.Lock()
+		defer revealMu.Unlock()
+		return append([]string(nil), revealed...)
+	}
 	desktop.openMainWindow()
 	win := desktop.mainWindow()
 	defer win.Destroy()
@@ -213,8 +261,209 @@ func TestNativeCloudConversationStreamReconnectsAndDownloadsArtifact(t *testing.
 		if err != nil || string(content) != cloudFileContent || cloud.downloads.Load() != 1 {
 			t.Fatal("native artifact download did not contain the authenticated response bytes")
 		}
+		t.Logf("download URL: %s", download.URL)
+		t.Logf("authenticated bytes: %d from %d authenticated API download(s); exact saved path: %s",
+			len(content), cloud.downloads.Load(), download.Path)
+		if calls := revealCalls(); len(calls) != 0 {
+			t.Fatalf("Finder was activated before the explicit action: %v", calls)
+		} else {
+			t.Logf("reveal calls before the explicit action: %v", calls)
+		}
+		// The successful save offers one keyboard action; the handle is opaque
+		// and the native ticket still exists until that action consumes it.
+		handle := whiteboxCompletedArtifactHandle(desktop, download.Path)
+		if handle == "" {
+			t.Fatal("the successful save left no explicit Finder ticket")
+		}
+		if calls := revealCalls(); len(calls) != 0 {
+			t.Fatalf("Finder was activated before the toast action was clicked: %v", calls)
+		} else {
+			t.Logf("reveal calls before the toast action was clicked: %v", calls)
+		}
+		whiteboxClickShowInFinder(t, page)
+		whiteboxWaitReveal(t, revealCalls, 1)
+		if calls := revealCalls(); len(calls) != 1 || calls[0] != download.Path {
+			t.Fatalf("explicit reveal calls = %v, want exactly %q", calls, download.Path)
+		} else {
+			t.Logf("exact reveal argument: %q", calls[0])
+		}
+		// A text/plain .txt artifact selects the content-based "text" preview, not
+		// media source loading. Both saves below must reuse this one /content
+		// response instead of downloading or fetching again.
+		previewButton := `document.querySelector('[aria-label="Preview file ` + cloudFile + `"]')`
+		whiteboxWait(t, page, previewButton+" !== null")
+		if _, err := page.Eval(previewButton + ".click()"); err != nil {
+			t.Fatal(err)
+		}
+		previewDownload := `document.querySelector('section[aria-label="Preview document ` + cloudFile + `"] button[aria-label="Download document ` + cloudFile + `"]')`
+		whiteboxWait(t, page, previewDownload+" !== null")
+		cloudBrowserWaitFor(t, 10*time.Second, "the preview content request", func() bool {
+			return cloud.contents.Load() == 1
+		})
+		downloadsBeforePreviewSave := cloud.downloads.Load()
+		revealsBeforePreviewSave := len(revealCalls())
+		if downloadsBeforePreviewSave != 1 || revealsBeforePreviewSave != 1 {
+			t.Fatalf("preview setup changed existing counters: API downloads=%d reveals=%d",
+				downloadsBeforePreviewSave, revealsBeforePreviewSave)
+		}
+		t.Logf("preview loaded %d authenticated /content response(s) with %d /download request(s)",
+			cloud.contents.Load(), downloadsBeforePreviewSave)
+
+		clickPreviewDownload := func(description string) *mygo.Download {
+			t.Helper()
+			if _, err := page.Eval(previewDownload + ".click()"); err != nil {
+				t.Fatalf("%s: %v", description, err)
+			}
+			select {
+			case download := <-downloads:
+				if download.Err != nil {
+					t.Fatalf("%s failed: %v", description, download.Err)
+				}
+				if filepath.Dir(download.Path) != destination {
+					t.Fatalf("%s saved outside the test destination: %s", description, download.Path)
+				}
+				content, err := os.ReadFile(download.Path)
+				if err != nil || string(content) != cloudFileContent {
+					t.Fatalf("%s did not contain the loaded preview bytes", description)
+				}
+				if cloud.contents.Load() != 1 {
+					t.Fatalf("%s fetched /content again: %d", description, cloud.contents.Load())
+				}
+				if cloud.downloads.Load() != downloadsBeforePreviewSave {
+					t.Fatalf("%s issued an unintended /download: %d", description, cloud.downloads.Load())
+				}
+				t.Logf("%s: %d authenticated /content response(s), %d /download request(s), exact saved path: %s",
+					description, cloud.contents.Load(), cloud.downloads.Load(), download.Path)
+				return download
+			case <-time.After(10 * time.Second):
+				t.Fatalf("%s did not finish; /content=%d /download=%d",
+					description, cloud.contents.Load(), cloud.downloads.Load())
+				return nil
+			}
+		}
+
+		firstPreviewSave := clickPreviewDownload("the first preview save")
+		if calls := revealCalls(); len(calls) != revealsBeforePreviewSave {
+			t.Fatalf("Finder was activated before the first preview action: %v", calls)
+		}
+		firstPreviewHandle := whiteboxCompletedArtifactHandle(desktop, firstPreviewSave.Path)
+		if firstPreviewHandle == "" {
+			t.Fatal("the first preview save left no explicit Finder ticket")
+		}
+		whiteboxClickShowInFinder(t, page)
+		whiteboxWaitReveal(t, revealCalls, revealsBeforePreviewSave+1)
+		if calls := revealCalls(); calls[revealsBeforePreviewSave] != firstPreviewSave.Path {
+			t.Fatalf("first preview reveal calls = %v, want the last one to be %q",
+				calls, firstPreviewSave.Path)
+		}
+		rejected, err := page.Eval(fmt.Sprintf(`mygo.call("Desktop.RevealArtifactDownload", %q)
+			.then(() => false, error => String(error).includes("DESKTOP_DOWNLOAD_STALE"))`, firstPreviewHandle))
+		if err != nil || rejected != true {
+			t.Fatalf("the replayed preview reveal was not rejected: rejected=%v err=%v", rejected, err)
+		}
+		if calls := revealCalls(); len(calls) != revealsBeforePreviewSave+1 {
+			t.Fatalf("a replayed preview handle activated Finder: %v", calls)
+		}
+
+		secondPreviewSave := clickPreviewDownload("the second preview save")
+		if secondPreviewSave.Path == firstPreviewSave.Path {
+			t.Fatal("two preview saves shared one MyGo destination path")
+		}
+		secondPreviewHandle := whiteboxCompletedArtifactHandle(desktop, secondPreviewSave.Path)
+		if secondPreviewHandle == "" {
+			t.Fatal("the second preview save left no explicit Finder ticket")
+		}
+		if calls := revealCalls(); len(calls) != revealsBeforePreviewSave+1 {
+			t.Fatalf("the second preview save activated Finder without a click: %v", calls)
+		}
+		// Leave the second live offer visible but unused. The real App sign-out
+		// must dismiss it, invalidate its ticket, and leave no saved name on the
+		// login screen before Finder can be activated.
+		secondPreviewFile := filepath.Base(secondPreviewSave.Path)
+		whiteboxWait(t, page, fmt.Sprintf(`(%s) !== undefined`, cloudShowInFinderButton))
+		whiteboxWait(t, page, cloudVisibleNoticeWithFile(secondPreviewFile))
+		whiteboxSignOut(t, page)
+		whiteboxWait(t, page, fmt.Sprintf(`location.pathname === "/login" &&
+			document.querySelector("[data-desktop-sign-in]") !== null`))
+		whiteboxWait(t, page, fmt.Sprintf(`(%s) === undefined`, cloudShowInFinderButton))
+		whiteboxWait(t, page, fmt.Sprintf(`!%s`, cloudVisibleNoticeWithFile(secondPreviewFile)))
+		rejected, err = page.Eval(fmt.Sprintf(`mygo.call("Desktop.RevealArtifactDownload", %q)
+			.then(() => false, error => String(error).includes("DESKTOP_DOWNLOAD_STALE") || String(error).includes("AUTH_REQUIRED"))`, secondPreviewHandle))
+		if err != nil || rejected != true {
+			t.Fatalf("the signed-out preview reveal was not rejected: revealed=%v rejected=%v err=%v", revealCalls(), rejected, err)
+		}
+		if calls := revealCalls(); len(calls) != revealsBeforePreviewSave+1 {
+			t.Fatalf("a signed-out preview handle activated Finder: %v", calls)
+		} else {
+			t.Logf("reveal calls after sign-out (unchanged, no new call): %v", calls)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("native artifact did not finish downloading; API requests: %d", cloud.downloads.Load())
+	}
+}
+
+func whiteboxCompletedArtifactHandle(desktop *Desktop, path string) string {
+	desktop.downloads.mu.Lock()
+	defer desktop.downloads.mu.Unlock()
+	for handle, ticket := range desktop.downloads.tickets {
+		if ticket.phase == artifactDownloadCompleted && ticket.path == path {
+			return handle
+		}
+	}
+	return ""
+}
+
+func whiteboxClickShowInFinder(t *testing.T, page *mygo.Page) {
+	t.Helper()
+	whiteboxWait(t, page, fmt.Sprintf("(%s) !== undefined", cloudShowInFinderButton))
+	clicked, err := page.Eval(fmt.Sprintf(`(() => {
+		const button = %s;
+		if (!button) return false;
+		button.click();
+		return true;
+	})()`, cloudShowInFinderButton))
+	if err != nil || clicked != true {
+		t.Fatalf("the explicit Show in Finder action was not clickable: %v", err)
+	}
+}
+
+// whiteboxSignOut drives the account menu, the confirmation dialog, and the
+// shared App sign-out flow. The App itself calls the native ClearSession; this
+// fixture never invokes it directly.
+func whiteboxSignOut(t *testing.T, page *mygo.Page) {
+	t.Helper()
+	whiteboxWait(t, page, cloudAccountMenuTrigger+` !== null`)
+	if _, err := page.Eval(cloudAccountMenuTrigger + `.click()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, cloudSignOutMenuItem+` !== undefined`)
+	if _, err := page.Eval(fmt.Sprintf(`(() => {
+		const item = %s;
+		if (!item) return false;
+		item.click();
+		return true;
+	})()`, cloudSignOutMenuItem)); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, cloudSignOutConfirm+` !== undefined`)
+	if _, err := page.Eval(fmt.Sprintf(`(() => {
+		const button = %s;
+		if (!button) return false;
+		button.click();
+		return true;
+	})()`, cloudSignOutConfirm)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func whiteboxWaitReveal(t *testing.T, revealCalls func() []string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(revealCalls()) < want && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	if calls := revealCalls(); len(calls) < want {
+		t.Fatalf("explicit reveal calls = %v, want at least %d", calls, want)
 	}
 }
 

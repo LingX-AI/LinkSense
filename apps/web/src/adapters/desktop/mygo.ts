@@ -4,6 +4,15 @@ import { bind, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/**
+ * ArtifactDownloadSaved identifies a successful save without exposing its
+ * path. The page uses the opaque handle only for the explicit Finder action.
+ */
+export interface ArtifactDownloadSaved {
+  handle: string;
+  name: string;
+}
+
 /** CompletionNotificationInput carries only IDs and the localized status. */
 export interface CompletionNotificationInput {
   userId: string;
@@ -166,6 +175,28 @@ export interface WorkspaceUsage {
 
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
+  /**
+   * ArmArtifactDownload binds the ticket to the exact blob URL created for the
+   * authenticated bytes. It is still not a download target.
+   */
+  armArtifactDownload: bind<[string, string], void>("Desktop.ArmArtifactDownload", (handle: string, rawURL: string) => [handle, rawURL]),
+  /**
+   * BeginArtifactDownload issues one opaque, single-use save ticket. With a
+   * preview source handle it derives the ticket from that preview's original
+   * account and page provenance; otherwise it starts a direct download ticket.
+   * The caller supplies no path or file name.
+   */
+  beginArtifactDownload: bind<[...string[]], string>("Desktop.BeginArtifactDownload", (...sourceHandle: string[]) => [...sourceHandle]),
+  /**
+   * BeginArtifactPreview retains one reusable provenance handle for the preview
+   * bytes loaded by this page. It creates no writer, path, or Finder offer.
+   */
+  beginArtifactPreview: bind<[], string>("Desktop.BeginArtifactPreview", () => []),
+  /**
+   * CancelArtifactDownload discards a ticket whose fetch or save did not reach
+   * the completion event.
+   */
+  cancelArtifactDownload: bind<[string], void>("Desktop.CancelArtifactDownload", (handle: string) => [handle]),
   cancelSignIn: bind<[], void>("Desktop.CancelSignIn", () => []),
   /**
    * CheckComputerPermission reports the current permission without prompting or
@@ -212,6 +243,14 @@ export const Desktop = {
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
   restartAfterUpdate: bind<[], void>("Desktop.RestartAfterUpdate", () => []),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
+  /**
+   * RevealArtifactDownload is the explicit user action. It moves the final
+   * checks and MyGo's synchronous Shell.ShowItemInFolder call to the main thread
+   * before taking any account or tracker lock. The ticket is consumed once; an
+   * expired account, replaced page, changed file, or symlink cannot activate
+   * Finder.
+   */
+  revealArtifactDownload: bind<[string], void>("Desktop.RevealArtifactDownload", (handle: string) => [handle]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
   setUpdateChannel: bind<[string], DesktopUpdateResult>("Desktop.SetUpdateChannel", (channel: string) => [channel]),
   /**
@@ -239,6 +278,7 @@ export const Desktop = {
 
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
+  desktopArtifactSaved: event<ArtifactDownloadSaved>("desktop:artifact-saved"),
   desktopNotificationClick: event<DesktopNotificationClick>("desktop:notification-click"),
   desktopNavigate: event<string>("desktop:navigate"),
   desktopUpdateChanged: event<DesktopUpdateResult>("desktop:update-changed"),

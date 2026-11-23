@@ -44,8 +44,10 @@ type Desktop struct {
 	// installed only on macOS and released on quit; the menu accelerator remains
 	// the app-local fallback.
 	computerShortcut *computerEmergencyShortcut
-	dataRoot         string
-	shutdownOnce     sync.Once
+	// downloads is bounded page-local state for the explicit Mac Finder action.
+	downloads    artifactDownloadTracker
+	dataRoot     string
+	shutdownOnce sync.Once
 	// The window and application lifecycle callbacks use these only on the main thread.
 	closeToTray         bool
 	quitting            bool
@@ -73,6 +75,9 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 	// newer generation may have replaced the connection after the account lock
 	// was dropped, so clearInvalidatedDevice re-checks the current lease.
 	d.account.setOnClear(func() {
+		// A pending or completed save belongs to the invalidated sign-in and
+		// must never offer Finder for what is now another account's file.
+		d.downloads.discardAll()
 		// Cancel the invalidated device first: workspace cleanup can wait on
 		// the runtime pipe lock and must not delay the device's fail-closed
 		// transition. Both calls are nonblocking.
@@ -237,23 +242,23 @@ func validUUID(id string) bool {
 }
 
 func (d *Desktop) openMainWindow() {
-	page := mygo.PageOptions{DevTools: mygo.DevToolsDisabled}
+	pageOptions := mygo.PageOptions{DevTools: mygo.DevToolsDisabled}
 	if runtime.GOOS == "darwin" {
 		// Keep the existing completion feed running after Close to Menu Bar.
-		page.BackgroundThrottling = mygo.ThrottlingOff
+		pageOptions.BackgroundThrottling = mygo.ThrottlingOff
 		// The preload only activates in a direct child at the exact packaged
 		// origin and ticket path. It is not an IPC permission: window.mygo
 		// stays absent from iframes.
 		if preload := desktopApplicationAnnotationPreloadForWindow(d.server); preload != "" {
-			page.PreloadScript = preload
-			page.PreloadAllFrames = true
+			pageOptions.PreloadScript = preload
+			pageOptions.PreloadAllFrames = true
 		}
 	}
 	options := mygo.WindowOptions{
 		Title: "LinkSense", URL: "/",
 		Width: 1200, Height: 800, MinWidth: 720, MinHeight: 540,
 		StateKey: "desktop-main",
-		Page:     page,
+		Page:     pageOptions,
 	}
 	if runtime.GOOS == "darwin" {
 		// Keep the native traffic lights and let the shared UI own the top area.
@@ -265,7 +270,20 @@ func (d *Desktop) openMainWindow() {
 	d.mu.Lock()
 	d.window = win
 	d.mu.Unlock()
-	win.Page().OnWillNavigate(func(event *mygo.NavigateEvent) {
+	page := win.Page()
+	// These callbacks are page-scoped and observe MyGo's own save result. They
+	// never choose a path or change the downloaded bytes.
+	d.downloads.discardOtherPages(page)
+	page.OnWillDownload(func(event *mygo.DownloadEvent) {
+		d.artifactDownloadStarted(page, event)
+	})
+	page.OnDownloadDone(func(download *mygo.Download) {
+		d.artifactDownloadFinished(page, download)
+	})
+	page.OnDidNavigate(func(string) {
+		d.artifactDownloadNavigated(page)
+	})
+	page.OnWillNavigate(func(event *mygo.NavigateEvent) {
 		if frontendNavigation(event.URL) {
 			return
 		}
@@ -274,7 +292,7 @@ func (d *Desktop) openMainWindow() {
 			_ = mygo.Shell.OpenExternal(u.String())
 		}
 	})
-	win.Page().SetWindowOpenHandler(func(request mygo.WindowOpenRequest) *mygo.WindowOptions {
+	page.SetWindowOpenHandler(func(request mygo.WindowOpenRequest) *mygo.WindowOptions {
 		if u, err := externalURL(request.URL); err == nil && request.UserInitiated {
 			_ = mygo.Shell.OpenExternal(u.String())
 		}

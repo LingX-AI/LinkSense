@@ -4,16 +4,24 @@ import { openHtmlPreview } from "@/features/conversations/html-preview-api"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 
-import { downloadApiFile } from "@/api/client"
+import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { getErrorMessage } from "@/api/error-message"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+} from "@/api/session"
 import { notify } from "@/components/feedback/notification"
 import { ConversationFilePreview } from "@/features/conversations/conversation-office-preview"
-import { downloadBlob } from "@/lib/download-blob"
 
 import {
   getTaskArtifactPreviewLink,
   type TaskArtifact,
 } from "./task-artifact-api"
+import {
+  downloadTaskArtifact,
+  loadTaskArtifactContent,
+  saveTaskArtifactBlob,
+} from "./task-artifact-download"
 
 export function TaskArtifactPreview({
   file,
@@ -25,16 +33,16 @@ export function TaskArtifactPreview({
   const { t } = useTranslation()
   const downloadInFlightRef = useRef(false)
 
-  const download = async () => {
+  const runDownload = async (save: () => Promise<void>) => {
     if (downloadInFlightRef.current) return
+    const boundary = isMacDesktopHost() ? getLoginSessionBoundary() : null
     downloadInFlightRef.current = true
     try {
-      const blob = await downloadApiFile(
-        `/conversations/${file.conversation_id}/files/${file.id}/download`
-      )
-      downloadBlob(blob, file.name)
+      await save()
     } catch (error) {
-      notify.error(getErrorMessage(error, t))
+      if (boundary === null || isLoginSessionCurrent(boundary)) {
+        notify.error(getErrorMessage(error, t))
+      }
     } finally {
       downloadInFlightRef.current = false
     }
@@ -49,14 +57,9 @@ export function TaskArtifactPreview({
       toolbarActions={
         <SiteShareButton file={file} conversationId={file.conversation_id} />
       }
-      loadContent={async (candidate, signal) => {
-        const blob = await downloadApiFile(
-          `/conversations/${file.conversation_id}/files/${candidate.id}/content`,
-          undefined,
-          signal
-        )
-        return new Uint8Array(await blob.arrayBuffer())
-      }}
+      loadContent={(_candidate, signal) =>
+        loadTaskArtifactContent(file, signal)
+      }
       loadPreviewSource={async (_candidate, signal) => {
         const preview = await getTaskArtifactPreviewLink(file, signal)
         return {
@@ -64,15 +67,18 @@ export function TaskArtifactPreview({
           expiresAt: preview.expires_at,
         }
       }}
-      onDownload={(candidate, content) => {
-        downloadBlob(
-          new Blob([new Uint8Array(content)], {
-            type: candidate.mime_type ?? "application/octet-stream",
-          }),
-          candidate.name
+      onDownload={(candidate, content) =>
+        runDownload(() =>
+          saveTaskArtifactBlob(
+            new Blob([new Uint8Array(content)], {
+              type: candidate.mime_type ?? "application/octet-stream",
+            }),
+            candidate.name,
+            content
+          )
         )
-      }}
-      onDownloadSource={() => download()}
+      }
+      onDownloadSource={() => runDownload(() => downloadTaskArtifact(file))}
       onClose={onClose}
     />
   )

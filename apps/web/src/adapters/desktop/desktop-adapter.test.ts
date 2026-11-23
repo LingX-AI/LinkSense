@@ -41,6 +41,12 @@ const native = vi.hoisted(() => ({
   workspaceUsage: vi.fn(),
   cleanupWorkspaces: vi.fn(),
   workspaceNotice: vi.fn(),
+  beginArtifactDownload: vi.fn(),
+  beginArtifactPreview: vi.fn(),
+  armArtifactDownload: vi.fn(),
+  cancelArtifactDownload: vi.fn(),
+  revealArtifactDownload: vi.fn(),
+  onArtifactSaved: vi.fn(),
   resumeDevice: vi.fn(),
   getUpdateState: vi.fn(),
   checkForUpdate: vi.fn(),
@@ -62,6 +68,11 @@ vi.mock("./mygo", () => ({
     workspaceUsage: native.workspaceUsage,
     cleanupWorkspaces: native.cleanupWorkspaces,
     workspaceNotice: native.workspaceNotice,
+    beginArtifactDownload: native.beginArtifactDownload,
+    beginArtifactPreview: native.beginArtifactPreview,
+    armArtifactDownload: native.armArtifactDownload,
+    cancelArtifactDownload: native.cancelArtifactDownload,
+    revealArtifactDownload: native.revealArtifactDownload,
     resumeDevice: native.resumeDevice,
     getUpdateState: native.getUpdateState,
     checkForUpdate: native.checkForUpdate,
@@ -73,11 +84,16 @@ vi.mock("./mygo", () => ({
   events: {
     desktopNavigate: { on: native.onNavigate },
     desktopNotificationClick: { on: native.onNotificationClick },
+    desktopArtifactSaved: { on: native.onArtifactSaved },
     desktopUpdateChanged: { on: native.onUpdateChanged },
   },
 }))
 
 import {
+  armDesktopArtifactDownload,
+  beginDesktopArtifactDownload,
+  beginDesktopArtifactPreview,
+  cancelDesktopArtifactDownload,
   checkDesktopUpdate,
   cleanupDesktopWorkspaces,
   desktopNotificationRouteForUser,
@@ -93,9 +109,11 @@ import {
   readDesktopWorkspaceNotice,
   readDesktopWorkspaceUsage,
   restartDesktopAfterUpdate,
+  revealDesktopArtifactDownload,
   setDesktopUpdateChannel,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
+  subscribeDesktopArtifactSaved,
   subscribeDesktopConversationNavigation,
   subscribeDesktopNavigation,
   subscribeDesktopNotificationClick,
@@ -325,6 +343,62 @@ describe("desktop host boundary", () => {
     native.info.mockRejectedValueOnce(new Error("bridge unavailable"))
     await expect(initializeDesktopHost()).rejects.toThrow()
     expect(document.documentElement.dataset.desktopPlatform).toBe("darwin")
+  })
+
+  it("binds the Finder action to an opaque Mac save ticket and validates its event", async () => {
+    const handle = "a".repeat(43)
+    expect(await beginDesktopArtifactDownload()).toBeNull()
+    expect(native.beginArtifactDownload).not.toHaveBeenCalled()
+
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "windows",
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+    expect(await beginDesktopArtifactDownload()).toBeNull()
+    expect(native.beginArtifactDownload).not.toHaveBeenCalled()
+
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    await initializeDesktopHost()
+    native.beginArtifactDownload.mockResolvedValue(handle)
+    native.beginArtifactPreview.mockResolvedValue(handle)
+    expect(await beginDesktopArtifactDownload()).toBe(handle)
+    expect(native.beginArtifactDownload).toHaveBeenCalledWith()
+    expect(await beginDesktopArtifactDownload(handle)).toBe(handle)
+    expect(native.beginArtifactDownload).toHaveBeenLastCalledWith(handle)
+    expect(await beginDesktopArtifactPreview()).toBe(handle)
+    expect(native.beginArtifactPreview).toHaveBeenCalledWith()
+    await armDesktopArtifactDownload(handle, "blob:mygo://localhost/abc")
+    expect(native.armArtifactDownload).toHaveBeenCalledWith(
+      handle,
+      "blob:mygo://localhost/abc"
+    )
+    await cancelDesktopArtifactDownload(handle)
+    expect(native.cancelArtifactDownload).toHaveBeenCalledWith(handle)
+    await revealDesktopArtifactDownload(handle)
+    expect(native.revealArtifactDownload).toHaveBeenCalledWith(handle)
+
+    const listener = vi.fn()
+    const unsubscribe = vi.fn()
+    native.onArtifactSaved.mockImplementation(
+      (callback: (value: unknown) => void) => {
+        callback({ handle, name: "report.txt" })
+        callback({ handle: "short", name: "report.txt" })
+        callback({ handle, name: "", path: "/tmp/report.txt" })
+        return unsubscribe
+      }
+    )
+    expect(subscribeDesktopArtifactSaved(listener)).toBe(unsubscribe)
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith({ handle, name: "report.txt" })
   })
 
   it("rejects an unsupported bridge rather than making an API request", async () => {

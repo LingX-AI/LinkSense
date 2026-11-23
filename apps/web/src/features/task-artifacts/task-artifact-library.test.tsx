@@ -12,11 +12,15 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 
+import * as desktop from "@/adapters/desktop/desktop-adapter"
+import { beginLoginSession } from "@/api/session"
+import { notify } from "@/components/feedback/notification"
 import { downloadBlob } from "@/lib/download-blob"
 import i18n from "@/i18n"
 import { KnowledgeBaseListPage } from "@/pages/knowledge-base-pages"
 
-vi.mock("@/lib/download-blob", () => ({
+vi.mock("@/lib/download-blob", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/download-blob")>()),
   downloadBlob: vi.fn(),
 }))
 
@@ -99,6 +103,7 @@ describe("task artifact library", () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
@@ -224,6 +229,61 @@ describe("task artifact library", () => {
         expect.any(Blob),
         "季度总结.pdf"
       )
+    )
+  })
+
+  it("drops a pending Mac download's error and save after its login is replaced", async () => {
+    let resolveDownload: ((response: Response) => void) | undefined
+    const pending = new Promise<Response>((resolve) => {
+      resolveDownload = resolve
+    })
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin)
+      if (url.pathname.endsWith("/download")) return pending
+      return Promise.resolve(
+        Response.json({
+          success: true,
+          data: { items: [artifact()], next_cursor: null },
+        })
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    vi.spyOn(desktop, "isMacDesktopHost").mockReturnValue(true)
+    const handle = "l".repeat(43)
+    vi.spyOn(desktop, "beginDesktopArtifactDownload")
+      .mockResolvedValueOnce(handle)
+      .mockRejectedValueOnce(new Error("DESKTOP_DOWNLOAD_UNAVAILABLE"))
+    const cancel = vi
+      .spyOn(desktop, "cancelDesktopArtifactDownload")
+      .mockResolvedValue(undefined)
+    const anchor = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined)
+    const toast = vi.spyOn(notify, "error").mockReturnValue("download-error")
+    renderLibrary()
+
+    const label = "下载 季度总结.pdf"
+    fireEvent.click(await screen.findByRole("button", { name: label }))
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/download$/u),
+        expect.anything()
+      )
+    )
+    await act(async () => {
+      beginLoginSession()
+      resolveDownload?.(new Response("original login's bytes"))
+    })
+
+    expect(screen.getByRole("button", { name: label })).toBeEnabled()
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(handle)
+    expect(anchor).not.toHaveBeenCalled()
+    expect(downloadBlob).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: label }))
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledExactlyOnceWith(i18n.t("errors.unknown"))
     )
   })
 

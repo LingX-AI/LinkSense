@@ -102,12 +102,23 @@ const desktopWorkspaceNoticeSchema = z.strictObject({
   cleared: z.boolean(),
 })
 
+const artifactDownloadHandleSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
+
+const artifactDownloadSavedSchema = z.strictObject({
+  handle: artifactDownloadHandleSchema,
+  name: z.string().min(1).max(512),
+})
+
 export type DesktopWorkspaceUsage = z.infer<typeof desktopWorkspaceUsageSchema>
 export type DesktopWorkspaceCleanup = z.infer<
   typeof desktopWorkspaceCleanupSchema
 >
 export type DesktopWorkspaceNotice = z.infer<
   typeof desktopWorkspaceNoticeSchema
+>
+
+export type DesktopArtifactDownloadSaved = z.infer<
+  typeof artifactDownloadSavedSchema
 >
 
 export type DesktopNotificationResult =
@@ -200,6 +211,83 @@ export async function readDesktopWorkspaceNotice(
   return desktopWorkspaceNoticeSchema.parse(
     await Desktop.workspaceNotice(conversationId)
   )
+}
+
+/**
+ * Begin one opaque save ticket before the authenticated artifact fetch. With a
+ * preview source it derives a fresh single-use save ticket from that preview's
+ * original account and page provenance. Only a Mac desktop host offers the
+ * Finder action; browsers and Windows download as before.
+ */
+export async function beginDesktopArtifactDownload(
+  sourceHandle?: string
+): Promise<string | null> {
+  if (!isMacDesktopHost()) return null
+  if (sourceHandle === undefined) {
+    return artifactDownloadHandleSchema.parse(
+      await Desktop.beginArtifactDownload()
+    )
+  }
+  return artifactDownloadHandleSchema.parse(
+    await Desktop.beginArtifactDownload(
+      artifactDownloadHandleSchema.parse(sourceHandle)
+    )
+  )
+}
+
+/**
+ * Retain one reusable provenance handle for bytes this page is about to load.
+ * It creates no writer or Finder offer and is closed when the preview unmounts,
+ * reloads, signs out, or its account lease changes.
+ */
+export async function beginDesktopArtifactPreview(): Promise<string | null> {
+  if (!isMacDesktopHost()) return null
+  return artifactDownloadHandleSchema.parse(
+    await Desktop.beginArtifactPreview()
+  )
+}
+
+/** Bind the ticket to the exact blob URL the page is about to save. */
+export async function armDesktopArtifactDownload(
+  handle: string,
+  blobUrl: string
+): Promise<void> {
+  if (!isMacDesktopHost()) return
+  await Desktop.armArtifactDownload(
+    artifactDownloadHandleSchema.parse(handle),
+    z.string().min(1).max(4096).startsWith("blob:").parse(blobUrl)
+  )
+}
+
+/** Drop a ticket whose fetch or save never completed. */
+export async function cancelDesktopArtifactDownload(
+  handle: string
+): Promise<void> {
+  if (!isMacDesktopHost()) return
+  await Desktop.cancelArtifactDownload(
+    artifactDownloadHandleSchema.parse(handle)
+  )
+}
+
+/** Run only from the explicit keyboard-accessible Finder action. */
+export async function revealDesktopArtifactDownload(
+  handle: string
+): Promise<void> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  await Desktop.revealArtifactDownload(
+    artifactDownloadHandleSchema.parse(handle)
+  )
+}
+
+/** Native completion events carry an opaque handle and the saved file name. */
+export function subscribeDesktopArtifactSaved(
+  listener: (saved: DesktopArtifactDownloadSaved) => void
+): () => void {
+  if (!isMacDesktopHost()) return () => undefined
+  return events.desktopArtifactSaved.on((value) => {
+    const parsed = artifactDownloadSavedSchema.safeParse(value)
+    if (parsed.success) listener(parsed.data)
+  })
 }
 
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null
