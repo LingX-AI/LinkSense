@@ -518,9 +518,14 @@ state without deleting the still-valid Keychain credential. After the
 system-browser sign-in and a verified refresh, the app resumes that account's
 stored Keychain device credential once; an explicit sign-out still deletes it.
 
-New tasks default to the cloud. In the main macOS window, a new task shows the
-**Run location** control; local is selectable only when the native host reports
-an online device with `executionReady`, not for a presence-only connection.
+New tasks default to the cloud. In **Settings → General → This Mac**, you can
+set a **Default run location** for new tasks created from this Mac, even before
+pairing. LinkSense remembers it on this Mac for the signed-in account and server.
+The new task's **Run location** control overrides the default for that draft
+only. It offers local as an override when the native host reports an online
+device with `executionReady`, not for a presence-only connection. If the saved
+default is local and the Mac is unavailable, the task retains that selection;
+you can wait or explicitly switch to cloud.
 Before a local task is created, the app re-reads the native status and requires
 the same device and account. A failed, stale or changed check keeps the draft
 and the selected target, reports the error, and does not create the task on the

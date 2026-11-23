@@ -94,6 +94,10 @@ import {
 } from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
 import { DesktopExecutionTargetBadge } from "@/features/desktop-execution/desktop-execution-target-badge"
+import {
+  desktopExecutionDefaultTargetKey,
+  useDesktopExecutionDraftTarget,
+} from "@/features/desktop-execution/desktop-execution-default-target"
 import { DesktopExecutionTargetPicker } from "@/features/desktop-execution/desktop-execution-target-picker"
 import { DesktopComputerUseCard } from "@/features/desktop-computer-use/desktop-computer-use-card"
 import {
@@ -482,6 +486,7 @@ type ConversationCreationOrigin = Readonly<{
   routeEpoch: number
   executionOwnerId: string | undefined
   gated: boolean
+  executionTarget: ConversationExecutionTarget
   routeConversationId: string | null
   loginSessionBoundary: LoginSessionBoundary
 }>
@@ -685,11 +690,20 @@ export function ConversationPage({
   const { t } = useTranslation()
   const productName = useProductName()
   const { user, refreshUser } = useAuth()
-  const [executionTarget, setExecutionTarget] =
-    useState<ConversationExecutionTarget>("cloud")
   const personalizationQuery = usePersonalization()
   const navigate = useNavigate()
   const location = useLocation()
+  const [newTaskResetVersion, setNewTaskResetVersion] = useState(0)
+  const desktopExecutionDraftSurface = isNew && !embedded && !development
+  const desktopDefaultTargetKey = desktopExecutionDefaultTargetKey(
+    desktopExecutionDraftSurface ? user?.id : undefined
+  )
+  const [draftExecutionTarget, setExecutionTarget] =
+    useDesktopExecutionDraftTarget(
+      desktopDefaultTargetKey,
+      location.key,
+      newTaskResetVersion
+    )
   const queryClient = useQueryClient()
   const [composerValue] = useState(createConversationComposerValue)
   const sideChatPanelRef = useRef<HTMLElement>(null)
@@ -732,7 +746,6 @@ export function ConversationPage({
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<
     string[]
   >([])
-  const [newTaskResetVersion, setNewTaskResetVersion] = useState(0)
   const [
     composerAttachmentOperationPending,
     setComposerAttachmentOperationPending,
@@ -1006,6 +1019,7 @@ export function ConversationPage({
     }
   }, [
     currentRouteConversationId,
+    desktopDefaultTargetKey,
     location.key,
     newTaskResetVersion,
     user?.id,
@@ -1430,11 +1444,13 @@ export function ConversationPage({
   // rather than the transient composer visibility used to render the picker.
   const desktopExecutionPolicy = useDesktopExecutionTargetPolicy()
   const desktopExecutionTargetGated =
-    isNew &&
+    desktopExecutionDraftSurface &&
     isMacDesktopHost() &&
-    !embedded &&
-    !development &&
     !isApplicationConversation
+  const executionTarget =
+    desktopExecutionTargetGated && showComposer && !readOnly
+      ? draftExecutionTarget
+      : "cloud"
   const desktopLocalComputerEnabled =
     !desktopExecutionTargetGated || desktopExecutionPolicy.localComputer
   const desktopCloudTargetEnabled =
@@ -1748,7 +1764,9 @@ export function ConversationPage({
   const { claim: claimPrewarm, reset: resetPrewarm } = useConversationPrewarm({
     ownerId: user?.id,
     conversationId: isNew ? undefined : conversationId,
-    scopeKey: isNew ? location.key : (conversationId ?? ""),
+    scopeKey: isNew
+      ? JSON.stringify([location.key, desktopDefaultTargetKey])
+      : (conversationId ?? ""),
     collaborationMode,
     projectId: isNew ? newProjectId : undefined,
     configurationKey: modelPreferenceQuery.data?.selected_model ?? undefined,
@@ -1791,7 +1809,6 @@ export function ConversationPage({
     resetNewProject()
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
-    setExecutionTarget("cloud")
     setSelectedCapabilityIds([])
     setSelectedKnowledgeBaseIds([])
     setTaskReferenceSelection({ scope: conversationId, items: [] })
@@ -1808,6 +1825,7 @@ export function ConversationPage({
     resetPrewarm,
     resetNewProject,
     setGoalMode,
+    setNewTaskResetVersion,
     user,
     conversationId,
     setValue,
@@ -3187,6 +3205,7 @@ export function ConversationPage({
     routeEpoch: routeEpochRef.current,
     executionOwnerId: executionOwnerIdRef.current,
     gated: desktopExecutionTargetGated,
+    executionTarget,
     routeConversationId: routeConversationIdRef.current,
     loginSessionBoundary: getLoginSessionBoundary(),
   })
@@ -3271,19 +3290,17 @@ export function ConversationPage({
     // The target is fixed when the conversation is created. A locked
     // submission id wins over the current picker so a rapid target change
     // cannot silently create the task somewhere else.
+    const creationTarget = initialLocalDeviceId
+      ? "local"
+      : (creationOrigin?.executionTarget ?? executionTarget)
     const localDeviceId =
       initialLocalDeviceId ??
       (isNew
         ? desktopExecutionLocalDeviceId(
-            executionTarget,
+            creationTarget,
             executionDeviceAvailability
           )
         : undefined)
-    // A locked submission target wins over a picker change while this create
-    // is prepared. The rollout is read again right before the POST so a policy
-    // change during the awaited native read cannot post to a closed target.
-    const creationTarget: ConversationExecutionTarget =
-      localDeviceId || executionTarget === "local" ? "local" : "cloud"
     const creationOwnerId = creationOrigin?.gated
       ? creationOrigin.executionOwnerId
       : executionOwnerIdRef.current
@@ -3337,7 +3354,7 @@ export function ConversationPage({
       }
     }
     assertCreationTargetAllowed()
-    if (isNew && executionTarget === "local" && !localDeviceId) {
+    if (isNew && creationTarget === "local" && !localDeviceId) {
       throw new ApiError({
         status: 409,
         errorCode: "DESKTOP_EXECUTION_DEVICE_UNAVAILABLE",

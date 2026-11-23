@@ -1,6 +1,9 @@
 import type { Locale } from "@linksense/shared"
 
 type DesktopExecutionMessages = {
+  defaultTarget: string
+  defaultTargetDescription: string
+  defaultTargetSaveFailed: string
   targetSelectorTitle: string
   targetSelectorDescription: string
   cloud: string
@@ -28,6 +31,10 @@ export const desktopExecutionMessages: Record<
   DesktopExecutionMessages
 > = {
   "zh-CN": {
+    defaultTarget: "默认运行位置",
+    defaultTargetDescription:
+      "适用于在这台 Mac 上新建的任务。创建任务前仍可更改运行位置。",
+    defaultTargetSaveFailed: "无法保存默认运行位置。请重试。",
     targetSelectorTitle: "运行位置",
     targetSelectorDescription: "选择新任务的运行位置。任务创建后不能再更改。",
     cloud: "云电脑",
@@ -50,6 +57,11 @@ export const desktopExecutionMessages: Record<
     manageDevices: "管理设备",
   },
   "en-US": {
+    defaultTarget: "Default run location",
+    defaultTargetDescription:
+      "Applies to new tasks you create from this Mac. You can still change the run location before creating a task.",
+    defaultTargetSaveFailed:
+      "Couldn’t save the default run location. Try again.",
     targetSelectorTitle: "Run location",
     targetSelectorDescription:
       "Choose where new tasks run. This cannot be changed after the task is created.",
@@ -80,6 +92,11 @@ export const desktopExecutionMessages: Record<
     manageDevices: "Manage devices",
   },
   "es-ES": {
+    defaultTarget: "Ubicación de ejecución predeterminada",
+    defaultTargetDescription:
+      "Se aplica a las tareas nuevas que crees desde este Mac. Puedes cambiar la ubicación antes de crear cada tarea.",
+    defaultTargetSaveFailed:
+      "No se pudo guardar la ubicación de ejecución predeterminada. Inténtalo de nuevo.",
     targetSelectorTitle: "Ubicación de ejecución",
     targetSelectorDescription:
       "Elige dónde se ejecutan las tareas nuevas. No se puede cambiar después de crear la tarea.",
@@ -113,6 +130,11 @@ export const desktopExecutionMessages: Record<
     manageDevices: "Gestionar dispositivos",
   },
   "pt-BR": {
+    defaultTarget: "Local de execução padrão",
+    defaultTargetDescription:
+      "Aplica-se às novas tarefas que você criar neste Mac. Você pode mudar o local de execução antes de criar cada tarefa.",
+    defaultTargetSaveFailed:
+      "Não foi possível salvar o local de execução padrão. Tente novamente.",
     targetSelectorTitle: "Local de execução",
     targetSelectorDescription:
       "Escolha onde as novas tarefas serão executadas. Isso não pode ser alterado depois que a tarefa é criada.",
@@ -146,6 +168,11 @@ export const desktopExecutionMessages: Record<
     manageDevices: "Gerenciar dispositivos",
   },
   "fr-FR": {
+    defaultTarget: "Emplacement d’exécution par défaut",
+    defaultTargetDescription:
+      "S’applique aux nouvelles tâches créées depuis ce Mac. Vous pouvez modifier l’emplacement avant de créer chaque tâche.",
+    defaultTargetSaveFailed:
+      "Impossible d’enregistrer l’emplacement d’exécution par défaut. Réessayez.",
     targetSelectorTitle: "Emplacement d’exécution",
     targetSelectorDescription:
       "Choisissez où les nouvelles tâches s’exécutent. Ce choix ne peut plus être modifié après la création de la tâche.",
@@ -177,6 +204,11 @@ export const desktopExecutionMessages: Record<
     manageDevices: "Gérer les appareils",
   },
   "ja-JP": {
+    defaultTarget: "デフォルトの実行場所",
+    defaultTargetDescription:
+      "この Mac から作成する新しいタスクに適用されます。タスクを作成する前なら実行場所を変更できます。",
+    defaultTargetSaveFailed:
+      "デフォルトの実行場所を保存できませんでした。もう一度お試しください。",
     targetSelectorTitle: "実行場所",
     targetSelectorDescription:
       "新しいタスクの実行場所を選択します。タスクの作成後は変更できません。",

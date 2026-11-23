@@ -64,7 +64,13 @@ const authMock = vi.hoisted(() => {
   return { initial, user: { ...initial }, useRealProvider: false }
 })
 
-const hostMock = vi.hoisted(() => ({ mac: true }))
+const hostMock = vi.hoisted(() => ({
+  mac: true,
+  serverUrl: "https://desktop.example.test",
+}))
+
+const savedDefaultTargetKey =
+  'linksense.desktopExecution.defaultTarget:["https://desktop.example.test","user-1"]'
 
 const readDesktopDeviceMock = vi.hoisted(() => vi.fn())
 
@@ -118,6 +124,7 @@ vi.mock("@/adapters/desktop/desktop-adapter", async (importOriginal) => ({
     typeof import("@/adapters/desktop/desktop-adapter")
   >()),
   isMacDesktopHost: () => hostMock.mac,
+  getDesktopServerUrl: () => (hostMock.mac ? hostMock.serverUrl : null),
   clearDesktopSession: clearDesktopSessionMock,
 }))
 
@@ -945,6 +952,15 @@ function ConversationPageWithAccountSwitch() {
       >
         切换账号
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          hostMock.serverUrl = "https://another-desktop.example.test"
+          setVersion((value) => value + 1)
+        }}
+      >
+        切换服务器
+      </button>
       <ConversationPage />
     </>
   )
@@ -989,20 +1005,17 @@ function renderConversationPage(
       </BootstrapContext.Provider>
     )
   }
+  const conversationPage = options.navigation ? (
+    <ConversationPageWithNavigation pageProps={pageProps} />
+  ) : options.accountSwitch ? (
+    <ConversationPageWithAccountSwitch />
+  ) : (
+    <ConversationPage {...pageProps} />
+  )
   const routes = (
     <Routes>
-      <Route
-        path="/conversations/:conversationId"
-        element={
-          options.navigation ? (
-            <ConversationPageWithNavigation pageProps={pageProps} />
-          ) : options.accountSwitch ? (
-            <ConversationPageWithAccountSwitch />
-          ) : (
-            <ConversationPage {...pageProps} />
-          )
-        }
-      />
+      <Route path="/conversations/new" element={conversationPage} />
+      <Route path="/conversations/:conversationId" element={conversationPage} />
       <Route
         path="/settings/general"
         element={<SettingsPageWithNavigation />}
@@ -1075,6 +1088,7 @@ describe("conversation execution target", () => {
     await i18n.changeLanguage("zh-CN")
     setAccessToken("execution-target-access-token")
     hostMock.mac = true
+    hostMock.serverUrl = "https://desktop.example.test"
     authMock.user = { ...authMock.initial }
     authMock.useRealProvider = false
     deviceStatusMock.reset()
@@ -1097,6 +1111,157 @@ describe("conversation execution target", () => {
     window.innerWidth = 1024
     vi.unstubAllGlobals()
   })
+
+  it("starts a new task at the saved Local default without prewarming the cloud", async () => {
+    window.localStorage.setItem(savedDefaultTargetKey, "local")
+    deviceStatusMock.setData(readyDeviceStatus())
+    const fixture = installApi({ deferModelPreference: true })
+    const interaction = userEvent.setup()
+    renderConversationPage("/conversations/new")
+
+    expect(
+      screen.getByRole("button", { name: "运行位置：本地电脑" })
+    ).toBeVisible()
+    await fixture.resolveModelPreference()
+    expect(fixture.prewarms).toHaveLength(0)
+
+    await interaction.type(
+      screen.getByRole("textbox", { name: "任务输入框" }),
+      "在这台 Mac 上运行"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() =>
+      expect(fixture.createdBodies).toEqual([
+        {
+          collaboration_mode: "default",
+          project_id: null,
+          execution_target: "local",
+          desktop_device_id: "device-1",
+        },
+      ])
+    )
+    expect(fixture.prewarms).toHaveLength(0)
+  })
+
+  it.each([
+    {
+      block: "the device is offline",
+      status: { state: "offline" } as const,
+      bootstrap: desktopRollout(),
+      error: /这台 Mac 当前无法运行本地任务/u,
+    },
+    {
+      block: "rollout disables Local",
+      status: readyDeviceStatus(),
+      bootstrap: desktopRollout({ local_computer: false }),
+      error: /这台 Mac 的本地任务当前不可用/u,
+    },
+  ])(
+    "keeps the saved Local selection and draft without prewarming or creating when $block",
+    async ({ status, bootstrap, error }) => {
+      window.localStorage.setItem(savedDefaultTargetKey, "local")
+      deviceStatusMock.setData(status)
+      const fixture = installApi()
+      const interaction = userEvent.setup()
+      renderConversationPage("/conversations/new", undefined, { bootstrap })
+
+      expect(
+        screen.getByRole("button", { name: "运行位置：本地电脑" })
+      ).toBeVisible()
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+      await interaction.type(input, "仅在本地运行的草稿")
+      const send = screen.getByRole("button", { name: "发送" })
+      await waitFor(() => expect(send).toBeEnabled())
+      await interaction.click(send)
+
+      expect(await screen.findByText(error)).toBeVisible()
+      expect(input).toHaveValue("仅在本地运行的草稿")
+      expect(
+        screen.getByRole("button", { name: "运行位置：本地电脑" })
+      ).toBeVisible()
+      expect(fixture.prewarms).toHaveLength(0)
+      expect(fixture.createdBodies).toHaveLength(0)
+    }
+  )
+
+  it.each(["task navigation", "the composer new task command"] as const)(
+    "uses the saved Local value again after %s",
+    async (reset) => {
+      window.localStorage.setItem(savedDefaultTargetKey, "local")
+      deviceStatusMock.setData(readyDeviceStatus())
+      const fixture = installApi({
+        conversations: { other: conversationDetail("other", "cloud") },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage("/conversations/new", undefined, {
+        navigation: true,
+      })
+
+      await interaction.click(
+        screen.getByRole("button", { name: "运行位置：本地电脑" })
+      )
+      await interaction.click(
+        await screen.findByRole("radio", { name: "云电脑" })
+      )
+      expect(
+        screen.getByRole("button", { name: "运行位置：云电脑" })
+      ).toBeVisible()
+      expect(window.localStorage.getItem(savedDefaultTargetKey)).toBe("local")
+
+      if (reset === "task navigation") {
+        await interaction.click(
+          screen.getByRole("button", { name: "切换任务" })
+        )
+        await waitFor(() =>
+          expect(screen.getByTestId("conversation-route")).toHaveTextContent(
+            "/conversations/other"
+          )
+        )
+        await interaction.click(
+          screen.getByRole("button", { name: "返回任务" })
+        )
+      } else {
+        await interaction.type(
+          screen.getByRole("textbox", { name: "任务输入框" }),
+          "/new"
+        )
+        await interaction.keyboard("{Enter}")
+        expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
+          ""
+        )
+      }
+
+      expect(
+        screen.getByRole("button", { name: "运行位置：本地电脑" })
+      ).toBeVisible()
+      expect(fixture.createdBodies).toHaveLength(0)
+    }
+  )
+
+  it.each(["切换账号", "切换服务器"])(
+    "does not carry the Local override into a different preference scope after %s",
+    async (switchLabel) => {
+      deviceStatusMock.setData(readyDeviceStatus())
+      const fixture = installApi({ deferModelPreference: true })
+      const interaction = userEvent.setup()
+      renderConversationPage("/conversations/new", undefined, {
+        accountSwitch: true,
+      })
+
+      await selectLocalTarget(interaction)
+      expect(
+        screen.getByRole("button", { name: "运行位置：本地电脑" })
+      ).toBeVisible()
+      expect(window.localStorage.getItem(savedDefaultTargetKey)).toBeNull()
+      await interaction.click(screen.getByRole("button", { name: switchLabel }))
+
+      expect(
+        screen.getByRole("button", { name: "运行位置：云电脑" })
+      ).toBeVisible()
+      expect(fixture.createdBodies).toHaveLength(0)
+    }
+  )
 
   it("creates a local task with the ready device and without a cloud reservation", async () => {
     deviceStatusMock.setData({
@@ -1472,6 +1637,7 @@ describe("conversation execution target", () => {
   ] as const)(
     "does not offer the picker in an %s context",
     async (_, props) => {
+      window.localStorage.setItem(savedDefaultTargetKey, "local")
       installApi()
       renderConversationPage("/conversations/new", props)
 
@@ -4012,6 +4178,7 @@ describe("conversation execution target", () => {
 
     it("keeps ordinary Web creation unchanged when both rollout flags are off", async () => {
       hostMock.mac = false
+      window.localStorage.setItem(savedDefaultTargetKey, "local")
       const fixture = installApi()
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/new", undefined, {

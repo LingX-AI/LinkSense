@@ -61,8 +61,14 @@ describe("desktop execution messages", () => {
   it("falls back to zh-CN when a locale bundle is missing", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
-    expect(fallback.t("desktopExecution.deviceOffline", { lng: "en-US" })).toBe(
-      desktopExecutionMessages["zh-CN"].deviceOffline
-    )
+    for (const key of [
+      "deviceOffline",
+      "defaultTarget",
+      "defaultTargetSaveFailed",
+    ] as const) {
+      expect(fallback.t(`desktopExecution.${key}`, { lng: "en-US" })).toBe(
+        desktopExecutionMessages["zh-CN"][key]
+      )
+    }
   })
 })

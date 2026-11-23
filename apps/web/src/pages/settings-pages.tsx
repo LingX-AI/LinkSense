@@ -31,6 +31,8 @@ import {
 } from "@/adapters/desktop/desktop-adapter"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
+import { desktopExecutionDefaultTargetKey } from "@/features/desktop-execution/desktop-execution-default-target"
+import { DesktopExecutionDefaultTargetSettings } from "@/features/desktop-execution/desktop-execution-default-target-settings"
 import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
 import {
   personalizationSettingsSchema,
@@ -124,6 +126,7 @@ export function SettingsGeneralPage() {
   const { t } = useTranslation()
   const location = useLocation()
   const { user, refreshUser } = useAuth()
+  const defaultTargetKey = desktopExecutionDefaultTargetKey(user?.id)
   useEffect(() => {
     if (location.hash !== "#browser-extension") return
     const target = document.getElementById("browser-extension")
@@ -301,6 +304,12 @@ export function SettingsGeneralPage() {
               />
             }
           >
+            {defaultTargetKey && (
+              <DesktopExecutionDefaultTargetSettings
+                key={defaultTargetKey}
+                preferenceKey={defaultTargetKey}
+              />
+            )}
             <DesktopDevicesSettings key={user.id} ownerId={user.id} />
           </SettingsCard>
         )}
