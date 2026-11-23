@@ -1,9 +1,8 @@
 # Privacy masking
 
-Privacy masking replaces recognized secrets and configured words in text
-that leaves the runner's model gateway. Matching values are replaced with
-stable placeholders; known placeholders in the reply are restored before
-Codex sees them.
+Privacy masking replaces or blocks recognized sensitive values in text that
+leaves the runner's model gateway. Replacement uses stable placeholders; known
+placeholders in the reply are restored before Codex sees them.
 
 It is **wire masking**, not storage redaction. LinkSense still stores task
 history, events, and tool output as written. The feature is for users who do
@@ -42,7 +41,7 @@ The settings are per user:
 
 ## What is masked
 
-Phase 1 masks:
+The original rules still cover:
 
 - private-key blocks, common API-key shapes (OpenAI, Anthropic, GitHub,
   GitLab, Google, Slack, AWS, Stripe, Hugging Face, Groq, xAI, npm, PyPI,
@@ -51,6 +50,29 @@ Phase 1 masks:
   `password = ...` / `api_key: ...` assignments;
 - Chinese, Japanese, and Korean “password/key/token is …” phrases;
 - words the user adds on Settings → Privacy masking (`/settings/mask`).
+
+Personal information detection is opt-in by category:
+
+| Category | What the built-in detector recognizes |
+| --- | --- |
+| Email | Common ASCII addresses with a dotted domain. |
+| Phone | Valid international numbers with `+`; optionally also local numbers for the selected region (CN, US, ES, BR, FR, JP). |
+| ID card | 18-character mainland China resident ID format with a valid birth date and check character; not a check of actual issuance. |
+| Bank card | 13–19 digits with a valid Luhn checksum and a recognized card label or tool argument field; a bare number is not enough. |
+
+The literal word list is unchanged. Custom rules add up to 16 named entries:
+
+- **ID template:** a case-sensitive literal prefix plus 1–19 decimal digits,
+  with identifier boundaries (`CUS-` and `6`, for example).
+- **Regular expression:** RE2 syntax, up to 160 characters and 256 compiled
+  instructions. The full match is protected, not just a capture group.
+  Lookarounds and backreferences are not enabled. The engine rejects patterns
+  matching the empty input, and fails closed on contextual zero-length matches.
+
+Each new category or custom rule can replace and restore a match or block
+the entire request. The case-insensitive exact-value allowlist still applies
+to both actions. A blocking match cannot be hidden by an overlapping
+replacement; overlapping replacements cover the whole matched span.
 
 The request walker keeps structural values intact: model ids, message and
 tool-call ids, tool names and schemas, tool-choice, `prompt_cache_key`,
@@ -71,18 +93,18 @@ valid. Values live only in the runner process's memory, bounded and evicted
 oldest-first; a value evicted before its reply arrives stays a placeholder
 rather than leaking.
 
-Matching respects the user's “any case” and “whole word” choices, and an
-allowlisted value is sent as written. Per-kind actions are supported by the
-engine (`mask`, `warn`, `block`); Phase 1 exposes only `mask`.
+The literal list respects the user's “any case” and “whole word” choices.
+The replacement format is not configurable: each distinct value needs its
+own placeholder to be restored.
 
 ## Settings page
 
-`/settings/mask` (Personal settings group) holds the enable switch, the
-secret rules, custom words and their matching options, the allowlist, and a
-try-it box. The try-it masks the sample text with the draft settings,
-highlights the placeholders, and lists the kinds it found; it works while
-masking is off so a user can check the rules before enabling them. The page
-saves all sections with one revisioned request.
+`/settings/mask` (Personal settings group) holds the enable switch, rules,
+allowlist, and a try-it box. The try-it uses the unsaved settings, highlights
+outbound text replacements, and names the matched categories and custom
+rules. A blocking match shows that nothing would be sent. Preview tests
+sample text, not the structure of a full model request. It works while
+masking is off, and the page saves all settings with one revisioned request.
 
 The masking rules and the masker live in
 `packages/shared/src/privacy-masking-engine`, so the API preview and the
@@ -110,6 +132,8 @@ An unknown placeholder is left as it is; the gateway never guesses a value.
 
 - Masking enabled and the engine throws → `503 privacy_masking_unavailable`,
   and no request is sent.
+- Advanced rules enforce text, match count, and processing budgets. An
+  over-budget request fails closed rather than skipping any rules.
 - A kind set to `block` is found, or replacement would change the structure
   of JSON arguments → `422 privacy_masking_blocked`, and no request is sent.
 - Settings that cannot be decrypted or validated →
@@ -130,6 +154,12 @@ An unknown placeholder is left as it is; the gateway never guesses a value.
   Drain old API instances that predate Mask: they do not read the settings
   and can send unmasked traffic. Runners that predate Mask cannot accept
   enabled settings. Do not roll protected traffic back to those builds.
+- Advanced rules add optional fields to the existing encrypted settings.
+  No new migration is required. Old rows retain their behavior and new
+  categories stay off until explicitly enabled. An update omitting the new
+  fields does not erase them. Upgrade all three layers and refresh old Web
+  tabs before saving advanced rules; older strict schemas do not understand
+  the new fields or preview results.
 - A newer API accepts count-only captures. If an API that supports activity
   but predates hints rejects a capture, the newer Runner submits its counts
   once without hints. New Web reads count-only rows and can fall back to
@@ -147,7 +177,7 @@ An unknown placeholder is left as it is; the gateway never guesses a value.
 - In a shared conversation, model calls use the conversation owner's
   settings, because the owner's runtime performs the turn.
 - Public-knowledge runtimes, title generation, web search, image prompts,
-  and knowledge embeddings do not use these settings in Phase 1.
+  and knowledge embeddings do not use these settings.
 
 ## Known limits
 
@@ -168,6 +198,7 @@ An unknown placeholder is left as it is; the gateway never guesses a value.
 ## Tests
 
 ```bash
+pnpm --filter @linksense/shared exec vitest run tests/privacy-masking-rules.test.ts
 pnpm --filter @linksense/runner exec vitest run test/privacy-masking.test.ts test/model-gateway-privacy-masking.test.ts
 pnpm --filter @linksense/api exec vitest run test/privacy-masking-settings.test.ts test/privacy-masking-routes.test.ts
 pnpm --filter @linksense/web exec vitest run src/features/privacy-masking/privacy-masking-settings.test.tsx
