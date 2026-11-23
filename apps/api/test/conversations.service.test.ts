@@ -12436,6 +12436,37 @@ describe("ConversationService pending and turn materialization", () => {
 });
 
 describe("conversation side chats", () => {
+  it("rejects a new local side chat when desktop local execution is disabled without writing", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    fixture.prisma.$queryRaw.mockResolvedValue([{ deviceEpoch: NOW, ownerEpoch: NOW }]);
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0];
+      return Array.isArray(query) && query.join("").includes("FROM desktop_devices")
+        ? [{ deviceEpoch: NOW, ownerEpoch: NOW }]
+        : [{ id: parent.id, projectId: parent.projectId, workspaceRelPath: parent.workspaceRelPath }];
+    });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
+      source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
+    }, false)).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.prisma.conversationTurn.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+    expect(await readdir(fixture.root)).toEqual([]);
+  });
+
   it("keeps a side chat on its parent's local device without preparing a cloud runtime", async () => {
     const fixture = await conversationFixture();
     const deviceId = "10000000-0000-4000-8000-000000000009";
@@ -12456,10 +12487,106 @@ describe("conversation side chats", () => {
     });
     await fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
       source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
-    });
+    }, true);
     expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       executionTarget: "local", desktopDeviceId: deviceId, workspaceRelPath: parent.workspaceRelPath,
     }) });
+    expect(fixture.defaultTransaction.usageActivityRecord.create).toHaveBeenCalledOnce();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+  });
+
+  it("creates a cloud side chat through the existing runner when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const parent = conversationRow({ codexThreadId: "cloud-parent-thread", executionTarget: "cloud", desktopDeviceId: null });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace` }]);
+    await fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
+      source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
+    }, false);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      executionTarget: "cloud", desktopDeviceId: null, sideChatParentId: CONVERSATION_ID,
+    }) });
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to create a local side chat on a revoked device without writing", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.$queryRaw.mockResolvedValue([{ deviceEpoch: NOW, ownerEpoch: new Date(NOW.getTime() + 1) }]);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
+      source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
+    }, true)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+    expect(await readdir(fixture.root)).toEqual([]);
+  });
+
+  it("reuses an existing local side chat selection without writing when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false };
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: SECOND_CONVERSATION_ID, sideChatParentId: CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      sideChatReferenceJson: { ...selection, id: PLAN_MESSAGE_ID, source_conversation_id: CONVERSATION_ID, source_title: "Parent task", recent_messages: [] },
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? child : parent);
+    await expect(fixture.service.getSideChat(OWNER_ID, CONVERSATION_ID)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection, false)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    expect(fixture.prisma.conversationTurn.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("updates only an existing local side chat reference when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "changed quote", include_recent_messages: false };
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: SECOND_CONVERSATION_ID, sideChatParentId: CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      sideChatReferenceJson: { source_message_id: MESSAGE_ID, selection_text: "old quote", include_recent_messages: false,
+        id: PLAN_MESSAGE_ID, source_conversation_id: CONVERSATION_ID, source_title: "Parent task", recent_messages: [] },
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? child : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection, false)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    expect(fixture.prisma.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: SECOND_CONVERSATION_ID, ownerId: OWNER_ID, sideChatParentId: CONVERSATION_ID },
+      data: { sideChatReferenceJson: expect.objectContaining({ selection_text: selection.selection_text, source_conversation_id: CONVERSATION_ID }) },
+    });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
     expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
   });
 
@@ -12471,7 +12598,7 @@ describe("conversation side chats", () => {
     fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
     fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
     fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: APPLICATION_ID, workspaceRelPath: `${OWNER_ID}/home/projects/${APPLICATION_ID}` }]);
-    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, { source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, { source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false }, true)).rejects.toMatchObject({ code: "CONFLICT" });
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
   });
   it.each([true, false])("handles a simultaneous first open without returning another selection (same selection=%s)", async sameSelection => {
@@ -12488,7 +12615,7 @@ describe("conversation side chats", () => {
       createdConcurrently = true;
       throw new Prisma.PrismaClientKnownRequestError("unique parent", { code: "P2002", clientVersion: "test" });
     });
-    const opened = fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection);
+    const opened = fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection, true);
     if (sameSelection) await expect(opened).resolves.toMatchObject({ conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text } });
     else await expect(opened).rejects.toMatchObject({ code: "CONFLICT" });
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
@@ -12531,13 +12658,13 @@ describe("conversation side chats", () => {
     fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace` }]);
     const service = createService(fixture, fixture.root);
     const selection = { source_message_id: MESSAGE_ID, selection_text: "source quote", include_recent_messages: true };
-    const opened = await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection);
+    const opened = await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection, true);
     expect(opened.parent_conversation_id).toBe(CONVERSATION_ID);
     expect(opened.conversation_id).not.toBe(CONVERSATION_ID);
     expect(fixture.prisma.conversation.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ sideChatParentId: CONVERSATION_ID, preferredModel: "test-model", codexThreadId: null }) }));
     expect(fixture.runner.forkThread).not.toHaveBeenCalled();
     expect(fixture.runner.interrupt).not.toHaveBeenCalled();
-    expect(await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection)).toEqual(opened);
+    expect(await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection, true)).toEqual(opened);
     expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
   });
 

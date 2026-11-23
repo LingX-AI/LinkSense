@@ -3369,13 +3369,14 @@ export class ConversationService {
     return row ? projectSideChat(row) : null;
   }
 
-  async openSideChat(ownerId: string, conversationId: string, selection: SideChatSelection): Promise<SideChat> {
+  async openSideChat(ownerId: string, conversationId: string, selection: SideChatSelection, desktopLocalExecutionEnabled: boolean): Promise<SideChat> {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
       const parent = await this.assertOwner(ownerId, conversationId);
       if (parent.sideChatParentId) throw new AppError("CONFLICT");
       const roles = await readConversationDevelopmentRoles(this.prisma, ownerId, [parent]);
       if (roles.has(parent.id)) throw new AppError("CONFLICT");
       const existing = await this.getSideChat(ownerId, conversationId);
+      if (!existing && parent.executionTarget === "local" && !desktopLocalExecutionEnabled) throw new AppError("RUNNER_UNAVAILABLE");
       if (
         existing &&
         existing.reference.source_message_id === selection.source_message_id &&

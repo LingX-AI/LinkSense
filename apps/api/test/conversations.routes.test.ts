@@ -38,7 +38,30 @@ describe("side chat routes", () => {
     const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
     const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
     expect(response.statusCode, response.body).toBe(200);
-    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, false);
+  });
+
+  it("passes enabled desktop local execution policy to the side-chat service", async () => {
+    const { app, openSideChat } = await conversationRouteFixture(null, false, { desktopLocalExecutionEnabled: true });
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, true);
+  });
+
+  it("maps a rejected local side chat to the existing unavailable error", async () => {
+    const { app, openSideChat } = await conversationRouteFixture(null, false, { desktopLocalExecutionEnabled: false });
+    openSideChat.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
+    expect(response.statusCode, response.body).toBe(503);
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "RUNNER_UNAVAILABLE",
+      message_key: "errors.runner.unavailable",
+      request_id: expect.any(String),
+    });
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, false);
   });
 
   it("rejects oversized quotes and unexpected parent IDs before creating a conversation", async () => {
@@ -1603,11 +1626,14 @@ async function conversationRouteFixture(
     status: "starting" as const,
   }));
   const getSideChat = vi.fn(async () => null);
-  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection) => ({
-    conversation_id: TURN_ID,
-    parent_conversation_id: parentId,
-    reference: { ...selection, id: IDEMPOTENCY_KEY, source_conversation_id: parentId, source_title: "Task", recent_messages: [] },
-  }));
+  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection, desktopLocalExecutionEnabled: boolean) => {
+    void desktopLocalExecutionEnabled;
+    return {
+      conversation_id: TURN_ID,
+      parent_conversation_id: parentId,
+      reference: { ...selection, id: IDEMPOTENCY_KEY, source_conversation_id: parentId, source_title: "Task", recent_messages: [] },
+    };
+  });
   const startGoal = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000005",
     accepted: true as const,

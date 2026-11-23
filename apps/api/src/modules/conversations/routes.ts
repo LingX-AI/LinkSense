@@ -172,7 +172,7 @@ export const conversationRoutes: FastifyPluginAsync<{
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
     const selection = sideChatSelectionSchema.parse(request.body);
-    return reply.send(ok(await services.conversations.openSideChat(user.id, id, selection), request.id));
+    return reply.send(ok(await services.conversations.openSideChat(user.id, id, selection, services.config.desktopLocalExecutionEnabled), request.id));
   });
 
   app.get("/", async (request, reply) => {
