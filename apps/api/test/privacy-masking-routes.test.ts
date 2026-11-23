@@ -82,6 +82,7 @@ describe("privacy masking routes", () => {
       },
     });
     expect(update.statusCode).toBe(200);
+    expect(update.headers["cache-control"]).toBe("private, no-store");
     expect(updateForUser).toHaveBeenCalledWith(
       userId,
       expect.objectContaining({ expected_revision: 1 }),

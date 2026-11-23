@@ -3,7 +3,11 @@ import type {
   PrivacyMaskHit,
   PrivacyMasker,
 } from "@linksense/shared/privacy-masking-engine";
-import type { PrivacyMaskingLocation } from "@linksense/shared";
+import {
+  MAX_ADVANCED_PRIVACY_MASKING_HITS,
+  MAX_ADVANCED_PRIVACY_MASKING_TEXT_LENGTH,
+  type PrivacyMaskingLocation,
+} from "@linksense/shared";
 
 type JsonObject = Record<string, unknown>;
 
@@ -108,6 +112,8 @@ export function maskResponsesRequest(
   masker: PrivacyMasker,
 ): MaskRequestHit[] {
   const hits: MaskRequestHit[] = [];
+  let remainingText = MAX_ADVANCED_PRIVACY_MASKING_TEXT_LENGTH;
+  const deadline = performance.now() + 500;
   const mask = (
     value: string,
     context: MaskContext,
@@ -116,7 +122,18 @@ export function maskResponsesRequest(
     if (/^data:[^,]*;base64,[A-Za-z0-9+/]*={0,2}$/u.test(value)) {
       return value;
     }
+    if (masker.hasAdvancedRules) {
+      remainingText -= value.length;
+      if (remainingText < 0 || performance.now() > deadline) {
+        throw new Error("Advanced privacy masking request budget exceeded");
+      }
+    }
     const result = masker.maskText(value, context);
+    if (masker.hasAdvancedRules &&
+      (hits.length + result.hits.length > MAX_ADVANCED_PRIVACY_MASKING_HITS ||
+        performance.now() > deadline)) {
+      throw new Error("Advanced privacy masking request budget exceeded");
+    }
     hits.push(...result.hits.map((hit) => ({ ...hit, location })));
     return result.text;
   };

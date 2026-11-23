@@ -407,6 +407,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (!this.listeningBaseUrl || this.closing) {
       throw new Error("model gateway is unavailable");
     }
+    const masker = input.privacyMasking ? new PrivacyMasker(input.privacyMasking) : null;
     const token = randomBytes(32).toString("base64url");
     const turnCorrelation: StoredLease["turnCorrelation"] = { current: null };
     const transitionSource: StoredLease["transitionSource"] = {
@@ -425,9 +426,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         manualModelTransitionCompaction,
       }),
     );
-    if (input.privacyMasking) {
-      this.privacyMaskers.set(token, new PrivacyMasker(input.privacyMasking));
-    }
+    if (masker) this.privacyMaskers.set(token, masker);
     let released = false;
     return {
       token,

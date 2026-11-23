@@ -147,7 +147,7 @@ export const meRoutes: FastifyPluginAsync<{
     app.put("/privacy-masking-settings", async (request, reply) => {
       const actor = await authentication.getActor(request);
       const input = updatePrivacyMaskingSettingsSchema.parse(request.body);
-      return reply.send(
+      return reply.header("cache-control", "private, no-store").send(
         ok(
           await privacyMaskingSettings.updateForUser(
             actor.id,

@@ -14,6 +14,7 @@ import type {
   RunnerMemoryUsageCapture,
   RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
+import { MAX_ADVANCED_PRIVACY_MASKING_TEXT_LENGTH } from "@linksense/shared";
 
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
 import { parseSseStream } from "../src/model-gateway/sse.js";
@@ -23,6 +24,7 @@ type JsonObject = Record<string, unknown>;
 const closers: Array<() => Promise<void>> = [];
 const secret = `sk-proj-${"q".repeat(32)}`;
 const placeholderKey = "d".repeat(64);
+const businessRuleId = "10000000-0000-4000-8000-000000000002";
 
 const masking: PrivacyMaskingRuntime = {
   revision: 1,
@@ -530,6 +532,88 @@ describe("ModelGateway privacy masking", () => {
     });
     expect(response.status).toBe(422);
     expect(await response.text()).not.toContain(secret);
+    expect(fetchUpstream).not.toHaveBeenCalled();
+  });
+
+  it("masks an email and custom ID in an actual provider request and restores both in the reply", async () => {
+    const original = "Contact demo@example.test about CUS-123456 (order 991234).";
+    const userInput = {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: original }],
+    };
+    const fetchUpstream = vi.fn<typeof fetch>(async (_url, init) => {
+      const body: unknown = JSON.parse(String(init?.body));
+      const messages: unknown[] = isObject(body) && Array.isArray(body.input) ? body.input : [];
+      const user = messages.find((message) => isObject(message) && message.role === "user");
+      const part: unknown = isObject(user) && Array.isArray(user.content) ? user.content[0] : undefined;
+      if (!isObject(part) || typeof part.text !== "string") throw new Error("Missing provider input");
+      return Response.json({
+        id: "resp-advanced-masking", object: "response", status: "completed",
+        output: [{
+          type: "message", role: "assistant", content: [{ type: "output_text", text: part.text }],
+        }],
+      });
+    });
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "advanced-masking",
+      revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1",
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: {
+        ...masking,
+        personal_rules: { EMAIL: "mask" },
+        custom_rules: [{
+          id: businessRuleId, name: "Customer ID", type: "prefix_digits",
+          prefix: "CUS-", digits: 6, action: "mask",
+        }],
+      },
+    });
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: [userInput] });
+    expect(response.status).toBe(200);
+    expect(fetchUpstream).toHaveBeenCalledOnce();
+    const outbound = String(fetchUpstream.mock.calls[0]?.[1]?.body);
+    expect(outbound).not.toContain("demo@example.test");
+    expect(outbound).not.toContain("CUS-123456");
+    expect(outbound).not.toContain("Customer ID");
+    expect(outbound).toContain("{{EMAIL_");
+    expect(outbound).toContain("{{TERM_");
+    expect(outbound).toContain("order 991234");
+    expect(await response.json()).toMatchObject({
+      output: [{ content: [{ text: original }] }],
+    });
+  });
+
+  it.each([
+    { input: "CUS-123456@example.test", status: 422, code: "privacy_masking_blocked" },
+    { input: "x".repeat(MAX_ADVANCED_PRIVACY_MASKING_TEXT_LENGTH + 1), status: 503, code: "privacy_masking_unavailable" },
+  ])("does not call upstream when an advanced policy stops a request ($code)", async ({ input, status, code }) => {
+    const fetchUpstream = vi.fn<typeof fetch>();
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "advanced-block-masking",
+      revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1",
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: {
+        ...masking,
+        personal_rules: { EMAIL: "mask" },
+        custom_rules: [{
+          id: businessRuleId, name: "Customer ID", type: "regex",
+          pattern: "CUS-[0-9]{6}", action: "block",
+        }],
+      },
+    });
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input });
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ error: { code } });
     expect(fetchUpstream).not.toHaveBeenCalled();
   });
 
