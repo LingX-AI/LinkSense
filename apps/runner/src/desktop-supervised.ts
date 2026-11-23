@@ -112,6 +112,12 @@ const fail = () => {
   // Go owns the OS process group, including grandchildren of a failed worker.
   process.stdin.destroy(new Error("desktop worker lost"))
 }
+// A write to a pipe the owner already closed surfaces twice: once in the
+// write callback that rejects writeLine, and once as a stream error that has no
+// listener and would otherwise kill this process before fail runs. Register the
+// listener once, before the first write; fail then reaches the same stdin
+// destroy and orderly shutdown path whether or not a write is pending.
+process.stdout.on("error", fail)
 try {
   const input = frames()
   const initial = await input.next()

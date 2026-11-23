@@ -373,7 +373,7 @@ async function main() {
           ? await verifyDesktopUpdateArtifacts(output, update, app) : undefined;
         if (nativeSmoke) {
           await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtimePath], { cwd: root });
-          const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn|DesktopForcedQuitReclaimsCodexChild)$" : "^TestPackagedRuntimeSupervisor$";
+          const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn|DesktopForcedQuitReclaimsCodexChild|DesktopEpipeReclaim)$" : "^TestPackagedRuntimeSupervisor$";
           await run("go", ["test", "-tags", "desktop_runtime_package", "-run", tests, "-count=1", "-timeout=180s", "./..."], {
             env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtimePath },
           });
