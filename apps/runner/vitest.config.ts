@@ -13,6 +13,7 @@ const isolatedTests = [
   "test/desktop-computer-callback.test.ts",
   "test/interactive-form-service.test.ts",
   "test/event-outbox.test.ts",
+  "test/computer-use-service.test.ts",
 ]
 
 export default defineConfig({
