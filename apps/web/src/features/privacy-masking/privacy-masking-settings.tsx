@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   FlaskConicalIcon,
   ShieldCheckIcon,
@@ -12,10 +12,12 @@ import {
   MAX_PRIVACY_MASKING_VALUES,
   MAX_PRIVACY_MASKING_WORDS,
   defaultPrivacyMaskingSettings,
-  type PrivacyMaskingKind,
+  privacyMaskingSettingsSchema,
+  type PrivacyMaskingPreviewResponse,
   type PrivacyMaskingSettings,
 } from "@linksense/shared";
 
+import { ApiError } from "@/api/client";
 import { getErrorMessage } from "@/api/error-message";
 import { notify } from "@/components/feedback/notification";
 import { StatusBanner } from "@/components/feedback/status-banner";
@@ -32,6 +34,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PrivacyMaskingActivityCard } from "@/features/privacy-masking/privacy-masking-activity-card";
 import { privacyMaskingKindLabelKeys } from "@/features/privacy-masking/kinds";
+import { PrivacyMaskingRules } from "@/features/privacy-masking/privacy-masking-rules";
+import { ruleFieldId, type RuleFieldError } from "@/features/privacy-masking/rule-field";
 import {
   usePrivacyMaskingPreview,
   usePrivacyMaskingSettings,
@@ -46,6 +50,53 @@ function parseLines(value: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+function rejectedRegexId(error: unknown): string | null {
+  const id = error instanceof ApiError && error.errorCode === "VALIDATION_ERROR"
+    ? error.params?.privacy_masking_rule_id
+    : null;
+  return typeof id === "string" ? id : null;
+}
+
+function PreviewHits({
+  hits,
+  rules,
+}: {
+  hits: PrivacyMaskingPreviewResponse["hits"];
+  rules: PrivacyMaskingSettings["custom_rules"];
+}) {
+  const { t } = useTranslation();
+  const names = new Map(rules?.map(({ id, name }) => [id, name]));
+  const labels = new Map<string, { name: string; action: string; count: number }>();
+  for (const hit of hits) {
+    const add = (key: string, name: string) => {
+      const id = `${key}:${hit.action}`;
+      const label = labels.get(id);
+      if (label) label.count++;
+      else labels.set(id, { name, action: t(`privacyMaskingRules.${hit.action}`), count: 1 });
+    };
+    const ruleIds = hit.rule_ids ?? [];
+    for (const kind of new Set([hit.kind, ...(hit.related_kinds ?? [])])) {
+      if (kind !== "TERM" || ruleIds.length === 0) add(kind, t(privacyMaskingKindLabelKeys[kind]));
+    }
+    for (const id of ruleIds) {
+      const name = names.get(id);
+      if (name !== undefined) add(id, name);
+    }
+  }
+  return (
+    <ul className="flex min-w-0 flex-wrap gap-1.5">
+      {[...labels].map(([id, label]) => (
+        <li
+          key={id}
+          className="max-w-full rounded-full border border-border bg-background px-2 py-0.5 text-xs break-words text-muted-foreground"
+        >
+          {t("privacyMaskingRules.previewHit", label)}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** Placeholders are the only parts of the preview that are not plain text. */
@@ -80,11 +131,18 @@ export function PrivacyMaskingSettingsPage() {
   const [wordsText, setWordsText] = useState("");
   const [allowText, setAllowText] = useState("");
   const [tryInput, setTryInput] = useState("");
-  const [previewInput, setPreviewInput] = useState({
+  const [previewInput, setPreviewInput] = useState<{
+    text: string;
+    signature: string;
+    settings: PrivacyMaskingSettings | null;
+  }>({
     text: "",
+    signature: "",
     settings: defaultPrivacyMaskingSettings,
   });
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<RuleFieldError | null>(null);
+  const saveErrorRef = useRef<HTMLDivElement>(null);
   const [section, setSection] = useState<"settings" | "activity">("settings");
   const initializedRevision = useRef<number | null>(null);
 
@@ -109,54 +167,87 @@ export function PrivacyMaskingSettingsPage() {
   const settingsSignature = JSON.stringify(next);
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const parsed = privacyMaskingSettingsSchema.safeParse(JSON.parse(settingsSignature));
       setPreviewInput({
         text: tryInput,
-        settings: JSON.parse(settingsSignature) as PrivacyMaskingSettings,
+        signature: settingsSignature,
+        settings: parsed.success ? parsed.data : null,
       });
     }, previewDebounceMs);
     return () => window.clearTimeout(timer);
   }, [tryInput, settingsSignature]);
+  const previewIsCurrent = previewInput.text === tryInput && previewInput.signature === settingsSignature;
   const preview = usePrivacyMaskingPreview(
-    previewInput.text,
-    previewInput.settings
+    previewIsCurrent && previewInput.settings ? previewInput.text : "",
+    previewInput.settings ?? defaultPrivacyMaskingSettings
   );
 
   const update = (patch: Partial<PrivacyMaskingSettings>) => {
     setError(null);
+    setFieldError(null);
     setDraft((value) => ({ ...(value ?? saved), ...patch }));
   };
 
-  const save = () => {
-    if (!query.data) return;
+  const focusRuleError = (nextError: RuleFieldError) => {
+    setFieldError(nextError);
+    requestAnimationFrame(() => document.getElementById(ruleFieldId(nextError.id, nextError.field))?.focus());
+  };
+  const showSaveError = (message: string) => {
+    setError(message);
+    requestAnimationFrame(() => saveErrorRef.current?.focus());
+  };
+  const save = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!query.data || !dirty || mutation.isPending) return;
     setError(null);
+    setFieldError(null);
+    const parsed = privacyMaskingSettingsSchema.safeParse(next);
+    if (!parsed.success) {
+      for (const { path: [collection, index, field] } of parsed.error.issues) {
+        if (collection !== "custom_rules" || typeof index !== "number") continue;
+        const rule = next.custom_rules?.[index];
+        if (rule && (field === "name" || field === "prefix" || field === "digits" || field === "pattern")) {
+          focusRuleError({ id: rule.id, field, message: t("privacyMaskingRules.invalidField") });
+          return;
+        }
+      }
+      showSaveError(t("privacyMaskingRules.invalidSettings"));
+      return;
+    }
     mutation.mutate(
-      { expected_revision: query.data.revision, settings: next },
+      { expected_revision: query.data.revision, settings: parsed.data },
       {
         onSuccess: () => {
           notify.success(t("settings.privacyMaskingSaved"), {
             id: "privacy-masking-saved",
           });
         },
-        onError: (nextError) => setError(getErrorMessage(nextError, t)),
+        onError: (nextError) => {
+          const id = rejectedRegexId(nextError);
+          if (id !== null) {
+            focusRuleError({ id, field: "pattern", message: t("privacyMaskingRules.invalidRegex") });
+          } else {
+            showSaveError(getErrorMessage(nextError, t));
+          }
+        },
       }
     );
   };
 
-  const hitsByKind = new Map<PrivacyMaskingKind, number>();
-  for (const hit of preview.data?.hits ?? []) {
-    hitsByKind.set(hit.kind, (hitsByKind.get(hit.kind) ?? 0) + 1);
-  }
-
   return (
-    <div className="settings-page">
+    <form className="settings-page" method="post" noValidate onSubmit={save} aria-labelledby="privacy-masking-title">
       <header className="settings-page-header">
-        <h1 className="text-pretty">{t("settings.privacyMasking")}</h1>
+        <h1 id="privacy-masking-title" className="text-pretty">{t("settings.privacyMasking")}</h1>
         <p className="text-pretty">
           {t("settings.privacyMaskingPageDescription")}
         </p>
       </header>
 
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
+      {error && (
+        <div ref={saveErrorRef} tabIndex={-1}>
+          <StatusBanner variant="error">{error}</StatusBanner>
+        </div>
+      )}
       {!error && query.error && (
         <p className="mb-4 text-sm text-destructive">
           {getErrorMessage(query.error, t)}
@@ -208,6 +299,7 @@ export function PrivacyMaskingSettingsPage() {
               >
                 <Switch
                   id="privacy-masking-enabled"
+                  name="enabled"
                   aria-describedby="privacy-masking-enabled-hint"
                   checked={current.enabled}
                   disabled={!query.data || mutation.isPending}
@@ -222,6 +314,7 @@ export function PrivacyMaskingSettingsPage() {
               >
                 <Switch
                   id="privacy-masking-secrets"
+                  name="secrets"
                   checked={current.secrets}
                   disabled={
                     !query.data || !current.enabled || mutation.isPending
@@ -256,6 +349,7 @@ export function PrivacyMaskingSettingsPage() {
               >
                 <Switch
                   id="privacy-masking-any-case"
+                  name="words_any_case"
                   checked={current.words_any_case}
                   disabled={
                     !query.data || !current.enabled || mutation.isPending
@@ -273,6 +367,7 @@ export function PrivacyMaskingSettingsPage() {
               >
                 <Switch
                   id="privacy-masking-whole-word"
+                  name="words_whole"
                   checked={current.words_whole}
                   disabled={
                     !query.data || !current.enabled || mutation.isPending
@@ -286,6 +381,7 @@ export function PrivacyMaskingSettingsPage() {
             <div className="grid min-w-0 gap-1.5 pt-4">
               <Textarea
                 id="privacy-masking-words"
+                name="words"
                 aria-label={t("settings.privacyMaskingWords")}
                 className="min-h-32 resize-y"
                 value={wordsText}
@@ -305,6 +401,13 @@ export function PrivacyMaskingSettingsPage() {
             </div>
           </SettingsCard>
 
+          <PrivacyMaskingRules
+            settings={current}
+            disabled={!query.data || mutation.isPending}
+            onChange={update}
+            fieldError={fieldError}
+          />
+
           <SettingsCard
             aria-labelledby="privacy-masking-allow-heading"
             layout="split"
@@ -320,6 +423,7 @@ export function PrivacyMaskingSettingsPage() {
             <div className="grid min-w-0 gap-1.5">
               <Textarea
                 id="privacy-masking-allow"
+                name="allow"
                 aria-label={t("settings.privacyMaskingAllow")}
                 className="min-h-24 resize-y"
                 value={allowText}
@@ -354,6 +458,7 @@ export function PrivacyMaskingSettingsPage() {
             <div className="grid min-w-0 gap-3">
               <Textarea
                 id="privacy-masking-try"
+                name="preview_text"
                 aria-label={t("settings.privacyMaskingTryIt")}
                 className="min-h-24 resize-y font-mono text-xs"
                 value={tryInput}
@@ -374,7 +479,11 @@ export function PrivacyMaskingSettingsPage() {
                 <span className="text-xs font-medium text-muted-foreground">
                   {t("settings.privacyMaskingTryItOutput")}
                 </span>
-                {tryInput.trim().length > 0 && preview.isPending ? (
+                {tryInput.trim().length === 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    {t("settings.privacyMaskingTryItEmpty")}
+                  </span>
+                ) : !previewIsCurrent || (previewInput.settings && preview.isPending) ? (
                   <span
                     className="flex items-center gap-2 text-xs text-muted-foreground"
                     role="status"
@@ -382,28 +491,31 @@ export function PrivacyMaskingSettingsPage() {
                     <Spinner />
                     {t("common.loading")}
                   </span>
+                ) : !previewInput.settings ? (
+                  <span className="text-xs text-muted-foreground">
+                    {t("privacyMaskingRules.previewInvalid")}
+                  </span>
                 ) : preview.error ? (
                   <span className="text-xs text-destructive">
-                    {getErrorMessage(preview.error, t)}
+                    {rejectedRegexId(preview.error) !== null
+                      ? t("privacyMaskingRules.invalidRegex")
+                      : getErrorMessage(preview.error, t)}
                   </span>
                 ) : preview.data ? (
                   <>
-                    <MaskedText text={preview.data.text} />
+                    {preview.data.blocked ? (
+                      <p className="text-sm font-medium text-destructive">
+                        {t("privacyMaskingRules.previewBlocked")}
+                      </p>
+                    ) : (
+                      <MaskedText text={preview.data.text} />
+                    )}
                     {preview.data.hits.length === 0 ? (
                       <span className="text-xs text-muted-foreground">
                         {t("settings.privacyMaskingTryItEmpty")}
                       </span>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {[...hitsByKind].map(([kind, count]) => (
-                          <span
-                            key={kind}
-                            className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
-                          >
-                            {t(privacyMaskingKindLabelKeys[kind])} ×{count}
-                          </span>
-                        ))}
-                      </div>
+                      <PreviewHits hits={preview.data.hits} rules={previewInput.settings.custom_rules} />
                     )}
                   </>
                 ) : (
@@ -425,8 +537,7 @@ export function PrivacyMaskingSettingsPage() {
       {query.data && section === "settings" && (
         <div className="sticky bottom-0 z-10 -mx-4 mt-8 flex items-center justify-end gap-3 border-t border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-7 sm:px-7">
           <Button
-            type="button"
-            onClick={save}
+            type="submit"
             aria-busy={mutation.isPending || undefined}
             disabled={!dirty || mutation.isPending}
           >
@@ -435,6 +546,6 @@ export function PrivacyMaskingSettingsPage() {
           </Button>
         </div>
       )}
-    </div>
+    </form>
   );
 }
