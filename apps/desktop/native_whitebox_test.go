@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -33,8 +35,14 @@ var nativeWhitebox struct {
 	cloud         atomic.Pointer[cloudWhitebox]
 	browser       atomic.Pointer[browserUseWhitebox]
 	annotation    atomic.Pointer[annotationWhitebox]
+	deviceSignOut atomic.Pointer[nativeDeviceSignOutRequests]
 	completion    atomic.Bool
 	bootstrapFail atomic.Bool
+}
+
+type nativeDeviceSignOutRequests struct {
+	attempted atomic.Int32
+	accepted  atomic.Int32
 }
 
 // The real platform WebView runs on the main thread; fixtures never use an account or a GUI automation permission.
@@ -121,7 +129,14 @@ func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refreshToken string) {
-	if r.URL.Path == "/api/v1/desktop/devices/socket" {
+	const devicesPath = "/api/v1/desktop/devices"
+	deviceSignOut := nativeWhitebox.deviceSignOut.Load()
+	countDeviceDelete := deviceSignOut != nil && r.Method == http.MethodDelete &&
+		(r.URL.Path == devicesPath || strings.HasPrefix(r.URL.Path, devicesPath+"/"))
+	if countDeviceDelete {
+		deviceSignOut.attempted.Add(1)
+	}
+	if r.URL.Path == devicesPath+"/socket" && !countDeviceDelete {
 		socket, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -171,6 +186,17 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 	} else if r.Header.Get("x-linksense-desktop-protocol") != protocol || r.Header.Get("x-linksense-client-build") != strings.Repeat("0", 64) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "DESKTOP_UPDATE_REQUIRED"})
+		return
+	}
+	if countDeviceDelete {
+		if r.URL.EscapedPath() != devicesPath+"/"+deviceFixtureCredential().DeviceID || r.URL.RawQuery != "" || r.URL.ForceQuery {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if cloudAuthorized(w, r) {
+			deviceSignOut.accepted.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]bool{"revoked": true}})
+		}
 		return
 	}
 	// Annotation API responses must pass the same desktop protocol/build gate
@@ -502,11 +528,78 @@ func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
 	if err != nil || result != true {
 		t.Fatal("another account resumed the stored device")
 	}
+	deviceKey := serverCredentialKey(desktop.server, "device")
+	if runtime.GOOS == "darwin" {
+		// The wrong-owner request above closed the live connection. Restore it
+		// as the verified account before opening the sign-out dialog.
+		resume := fmt.Sprintf(`mygo.call("Desktop.ResumeDevice", %q)`, credential.OwnerID)
+		if _, err := page.Eval(resume); err != nil {
+			t.Fatal(err)
+		}
+		whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "online")`)
+		pairing, err := nativeWhitebox.store.Get(deviceKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		requests := &nativeDeviceSignOutRequests{}
+		nativeWhitebox.deviceSignOut.Store(requests)
+		defer nativeWhitebox.deviceSignOut.Store(nil)
+		const revokeOption = `Array.from(document.querySelectorAll('[role="dialog"] [role="checkbox"]'))
+			.find(option => option.closest("label")?.textContent.trim() === "Also revoke access for this Mac")`
+		signOut := func(revoke bool) {
+			whiteboxSignOut(t, page, func() {
+				whiteboxWait(t, page, `(`+revokeOption+`) !== undefined`)
+				checked, err := page.Eval(`(` + revokeOption + `).getAttribute("aria-checked")`)
+				if err != nil || checked != "false" {
+					t.Fatalf("the Mac revoke option should start unchecked: %v (%v)", checked, err)
+				}
+				if revoke {
+					if _, err := page.Eval(`(` + revokeOption + `).click()`); err != nil {
+						t.Fatal(err)
+					}
+					whiteboxWait(t, page, `(`+revokeOption+`)?.getAttribute("aria-checked") === "true"`)
+				}
+			})
+			whiteboxWait(t, page, `location.pathname === "/login" && document.querySelector("[data-desktop-sign-in]") !== null`)
+			whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "unpaired")`)
+		}
+		signIn := func() {
+			if _, err := page.Eval(`document.querySelector("[data-desktop-sign-in]").click()`); err != nil {
+				t.Fatal(err)
+			}
+			whiteboxWait(t, page, `location.pathname === "/conversations/new" && `+cloudAccountMenuTrigger+` !== null`)
+		}
+
+		signOut(false)
+		if attempts := requests.attempted.Load(); attempts != 0 {
+			t.Fatalf("ordinary Mac sign-out issued %d device DELETE requests", attempts)
+		}
+		if actual, err := nativeWhitebox.store.Get(deviceKey); err != nil || !bytes.Equal(actual, pairing) {
+			t.Fatal("ordinary Mac sign-out changed the existing pairing")
+		}
+		signIn()
+		whiteboxWait(t, page, fmt.Sprintf(`mygo.call("Desktop.DeviceStatus").then(status => status.state === "online" && status.deviceId === %q)`, credential.DeviceID))
+
+		signOut(true)
+		if _, err := nativeWhitebox.store.Get(deviceKey); err != mygo.ErrSecretNotFound {
+			t.Fatal("confirmed Mac revoke left the local pairing in the credential store")
+		}
+		signIn()
+		result, err := page.Eval(resume + `.then(status => status.state === "unpaired" && !status.deviceId)`)
+		if err != nil || result != true {
+			t.Fatalf("the verified account could resume a revoked pairing: %v (%v)", result, err)
+		}
+		if attempts, accepted := requests.attempted.Load(), requests.accepted.Load(); attempts != 1 || accepted != 1 {
+			t.Fatalf("Mac sign-out should send exactly one authorized DELETE for its device; attempted=%d accepted=%d", attempts, accepted)
+		}
+		return
+	}
 	if _, err := page.Eval(`mygo.call("Desktop.ClearSession")`); err != nil {
 		t.Fatal(err)
 	}
 	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.state === "unpaired")`)
-	if _, err := nativeWhitebox.store.Get(serverCredentialKey(desktop.server, "device")); err != mygo.ErrSecretNotFound {
-		t.Fatal("sign-out retained the device credential")
+	if _, err := nativeWhitebox.store.Get(deviceKey); err != mygo.ErrSecretNotFound {
+		t.Fatal("legacy cleanup retained the device credential")
 	}
 }

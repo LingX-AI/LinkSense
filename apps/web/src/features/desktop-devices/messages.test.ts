@@ -50,4 +50,23 @@ describe("desktop devices translations", () => {
       desktopDevicesMessages["zh-CN"].title
     )
   })
+
+  it.each([
+    "signOutRevoke",
+    "signOutRevokeFailed",
+    "signOutRevokeUnconfirmed",
+    "signOutDeviceChanged",
+  ] as const)(
+    "resolves the sign-out copy %s in each locale and falls back to Chinese",
+    (key) => {
+      for (const locale of supportedLanguages) {
+        expect(i18n.t(`desktopDevices.${key}`, { lng: locale })).toBe(
+          desktopDevicesMessages[locale][key]
+        )
+      }
+      expect(i18n.t(`desktopDevices.${key}`, { lng: "de-DE" })).toBe(
+        desktopDevicesMessages["zh-CN"][key]
+      )
+    }
+  )
 })

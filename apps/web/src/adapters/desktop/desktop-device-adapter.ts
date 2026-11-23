@@ -55,9 +55,13 @@ export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
   }
 }
 
-export async function readDesktopDeviceStatus(): Promise<DesktopDeviceStatus> {
+export async function readDesktopDeviceStatus(
+  signal?: AbortSignal
+): Promise<DesktopDeviceStatus> {
   if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  const value: unknown = await Desktop.deviceStatus()
+  const value: unknown = await (signal
+    ? Desktop.deviceStatus.with({ signal })()
+    : Desktop.deviceStatus())
   return parseDesktopDeviceStatus(value)
 }
 

@@ -532,7 +532,10 @@ use the signed-in account's API session. A stored pairing alone is not reused
 for another signed-in account, and losing the account hides the live device
 state without deleting the still-valid Keychain credential. After the
 system-browser sign-in and a verified refresh, the app resumes that account's
-stored Keychain device credential once; an explicit sign-out still deletes it.
+stored Keychain device credential. Ordinary sign-out clears the session and
+disconnects this Mac while keeping its pairing. To remove the pairing, select
+**Also revoke access for this Mac** when signing out; the app removes the
+matching local credential after the server confirms the revoke.
 
 New tasks default to the cloud. In **Settings → General → This Mac**, you can
 set a **Default run location** for new tasks created from this Mac, even before

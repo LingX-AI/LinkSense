@@ -54,9 +54,9 @@ import { getErrorMessage } from "@/api/error-message"
 import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { useSignOutConfirmation } from "@/components/auth/use-sign-out-confirmation"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
-import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { notify } from "@/components/feedback/notification"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -417,7 +417,7 @@ function AppSidebarContent({
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const isActiveAdmin = user?.role === "admin" && user.status === "active"
   const setupModelPreferenceQuery = useQuery({
     queryKey: ["me", "model-preference", "new"],
@@ -447,8 +447,7 @@ function AppSidebarContent({
     navigate("/conversations/new", { state: { newTaskProjectId: projectId } })
   }
   const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
-  const [signOutPending, setSignOutPending] = useState(false)
+  const { openSignOutConfirmation, signOutDialog } = useSignOutConfirmation()
   const [locallyReadConversationVersions, setLocallyReadConversationVersions] =
     useState(() => new Map<string, string>())
   const completionReadInFlightIdsRef = useRef(new Set<string>())
@@ -875,17 +874,6 @@ function AppSidebarContent({
           ),
         })
   const settingsReturnState = conversationSettingsReturnState(location)
-
-  const handleSignOut = async () => {
-    if (signOutPending) return
-    setSignOutPending(true)
-    try {
-      await signOut()
-      navigate("/login", { replace: true })
-    } finally {
-      setSignOutPending(false)
-    }
-  }
 
   const latestAutomationNotification =
     automationNotificationsQuery.data?.latest_unread
@@ -1510,7 +1498,7 @@ function AppSidebarContent({
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   className="text-[length:var(--app-ui-font-size)]"
-                  onClick={() => setSignOutConfirmOpen(true)}
+                  onClick={openSignOutConfirmation}
                 >
                   <LogOutIcon className="size-3.5" aria-hidden="true" />
                   {t("common.signOut")}
@@ -1577,18 +1565,7 @@ function AppSidebarContent({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <ConfirmDialog
-        open={signOutConfirmOpen}
-        onOpenChange={(open) => {
-          if (!signOutPending) setSignOutConfirmOpen(open)
-        }}
-        title={t("auth.signOutTitle")}
-        description={t("auth.signOutDescription", { productName })}
-        confirmLabel={t("common.signOut")}
-        destructive
-        pending={signOutPending}
-        onConfirm={() => void handleSignOut()}
-      />
+      {signOutDialog}
     </SidebarConversationOverlays>
   )
 }

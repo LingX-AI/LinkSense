@@ -31,6 +31,7 @@ import {
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
 import { resumeDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
+import type { MacSignOutOptions } from "@/adapters/desktop/mygo"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
 const AUTH_RESTORE_MAX_ATTEMPTS = 3
@@ -141,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySessionCredentials, refreshUser]
   )
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (options?: MacSignOutOptions) => {
     // The Mac's first sign-out owns the session until its logout request and
     // native ClearSession both settle. A concurrent invocation must not
     // advance the boundary, send a second logout, or enter ClearSession again:
@@ -181,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         if (!replacementAccepted()) {
           try {
-            await clearDesktopSession()
+            await clearDesktopSession(options)
           } finally {
             if (!replacementAccepted()) {
               // Notifying an already-cleared token would re-enter the account

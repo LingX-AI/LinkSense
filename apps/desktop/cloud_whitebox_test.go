@@ -382,7 +382,7 @@ func TestNativeCloudConversationStreamReconnectsAndDownloadsArtifact(t *testing.
 		secondPreviewFile := filepath.Base(secondPreviewSave.Path)
 		whiteboxWait(t, page, fmt.Sprintf(`(%s) !== undefined`, cloudShowInFinderButton))
 		whiteboxWait(t, page, cloudVisibleNoticeWithFile(secondPreviewFile))
-		whiteboxSignOut(t, page)
+		whiteboxSignOut(t, page, nil)
 		whiteboxWait(t, page, fmt.Sprintf(`location.pathname === "/login" &&
 			document.querySelector("[data-desktop-sign-in]") !== null`))
 		whiteboxWait(t, page, fmt.Sprintf(`(%s) === undefined`, cloudShowInFinderButton))
@@ -428,9 +428,9 @@ func whiteboxClickShowInFinder(t *testing.T, page *mygo.Page) {
 }
 
 // whiteboxSignOut drives the account menu, the confirmation dialog, and the
-// shared App sign-out flow. The App itself calls the native ClearSession; this
-// fixture never invokes it directly.
-func whiteboxSignOut(t *testing.T, page *mygo.Page) {
+// shared App sign-out flow, optionally interacting with the open dialog before
+// confirmation. The fixture leaves native session cleanup to the App.
+func whiteboxSignOut(t *testing.T, page *mygo.Page, beforeConfirm func()) {
 	t.Helper()
 	whiteboxWait(t, page, cloudAccountMenuTrigger+` !== null`)
 	if _, err := page.Eval(cloudAccountMenuTrigger + `.click()`); err != nil {
@@ -446,6 +446,9 @@ func whiteboxSignOut(t *testing.T, page *mygo.Page) {
 		t.Fatal(err)
 	}
 	whiteboxWait(t, page, cloudSignOutConfirm+` !== undefined`)
+	if beforeConfirm != nil {
+		beforeConfirm()
+	}
 	if _, err := page.Eval(fmt.Sprintf(`(() => {
 		const button = %s;
 		if (!button) return false;

@@ -243,6 +243,11 @@ func (d *Desktop) ResumeDevice(ctx context.Context, ownerID string) (DeviceConne
 	if err := d.checkCaller(ctx); err != nil {
 		return DeviceConnectionStatus{}, err
 	}
+	return d.resumeDevice(ownerID)
+}
+
+// Caller holds deviceSetup.
+func (d *Desktop) resumeDevice(ownerID string) (DeviceConnectionStatus, error) {
 	if blocked, err := d.session.sessionBlocked(); err != nil || blocked {
 		d.closeDevice()
 		return DeviceConnectionStatus{State: DeviceUnpaired}, err
@@ -262,21 +267,12 @@ func (d *Desktop) ResumeDevice(ctx context.Context, ownerID string) (DeviceConne
 		d.closeDevice()
 		return DeviceConnectionStatus{}, errors.New("FORBIDDEN")
 	}
-	data, err := d.session.store.Get(serverCredentialKey(d.server, "device"))
+	credential, err := d.readStoredDevice()
 	if errors.Is(err, mygo.ErrSecretNotFound) {
 		return DeviceConnectionStatus{State: DeviceUnpaired}, nil
 	}
 	if err != nil {
-		return DeviceConnectionStatus{}, errors.New("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
-	}
-	var credential deviceCredential
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if !json.Valid(data) {
-		return DeviceConnectionStatus{}, errors.New("FORBIDDEN")
-	}
-	if err := decoder.Decode(&credential); err != nil || !credential.valid() {
-		return DeviceConnectionStatus{}, errors.New("FORBIDDEN")
+		return DeviceConnectionStatus{}, err
 	}
 	// Preserve the stored pairing for a later valid sign-in, but never attach
 	// it while the proven account is someone else.
@@ -300,6 +296,40 @@ func (d *Desktop) ResumeDevice(ctx context.Context, ownerID string) (DeviceConne
 		return DeviceConnectionStatus{}, errAccountRequired
 	}
 	return status, nil
+}
+
+func (d *Desktop) readStoredDevice() (deviceCredential, error) {
+	data, err := d.session.store.Get(serverCredentialKey(d.server, "device"))
+	if errors.Is(err, mygo.ErrSecretNotFound) {
+		return deviceCredential{}, err
+	}
+	if err != nil {
+		return deviceCredential{}, errors.New("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var credential deviceCredential
+	if !json.Valid(data) || decoder.Decode(&credential) != nil || !credential.valid() {
+		return deviceCredential{}, errors.New("FORBIDDEN")
+	}
+	return credential, nil
+}
+
+// Caller holds deviceSetup. Logout may already have cleared the live account;
+// only the exact acknowledged owner/device pair can remove the stored pairing.
+func (d *Desktop) deleteRevokedDevice(revoked RevokedMacDevice) error {
+	credential, err := d.readStoredDevice()
+	if errors.Is(err, mygo.ErrSecretNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(credential.OwnerID, revoked.OwnerID) ||
+		!strings.EqualFold(credential.DeviceID, revoked.DeviceID) {
+		return nil
+	}
+	return d.session.store.Delete(serverCredentialKey(d.server, "device"))
 }
 
 func (d *Desktop) DeviceStatus(ctx context.Context) (DeviceConnectionStatus, error) {

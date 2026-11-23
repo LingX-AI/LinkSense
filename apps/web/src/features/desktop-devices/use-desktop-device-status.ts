@@ -17,7 +17,7 @@ export function useDesktopDeviceStatus(ownerId?: string) {
   const enabled = isMacDesktopHost() && Boolean(ownerId)
   return useQuery({
     queryKey: desktopDeviceStatusQueryKey(ownerId),
-    queryFn: readDesktopDeviceStatus,
+    queryFn: () => readDesktopDeviceStatus(),
     enabled,
     retry: false,
     staleTime: 0,

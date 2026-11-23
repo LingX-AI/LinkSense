@@ -21,6 +21,17 @@ type HostInfo struct {
 	ServerURL     string `json:"serverUrl"`
 	Platform      string `json:"platform"`
 	Version       string `json:"version"`
+	MacSignOut    bool   `json:"macSignOut,omitzero"`
+}
+
+// MacSignOutOptions preserves the pairing unless the UI confirmed a revoke.
+type MacSignOutOptions struct {
+	RevokedDevice *RevokedMacDevice `json:"revokedDevice,omitempty"`
+}
+
+type RevokedMacDevice struct {
+	OwnerID  string `json:"ownerId"`
+	DeviceID string `json:"deviceId"`
 }
 
 // Desktop exposes only the capabilities used by the shared application UI.
@@ -119,6 +130,24 @@ func (d *Desktop) ClearSession(ctx context.Context) error {
 	if err := d.checkCaller(ctx); err != nil {
 		return err
 	}
+	return d.clearSession(true, nil)
+}
+
+func (d *Desktop) ClearMacSession(ctx context.Context, options MacSignOutOptions) error {
+	if err := d.checkCaller(ctx); err != nil {
+		return err
+	}
+	if runtime.GOOS != "darwin" {
+		return errors.New("DESKTOP_HOST_UNAVAILABLE")
+	}
+	revoked := options.RevokedDevice
+	if revoked != nil && (!validUUID(revoked.OwnerID) || !validUUID(revoked.DeviceID)) {
+		return errors.New("VALIDATION_ERROR")
+	}
+	return d.clearSession(false, revoked)
+}
+
+func (d *Desktop) clearSession(legacyDeletePairing bool, revoked *RevokedMacDevice) error {
 	// Sign-out intent and account invalidation happen before device shutdown,
 	// which can wait for a connection to unwind. This releases pending relays
 	// and prevents an already in-flight refresh from restoring the account.
@@ -128,7 +157,12 @@ func (d *Desktop) ClearSession(ctx context.Context) error {
 	d.closeDevice()
 	d.cancelSignIn()
 	refreshErr := d.session.clearSession()
-	deviceErr := d.session.store.Delete(serverCredentialKey(d.server, "device"))
+	var deviceErr error
+	if legacyDeletePairing {
+		deviceErr = d.session.store.Delete(serverCredentialKey(d.server, "device"))
+	} else if revoked != nil {
+		deviceErr = d.deleteRevokedDevice(*revoked)
+	}
 	if refreshErr != nil || deviceErr != nil {
 		return errors.New("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
 	}
@@ -178,6 +212,7 @@ func (d *Desktop) Info(ctx context.Context) (HostInfo, error) {
 		ServerURL:     d.server.String(),
 		Platform:      runtime.GOOS,
 		Version:       version,
+		MacSignOut:    runtime.GOOS == "darwin",
 	}, nil
 }
 

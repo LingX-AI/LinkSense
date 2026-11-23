@@ -133,6 +133,17 @@ export interface HostInfo {
   serverUrl: string;
   platform: string;
   version: string;
+  macSignOut?: boolean;
+}
+
+/** MacSignOutOptions preserves the pairing unless the UI confirmed a revoke. */
+export interface MacSignOutOptions {
+  revokedDevice?: RevokedMacDevice;
+}
+
+export interface RevokedMacDevice {
+  ownerId: string;
+  deviceId: string;
 }
 
 export interface RuntimeStatus {
@@ -206,6 +217,7 @@ export const Desktop = {
   checkComputerPermission: bind<[ComputerPermissionKind], ComputerPermissionResult>("Desktop.CheckComputerPermission", (kind: ComputerPermissionKind) => [kind]),
   checkForUpdate: bind<[], DesktopUpdateResult>("Desktop.CheckForUpdate", () => []),
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
+  clearMacSession: bind<[MacSignOutOptions], void>("Desktop.ClearMacSession", (options: MacSignOutOptions) => [options]),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
   /**
    * ComputerControl is the closed M1b control binding. It is available only to

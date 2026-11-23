@@ -9,6 +9,7 @@ import {
   events,
   type CompletionNotificationInput,
   type DesktopNotificationClick,
+  type MacSignOutOptions,
 } from "./mygo"
 
 const hostInfoSchema = z.strictObject({
@@ -16,6 +17,7 @@ const hostInfoSchema = z.strictObject({
   serverUrl: z.url(),
   platform: z.enum(["darwin", "windows"]),
   version: z.string().min(1),
+  macSignOut: z.literal(true).optional(),
 })
 
 const desktopUpdateStates = [
@@ -341,6 +343,10 @@ export function isMacDesktopHost(): boolean {
   return isDesktopHost() && hostInfo?.platform === "darwin"
 }
 
+export function supportsMacDesktopSignOut(): boolean {
+  return isMacDesktopHost() && hostInfo?.macSignOut === true
+}
+
 export function supportsNativeDesktopNotifications(): boolean {
   return isMacDesktopHost() && desktopNotificationsSupported
 }
@@ -644,8 +650,14 @@ export function getPublicAppOrigin(): string {
   return getDesktopServerUrl() ?? window.location.origin
 }
 
-export async function clearDesktopSession(): Promise<void> {
-  if (isDesktopHost()) await Desktop.clearSession()
+export async function clearDesktopSession(
+  options: MacSignOutOptions = {}
+): Promise<void> {
+  if (supportsMacDesktopSignOut()) {
+    await Desktop.clearMacSession(options)
+  } else if (isDesktopHost()) {
+    await Desktop.clearSession()
+  }
 }
 
 export function hostFetch(
