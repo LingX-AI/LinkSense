@@ -1219,6 +1219,12 @@ func TestComputerExecutorWaitNativePredicateTimeoutIsTimedOut(t *testing.T) {
 	_, run := startComputerExecutorBridge(t, executor)
 	observationID, observation := observeFixture(t, run, "90000000-0000-4000-8000-000000000911", selection)
 	ref := observationRef(t, observation, "button", "Apply")
+	// Seed the exact pending click proof before the read-only wait against the
+	// same prior observation: a typed timed_out must leave it consumable.
+	clickInput := m1bComputerAct{
+		Action: "click", ObservationID: observationID, Ref: ref, TimeoutMS: m1bComputerDefaultTimeout,
+	}
+	authorizeFixtureAct(t, executor, selection, "call-wait-timeout-proof", clickInput, time.Minute)
 	resetFakeCalls(t, runtimeRoot)
 
 	const waitID = "90000000-0000-4000-8000-000000000912"
@@ -1237,6 +1243,12 @@ func TestComputerExecutorWaitNativePredicateTimeoutIsTimedOut(t *testing.T) {
 	}
 	if len(callsFor(readFakeCalls(t, runtimeRoot), "wait")) != 1 {
 		t.Fatal("a predicate expiry was retried")
+	}
+	// The typed timed_out result must not have consumed or invalidated the
+	// exact pending click proof seeded before the wait.
+	expiry, ok := executor.consumeAuthorization(selection, "call-wait-timeout-proof", clickInput)
+	if !ok || expiry.IsZero() {
+		t.Fatal("a timed_out predicate wait consumed the pending act proof")
 	}
 }
 
