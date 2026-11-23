@@ -257,7 +257,9 @@ func (d *Desktop) openMainWindow() {
 	}
 	if runtime.GOOS == "darwin" {
 		// Keep the native traffic lights and let the shared UI own the top area.
+		// A larger top inset aligns them with the compact brand row.
 		options.TitleBarStyle = mygo.TitleBarHidden
+		options.TrafficLightPosition = &mygo.Point{X: 14, Y: 14}
 	}
 	win := mygo.NewWindow(options)
 	d.mu.Lock()

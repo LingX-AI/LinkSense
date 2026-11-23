@@ -1162,13 +1162,13 @@ html[data-desktop-platform="darwin"] .account-access-top-row {
   --app-region: drag;
 }
 
-/* The lockup crosses the traffic-light x-range. The Mac brand bars reserve
-   4px for the focus ring above the 24px link, 4px below the ring, and the 1px
-   border. When the reported controls bottom needs more room than the shared
-   top bar, only these bars grow; the compact lockup stays centered in the
-   link, so the default and full-screen geometry is unchanged. */
-html[data-desktop-platform="darwin"] .sidebar-brand-bar,
-html[data-desktop-platform="darwin"] .settings-brand-bar {
+/* Settings and the mobile workspace drawer keep the shared adaptive bar: the
+   lockup clears the native controls' bottom plus its focus envelope, and the
+   drawer keeps its close control. */
+html[data-desktop-platform="darwin"] .settings-brand-bar,
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar {
   --mac-brand-bar-height: max(
     var(--conversation-top-bar-height),
     calc(var(--mygo-titlebar-controls-bottom, 0px) + 33px)
@@ -1189,55 +1189,91 @@ html[data-desktop-platform="darwin"] .settings-brand-bar {
   min-height: var(--mac-brand-bar-height);
 }
 
-/* The desktop sidebar keeps its stored pixel width while page zoom inflates
-   rem values. Pin its brand row to the normal-zoom 4px spacing step, and keep
-   the -mx-4 bleed on the parent's rem padding with -1rem, so the row still
-   spans the sidebar. Reserve the taller 28px actions' 4px focus envelope
-   under the native controls. */
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar
+  .sidebar-brand-link {
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  align-self: flex-start;
+  height: var(--mac-brand-hit-height);
+  min-width: var(--mac-brand-hit-height);
+  margin-top: var(--mac-brand-top);
+}
+
+html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
+  align-self: flex-start;
+  width: auto;
+  height: auto;
+  max-height: var(--mac-brand-logo-height);
+  margin-top: var(--mac-brand-logo-top);
+}
+
+html[data-desktop-platform="darwin"] .sidebar-brand-mac-icon {
+  width: var(--mac-brand-logo-height);
+  height: var(--mac-brand-logo-height);
+}
+
+/* The expanded Mac workspace reserves the native control lane with a spacer
+   as tall as the title bar, so the L and its actions share the traffic-light
+   centerline and wrap below it only when the stored sidebar is too narrow. */
 html[data-desktop-platform="darwin"]
   .app-shell
   > .app-sidebar
   .sidebar-brand-bar {
-  --spacing: 4px;
-  --mac-brand-bar-height: max(
-    var(--conversation-top-bar-height),
-    calc(var(--mygo-titlebar-controls-bottom, 0px) + 37px)
+  --mac-brand-hit-height: 24px;
+  --mac-brand-logo-height: 18px;
+  --mac-brand-spacer-width: clamp(
+    0px,
+    calc(var(--mygo-titlebar-inset-left, 0px) + 5px - 1rem),
+    100%
   );
-  margin-inline: -1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  gap: 0;
+  width: auto;
+  height: auto;
+}
+
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-bar::before {
+  content: "";
+  flex: 0 0 auto;
+  width: var(--mac-brand-spacer-width);
+  max-width: 100%;
+  height: var(--mygo-titlebar-height, 0px);
+  pointer-events: none;
+}
+
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-row {
+  display: flex;
+  flex: 1 1 max-content;
+  min-width: min-content;
+  max-width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
 }
 
 html[data-desktop-platform="darwin"]
   .app-shell
   > .app-sidebar
   .sidebar-brand-bar
-  .sidebar-header-actions {
-  align-self: flex-start;
-  margin-top: var(--mac-brand-top);
-}
-
-html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-link {
+  .sidebar-brand-link {
   display: grid;
   align-items: center;
-  justify-items: start;
-  align-self: flex-start;
+  justify-items: center;
+  width: var(--mac-brand-hit-height);
+  min-width: var(--mac-brand-hit-height);
   height: var(--mac-brand-hit-height);
-  margin-top: var(--mac-brand-top);
-}
-
-html[data-desktop-platform="darwin"]
-  .settings-brand-bar
-  > .sidebar-brand-logo {
-  align-self: flex-start;
-  margin-top: var(--mac-brand-logo-top);
-}
-
-html[data-desktop-platform="darwin"] .sidebar-brand-bar .sidebar-brand-logo,
-html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  max-height: var(--mac-brand-logo-height);
-  object-fit: contain;
 }
 
 .sidebar-resize-handle {

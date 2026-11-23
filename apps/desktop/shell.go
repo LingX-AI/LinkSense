@@ -133,7 +133,17 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 			{Role: mygo.RoleClose},
 		}},
 		{Role: mygo.RoleEditMenu},
-		{Role: mygo.RoleViewMenu},
+		// The native View role keeps its localized label, but MyGo would expand
+		// a bare role into page-zoom commands. The fixed page scale keeps reload,
+		// developer tools and full screen, while RoleWindowMenu keeps native
+		// window management.
+		{Role: mygo.RoleViewMenu, Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleReload},
+			{Role: mygo.RoleForceReload},
+			{Role: mygo.RoleToggleDevTools},
+			mygo.Separator(),
+			{Role: mygo.RoleToggleFullScreen},
+		}},
 		{Role: mygo.RoleWindowMenu},
 	})
 	tray := mygo.NewMenu([]*mygo.MenuItem{

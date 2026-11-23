@@ -51,6 +51,7 @@ import {
   type Paginated,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
+import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
@@ -412,6 +413,7 @@ function AppSidebarContent({
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
+  const macDesktopHost = isMacDesktopHost()
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -980,47 +982,61 @@ function AppSidebarContent({
         ))}
       <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
         <div className="sidebar-brand-bar -mx-4 flex h-(--conversation-top-bar-height) shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-          <Link
-            to="/conversations/new"
-            state={newTaskNavigationState}
-            onClick={onNavigate}
-            className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            <ProductLogo
-              productName={productName}
-              className="sidebar-brand-logo min-w-0"
-            />
-          </Link>
-          <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
-            <ShellSidebarActions
-              mobile={!observeBackgroundExecutions}
-              active={notificationSlotActive}
-            />
-            <HeaderIconButton
-              type="button"
-              className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
-              aria-label={t("common.search")}
-              title={t("common.search")}
-              aria-keyshortcuts="Meta+K Control+K"
-              onClick={onSearch}
+          <div className="sidebar-brand-row contents gap-4">
+            <Link
+              to="/conversations/new"
+              state={newTaskNavigationState}
+              onClick={onNavigate}
+              className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              <HeaderIcon name="search" />
-            </HeaderIconButton>
-            {onCollapse && (
-              <div className="sidebar-collapse-group ml-1 flex shrink-0 items-center gap-1.5 before:h-3 before:w-px before:bg-border before:content-['']">
-                <HeaderIconButton
-                  type="button"
-                  className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
-                  aria-label={t("nav.collapseSidebar")}
-                  title={t("nav.collapseSidebar")}
-                  aria-controls="app-sidebar"
-                  aria-expanded="true"
-                  onClick={onCollapse}
-                >
-                  <HeaderIcon name="sidebar" />
-                </HeaderIconButton>
-              </div>
-            )}
+              {macDesktopHost ? (
+                <img
+                  src="/linksense-appicon.svg"
+                  alt={productName}
+                  width={94}
+                  height={94}
+                  className="sidebar-brand-logo sidebar-brand-mac-icon min-w-0"
+                  decoding="async"
+                  fetchPriority="high"
+                />
+              ) : (
+                <ProductLogo
+                  productName={productName}
+                  className="sidebar-brand-logo min-w-0"
+                />
+              )}
+            </Link>
+            <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
+              <ShellSidebarActions
+                mobile={!observeBackgroundExecutions}
+                active={notificationSlotActive}
+              />
+              <HeaderIconButton
+                type="button"
+                className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                aria-label={t("common.search")}
+                title={t("common.search")}
+                aria-keyshortcuts="Meta+K Control+K"
+                onClick={onSearch}
+              >
+                <HeaderIcon name="search" />
+              </HeaderIconButton>
+              {onCollapse && (
+                <div className="sidebar-collapse-group ml-1 flex shrink-0 items-center gap-1.5 before:h-3 before:w-px before:bg-border before:content-['']">
+                  <HeaderIconButton
+                    type="button"
+                    className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                    aria-label={t("nav.collapseSidebar")}
+                    title={t("nav.collapseSidebar")}
+                    aria-controls="app-sidebar"
+                    aria-expanded="true"
+                    onClick={onCollapse}
+                  >
+                    <HeaderIcon name="sidebar" />
+                  </HeaderIconButton>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

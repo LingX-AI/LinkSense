@@ -107,25 +107,21 @@ server and account, with the same unsaved-change prompt as in-app navigation.
 
 ### Window chrome
 
-The macOS main window uses mygo's `TitleBarHidden` style, so the shared Web
-page fills the window while the native red/yellow/green controls stay at the
-top left. The Mac brand bars grow only when the reported controls bottom
-(`--mygo-titlebar-controls-bottom`) needs more room than the shared toolbar;
-otherwise their height does not change. When the bar grows, the sidebar link
-starts 4 px below that reported bottom and keeps a 24 px surface; the logo
-keeps its 18 px cap, and the 28 px toolbar actions keep the reserved 4 px
-focus envelope. The desktop sidebar keeps that row at fixed CSS-pixel spacing
-under page zoom; the settings bar and mobile drawer keep the shared top-bar
-rules. These are layout targets, not OS-wide measurements, keyboard focus
-evidence, or full-screen acceptance. Other top-area controls reserve the
-reported horizontal inset (`--mygo-titlebar-inset-left`). Otherwise unused
-surfaces are `--app-region: drag`, and interactive elements keep their events.
+The macOS main window is fixed at the standard 100% page scale. Window
+resizing, maximize/restore, minimize and full screen remain available, as do
+system accessibility features. The app installs no page-zoom menu commands or
+keyboard bindings and keeps MyGo's defaults (`ZoomFactor` 1, pinch zoom off).
+The localized native View menu keeps Reload, Force Reload, Toggle Developer
+Tools and Toggle Full Screen, and the Window menu keeps native minimize and
+maximize/restore.
 
-Every added rule is scoped to `html[data-desktop-platform="darwin"]`, which
-the desktop adapter sets from the native platform before host info resolves.
-A markerless Web layout and the Windows host keep their original cascades,
-geometry, and drag behavior. Full-screen title-bar behavior remains a separate
-native check.
+The native red/yellow/green controls keep extra padding and share a vertical
+centerline with the workspace L icon at normal sidebar widths. The layout
+reserves the reported native CSS safe inset; a narrow sidebar wraps the brand
+and its bell, search and collapse actions below the controls, and full screen
+removes the extra lane. The Mac workspace, including its mobile drawer, shows
+the L icon, while Settings and authentication keep their existing branding.
+The ordinary Web and Windows layouts keep their existing behavior.
 
 To enable **Check for updates**, supply the update directories and the
 base64 Ed25519 public key at build time. Signed artifacts are a macOS build
