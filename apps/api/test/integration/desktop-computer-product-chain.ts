@@ -14,12 +14,17 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { conversationUserInputQuestionSchema } from "@linksense/shared";
+import { Queue } from "bullmq";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { createPrismaClient } from "../../src/db.js";
 import { sha256 } from "../../src/lib/crypto.js";
-import { desktopComputerSelectionKey } from "../../src/modules/desktop-devices/computer-control.js";
+import { desktopRunLeaseKey, desktopRunScopeSchema } from "../../src/modules/desktop-credentials/run-leases.js";
+import {
+  desktopComputerSelectionKey, desktopComputerSelectionSchema,
+} from "../../src/modules/desktop-devices/computer-control.js";
+import type { TaskRecoveryQueueControl } from "../../src/modules/events/recovery-scheduler.js";
 import { localComputerGuiOccupancyKey } from "../../src/modules/local-computer/occupancy.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { startJoinedComputerApi } from "./computer-use-joined.js";
@@ -45,11 +50,29 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   pnpm --filter @linksense/runner build
  *   LINKSENSE_JOINED_RUNTIME=/path/to/read-only/runtime \
  *     pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-product-chain.ts
+ *
+ * Two opt-in whitebox modes extend the same harness without replacing the
+ * default product-chain receipt:
+ *   LINKSENSE_JOINED_SCENARIO=crash   SIGKILL only the owned Go gateway, prove
+ *     the real socket-close GUI cleanup, then restart the same staged runtime,
+ *     data root and credential and drive the real reconnect recovery.
+ *   LINKSENSE_JOINED_SCENARIO=revoke  Revoke the live device while its exact
+ *     turn holds a pending native approval, then drive the real revoked-Mac
+ *     terminal projection and reject the late approval.
+ * Both modes keep the synthetic platform/executor boundary: no TCC, signed
+ * driver, OS input, real window, live provider or production service.
  */
 
 const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const fixtureModel = "joined-computer-fixture";
+const scenarioInput = process.env.LINKSENSE_JOINED_SCENARIO?.trim() || "product-chain";
+if (scenarioInput !== "product-chain" && scenarioInput !== "crash" && scenarioInput !== "revoke") {
+  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash or revoke");
+  process.exit(2);
+}
+const scenario = scenarioInput;
+const crashFreshInputMarker = `joined-crash-fresh-${randomUUID()}`;
 const privateMarker = `private-joined-${randomUUID()}`;
 const runtimeUsage =
   "LINKSENSE_JOINED_RUNTIME must be an absolute path to the existing read-only staged desktop runtime";
@@ -62,9 +85,14 @@ const sourceRuntimeRoot = resolve(runtimeInput);
 
 const root = await mkdtemp(join(tmpdir(), "linksense-joined-computer-"));
 const watchdog = setTimeout(() => {
+  // A fired watchdog must fail the run and unblock the synthetic model gates so
+  // a hung proof cannot reach success. It never signals the gateway itself and
+  // never abandons the proof: the finally block still performs the bounded,
+  // orderly shutdown and every other cleanup step.
+  watchdogFired = true;
   console.error("JOINED_WATCHDOG: the joined proof exceeded its bounded run time");
-  process.exit(2);
-}, 240_000);
+  for (const reject of gates.splice(0)) reject(new Error("joined watchdog"));
+}, scenario === "product-chain" ? 240_000 : 360_000);
 let succeeded = false;
 let manifest: z.infer<typeof runtimeManifestSchema> | undefined;
 let receipt: Record<string, unknown> | undefined;
@@ -130,9 +158,62 @@ let db: ReturnType<typeof createPrismaClient> | undefined;
 let redis: Awaited<ReturnType<typeof createRedisFixture>> | undefined;
 let redisPid: number | undefined;
 let child: ChildProcess | undefined;
+/** True once this fixture spawned a gateway; a started host must stay observable. */
+let gatewayStarted = false;
 let api: Awaited<ReturnType<typeof startJoinedComputerApi>> | undefined;
 let model: FastifyInstance | undefined;
 let modelOrigin: string | undefined;
+type RecoveryJobData = Parameters<TaskRecoveryQueueControl["add"]>[1];
+type RecoveryJobName = RecoveryJobData["type"];
+let recoveryQueue: Queue<RecoveryJobData, void, RecoveryJobName> | undefined;
+/**
+ * One owned process identity: the PID together with its Darwin start time.
+ * A snapshot never carries argv, a window, a path or a credential, and a PID
+ * whose start time changed is provably a different process.
+ */
+const processIdentitySchema = z.strictObject({
+  pid: z.number().int().min(2),
+  start: z.string().regex(/^\d+\.\d{6}$/u),
+});
+type ProcessIdentity = z.infer<typeof processIdentitySchema>;
+const processSnapshotSchema = z.strictObject({
+  event: z.literal("processes"),
+  pid: z.number().int().min(2),
+  start: z.string().regex(/^\d+\.\d{6}$/u),
+  entries: z.array(processIdentitySchema).max(4096),
+});
+const processProbeReceiptSchema = z.strictObject({
+  event: z.literal("process_probe"),
+  reclaimed: z.boolean(),
+  live: z.number().int().nonnegative(),
+  zombie: z.number().int().nonnegative(),
+  reused: z.number().int().nonnegative(),
+  gone: z.number().int().nonnegative(),
+  signaled: z.boolean(),
+  survivors: z.array(z.number().int().min(2)).max(8),
+});
+/**
+ * Exact identities retained from the last successful snapshot of the currently
+ * owned gateway. Later snapshots merge by PID and native start time; a
+ * replacement gateway starts a fresh set and never re-adopts an earlier host.
+ */
+let teardownRuntime: ProcessIdentity[] | undefined;
+/** Independent snapshot taken before the crash signal, if reclaim was unproven. */
+let crashedRuntime: ProcessIdentity[] | undefined;
+let nativeReclaimProven = false;
+/**
+ * Bounded snapshot hook of the currently owned gateway. The crash scenario
+ * drops it once the old host is gone; a replacement gateway installs its own.
+ */
+let gatewayCleanup: (() => Promise<ProcessIdentity[]>) | undefined;
+/**
+ * Bound to the compiled Go binary once it exists, so the finally block can
+ * still run the dedicated probe after the try-scope declarations are gone.
+ */
+let processProbe:
+  ((entries: ProcessIdentity[], waitMs: number, signal: boolean) =>
+    Promise<z.infer<typeof processProbeReceiptSchema>>) | undefined;
+let watchdogFired = false;
 /** Every synthetic model gate, rejected before close so no SSE body can hang cleanup. */
 const gates: Array<(error: Error) => void> = [];
 
@@ -147,6 +228,17 @@ try {
   } catch {
     // The fixture close still owns teardown; only the exit receipt is skipped.
     redisPid = undefined;
+  }
+
+  if (scenario !== "product-chain") {
+    // The real production scheduler, backed by the fixture's own Redis and the
+    // production queue name. No Worker is started; the whitebox processes the
+    // durable jobs itself so every recovery phase is observed in order.
+    const socketPath = redisFixture.client.options.path;
+    assert(socketPath, "the joined recovery queue requires the fixture Redis socket");
+    recoveryQueue = new Queue<RecoveryJobData, void, RecoveryJobName>(
+      "linksense-task-recovery", { connection: { path: socketPath } },
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -186,8 +278,19 @@ try {
     .parse(JSON.parse(await readFile(join(sourceRoot, "runner/package.json"), "utf8")));
 
   const stagedRuntimeRoot = join(root, "runtime");
-  await cp(sourceRoot, stagedRuntimeRoot, { recursive: true, dereference: false });
-  await chmod(stagedRuntimeRoot, 0o700);
+  try {
+    await cp(sourceRoot, stagedRuntimeRoot, { recursive: true, dereference: false });
+  } catch (error) {
+    // A half-copy may carry the source's read-only directory modes. Open only
+    // the real directories that already exist so the finally block can still
+    // remove this scratch root, then surface the original failure.
+    await openCopyDirectories(stagedRuntimeRoot).catch(() => undefined);
+    throw error;
+  }
+  // `cp` preserves the source directory modes. The pinned input is read-only,
+  // so only the disposable copy's real directories are opened; symlinks and the
+  // source are never followed or modified.
+  await openCopyDirectories(stagedRuntimeRoot);
   const stagedRoot = await realpath(stagedRuntimeRoot);
   assert.equal(stagedRoot, join(await realpath(root), "runtime"),
     "the disposable runtime copy must stay inside the fixture directory");
@@ -286,6 +389,7 @@ try {
     prisma: db, redisClient: redisFixture.client, databaseUrl: databaseUrl("joined_computer"),
     workspaceRoot, ownerId: owner.id, deviceId: device.id, conversationId,
     runtimeGeneration, product: true,
+    ...(recoveryQueue ? { recoveryQueue } : {}),
   });
   assert(api.control(), "the product DesktopComputerControl must be composed");
   assert.equal(api.fixture(), undefined, "the fixture-only API computer interceptor must be absent");
@@ -326,6 +430,9 @@ try {
   const waitMetResult = gate<Record<string, unknown>>();
   const waitTimedOutResult = gate<Record<string, unknown>>();
   const stoppedActResult = gate<Record<string, unknown>>();
+  // The crash mode's fresh-turn refusal is created in every mode; only that
+  // mode resolves it and the shared cleanup rejects it otherwise.
+  const whiteboxFreshObserve = gate<Record<string, unknown>>();
 
   let rejectModel: ((error: Error) => void) | undefined;
   const modelFailed = new Promise<never>((_resolve, reject) => { rejectModel = reject; });
@@ -350,22 +457,48 @@ try {
     const item = await script(current, body as Record<string, unknown>);
     reply.type("text/event-stream").send(responseStream(item));
   });
-  async function script(current: number, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  /**
+   * The first verified running turn, shared by the default chain and both
+   * opt-in modes: one gated observe on the selected synthetic window, then one
+   * real computer_act that becomes the pending native approval. Mode branching
+   * only happens after those two stages and the caller's exact state proof.
+   */
+  async function firstActStages(
+    current: number, body: Record<string, unknown>,
+    flow: {
+      request: { resolve: () => void };
+      gate: Promise<void>;
+      observed: { resolve: (value: Record<string, unknown>) => void };
+      prefix: string;
+      remember?: (observationId: string) => void;
+    },
+  ): Promise<Record<string, unknown> | undefined> {
     if (current === 0) {
-      firstRequest.resolve();
-      await selectionGate.promise;
-      return toolCall(body, "computer_observe", {}, "joined-call-1");
+      flow.request.resolve();
+      await flow.gate;
+      return toolCall(body, "computer_observe", {}, `${flow.prefix}-call-1`);
     }
     if (current === 1) {
-      const observation = toolResult(body, "joined-call-1");
-      assertObservation(observation, "initial observation");
-      lastObservationId = observation.observation_id;
-      observeResult.resolve(observation);
+      const observation = toolResult(body, `${flow.prefix}-call-1`);
+      assertObservation(observation, `${flow.prefix} initial observation`);
+      flow.observed.resolve(observation);
+      flow.remember?.(observation.observation_id);
       return toolCall(body, "computer_act", {
-        action: "click", observation_id: lastObservationId,
+        action: "click", observation_id: observation.observation_id,
         ref: observation.nodes.find(node => node.name === "Ready")?.ref ?? "@joined:e1",
-      }, "joined-call-2");
+      }, `${flow.prefix}-call-2`);
     }
+    return undefined;
+  }
+  async function script(current: number, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const first = await firstActStages(current, body, scenario === "product-chain" ? {
+      request: firstRequest, gate: selectionGate.promise, observed: observeResult, prefix: "joined",
+      remember: observationId => { lastObservationId = observationId; },
+    } : {
+      request: firstRequest, gate: selectionGate.promise, observed: observeResult, prefix: "whitebox",
+    });
+    if (first) return first;
+    if (scenario !== "product-chain") return await whiteboxScript(current, body);
     if (current === 2) {
       const denied = toolResult(body, "joined-call-2");
       const deniedText = toolOutputTexts(body, "joined-call-2").join("\n").toLowerCase();
@@ -472,6 +605,31 @@ try {
     throw new Error(`unexpected model phase ${current}`);
   }
 
+  /**
+   * Only the opt-in crash mode adds a distinct fresh turn after recovery. Any
+   * old-turn request would miss the fresh marker and fail instead of silently
+   * replaying the interrupted schedule.
+   */
+  async function whiteboxScript(current: number, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (scenario === "crash" && current === 2) {
+      assert(JSON.stringify(body).includes(crashFreshInputMarker),
+        "a prior turn requested the model again after the crash");
+      return toolCall(body, "computer_observe", {}, "whitebox-fresh-call-1");
+    }
+    if (scenario === "crash" && current === 3) {
+      const result = toolResult(body, "whitebox-fresh-call-1");
+      // The fresh turn has no selection. The product refuses the read before
+      // dispatching anything to the native executor. A read refusal is the
+      // closed Core MCP error object; the act-only assertFailure below is not
+      // applicable because a read carries no ok/error act envelope.
+      assert.deepEqual(result, { code: "COMPUTER_UNAVAILABLE", retryable: false },
+        `the fresh post-crash observe was not the closed read refusal: ${JSON.stringify(result)}`);
+      whiteboxFreshObserve.resolve(result ?? {});
+      return message("JOINED_CRASH_FRESH_OK");
+    }
+    throw new Error(`unexpected whitebox model phase ${current}`);
+  }
+
   modelOrigin = await model.listen({ host: "127.0.0.1", port: 0 });
   await api.modelProviderSettings.update(owner.id, {
     expected_revision: 0, default_model: fixtureModel, title_model: null,
@@ -490,96 +648,25 @@ try {
   // Real Go bridge test binary: real runtime supervisor, device socket and
   // computer-control state machine with the synthetic platform seam.
   // -------------------------------------------------------------------------
-  const binary = join(root, "joined-gateway");
-  await execute("go", [
-    "test", "-c", "-tags", "desktop_runtime_package", "-o", binary, ".",
-  ], {
-    cwd: join(repositoryRoot, "apps/desktop"),
-    env: { ...process.env, GOPROXY: "off" },
-    timeout: 180_000,
-  });
-  const gateway = spawn(binary, ["-test.run=^TestJoinedComputerGateway$", "-test.timeout=240s"], {
-    env: {
-      PATH: process.env.PATH,
-      TMPDIR: process.env.TMPDIR,
-      LINKSENSE_DESKTOP_RUNTIME_DIST: stagedRoot,
-      LINKSENSE_JOINED_DRIVER_PROBE: driverProbe,
-    },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  child = gateway;
-  assert(gateway.stdin && gateway.stdout && gateway.stderr);
-  let nativeOutput = "";
-  const lines: Array<Record<string, unknown>> = [];
-  /** Every control result is also retained for the pending-renewal takeover proof. */
-  const controlLog: Array<Record<string, unknown>> = [];
-  const lineWaiters: Array<(value: Record<string, unknown>) => void> = [];
-  createInterface({ input: gateway.stdout }).on("line", line => {
-    nativeOutput = `${nativeOutput}\n${line}`.slice(-200_000);
-    try {
-      const value = JSON.parse(line) as Record<string, unknown>;
-      if (value.event === "control") controlLog.push(value);
-      const waiter = lineWaiters.shift();
-      if (waiter) waiter(value); else lines.push(value);
-    } catch {
-      // Go test output and t.Log lines are not JSON.
-    }
-  });
-  gateway.stderr.on("data", (chunk: Buffer) => {
-    nativeOutput = `${nativeOutput}\n${chunk.toString()}`.slice(-200_000);
-  });
-  gateway.stdin.on("error", () => undefined);
-  const nextLine = async (timeout: number): Promise<Record<string, unknown>> => {
-    if (lines.length) return lines.shift()!;
-    return await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const waiter = (value: Record<string, unknown>) => {
-        clearTimeout(timer);
-        resolve(value);
-      };
-      const timer = setTimeout(() => {
-        // A timed-out waiter must leave the queue so a later line is never
-        // delivered to a promise that already rejected.
-        const index = lineWaiters.indexOf(waiter);
-        if (index >= 0) lineWaiters.splice(index, 1);
-        reject(new Error("joined gateway line timeout"));
-      }, timeout);
-      timer.unref();
-      lineWaiters.push(waiter);
-    });
-  };
-  const waitEvent = async (
-    event: string, predicate: (line: Record<string, unknown>) => boolean = () => true, timeout = 60_000,
-  ): Promise<Record<string, unknown>> => {
-    const deadline = Date.now() + timeout;
-    for (;;) {
-      if (modelFailure) throw new Error(`Synthetic provider: ${modelFailure}`);
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error(`joined gateway timed out waiting for ${event}: ${nativeOutput.slice(-4000)}`);
-      const line = await nextLine(remaining);
-      if (line.event === event && predicate(line)) return line;
-    }
-  };
-  const send = (command: Record<string, unknown>) => {
-    gateway.stdin.write(`${JSON.stringify(command)}\n`);
-  };
-  gateway.stdin.write(`${JSON.stringify({
-    origin: api.origin, dataRoot,
-    credential: { token, ownerId: owner.id, deviceId: device.id, name: "Joined Mac" },
-    privateMarker, driverProbe,
-  })}\n`);
-  await waitEvent("ready", () => true, 90_000);
+  const binary = await buildJoinedGatewayBinary();
+  // Bind the module-level probe to this exact compiled binary so the finally
+  // block can reach it after the try-scope declarations are out of scope.
+  processProbe = (entries, waitMs, signal) => runProcessProbe(binary, entries, waitMs, signal);
 
+  let gatewayTail = () => "";
   const waitFor = async <T>(label: string, check: () => Promise<T | null | false>, timeout = 60_000): Promise<T> => {
     const deadline = Date.now() + timeout;
     for (;;) {
+      if (watchdogFired) throw new Error("the joined proof watchdog fired");
       if (modelFailure) throw new Error(`Synthetic provider: ${modelFailure}`);
       const value = await check();
       if (value !== null && value !== false) return value;
-      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}; native tail: ${nativeOutput.slice(-2000)}`);
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}; native tail: ${gatewayTail().slice(-2000)}`);
       await delay(50);
     }
   };
   const withTimeout = async <T>(label: string, promise: Promise<T>, timeout = 60_000): Promise<T> => {
+    if (watchdogFired) throw new Error("the joined proof watchdog fired");
     let timer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), timeout);
@@ -591,27 +678,172 @@ try {
       if (timer) clearTimeout(timer);
     }
   };
-  const controlAction = async (action: string, expected: string): Promise<Record<string, unknown>> => {
-    send({ action, conversation_id: conversationId, turn_id: turn.turn_id });
-    const line = await waitEvent("control", value => value.action === action, 45_000);
-    assert.equal(line.error, undefined, `${action} failed: ${String(line.error)}`);
-    assert.equal(line.state, expected, `${action} did not reach ${expected}`);
-    return line;
-  };
-  const stats = async () => {
-    send({ action: "stats" });
-    return await waitEvent("stats");
-  };
-  const controlEventsSince = (index: number, action: string): Array<Record<string, unknown>> =>
-    controlLog.slice(index).filter(line => line.action === action);
-  const waitControlEvent = async (
-    action: string, since: number, timeout = 45_000,
-  ): Promise<Record<string, unknown>> => {
-    return await waitFor(`the ${action} control result`, async () => {
-      const line = controlLog.slice(since).find(candidate => candidate.action === action);
-      return line ?? null;
-    }, timeout);
-  };
+
+  /**
+   * One owned gateway and one bounded JSON line reader, shared by the default
+   * chain and both opt-in modes. The fixture line carries only the loopback
+   * origin, the native data root, the synthetic device credential and the two
+   * marker paths; no argv, window name or private selection is ever sent.
+   */
+  async function startGateway() {
+    const gateway = spawn(binary, ["-test.run=^TestJoinedComputerGateway$", "-test.timeout=300s"], {
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: process.env.TMPDIR,
+        LINKSENSE_DESKTOP_RUNTIME_DIST: stagedRoot,
+        LINKSENSE_JOINED_DRIVER_PROBE: driverProbe,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child = gateway;
+    gatewayStarted = gateway.pid !== undefined;
+    // A failed spawn or a late send may emit `error`; teardown still treats a
+    // missing pid as the spawn failure instead of racing an unhandled event.
+    gateway.on("error", () => undefined);
+    // A replacement gateway starts a fresh retained set: only identities that
+    // this owned child actually names may ever be probed for teardown.
+    teardownRuntime = [];
+    assert(gateway.stdin && gateway.stdout && gateway.stderr);
+    let output = "";
+    gatewayTail = () => output;
+    const buffered: Array<Record<string, unknown>> = [];
+    /** Every control result is also retained for the pending-renewal takeover proof. */
+    const controlLog: Array<Record<string, unknown>> = [];
+    const waiters: Array<(value: Record<string, unknown>) => void> = [];
+    createInterface({ input: gateway.stdout }).on("line", line => {
+      let value: Record<string, unknown> | undefined;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          value = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Go test output and t.Log lines are not JSON.
+      }
+      // Process snapshots carry PIDs and native start times; consume them only
+      // through the private waiter queue and keep them out of the diagnostic
+      // tail, including when their schema is later rejected.
+      if (value?.event !== "processes") output = `${output}\n${line}`.slice(-200_000);
+      if (!value) return;
+      if (value.event === "control") controlLog.push(value);
+      const waiter = waiters.shift();
+      if (waiter) waiter(value); else buffered.push(value);
+    });
+    gateway.stderr.on("data", (chunk: Buffer) => {
+      output = `${output}\n${chunk.toString()}`.slice(-200_000);
+    });
+    gateway.stdin.on("error", () => undefined);
+    const nextLine = async (timeout: number): Promise<Record<string, unknown>> => {
+      if (buffered.length) return buffered.shift()!;
+      return await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const waiter = (value: Record<string, unknown>) => {
+          clearTimeout(timer);
+          resolve(value);
+        };
+        const timer = setTimeout(() => {
+          // A timed-out waiter must leave the queue so a later line is never
+          // delivered to a promise that already rejected.
+          const index = waiters.indexOf(waiter);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(new Error("joined gateway line timeout"));
+        }, timeout);
+        timer.unref();
+        waiters.push(waiter);
+      });
+    };
+    const waitEvent = async (
+      event: string, predicate: (line: Record<string, unknown>) => boolean = () => true,
+      timeout = 60_000, ignoreModelFailure = false,
+    ): Promise<Record<string, unknown>> => {
+      const deadline = Date.now() + timeout;
+      for (;;) {
+        if (watchdogFired && !ignoreModelFailure) throw new Error("the joined proof watchdog fired");
+        if (modelFailure && !ignoreModelFailure) throw new Error(`Synthetic provider: ${modelFailure}`);
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error(`joined gateway timed out waiting for ${event}: ${output.slice(-4000)}`);
+        const line = await nextLine(remaining);
+        if (line.event === event && predicate(line)) return line;
+      }
+    };
+    const send = (command: Record<string, unknown>) => {
+      gateway.stdin.write(`${JSON.stringify(command)}\n`);
+    };
+    const stats = async (): Promise<Record<string, unknown>> => {
+      send({ action: "stats" });
+      return await waitEvent("stats");
+    };
+    const control = async (action: string, expected: string, turnId: string): Promise<Record<string, unknown>> => {
+      send({ action, conversation_id: conversationId, turn_id: turnId });
+      const line = await waitEvent("control", value => value.action === action, 45_000);
+      assert.equal(line.error, undefined, `${action} failed: ${String(line.error)}`);
+      assert.equal(line.state, expected, `${action} did not reach ${expected}`);
+      return line;
+    };
+    /**
+     * The gateway names its exact owned descendants by PID and native start
+     * time. Only a snapshot that answers for the owned child may be retained,
+     * and each identity keeps its start time so a reused PID is a new process.
+     */
+    // Atomic replacement keeps the last complete retained array intact when a
+    // snapshot is malformed or would exceed the bounded set, so cleanup can
+    // still probe every identity an earlier snapshot proved.
+    let retained = new Map<string, ProcessIdentity>();
+    const snapshotProcesses = async (timeout = 10_000, ignoreModelFailure = false) => {
+      send({ action: "processes" });
+      const line = await waitEvent("processes", () => true, timeout, ignoreModelFailure);
+      const parsed = processSnapshotSchema.safeParse(line);
+      if (!parsed.success) throw new Error("the gateway returned a malformed process snapshot");
+      const snapshot = parsed.data;
+      assert.equal(snapshot.pid, gateway.pid,
+        "the process snapshot must belong to the owned gateway");
+      const next = new Map(retained);
+      for (const entry of snapshot.entries) {
+        const identity = `${entry.pid}:${entry.start}`;
+        if (!next.has(identity) && next.size >= 4096) {
+          throw new Error("the gateway returned an oversized process snapshot");
+        }
+        next.set(identity, entry);
+      }
+      retained = next;
+      teardownRuntime = [...retained.values()];
+      return snapshot;
+    };
+    const controlEventsSince = (index: number, action: string): Array<Record<string, unknown>> =>
+      controlLog.slice(index).filter(line => line.action === action);
+    const waitControlEvent = async (
+      action: string, since: number, timeout = 45_000,
+    ): Promise<Record<string, unknown>> => {
+      return await waitFor(`the ${action} control result`, async () => {
+        const line = controlLog.slice(since).find(candidate => candidate.action === action);
+        return line ?? null;
+      }, timeout);
+    };
+    // Teardown snapshots answer for the gateway that is currently owned; a
+    // replaced gateway replaces this closure. This final snapshot ignores a
+    // synthetic model failure so a failed gate can never suppress cleanup; a
+    // failed snapshot keeps the identities retained from the ready and
+    // active-turn snapshots, and an empty answer never clears them.
+    gatewayCleanup = async () => {
+      await snapshotProcesses(3_000, true);
+      return [...retained.values()];
+    };
+    gateway.stdin.write(`${JSON.stringify({
+      origin: api!.origin, dataRoot,
+      credential: { token, ownerId: owner.id, deviceId: device.id, name: "Joined Mac" },
+      privateMarker, driverProbe,
+    })}\n`);
+    await waitEvent("ready", () => true, 90_000);
+    // Seed the exact teardown identities while the host is known live; every
+    // later snapshot merges into this set by PID and native start time.
+    await snapshotProcesses();
+    return {
+      gateway, send, stats, control, waitEvent, controlLog, snapshotProcesses,
+      controlEventsSince, waitControlEvent, output: () => output,
+    };
+  }
+
+  const controlAction = async (action: string, expected: string): Promise<Record<string, unknown>> =>
+    await gateway.control(action, expected, turn.turn_id);
   /**
    * Holds the production conversation row lock from the fixture so a renewal's
    * locked select cannot commit or publish its positive ACK. The same lock is
@@ -648,11 +880,12 @@ try {
         AND waiter.query LIKE '%FOR NO KEY UPDATE OF c%'`;
     return (rows[0]?.blocked ?? 0) > 0;
   };
-  const approval = async () => {
+  /** The one pending native act approval of the exact joined turn. */
+  const pendingApproval = async (turnId: string) => {
     return await waitFor("a pending native computer_act approval", async () => {
       const request = await db!.conversationUserInputRequest.findFirst({
         where: {
-          ownerId: owner.id, conversationId, turnId: turn.turn_id,
+          ownerId: owner.id, conversationId, turnId,
           requestKind: "questions", status: "pending",
         },
         orderBy: { createdAt: "asc" },
@@ -664,6 +897,7 @@ try {
       return { id: request.id, question };
     }, 45_000);
   };
+  const approval = async () => await pendingApproval(turn.turn_id);
   const answer = async (request: Awaited<ReturnType<typeof approval>>, choice: "Allow" | "Cancel") => {
     const option = request.question.options?.find(candidate => candidate.label === choice);
     assert(option, `native approval did not offer ${choice}`);
@@ -673,27 +907,129 @@ try {
     assert.equal(response.status, "answered");
   };
 
-  // The durable recovery marker is required before any turn admission; the
-  // fixture process has no recovery scheduler, so it records the same
-  // successful baseline that a real API startup would publish.
-  await api.redisClient.hset("linksense:running-turn-recovery-status",
-    "outcome", "succeeded", "last_success_at", new Date().toISOString());
+  // -------------------------------------------------------------------------
+  // Shared product state: the exact live selection, GUI holder and scoped run
+  // lease are read through the exported product schemas, never redefined here.
+  // -------------------------------------------------------------------------
+  const selectionKeyFor = (turnId: string) => desktopComputerSelectionKey({
+    ownerId: owner.id, deviceId: device.id, conversationId, turnId, runtimeGeneration,
+  });
+  const occupancyReadSchema = z.strictObject({
+    v: z.literal(1),
+    holderId: z.uuid(), expiresAt: z.number().int().positive(),
+    sessionId: z.uuid(), selectionId: z.uuid(), bundleId: z.string().min(1),
+    scope: desktopRunScopeSchema,
+  });
+  const readSelection = async (turnId: string) =>
+    desktopComputerSelectionSchema.parse(
+      JSON.parse(await api!.redisClient.get(selectionKeyFor(turnId)) ?? "null"));
+  const readOccupancy = async () =>
+    occupancyReadSchema.parse(
+      JSON.parse(await api!.redisClient.get(api!.occupancyKey) ?? "null"));
+  const readRunLease = async (turnId: string) =>
+    z.looseObject({ scope: desktopRunScopeSchema, expiresAt: z.number().int().positive() })
+      .parse(JSON.parse(await api!.redisClient.get(desktopRunLeaseKey(turnId)) ?? "null"));
+  const nativeStats = (line: Record<string, unknown>) => z.looseObject({
+    picks: z.number().int().nonnegative(),
+    executors: z.number().int().nonnegative(),
+    stats: z.looseObject({
+      observes: z.number().int().nonnegative(), acts: z.number().int().nonnegative(),
+      authorizations: z.number().int().nonnegative(), mutations: z.number().int().nonnegative(),
+      // Go marshals a nil slice as null before the first act.
+      act_native_ids: z.array(z.string()).nullable(), closed: z.boolean(),
+    }),
+    statsSelectionId: z.string(), selectionExpiresAt: z.string(),
+    hostHolder: z.string(), hostHasHolder: z.boolean(), hostBindingMatches: z.boolean(),
+    controlState: z.string(), inputOpen: z.boolean(), gateInstalled: z.boolean(), executor: z.boolean(),
+    driverProbe: z.boolean(),
+    connectionId: z.string(), connectionState: z.string(), connectionErrorCode: z.string(),
+    connectionReady: z.boolean(), connectionComputerReady: z.boolean(),
+  }).parse(line);
+
+  const assertOldSelectionRetired = async (turnId: string, sessionId: string, grantIds: string[]) => {
+    assert.equal(await api!.redisClient.exists(selectionKeyFor(turnId)), 0,
+      "the exact selection metadata must be compare-deleted");
+    assert.equal(await api!.redisClient.get(api!.occupancyKey), null,
+      "the exact GUI holder must be released");
+    const ended = await db!.localComputerSession.findUniqueOrThrow({
+      where: { id: sessionId }, select: { status: true, endedAt: true },
+    });
+    assert.equal(ended.status, "ended", "the exact session must be ended");
+    assert(ended.endedAt, "the exact session end must be durable");
+    const revoked = await db!.computerPermissionGrant.findMany({
+      where: { id: { in: grantIds } }, select: { revokedAt: true },
+    });
+    assert.equal(revoked.length, grantIds.length);
+    assert(revoked.every(grant => grant.revokedAt !== null),
+      "both exact application grants must be revoked");
+  };
+
+  /**
+   * The one projection/audit/Redis privacy scan. Live turns pass their already
+   * selected rows; diagnostics never print credentials, bodies or native data.
+   */
+  const assertNoPrivateLeak = async (rows?: ReadonlyArray<unknown>) => {
+    if (!db || !api) throw new Error("the joined privacy scan requires the API and PostgreSQL");
+    const scanned = rows ?? [
+      ...await db.conversationEvent.findMany({ select: { payloadJson: true, eventType: true } }),
+      ...await db.auditLog.findMany({ select: { metadataJson: true, action: true } }),
+    ];
+    for (const row of scanned) {
+      const serialized = JSON.stringify(row);
+      assert(!serialized.includes(privateMarker), "a private native marker leaked into API projection/audit");
+      assert(!serialized.includes("data_base64"), "a screenshot payload leaked into API projection/audit");
+      assert(!serialized.includes("screenshot"), "a screenshot field leaked into API projection/audit");
+      assert(!serialized.includes(token), "the raw device credential leaked into API projection/audit");
+      assert(!serialized.includes(providerKey), "the synthetic provider key leaked into API projection/audit");
+    }
+    for (const key of await api.redisClient.keys("*")) {
+      if (await api.redisClient.type(key) !== "string") continue;
+      const value = await api.redisClient.get(key);
+      if (!value) continue;
+      assert(!value.includes(privateMarker), `a private native marker leaked into Redis key ${key}`);
+      assert(!value.includes("data_base64"), `a screenshot payload leaked into Redis key ${key}`);
+      assert(!value.includes(providerKey), `the synthetic provider key leaked into Redis key ${key}`);
+    }
+  };
+
+  // One owned gateway, one bounded reader and one real product turn for every
+  // mode. Crash/revoke branching starts below, only after the picked window,
+  // the real observation and the first pending act are proven.
+  const gateway = await startGateway();
+  const { send, stats, waitEvent, controlLog, controlEventsSince, waitControlEvent } = gateway;
+
+  if (scenario === "product-chain") {
+    // The durable recovery marker is required before any turn admission; the
+    // default fixture process has no recovery scheduler, so it records the
+    // same successful baseline that a real API startup would publish.
+    await api.redisClient.hset("linksense:running-turn-recovery-status",
+      "outcome", "succeeded", "last_success_at", new Date().toISOString());
+  } else {
+    // Both opt-in modes run the real production startup recovery cycle before
+    // the first turn; no turn exists yet, so only the baseline is observed.
+    await api.events.recoverRunningTurns();
+  }
 
   const turn = await api.conversations.acceptTurn(owner.id, conversationId, {
-    inputText: "Exercise the joined Mac computer fixture.",
+    inputText: scenario === "product-chain"
+      ? "Exercise the joined Mac computer fixture."
+      : `Exercise the joined ${scenario} GUI fixture.`,
     idempotencyKey: randomUUID(), submitMode: "normal", priorityCapabilityIds: [],
   }, {});
   await withTimeout("the first synthetic model request", firstRequest.promise, 60_000);
-  await waitFor("the materialized running local turn", async () => {
+  const running = await waitFor("the materialized running local turn", async () => {
     const current = await db!.conversation.findUniqueOrThrow({
       where: { id: conversationId }, select: { codexThreadId: true },
     });
     if (!current.codexThreadId) return null;
     const row = await db!.conversationTurn.findFirst({
       where: { id: turn.turn_id, conversationId, status: "running" },
-      select: { codexThreadId: true, collaborationMode: true },
+      select: { codexThreadId: true, codexTurnId: true },
     });
-    return row && row.codexThreadId === current.codexThreadId ? row : null;
+    // The opt-in modes later compare the exact native turn through recovery;
+    // the default chain keeps its original thread-only precondition.
+    return row && row.codexThreadId === current.codexThreadId &&
+      (scenario === "product-chain" || row.codexTurnId !== null) ? row : null;
   }, 60_000);
   assert.equal(await db.localComputerSession.count({ where: { conversationId } }), 0,
     "no session may exist before the native selection");
@@ -713,21 +1049,100 @@ try {
   });
   assert.equal(sessions.length, 1, "select must prepare exactly one local computer session");
   assert.equal(sessions[0]?.status, "active");
-  const selectedSessionId = sessions[0]!.id;
+  const session = sessions[0]!;
+  const selectedSessionId = session.id;
   assert.equal(selected.sessionId, selectedSessionId, "select must report the prepared session");
-  assert(Math.abs((sessions[0]!.expiresAt?.getTime() ?? 0) - selectedExpiresAt) < 1_000,
+  assert(Math.abs((session.expiresAt?.getTime() ?? 0) - selectedExpiresAt) < 1_000,
     "select must report the persisted selection expiry");
   const grants = await db.computerPermissionGrant.findMany({
     where: { conversationId, sessionId: selectedSessionId },
-    select: { id: true, capability: true, targetJson: true, expiresAt: true },
+    select: { id: true, capability: true, scope: true, targetJson: true, expiresAt: true, revokedAt: true },
   });
   assert.deepEqual(grants.map(grant => grant.capability).sort(), ["computer.act", "computer.observe"]);
+  assert(grants.every(grant => grant.scope === "session" && grant.revokedAt === null),
+    "select must prepare exactly two live session grants");
   assert(grants.every(grant => (grant.targetJson as { bundle_id?: string }).bundle_id === "com.example.LinkSenseProductFixture"));
+  assert(grants.every(grant => grant.expiresAt?.getTime() === session.expiresAt?.getTime()),
+    "both grants must carry the acknowledged session expiry");
   selectionGate.resolve();
 
   const observed = await withTimeout("the initial observation", observeResult.promise);
   assert.match(observed.observation_id as string, /^[0-9a-f]{32}$/u);
+  const approvalRequest = await pendingApproval(turn.turn_id);
+  assert.deepEqual(approvalRequest.question.options?.map(option => option.label).sort(), ["Allow", "Cancel"]);
+  assert.equal(captures.length, 2, "the shared schedule must be exactly observe then act");
+  assert.equal(phase, 2);
+  // Retain the exact supervised identities while this turn's active gate is
+  // open; teardown merges this with the ready and pre-escalation snapshots.
+  const activeSnapshot = await gateway.snapshotProcesses();
+  assert(activeSnapshot.entries.length > 0,
+    "the supervised runtime must be observable under the owned gateway");
 
+  // The exact live authority before the first act: this connection, session,
+  // selection, GUI holder and scoped run lease, not a process count.
+  const selection = await readSelection(turn.turn_id);
+  const occupancy = await readOccupancy();
+  const binding = await api.coordinator.executionConnection(device.id);
+  assert(binding, "the first authenticated device connection must be current before the action");
+  const runLease = await readRunLease(turn.turn_id);
+  assert.equal(selection.state, "active");
+  assert.equal(selection.ownerId, owner.id);
+  assert.equal(selection.deviceId, device.id);
+  assert.equal(selection.conversationId, conversationId);
+  assert.equal(selection.turnId, turn.turn_id);
+  assert.equal(selection.runtimeGeneration, runtimeGeneration);
+  assert.equal(selection.connectionId, binding.connectionId);
+  assert.equal(selection.sessionId, selectedSessionId);
+  assert.equal(selection.selectionId, selectionId);
+  assert.equal(selection.bundleId, "com.example.LinkSenseProductFixture");
+  assert.equal(selection.expiresAt, session.expiresAt?.getTime(),
+    "the live selection must carry the acknowledged grant expiry");
+  assert.equal(selection.pendingInput, null, "the pending approval must not have admitted an act");
+  assert.equal(occupancy.scope.ownerId, owner.id);
+  assert.equal(occupancy.scope.deviceId, device.id);
+  assert.equal(occupancy.scope.connectionId, binding.connectionId);
+  assert.equal(occupancy.scope.conversationId, conversationId);
+  assert.equal(occupancy.scope.turnId, turn.turn_id);
+  assert.equal(occupancy.scope.runtimeGeneration, runtimeGeneration);
+  assert.equal(occupancy.sessionId, selectedSessionId);
+  assert.equal(occupancy.selectionId, selectionId);
+  assert.equal(occupancy.bundleId, selection.bundleId);
+  assert.equal(occupancy.expiresAt, selection.expiresAt,
+    "the product observe must hold exactly the selected grant expiry");
+  assert.equal(runLease.scope.ownerId, owner.id);
+  assert.equal(runLease.scope.deviceId, device.id);
+  assert.equal(runLease.scope.connectionId, binding.connectionId);
+  assert.equal(runLease.scope.conversationId, conversationId);
+  assert.equal(runLease.scope.turnId, turn.turn_id);
+  assert.equal(runLease.scope.runtimeGeneration, runtimeGeneration);
+  assert(runLease.expiresAt > Date.now(), "the canonical run lease must still be live");
+  const preActionStats = nativeStats(await stats());
+  assert.equal(preActionStats.connectionId, binding.connectionId);
+  assert.equal(preActionStats.connectionState, "online");
+  assert.equal(preActionStats.connectionReady, true);
+  assert.equal(preActionStats.connectionComputerReady, true);
+  assert.equal(preActionStats.picks, 1);
+  assert.equal(preActionStats.executors, 1);
+  assert.equal(preActionStats.stats.observes, 1);
+  assert.equal(preActionStats.stats.acts, 0);
+  assert.equal(preActionStats.stats.authorizations, 0);
+  assert.equal(preActionStats.stats.mutations, 0);
+  assert.deepEqual(preActionStats.stats.act_native_ids ?? [], []);
+  assert.equal(preActionStats.hostHasHolder, true);
+  assert.equal(preActionStats.hostHolder, occupancy.holderId);
+  assert.equal(preActionStats.hostBindingMatches, true);
+  assert.equal(preActionStats.statsSelectionId, selection.selectionId);
+  assert.equal(Date.parse(preActionStats.selectionExpiresAt), selection.expiresAt);
+  assert.equal(preActionStats.driverProbe, false, "the real agent-desktop driver was invoked");
+
+  joinedScenario: {
+  if (scenario !== "product-chain") {
+    // Both opt-in modes branch only here: the first running turn, picked
+    // window, real observation and pending first act are already proven.
+    receipt = scenario === "crash" ? await runCrashScenario() : await runRevokeScenario();
+    succeeded = true;
+    break joinedScenario;
+  }
   const deniedApproval = await approval();
   assert.deepEqual(deniedApproval.question.options?.map(option => option.label).sort(), ["Allow", "Cancel"]);
   const beforeDeny = await stats();
@@ -752,7 +1167,7 @@ try {
   const approved = await withTimeout("the approved act result", approvedResult.promise);
   const afterApproved = await stats();
   assert.equal(approved.ok, true,
-    `the approved act failed: ${JSON.stringify(approved)}; executor=${JSON.stringify(afterApproved)}; native=${nativeOutput.slice(-4000)}`);
+    `the approved act failed: ${JSON.stringify(approved)}; executor=${JSON.stringify(afterApproved)}; native=${gateway.output().slice(-4000)}`);
   assert.equal(approved.effect, "done");
   const mutatedObservation = await withTimeout("the post-mutation observation", mutationObserved.promise);
   const afterMutation = await stats();
@@ -1104,24 +1519,9 @@ try {
   const auditRows = await db.auditLog.findMany({
     where: { actorId: owner.id }, select: { action: true, targetType: true, result: true, metadataJson: true },
   });
-  for (const row of [...eventRows, ...auditRows]) {
-    const serialized = JSON.stringify(row);
-    assert(!serialized.includes(privateMarker), "a private native marker leaked into API projection/audit");
-    assert(!serialized.includes("data_base64"), "a screenshot payload leaked into API projection/audit");
-    assert(!serialized.includes("screenshot"), "a screenshot field leaked into API projection/audit");
-    // Synthetic secrets only; the assertion text never prints the values.
-    assert(!serialized.includes(token), "the raw device credential leaked into API projection/audit");
-    assert(!serialized.includes(providerKey), "the synthetic provider key leaked into API projection/audit");
-  }
-  const redisKeys = await api.redisClient.keys("*");
-  for (const key of redisKeys) {
-    if (await api.redisClient.type(key) !== "string") continue;
-    const value = await api.redisClient.get(key);
-    if (!value) continue;
-    assert(!value.includes(privateMarker), `a private native marker leaked into Redis key ${key}`);
-    assert(!value.includes("data_base64"), `a screenshot payload leaked into Redis key ${key}`);
-    assert(!value.includes(providerKey), `the synthetic provider key leaked into Redis key ${key}`);
-  }
+  // Synthetic secrets and native-only details only; one shared scan also covers
+  // every Redis string value and every opt-in mode.
+  await assertNoPrivateLeak([...eventRows, ...auditRows]);
   assert.equal(await computerAuditCount("success"), 7,
     "four observations, two bounded waits and the single approved act must be the only successful computer audits");
   assert.equal(await computerAuditCount("failure"), 4,
@@ -1261,6 +1661,511 @@ try {
       where: { actorId: owner.id, action: "desktop_tool_requested", targetType: "local_computer", result },
     });
   }
+  }
+
+  /**
+   * Crash: SIGKILL only the owned Go gateway while its GUI turn waits for the
+   * first native approval. The gateway names its exact runtime descendants
+   * before the signal; the strict proof then requires native reclaim without a
+   * fallback signal. A restart of the same runtime, data root and credential
+   * drives the real execution-ready hook, the exact desktop/desktop-turn jobs
+   * and the native journal drain.
+   */
+  async function runCrashScenario(): Promise<Record<string, unknown>> {
+    if (!db || !api || !recoveryQueue || !manifest || !api.recovery) {
+      throw new Error("the crash scenario requires the API recovery scheduler, PostgreSQL and the queue");
+    }
+    const prisma = db;
+    const joined = api;
+    const recovery = joined.recovery;
+    assert(recovery, "the crash scenario requires the API recovery scheduler");
+    const queue = recoveryQueue;
+    const runtimeManifest = manifest;
+    const requestsBefore = captures.length;
+    const oldSessionId = session.id;
+    const oldGrantIds = grants.map(grant => grant.id);
+    const oldSelectionId = selection.selectionId;
+    const oldHolderId = occupancy.holderId;
+    assert(binding, "the crash scenario requires the current device connection");
+    const oldConnectionId = binding.connectionId;
+    const oldControlEpoch = selection.controlEpoch;
+    const assertRetired = async () => {
+      await assertOldSelectionRetired(turn.turn_id, oldSessionId, oldGrantIds);
+      const turnRow = await prisma.conversationTurn.findUniqueOrThrow({
+        where: { id: turn.turn_id }, select: { codexThreadId: true, codexTurnId: true },
+      });
+      assert.equal(turnRow.codexThreadId, running.codexThreadId);
+      assert.equal(turnRow.codexTurnId, running.codexTurnId);
+    };
+
+    assert.equal(hasExited(gateway.gateway), false, "the owned gateway must be live before SIGKILL");
+    const snapshot = await gateway.snapshotProcesses();
+    assert.equal(snapshot.pid, gateway.gateway.pid, "the snapshot must belong to the owned gateway");
+    assert(snapshot.entries.length > 0, "the supervised runtime must be observable under the gateway");
+    // Strict proof covers every exact identity retained for this same owned
+    // host, not only the latest snapshot, so an earlier descendant cannot
+    // escape reclaim merely because a later snapshot omitted it.
+    assert(teardownRuntime, "the crash must retain the exact runtime identities");
+    assert(teardownRuntime.length > 0, "the crash must retain the exact runtime identities");
+    const runtimeEntries = teardownRuntime;
+    crashedRuntime = runtimeEntries;
+    const exit = waitForGatewayExit(gateway.gateway);
+    assert.equal(gateway.gateway.kill("SIGKILL"), true, "the owned gateway SIGKILL must be accepted");
+    const exited = await withTimeout("the owned gateway SIGKILL", exit, 15_000);
+    assert.equal(exited.signal, "SIGKILL", "only SIGKILL may end the crash fixture");
+    assert.equal(exited.code, null, "the crash fixture must not exit normally");
+    // The crashed gateway must never receive a graceful shutdown or stop.
+    child = undefined;
+    gatewayCleanup = undefined;
+
+    // Strict proof first: every recorded PID and native start time must be
+    // gone without any signal from this fixture. The identity-checked fallback
+    // is only a bounded cleanup after that failure, and it fails the run.
+    const probe = processProbe;
+    assert(probe, "the process probe helper must be bound to the compiled binary");
+    const reclaim = await probe(runtimeEntries, 25_000, false);
+    assertProbeReceipt(reclaim, runtimeEntries.length, true);
+    nativeReclaimProven = true;
+
+    // Socket-close cleanup: compare-delete only this exact connection's
+    // selection/holder, end the exact session and revoke both grants. It must
+    // NOT settle the turn, cancel the approval or revoke the device.
+    await waitFor("the API to forget the exact old connection", async () =>
+      (await joined.coordinator.executionConnection(device.id)) === null);
+    await waitFor("the post-crash selection compare-delete", async () => {
+      try {
+        await assertRetired();
+        return true;
+      } catch {
+        return null;
+      }
+    });
+    assert(Date.now() < selection.expiresAt,
+      "the exact selection was cleared by the compare-delete, not by TTL expiry");
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({
+      where: { id: turn.turn_id }, select: { status: true },
+    })).status, "running", "socket-close cleanup must not be the phase that settles the turn");
+    assert.equal(await prisma.conversationUserInputRequest.count({
+      where: { id: approvalRequest.id, status: "pending" },
+    }), 1, "socket-close cleanup must not cancel the native approval");
+    assert.equal((await prisma.desktopDevice.findUniqueOrThrow({
+      where: { id: device.id }, select: { revokedAt: true },
+    })).revokedAt, null, "an ordinary crash must not revoke the credential");
+    assert(await joined.service.authenticate(token),
+      "an ordinary crash must keep the device credential valid");
+    assert.equal(captures.length, requestsBefore, "the crash must not replay the model");
+
+    // Restart only after the runtime is gone and the API forgot the old
+    // connection. Same staged runtime, data root and credential.
+    const restarted = await startGateway();
+    const restartedBinding = await waitFor("the restarted authenticated connection", async () => {
+      const current = await joined.coordinator.executionConnection(device.id);
+      return current && current.connectionId !== oldConnectionId ? current : null;
+    }, 90_000);
+    assert.notEqual(restartedBinding.connectionId, oldConnectionId,
+      "the restarted gateway must authenticate a new connection id");
+    assert(await joined.service.authenticate(token),
+      "the restarted gateway must use the same still-valid credential");
+    const restartedStats = nativeStats(await restarted.stats());
+    assert.equal(restartedStats.connectionId, restartedBinding.connectionId);
+    assert.equal(restartedStats.connectionState, "online");
+    // A fresh process counter alone cannot pass: the exact old persisted
+    // identifiers above are already ended/revoked, and no old work may replay.
+    assert.equal(restartedStats.picks, 0);
+    assert.equal(restartedStats.executors, 0);
+    assert.equal(restartedStats.stats.observes, 0);
+    assert.equal(restartedStats.stats.acts, 0);
+    assert.equal(restartedStats.stats.authorizations, 0);
+    assert.equal(restartedStats.stats.mutations, 0);
+    assert.equal(restartedStats.statsSelectionId, "", "the restarted host must start with no selection");
+    assert.equal(restartedStats.selectionExpiresAt, "", "the restarted host must start with no grant");
+    assert.equal(restartedStats.hostHasHolder, false, "the restarted host must not revive an old holder");
+    assert.equal(restartedStats.inputOpen, false);
+    assert.equal(restartedStats.gateInstalled, false);
+    assert.equal(restartedStats.driverProbe, false);
+    assert.equal(captures.length, requestsBefore, "the restarted gateway must not replay the old turn");
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1);
+    assert.equal(await prisma.conversationTurnStartIntent.count({ where: { conversationId } }), 0);
+
+    // The real production execution-ready hook already enqueued this exact
+    // new-connection discovery job. Process it and then the exact matching
+    // desktop-turn job, in order; no other waiting job is touched.
+    const desktopJob = await waitFor("the production execution-ready recovery job", async () =>
+      await queue.getJob(`desktop-${restartedBinding.connectionId}-first`) ?? null, 30_000);
+    if (desktopJob.data.type !== "desktop") throw new Error("the reconnect must enqueue a desktop job");
+    assert.equal(desktopJob.data.connectionId, restartedBinding.connectionId);
+    assert.equal(desktopJob.data.ownerId, owner.id);
+    assert.equal(desktopJob.data.deviceId, device.id);
+    await recovery.process(desktopJob);
+    const turnJob = await queue.getJob(`desktop-reconnect-${restartedBinding.connectionId}-${turn.turn_id}`);
+    assert(turnJob, "the discovery job must enqueue the exact reconnect desktop-turn job");
+    if (turnJob.data.type !== "desktop-turn") throw new Error("the reconnect must enqueue a desktop-turn job");
+    assert.equal(turnJob.data.connectionId, restartedBinding.connectionId);
+    assert.equal(turnJob.data.conversationId, conversationId);
+    assert.equal(turnJob.data.projectionTurnId, turn.turn_id);
+    assert.equal(turnJob.data.runtimeGeneration, runtimeGeneration);
+    // The drain runs over the new authenticated link and returns the native
+    // terminal for these exact thread/turn ids; the projection then commits.
+    await recovery.process(turnJob);
+    const settled = await waitFor("the recovered interrupted turn", async () => {
+      const row = await prisma.conversationTurn.findUnique({
+        where: { id: turn.turn_id },
+        select: {
+          status: true, interruptedAt: true,
+          completedAt: true, codexThreadId: true, codexTurnId: true,
+        },
+      });
+      return row?.status === "interrupted" ? row : null;
+    }, 30_000);
+    assert(settled.interruptedAt, "the interrupted turn must record its terminal time");
+    assert.equal(settled.completedAt, null);
+    assert.equal(settled.codexThreadId, running.codexThreadId);
+    assert.equal(settled.codexTurnId, running.codexTurnId);
+    const terminalEvent = await prisma.conversationEvent.findFirst({
+      where: { conversationId, turnId: turn.turn_id, eventType: "turn/completed" },
+      orderBy: { sequenceNo: "desc" },
+      select: { payloadJson: true },
+    });
+    assert(terminalEvent, "the recovered native terminal must be projected as an event");
+    assert.equal(((terminalEvent.payloadJson as {
+      params?: { turn?: { status?: string } };
+    }).params?.turn?.status), "interrupted");
+    const interruptedAudit = await prisma.auditLog.findFirst({
+      where: { action: "conversation_turn_interrupted", targetId: turn.turn_id },
+      select: { result: true },
+    });
+    assert.equal(interruptedAudit?.result, "success",
+      "the real terminal projection must audit the interrupted turn");
+    // Terminal projection can backfill the timestamp without a Stop audit.
+    const explicitStopAuditCount = await prisma.auditLog.count({
+      where: {
+        action: "conversation_turn_interrupt_requested",
+        targetType: "conversation_turn",
+        targetId: turn.turn_id,
+      },
+    });
+    assert.equal(explicitStopAuditCount, 0,
+      "the recovered interrupted turn must not record an explicit Stop audit");
+    assert.equal((await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id }, select: { status: true },
+    })).status, "cancelled", "the recovered terminal must cancel the pending native approval");
+    assert.equal(await prisma.conversationUserInputRequest.count({
+      where: { conversationId, turnId: turn.turn_id, requestKind: "questions" },
+    }), 1, "recaptured journal events must not duplicate the native approval");
+    assert.equal(await prisma.conversationEvent.count({
+      where: { conversationId, turnId: turn.turn_id, eventType: "item/tool/requestUserInput" },
+    }), 1, "recaptured journal events must be acknowledged exactly once");
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), false,
+      "the recovered terminal must release the exact turn slot");
+    const afterRecoveryStats = nativeStats(await restarted.stats());
+    assert.equal(afterRecoveryStats.stats.acts, 0, "recovery must not send native input");
+    assert.equal(afterRecoveryStats.stats.authorizations, 0);
+    assert.equal(afterRecoveryStats.stats.mutations, 0);
+    assert.equal(afterRecoveryStats.picks, 0);
+    assert.equal(afterRecoveryStats.executors, 0);
+    assert.equal(afterRecoveryStats.stats.observes, 0);
+    assert.equal(captures.length, requestsBefore, "recovery must not replay the model");
+    await assertRetired();
+    await desktopJob.remove();
+    await turnJob.remove();
+
+    // The exact old approval can no longer be answered: the terminal
+    // projection cancelled it, and no old selection/session/grant is live.
+    await assert.rejects(joined.conversations.respondToUserInputRequest(
+      owner.id, conversationId, approvalRequest.id,
+      { action: "accept", content: { [approvalRequest.question.id]: "Allow" } }, {},
+    ), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    assert.equal(captures.length, requestsBefore);
+
+    // A distinct fresh user turn proves the new authenticated channel works
+    // without reviving the old selection, approval or request.
+    const freshConversationId = randomUUID();
+    await prisma.conversation.create({ data: {
+      id: freshConversationId, ownerId: owner.id, title: "Joined crash fresh turn",
+      titleSource: "manual", archiveStatus: "active", executionTarget: "local",
+      desktopDeviceId: device.id, runtimeGeneration: randomUUID(),
+      workspaceRelPath: `${owner.id}/services/${freshConversationId}/home/workspace`,
+    } });
+    const freshTurn = await joined.conversations.acceptTurn(owner.id, freshConversationId, {
+      inputText: `${crashFreshInputMarker} Prove a fresh local turn has no old selection.`,
+      idempotencyKey: randomUUID(), submitMode: "normal", priorityCapabilityIds: [],
+    }, {});
+    await withTimeout("the fresh post-crash observation refusal", whiteboxFreshObserve.promise, 60_000);
+    const freshGeneration = (await prisma.conversation.findUniqueOrThrow({
+      where: { id: freshConversationId }, select: { runtimeGeneration: true },
+    })).runtimeGeneration;
+    const freshCompleted = await waitFor("the fresh post-crash turn to complete", async () => {
+      const row = await prisma.conversationTurn.findUnique({
+        where: { id: freshTurn.turn_id }, select: { status: true, codexThreadId: true },
+      });
+      return row?.status === "completed" && row.codexThreadId ? row : null;
+    }, 60_000);
+    assert(freshCompleted.codexThreadId);
+    assert.equal(captures.length, requestsBefore + 2,
+      "only the distinct fresh turn may reach the model after recovery");
+    assert.equal(await prisma.localComputerSession.count({ where: { conversationId: freshConversationId } }), 0,
+      "the fresh turn must not revive a computer session");
+    assert.equal(await prisma.computerPermissionGrant.count({ where: { conversationId: freshConversationId } }), 0,
+      "the fresh turn must not revive an application grant");
+    assert.equal(await prisma.conversationUserInputRequest.count({
+      where: { conversationId: freshConversationId },
+    }), 0, "the fresh read must not open an approval");
+    assert.equal(await joined.redisClient.exists(desktopComputerSelectionKey({
+      ownerId: owner.id, deviceId: device.id, conversationId: freshConversationId,
+      turnId: freshTurn.turn_id, runtimeGeneration: freshGeneration,
+    })), 0, "the fresh turn must not create a selection");
+    assert.equal((await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id }, select: { status: true },
+    })).status, "cancelled", "the old approval must stay cancelled");
+    const finalStats = nativeStats(await restarted.stats());
+    assert.equal(finalStats.picks, 0);
+    assert.equal(finalStats.executors, 0);
+    assert.equal(finalStats.stats.observes, 0);
+    assert.equal(finalStats.stats.acts, 0);
+    assert.equal(finalStats.stats.authorizations, 0);
+    assert.equal(finalStats.stats.mutations, 0);
+    assert.equal(finalStats.driverProbe, false);
+    await assertNoPrivateLeak();
+
+    return {
+      status: "desktop computer product chain: crash ok",
+      scenario,
+      codex: runtimeManifest.versions.codex,
+      modelRequests: captures.length,
+      oldConnectionIdRotated: true,
+      oldSelectionRetired: oldSelectionId.length > 0 && oldControlEpoch.length > 0 && oldHolderId.length > 0,
+      oldSessionEnded: true,
+      oldGrantsRevoked: oldGrantIds.length === 2,
+      credentialRetained: true,
+      recovery: "interrupted",
+      explicitStopAuditCount,
+      freshTurn: true,
+      driverTouched: false,
+      osInput: false,
+      privateMarkerAbsent: true,
+      boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
+    };
+  }
+
+  /**
+   * Active revoke: the production DesktopDeviceService.revoke while the exact
+   * live turn holds the pending approval. The real WS terminal and durable GUI
+   * cleanup are proven, the late approval is refused by the existing response
+   * contract without native input, and the production maintenance projection
+   * commits the revoked-Mac terminal.
+   */
+  async function runRevokeScenario(): Promise<Record<string, unknown>> {
+    if (!db || !api || !manifest || !api.recovery) {
+      throw new Error("the revoke scenario requires the API recovery scheduler and PostgreSQL");
+    }
+    const prisma = db;
+    const joined = api;
+    const recovery = joined.recovery;
+    assert(recovery, "the revoke scenario requires the API recovery scheduler");
+    const runtimeManifest = manifest;
+    const requestsBefore = captures.length;
+    const oldSessionId = session.id;
+    const oldGrantIds = grants.map(grant => grant.id);
+    const oldSelectionId = selection.selectionId;
+    const oldHolderId = occupancy.holderId;
+    const oldControlEpoch = selection.controlEpoch;
+    assert(binding, "the revoke scenario requires the current device connection");
+
+    // Prove the exact host is ready before the revoke submit.
+    const readyStats = nativeStats(await gateway.stats());
+    assert.equal(readyStats.connectionId, binding.connectionId);
+    assert.equal(readyStats.connectionState, "online");
+    assert.equal(readyStats.connectionReady, true);
+    assert.equal(readyStats.connectionComputerReady, true);
+    assert.equal(hasExited(gateway.gateway), false, "the revoke fixture gateway must stay live");
+
+    // The owner-authenticated revoke route over the same loopback Fastify
+    // instance the device socket uses; a bounded fetch is the only transport.
+    const revokeResponse = await fetch(`${joined.origin}/api/v1/desktop/devices/${device.id}`, {
+      method: "DELETE", signal: AbortSignal.timeout(15_000),
+    });
+    assert.equal(revokeResponse.status, 200, "the owner revoke route must answer 200");
+    const revokeBody = z.looseObject({
+      success: z.literal(true), data: z.looseObject({ revoked: z.literal(true) }),
+    }).parse(await revokeResponse.json());
+    assert.equal(revokeBody.data.revoked, true, "the owner revoke route must report the device revoked");
+    await gateway.waitEvent("disconnected", () => true, 30_000);
+    const revokedStatus = await waitFor("the revoked native socket terminal", async () => {
+      const stats = nativeStats(await gateway.stats());
+      return stats.connectionState === "revoked" && stats.connectionErrorCode === "AUTH_REQUIRED"
+        ? stats : null;
+    }, 30_000);
+    assert.equal(revokedStatus.connectionId, "", "the revoked socket must no longer carry a connection");
+    await waitFor("the API to forget the revoked connection", async () =>
+      (await joined.coordinator.executionConnection(device.id)) === null);
+    const revokedDevice = await prisma.desktopDevice.findUniqueOrThrow({
+      where: { id: device.id }, select: { revokedAt: true },
+    });
+    assert(revokedDevice.revokedAt, "revoke must invalidate the exact device");
+    assert.equal(await joined.service.authenticate(token), null,
+      "the revoked device token must fail authentication");
+    // The exact PostgreSQL session/grant retirement is committed by the revoke
+    // transaction; assert it before the host and Redis presence proofs below.
+    const revokedSession = await prisma.localComputerSession.findUniqueOrThrow({
+      where: { id: oldSessionId }, select: { status: true, endedAt: true },
+    });
+    assert.equal(revokedSession.status, "ended", "revoke must end the exact computer session");
+    assert(revokedSession.endedAt, "revoke must record the exact session end");
+    const revokedGrants = await prisma.computerPermissionGrant.findMany({
+      where: { id: { in: oldGrantIds } }, select: { revokedAt: true },
+    });
+    assert.equal(revokedGrants.length, oldGrantIds.length);
+    assert(revokedGrants.every(grant => grant.revokedAt !== null),
+      "revoke must revoke both exact application grants");
+    // The WS close/durable GUI cleanup is not the terminal turn commit; the
+    // revoked-Mac maintenance projection below is.
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({
+      where: { id: turn.turn_id }, select: { status: true },
+    })).status, "running", "device revoke cleanup must not settle the turn before the recovery lifecycle");
+    assert.equal((await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id }, select: { status: true },
+    })).status, "pending");
+    // The still-live Go host retires its exact executor without any server
+    // replay; no act, authorization or mutation may happen. `executor` is the
+    // platform's installed pointer, so the closed/input/gate fields prove the
+    // exact driver retirement.
+    const retiredStats = await waitFor("the native executor retirement", async () => {
+      const stats = nativeStats(await gateway.stats());
+      return stats.controlState === "idle" && stats.stats.closed === true &&
+        stats.inputOpen === false && stats.gateInstalled === false ? stats : null;
+    }, 30_000);
+    assert.equal(retiredStats.stats.acts, 0);
+    assert.equal(retiredStats.stats.authorizations, 0);
+    assert.equal(retiredStats.stats.mutations, 0);
+    assert.equal(retiredStats.picks, 1);
+    assert.equal(retiredStats.executors, 1);
+    assert.equal(retiredStats.statsSelectionId, "", "the revoked host must clear its exact selection");
+    assert.equal(retiredStats.selectionExpiresAt, "", "the revoked host must clear its grant");
+    assert.equal(retiredStats.driverProbe, false);
+    // The exact old selection and GUI holder are Redis presence, not SQL rows.
+    // Poll each independently with a bounded deadline, then assert strictly; a
+    // missed compare-delete fails with only these two booleans.
+    let selectionPresent: boolean;
+    let holderPresent: boolean;
+    const presenceDeadline = Date.now() + 30_000;
+    for (;;) {
+      selectionPresent = await joined.redisClient.exists(selectionKeyFor(turn.turn_id)) !== 0;
+      holderPresent = (await joined.redisClient.get(joined.occupancyKey)) !== null;
+      if ((!selectionPresent && !holderPresent) || Date.now() >= presenceDeadline) break;
+      await delay(50);
+    }
+    assert.equal(selectionPresent, false,
+      `the revoked idle selection was not compare-deleted: selectionPresent=${selectionPresent} holderPresent=${holderPresent}`);
+    assert.equal(holderPresent, false,
+      `the revoked GUI holder was not released: selectionPresent=${selectionPresent} holderPresent=${holderPresent}`);
+    assert(Date.now() < selection.expiresAt,
+      "the exact selection was cleared by the compare-delete, not by TTL expiry");
+
+    // The late approval is attempted through the existing response service.
+    // The durable request is still pending but no live device binding exists,
+    // so the delivery fails closed and the claim is rolled back; nothing is
+    // sent to the native executor.
+    await assert.rejects(joined.conversations.respondToUserInputRequest(
+      owner.id, conversationId, approvalRequest.id,
+      { action: "accept", content: { [approvalRequest.question.id]: "Allow" } }, {},
+    ), { code: "RUNNER_UNAVAILABLE" });
+    const revertedApproval = await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id }, select: { status: true, resolvedAction: true },
+    });
+    assert.equal(revertedApproval.status, "pending",
+      "a failed late delivery must not durably accept the approval");
+    assert.equal(revertedApproval.resolvedAction, null,
+      "a failed late delivery must roll its speculative claim back");
+    const afterLateAttempt = nativeStats(await gateway.stats());
+    assert.equal(afterLateAttempt.stats.acts, 0, "the late approval must send no native input");
+    assert.equal(afterLateAttempt.stats.authorizations, 0);
+    assert.equal(afterLateAttempt.stats.mutations, 0);
+    assert.equal(captures.length, requestsBefore, "the late approval must not replay the model");
+
+    // Real production lifecycle: one maintenance pass is the terminal commit,
+    // not the socket close, a manual row write or a hand-written retry loop.
+    await recovery.process({ data: { type: "maintenance" } });
+    const revokedTurn = await prisma.conversationTurn.findUniqueOrThrow({
+      where: { id: turn.turn_id },
+      select: {
+        status: true, errorCode: true, completedAt: true,
+        codexThreadId: true, codexTurnId: true,
+      },
+    });
+    assert.equal(revokedTurn.status, "failed");
+    assert.equal(revokedTurn.errorCode, "DESKTOP_DEVICE_REVOKED");
+    assert(revokedTurn.completedAt);
+    assert.equal(revokedTurn.codexThreadId, running.codexThreadId);
+    assert.equal(revokedTurn.codexTurnId, running.codexTurnId);
+    assert.equal((await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id }, select: { status: true },
+    })).status, "cancelled",
+      "the revoked-Mac terminal commit must cancel the exact pending approval");
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), false,
+      "the revoked-Mac terminal commit must release the exact turn slot");
+    const revokedEvents = await prisma.conversationEvent.findMany({
+      where: { conversationId, turnId: turn.turn_id },
+      orderBy: { sequenceNo: "asc" },
+      select: { eventType: true, payloadJson: true },
+    });
+    assert(revokedEvents.some(event => event.eventType === "conversation.status.changed" &&
+      (event.payloadJson as { turn_status?: string }).turn_status === "failed"));
+    const revokedError = revokedEvents.find(event => event.eventType === "conversation.error" &&
+      (event.payloadJson as { error_code?: string }).error_code === "DESKTOP_DEVICE_REVOKED");
+    assert(revokedError, "the revoked-Mac terminal commit must append its stable error");
+    const revokedAudit = await prisma.auditLog.findFirst({
+      where: { action: "conversation_turn_failed", targetId: turn.turn_id },
+      select: { result: true, metadataJson: true },
+    });
+    assert.equal(revokedAudit?.result, "failure");
+    assert.equal((revokedAudit?.metadataJson as { reason_code?: string } | undefined)?.reason_code,
+      "DESKTOP_DEVICE_REVOKED");
+    assert.equal(captures.length, requestsBefore, "the revoked-Mac terminal commit must not replay the model");
+    await assertOldSelectionRetired(turn.turn_id, oldSessionId, oldGrantIds);
+
+    // The exact old approval is now durably cancelled; a late response is
+    // refused by the existing service contract and never reaches the host.
+    await assert.rejects(joined.conversations.respondToUserInputRequest(
+      owner.id, conversationId, approvalRequest.id,
+      { action: "accept", content: { [approvalRequest.question.id]: "Allow" } }, {},
+    ), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    assert.equal(await joined.service.authenticate(token), null);
+    // Idempotent revoke plus a maintenance pass cannot restore authority.
+    await joined.service.revoke(owner.id, device.id);
+    await recovery.process({ data: { type: "maintenance" } });
+    assert.equal(await joined.service.authenticate(token), null);
+    assert.equal(await prisma.localComputerSession.count({ where: { conversationId, status: "active" } }), 0);
+    assert.equal(await prisma.computerPermissionGrant.count({ where: { conversationId, revokedAt: null } }), 0);
+    assert.equal(await joined.redisClient.exists(selectionKeyFor(turn.turn_id)), 0);
+    assert.equal(await joined.redisClient.get(joined.occupancyKey), null);
+    const finalRevokeStats = nativeStats(await gateway.stats());
+    assert.equal(finalRevokeStats.connectionState, "revoked");
+    assert.equal(finalRevokeStats.stats.acts, 0);
+    assert.equal(finalRevokeStats.stats.authorizations, 0);
+    assert.equal(finalRevokeStats.stats.mutations, 0);
+    assert.equal(finalRevokeStats.driverProbe, false);
+    await assertNoPrivateLeak();
+
+    return {
+      status: "desktop computer product chain: revoke ok",
+      scenario,
+      codex: runtimeManifest.versions.codex,
+      modelRequests: captures.length,
+      pendingApprovalCancelled: true,
+      lateApproval: "USER_INPUT_REQUEST_UNAVAILABLE",
+      lateDeliveryFailure: "RUNNER_UNAVAILABLE",
+      oldSelectionRetired: oldSelectionId.length > 0 && oldControlEpoch.length > 0 && oldHolderId.length > 0,
+      oldSessionEnded: true,
+      oldGrantsRevoked: oldGrantIds.length === 2,
+      credentialRevoked: true,
+      nativeSocket: "revoked",
+      driverTouched: false,
+      privateMarkerAbsent: true,
+      boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
+    };
+  }
+
+
 } finally {
   // The body watchdog covers only the proof, never cleanup: a hung cleanup
   // must end in a named nonzero failure, not a masked success.
@@ -1288,7 +2193,33 @@ try {
 
   const gatewayExited = await step("gateway", async () => {
     const gateway = child;
-    if (!gateway) return;
+    if (!gateway) {
+      // Only the intentional crash drops its host, and only after the strict
+      // no-signal reclaim proof. Any other started-but-unowned gateway is a
+      // cleanup failure, not a silent success.
+      if (gatewayStarted && !(nativeReclaimProven && (crashedRuntime?.length ?? 0) > 0)) {
+        cleanupFailures.push("gateway-unobservable");
+      }
+      return;
+    }
+    if (gateway.pid === undefined) {
+      // A failed spawn never became an owned process: never wait on it.
+      cleanupFailures.push("gateway-spawn");
+      return;
+    }
+    // Final bounded snapshot before stdin shutdown. It ignores a synthetic
+    // model failure, and a failure keeps every identity retained by earlier
+    // snapshots for the dedicated probe below.
+    if (!gatewayCleanup) {
+      cleanupFailures.push("gateway-unobservable");
+    } else {
+      try {
+        await gatewayCleanup();
+      } catch {
+        cleanupFailures.push("gateway-snapshot");
+      }
+    }
+    let escalated = false;
     if (!hasExited(gateway)) {
       // Normal child stdin shutdown: the gateway stops its supervised runtime
       // and exits on its own. `exit` is checked before and after registering,
@@ -1302,19 +2233,62 @@ try {
       await waitForExit(gateway, 6_000);
     }
     if (!hasExited(gateway)) {
+      // Only this owned ChildProcess is ever escalated, and only after the
+      // graceful stdin shutdown had its full bounded window. Any escalation is
+      // itself a cleanup failure even when it removes the process.
+      escalated = true;
       gateway.kill("SIGTERM");
       await waitForExit(gateway, 3_000);
     }
     if (!hasExited(gateway)) {
-      await killDirectChildren(gateway.pid);
+      escalated = true;
       gateway.kill("SIGKILL");
       await waitForExit(gateway, 2_000);
     }
     if (!hasExited(gateway)) throw new Error("still running");
+    if (escalated) cleanupFailures.push("gateway-escalated");
+    // Expected completion after the stdin shutdown is exit code 0; a signal, a
+    // nonzero status or a spawn error must still fail the run.
+    if (gateway.exitCode !== 0) cleanupFailures.push("gateway-exit");
+  }, 15_000);
+
+  // Only exact identities retained from the owned gateway (plus the crash
+  // snapshot when native reclaim was not proven) may be probed. The probe
+  // re-checks each native start time before any signal; no PID-only or group
+  // signal crosses this boundary. A signal here is cleanup for a failure and
+  // still marks the run unclean, never a passing proof.
+  await step("runtime", async () => {
+    const exact = new Map<string, ProcessIdentity>();
+    for (const entry of teardownRuntime ?? []) exact.set(`${entry.pid}:${entry.start}`, entry);
+    if (!nativeReclaimProven) {
+      for (const entry of crashedRuntime ?? []) exact.set(`${entry.pid}:${entry.start}`, entry);
+    }
+    const entries = [...exact.values()];
+    if (entries.length === 0) {
+      // A gateway that was actually started must name at least one exact
+      // descendant unless the intentional crash already proved native reclaim.
+      const intentionalCrash = !child && nativeReclaimProven && (crashedRuntime?.length ?? 0) > 0;
+      if (gatewayStarted && !intentionalCrash) cleanupFailures.push("runtime-unobservable");
+      return;
+    }
+    const probe = processProbe;
+    if (!probe) {
+      cleanupFailures.push("runtime-unobservable");
+      return;
+    }
+    const receipt = await probe(entries, 0, true);
+    if (receipt.live + receipt.zombie + receipt.gone + receipt.reused !== entries.length) {
+      cleanupFailures.push("runtime-unobservable");
+    }
+    if (!receipt.reclaimed || receipt.live !== 0 || receipt.survivors.length > 0) {
+      cleanupFailures.push("runtime-orphans");
+    }
+    if (receipt.signaled) cleanupFailures.push("runtime-fallback");
   }, 15_000);
 
   await step("model", async () => { if (model) await model.close(); }, 10_000);
   await step("api", async () => { if (api) await api.close(); }, 10_000);
+  await step("recovery-queue", async () => { if (recoveryQueue) await recoveryQueue.close(); }, 10_000);
   await step("database", async () => { if (db) await db.$disconnect(); }, 10_000);
   const redisExited = await step("redis", async () => {
     if (!redis) return;
@@ -1331,7 +2305,7 @@ try {
     cleanupFailures.push("scratch-retained");
   }
 
-  if (succeeded && cleanupFailures.length === 0 && gatewayExited && redisExited &&
+  if (succeeded && !watchdogFired && cleanupFailures.length === 0 && gatewayExited && redisExited &&
     postgresStopped && scratchRemoved && receipt) {
     console.log(JSON.stringify({
       ...receipt,
@@ -1347,10 +2321,141 @@ try {
     // Step names only: no paths, tokens, model captures or native detail.
     console.error(`JOINED_CLEANUP_FAILED: ${[...new Set(cleanupFailures)].join(",")}`);
     process.exitCode = 1;
+  } else if (watchdogFired) {
+    // The watchdog diagnostic was already logged when it fired; a fired
+    // watchdog can never end in success even if the proof later finished.
+    process.exitCode = 1;
   } else if (succeeded) {
     console.error("JOINED_FAILED: the joined proof produced no clean receipt");
     process.exitCode = 1;
   }
+}
+
+async function buildJoinedGatewayBinary(): Promise<string> {
+  const binary = join(root, "joined-gateway");
+  await execute("go", [
+    "test", "-c", "-tags", "desktop_runtime_package", "-o", binary, ".",
+  ], {
+    cwd: join(repositoryRoot, "apps/desktop"),
+    env: { ...process.env, GOPROXY: "off" },
+    timeout: 180_000,
+  });
+  return binary;
+}
+
+/**
+ * Runs the compiled binary's dedicated process probe entry for the exact
+ * recorded identities. The probe re-observes each native start time before it
+ * considers or signals a PID, and only bounded counts leave the child; no
+ * PID-only or process-group signal is ever sent from this side. The bounded
+ * exec hands the identities to stdin and buffers only its bounded stdout;
+ * stderr never enters an error, and no receipt is accepted without a normal
+ * exit.
+ */
+async function runProcessProbe(
+  binary: string, entries: ProcessIdentity[], waitMs: number, signal: boolean,
+): Promise<z.infer<typeof processProbeReceiptSchema>> {
+  assert(Number.isInteger(waitMs) && waitMs >= 0 && waitMs <= 25_000,
+    "the process probe wait must stay within 0..25000 ms");
+  assert(entries.length >= 1 && entries.length <= 4096,
+    "the process probe must receive 1..4096 exact identities");
+  const completed = execute(
+    binary,
+    ["-test.run=^TestJoinedComputerProcessProbe$", "-test.timeout=45s"],
+    {
+      encoding: "utf8",
+      timeout: waitMs + 10_000,
+      killSignal: "SIGKILL",
+      maxBuffer: 256 * 1024,
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: process.env.TMPDIR,
+        LINKSENSE_JOINED_PROCESS_PROBE: "1",
+      },
+    },
+  );
+  const stdin = completed.child.stdin;
+  // A missing or failed write must never strand the completion promise as an
+  // unhandled rejection; the flag below fails the run even when the child
+  // still exits normally.
+  let stdinFailed = !stdin;
+  stdin?.on("error", () => { stdinFailed = true; });
+  try {
+    stdin?.end(`${JSON.stringify({ entries, wait_ms: waitMs, signal })}\n`);
+  } catch {
+    stdinFailed = true;
+  }
+  let stdout: string;
+  try {
+    // The promise resolves only for a normal zero exit and carries the
+    // bounded stdout; a timeout, signal, nonzero status or buffer overflow
+    // rejects and is reported without stderr or captured contents.
+    stdout = (await completed).stdout;
+  } catch {
+    throw new Error("the process probe did not complete within its bound");
+  }
+  if (stdinFailed) throw new Error("the process probe stdin is unavailable");
+  let receipt: z.infer<typeof processProbeReceiptSchema> | undefined;
+  for (const line of stdout.split("\n")) {
+    let value: Record<string, unknown> | undefined;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        value = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Go's PASS summary and other test output are not JSON.
+    }
+    if (!value || value.event !== "process_probe") continue;
+    if (receipt) throw new Error("the process probe returned multiple receipts");
+    const parsedReceipt = processProbeReceiptSchema.safeParse(value);
+    if (!parsedReceipt.success) {
+      throw new Error("the process probe returned a malformed receipt");
+    }
+    receipt = parsedReceipt.data;
+  }
+  if (!receipt) throw new Error("the process probe returned no receipt");
+  return receipt;
+}
+
+/**
+ * A probe receipt must account for every exact identity it was given. A strict
+ * proof also requires no signal, observed native reclaim and no survivor.
+ */
+function assertProbeReceipt(
+  receipt: z.infer<typeof processProbeReceiptSchema>, expected: number, strict: boolean,
+): void {
+  assert.equal(receipt.live + receipt.zombie + receipt.gone + receipt.reused, expected,
+    "the process probe must account for every recorded identity");
+  if (!strict) return;
+  assert.equal(receipt.signaled, false, "a strict process proof must not signal a recorded identity");
+  assert.equal(receipt.reclaimed, true, "a strict process proof must observe native reclaim");
+  assert.equal(receipt.live, 0, "a strict process proof must leave no live runtime process");
+  assert.equal(receipt.survivors.length, 0, "a strict process proof must leave no survivor");
+}
+
+function waitForGatewayExit(
+  gateway: ChildProcess,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (hasExited(gateway)) {
+    return Promise.resolve({ code: gateway.exitCode, signal: gateway.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      gateway.off("exit", done);
+      reject(new Error("the owned gateway did not exit"));
+    }, 15_000);
+    timer.unref();
+    const done = (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    };
+    gateway.once("exit", done);
+    if (hasExited(gateway)) {
+      gateway.off("exit", done);
+      done(gateway.exitCode, gateway.signalCode);
+    }
+  });
 }
 
 function assertObservation(
@@ -1380,6 +2485,36 @@ function assertWaitResult(
     `${label} returned fields outside the closed wait result`);
   assert(result.ok === undefined && result.error === undefined,
     `${label} exposed an act/effect outcome: ${JSON.stringify(result)}`);
+}
+
+/**
+ * Opens only the real directories of the private runtime copy. `cp` preserves
+ * the pinned input's read-only modes, so the disposable tree must be made
+ * writable before overlays or scratch removal. Every component is confirmed by
+ * lstat: symlinks, files and the source tree are never followed or chmodded.
+ *
+ * The same walk is safe on a half-copy left by a failed `cp` or overlay, so
+ * the finally block can still remove the scratch root.
+ */
+async function openCopyDirectories(copyRoot: string): Promise<void> {
+  const rootInfo = await lstat(copyRoot);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error("the disposable runtime copy must be a real directory");
+  }
+  const pending = [copyRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) continue;
+    await chmod(directory, 0o700);
+    for (const name of await readdir(directory)) {
+      const path = join(directory, name);
+      const entry = await lstat(path);
+      // lstat does not follow the link, and a symlinked directory is skipped,
+      // so no path outside the disposable copy can ever be opened.
+      if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(path);
+    }
+  }
 }
 
 async function readRuntimeManifest(
@@ -1422,7 +2557,17 @@ async function replaceRuntimeDirectory(
     throw new Error(`the disposable runtime ${relative} must be a real directory`);
   }
   await rm(target, { recursive: true, force: true });
-  await cp(source, target, { recursive: true });
+  try {
+    await cp(source, target, { recursive: true });
+  } catch (error) {
+    // The half-overlay may inherit read-only source modes; open only what was
+    // actually copied so the scratch root remains removable, then rethrow.
+    await openCopyDirectories(target).catch(() => undefined);
+    throw error;
+  }
+  // The overlay is part of the disposable copy; a read-only source directory
+  // must not make the next replacement or the scratch removal fail.
+  await openCopyDirectories(target);
 }
 
 async function fileDigest(path: string): Promise<string> {
@@ -1486,21 +2631,6 @@ async function waitForProcessGone(pid: number | undefined, timeoutMs: number): P
     }
     if (Date.now() >= deadline) throw new Error("timeout");
     await delay(50);
-  }
-}
-
-/** Last-resort cleanup for a gateway that ignored graceful stdin shutdown. */
-async function killDirectChildren(pid: number | undefined): Promise<void> {
-  if (!pid) return;
-  try {
-    const { stdout } = await execute("ps", ["-o", "pid=", "-P", String(pid)], { timeout: 2_000 });
-    for (const token of stdout.split(/\s+/u)) {
-      const childPid = Number(token);
-      if (!Number.isInteger(childPid) || childPid <= 0) continue;
-      try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ }
-    }
-  } catch {
-    // Best effort only; the gateway step still reports its own failure.
   }
 }
 

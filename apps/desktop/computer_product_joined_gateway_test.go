@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,39 @@ type joinedGatewayCommand struct {
 	Action         string `json:"action"`
 	ConversationID string `json:"conversation_id"`
 	TurnID         string `json:"turn_id"`
+}
+
+// The process protocol carries only an identity pair: the native PID and its
+// Darwin seconds.microseconds start time. It never carries argv, a window, a
+// path, a credential or any other process metadata.
+const (
+	joinedProcessesEvent       = "processes"
+	joinedProcessProbeEvent    = "process_probe"
+	joinedMaxProcessEntries    = 4096
+	joinedMaxProcessReplyBytes = 1 << 20
+	joinedMaxProbeInputBytes   = 1 << 20
+	joinedMaxProbeWaitMS       = 25000
+	joinedMaxProbeSurvivors    = 8
+)
+
+var fixtureStartPattern = regexp.MustCompile(`^\d+\.\d{6}$`)
+
+type joinedProcessIdentity struct {
+	PID   int    `json:"pid"`
+	Start string `json:"start"`
+}
+
+type joinedProcessSnapshot struct {
+	Event   string                  `json:"event"`
+	PID     int                     `json:"pid"`
+	Start   string                  `json:"start"`
+	Entries []joinedProcessIdentity `json:"entries"`
+}
+
+type joinedProcessProbeRequest struct {
+	Entries []joinedProcessIdentity `json:"entries"`
+	WaitMS  int                     `json:"wait_ms"`
+	Signal  bool                    `json:"signal"`
 }
 
 type joinedExecutorStats struct {
@@ -413,6 +447,14 @@ func TestJoinedComputerGateway(t *testing.T) {
 			return
 		case "stats":
 			stats, installed, picks, executors := platform.stats()
+			// Bounded connection metadata only: the server-generated connection
+			// id and the derived device state. It never contains a token, window,
+			// process identity or other native detail.
+			connectionStatus := connection.Status()
+			connectionLinkID := ""
+			if session := connection.currentControlSession(); session != nil {
+				connectionLinkID = session.linkID
+			}
 			control.mu.Lock()
 			controlState := control.state
 			statsSelection := control.selection
@@ -440,6 +482,11 @@ func TestJoinedComputerGateway(t *testing.T) {
 				"selectionExpiresAt": selectionExpiresAt,
 				"hostHolder":         hostHolder, "hostHasHolder": hostHasHolder,
 				"hostControls": hostControls, "hostBindingMatches": hostBindingMatches,
+				"connectionId":            connectionLinkID,
+				"connectionState":         string(connectionStatus.State),
+				"connectionErrorCode":     connectionStatus.ErrorCode,
+				"connectionReady":         connectionStatus.ExecutionReady,
+				"connectionComputerReady": connectionStatus.ComputerReady,
 			})
 		case "renew_async":
 			// The takeover proof needs a renewal that stays pending while the
@@ -457,6 +504,8 @@ func TestJoinedComputerGateway(t *testing.T) {
 				result, controlErr := control.control(ctx, desktop, command.ConversationID, command.TurnID, "renew")
 				emitControlResult(control, "renew", result, controlErr)
 			}()
+		case "processes":
+			emitJoinedProcesses()
 		case "select", "renew", "pause", "resume", "stop", "status":
 			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 			result, controlErr := control.control(ctx, desktop, command.ConversationID, command.TurnID, command.Action)
@@ -502,6 +551,310 @@ func TestJoinedComputerWaitOfferAndOldReady(t *testing.T) {
 	}
 	if status := withoutHost.connection.Status(); status.ComputerReady {
 		t.Fatalf("a host-less fixture claimed computer readiness: %+v", status)
+	}
+}
+
+// emitJoinedProcesses publishes only this owned Go host and every current
+// descendant read from the native process table. A tree beyond the entry or
+// serialized-size bound fails closed with the shared error rather than
+// returning a truncated receipt or an unbounded line. A failed observation is
+// reported once with the same error shape instead of pretending the tree is
+// empty.
+func emitJoinedProcesses() {
+	table, err := fixtureProcesses()
+	if err != nil {
+		emit(map[string]any{"event": "error", "error": "JOINED_PROCESSES_UNAVAILABLE"})
+		return
+	}
+	host, ok := table[os.Getpid()]
+	if !ok || host.Zombie {
+		emit(map[string]any{"event": "error", "error": "JOINED_PROCESSES_UNAVAILABLE"})
+		return
+	}
+	descendants := fixtureDescendants(table, host.PID)
+	if len(descendants) > joinedMaxProcessEntries {
+		// A truncated tree would let the receiver treat an incomplete observation
+		// as a successful receipt, so the oversize tree fails closed instead.
+		emit(map[string]any{"event": "error", "error": "JOINED_PROCESSES_UNAVAILABLE"})
+		return
+	}
+	entries := make([]joinedProcessIdentity, 0, len(descendants))
+	for _, descendant := range descendants {
+		entries = append(entries, joinedProcessIdentity{PID: descendant.PID, Start: descendant.Start})
+	}
+	data, err := json.Marshal(joinedProcessSnapshot{
+		Event: joinedProcessesEvent, PID: host.PID, Start: host.Start, Entries: entries,
+	})
+	if err != nil || len(data) > joinedMaxProcessReplyBytes {
+		emit(map[string]any{"event": "error", "error": "JOINED_PROCESSES_UNAVAILABLE"})
+		return
+	}
+	emitMu.Lock()
+	fmt.Println(string(data))
+	emitMu.Unlock()
+}
+
+// joinedProbeRequestProblem validates the bounded request without observing any
+// process. It returns a short stable reason instead of echoing caller values.
+func joinedProbeRequestProblem(request joinedProcessProbeRequest, self int, ancestors map[int]bool) string {
+	if request.WaitMS < 0 || request.WaitMS > joinedMaxProbeWaitMS {
+		return "wait"
+	}
+	if len(request.Entries) == 0 || len(request.Entries) > joinedMaxProcessEntries {
+		return "entries"
+	}
+	seen := make(map[joinedProcessIdentity]bool, len(request.Entries))
+	for _, entry := range request.Entries {
+		if entry.PID <= 1 {
+			return "pid"
+		}
+		if !fixtureStartPattern.MatchString(entry.Start) {
+			return "start"
+		}
+		// The receiver merges snapshots by the complete (pid, start) identity, so
+		// an exact pair is a duplicate while a reused PID with a different Darwin
+		// start is a distinct process.
+		if seen[entry] {
+			return "duplicate"
+		}
+		seen[entry] = true
+		if entry.PID == self {
+			return "self"
+		}
+		if ancestors[entry.PID] {
+			return "ancestor"
+		}
+	}
+	return ""
+}
+
+// joinedProbeAncestors walks the probe's own parent chain so the probe can
+// refuse to observe or signal itself or any process that owns it.
+func joinedProbeAncestors(table fixtureProcessTable, self int) map[int]bool {
+	ancestors := map[int]bool{}
+	seen := map[int]bool{self: true}
+	current := self
+	for index := 0; index < 64; index++ {
+		entry, ok := table[current]
+		if !ok {
+			break
+		}
+		parent := entry.PPID
+		if parent <= 0 || seen[parent] {
+			break
+		}
+		seen[parent] = true
+		ancestors[parent] = true
+		current = parent
+	}
+	return ancestors
+}
+
+func joinedProbeRecorded(request joinedProcessProbeRequest) []fixtureProcess {
+	recorded := make([]fixtureProcess, 0, len(request.Entries))
+	for _, entry := range request.Entries {
+		recorded = append(recorded, fixtureProcess{PID: entry.PID, Start: entry.Start})
+	}
+	return recorded
+}
+
+// joinedProbePoll observes only the recorded identities until none is live or
+// the caller's bound ends. It never enumerates or adopts extra PIDs.
+func joinedProbePoll(entries []fixtureProcess, waitMS int) (fixtureProcessTable, error) {
+	deadline := time.Now().Add(time.Duration(waitMS) * time.Millisecond)
+	for {
+		table, err := fixtureProcesses()
+		if err != nil {
+			return nil, err
+		}
+		if !fixtureSomeLive(table, entries) {
+			return table, nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return table, nil
+		}
+		if remaining > 50*time.Millisecond {
+			remaining = 50 * time.Millisecond
+		}
+		time.Sleep(remaining)
+	}
+}
+
+func joinedProbeLiveness(
+	table fixtureProcessTable, entries []fixtureProcess,
+) (int, int, int, int, []int) {
+	live, zombie, reused, gone := 0, 0, 0, 0
+	survivors := make([]int, 0, joinedMaxProbeSurvivors)
+	for _, entry := range entries {
+		switch fixtureLiveOf(table, entry) {
+		case fixtureLive:
+			live++
+			if len(survivors) < joinedMaxProbeSurvivors {
+				survivors = append(survivors, entry.PID)
+			}
+		case fixtureZombie:
+			zombie++
+		case fixtureReused:
+			reused++
+		default:
+			gone++
+		}
+	}
+	return live, zombie, reused, gone, survivors
+}
+
+func emitJoinedProcessProbeReceipt(
+	table fixtureProcessTable, entries []fixtureProcess, signaled bool,
+) {
+	live, zombie, reused, gone, survivors := joinedProbeLiveness(table, entries)
+	emit(map[string]any{
+		"event":     joinedProcessProbeEvent,
+		"reclaimed": live == 0,
+		"live":      live,
+		"zombie":    zombie,
+		"reused":    reused,
+		"gone":      gone,
+		"signaled":  signaled,
+		"survivors": survivors,
+	})
+}
+
+// TestJoinedComputerProcessProbe is the explicit fixture-only probe entry the
+// product chain runs through the already-compiled binary. It receives the exact
+// recorded identities on stdin, reports bounded liveness counts, and only with
+// explicit consent hands those same identities to the identity-checked cleanup.
+// A request or observation failure exits without a receipt so the receiver can
+// distinguish it from every successful proof.
+func TestJoinedComputerProcessProbe(t *testing.T) {
+	if os.Getenv("LINKSENSE_JOINED_PROCESS_PROBE") != "1" {
+		t.Skip("LINKSENSE_JOINED_PROCESS_PROBE=1 is required for the joined process probe")
+	}
+	input := bufio.NewScanner(os.Stdin)
+	input.Buffer(make([]byte, 256), joinedMaxProbeInputBytes)
+	if !input.Scan() {
+		if input.Err() != nil {
+			t.Fatalf("PROCESS_PROBE_INPUT=too_large_or_unreadable")
+		}
+		t.Fatalf("PROCESS_PROBE_INPUT=empty")
+	}
+	line := strings.TrimSpace(input.Text())
+	if line == "" {
+		t.Fatalf("PROCESS_PROBE_INPUT=empty")
+	}
+	var request joinedProcessProbeRequest
+	if json.Unmarshal([]byte(line), &request) != nil {
+		t.Fatalf("PROCESS_PROBE_INPUT=invalid")
+	}
+	self := os.Getpid()
+	table, err := fixtureProcesses()
+	if err != nil {
+		t.Fatalf("PROCESS_PROBE_OBSERVATION=failed")
+	}
+	if own, ok := table[self]; !ok || own.Zombie {
+		t.Fatalf("PROCESS_PROBE_OBSERVATION=failed")
+	}
+	if problem := joinedProbeRequestProblem(request, self, joinedProbeAncestors(table, self)); problem != "" {
+		t.Fatalf("PROCESS_PROBE_REQUEST=invalid reason=%s", problem)
+	}
+	entries := joinedProbeRecorded(request)
+	if request.Signal {
+		// Bounded teardown: observe once, then hand only the still-live recorded
+		// identities to the identity-checked cleanup. Signalled stays true even
+		// when the native exit wins the race, because the fallback was necessary.
+		signaled := false
+		if fixtureSomeLive(table, entries) {
+			signaled = true
+			fixtureCleanup(t, entries)
+			if table, err = fixtureProcesses(); err != nil {
+				t.Fatalf("PROCESS_PROBE_OBSERVATION=failed")
+			}
+		}
+		emitJoinedProcessProbeReceipt(table, entries, signaled)
+		return
+	}
+	table, err = joinedProbePoll(entries, request.WaitMS)
+	if err != nil {
+		t.Fatalf("PROCESS_PROBE_OBSERVATION=failed")
+	}
+	emitJoinedProcessProbeReceipt(table, entries, false)
+}
+
+// TestJoinedProcessProbeRequestWhitebox covers the pure request boundary without
+// observing the process table or sending any signal.
+func TestJoinedProcessProbeRequestWhitebox(t *testing.T) {
+	const self = 4321
+	ancestors := map[int]bool{999: true}
+	valid := joinedProcessIdentity{PID: 1234, Start: "1234567890.123456"}
+	cases := []struct {
+		name    string
+		request joinedProcessProbeRequest
+		want    string
+	}{
+		{
+			"accepts a bounded unique identity",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{valid}, WaitMS: joinedMaxProbeWaitMS},
+			"",
+		},
+		{
+			"rejects a non positive pid",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{{PID: 1, Start: valid.Start}}},
+			"pid",
+		},
+		{
+			"rejects a malformed start",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{{PID: 1234, Start: "1.2"}}},
+			"start",
+		},
+		{
+			"accepts a reused pid with a distinct start",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{
+				valid, {PID: 1234, Start: "1234567891.000001"},
+			}},
+			"",
+		},
+		{
+			"rejects an exact duplicated identity",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{valid, valid}},
+			"duplicate",
+		},
+		{
+			"rejects the probe's own pid",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{{PID: self, Start: valid.Start}}},
+			"self",
+		},
+		{
+			"rejects an ancestor pid",
+			joinedProcessProbeRequest{Entries: []joinedProcessIdentity{{PID: 999, Start: valid.Start}}},
+			"ancestor",
+		},
+		{
+			"rejects an empty identity list",
+			joinedProcessProbeRequest{},
+			"entries",
+		},
+		{
+			"rejects a negative wait",
+			joinedProcessProbeRequest{WaitMS: -1},
+			"wait",
+		},
+		{
+			"rejects an excessive wait",
+			joinedProcessProbeRequest{WaitMS: joinedMaxProbeWaitMS + 1},
+			"wait",
+		},
+		{
+			"rejects more than 4096 entries",
+			joinedProcessProbeRequest{Entries: make([]joinedProcessIdentity, joinedMaxProcessEntries+1)},
+			"entries",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := joinedProbeRequestProblem(testCase.request, self, ancestors); got != testCase.want {
+				t.Fatalf("validation reason = %q, want %q", got, testCase.want)
+			}
+		})
 	}
 }
 

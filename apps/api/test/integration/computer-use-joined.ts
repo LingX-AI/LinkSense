@@ -18,7 +18,9 @@ import { registerDesktopExecution } from "../../src/modules/desktop-devices/exec
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { registerDesktopDeviceRoutes } from "../../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
-import type { TaskRecoveryScheduler } from "../../src/modules/events/recovery-scheduler.js";
+import {
+  TaskRecoveryScheduler, type TaskRecoveryQueueControl,
+} from "../../src/modules/events/recovery-scheduler.js";
 import { ConversationEventService } from "../../src/modules/events/service.js";
 import { localComputerGuiOccupancyKey } from "../../src/modules/local-computer/occupancy.js";
 import { LocalComputerService } from "../../src/modules/local-computer/service.js";
@@ -58,17 +60,26 @@ export async function startJoinedComputerApi(input: {
   bundleId?: string;
   /** Product lane: real DesktopComputerControl, no fixture selection/grants. */
   product?: boolean;
+  /**
+   * Opt-in production recovery join: pass the fixture-owned BullMQ queue the
+   * real `TaskRecoveryScheduler` should use. When absent, the pre-existing
+   * inert scheduler and no `onExecutionReady` hook are kept unchanged.
+   */
+  recoveryQueue?: TaskRecoveryQueueControl;
 }): Promise<{
   origin: string;
   coordinator: RedisDesktopDeviceCoordinator;
   leases: DesktopRunLeases;
   service: DesktopDeviceService;
   redisClient: LinkSenseRedis["client"];
+  /** The wrapped production Redis for existing turn-slot assertions. */
+  redis: LinkSenseRedis;
   conversations: ConversationService;
   events: ConversationEventService;
   modelProviderSettings: ModelProviderSettingsService;
   control: () => DesktopComputerControl | undefined;
   fixture: () => DesktopComputerExecuteFixture | undefined;
+  recovery: TaskRecoveryScheduler | undefined;
   occupancyKey: string;
   bindingKey: (scope: Parameters<typeof desktopComputerFixtureBindingKey>[0]) => string;
   sessionExpiresAt: number | undefined;
@@ -111,14 +122,26 @@ export async function startJoinedComputerApi(input: {
     undefined, modelProviderSettings, undefined, creditLimits,
   );
   const events = new ConversationEventService(input.prisma, redis, conversations);
-  // The joined fixture has no BullMQ worker. Desktop start/exit scheduling is
-  // required by the production runner path, so record the same durable intent
-  // through an inert scheduler rather than starting a second queue.
-  events.configureRecoveryScheduler({
-    enqueueDesktopRecovery: async () => undefined,
-    enqueueTurn: async () => undefined,
-    heartbeat: async () => undefined,
-  } as unknown as TaskRecoveryScheduler);
+  let recovery: TaskRecoveryScheduler | undefined;
+  if (input.recoveryQueue) {
+    // Opt-in whitebox mode: the real production scheduler, its real
+    // `scheduleDesktopRecovery`/maintenance paths and the real reconnect hook.
+    // The fixture owns the queue and drives `process` itself; no Worker is
+    // started, so nothing replays a turn in the background.
+    recovery = new TaskRecoveryScheduler(
+      config, input.prisma, redis, events, conversations, input.recoveryQueue,
+    );
+    events.configureRecoveryScheduler(recovery);
+  } else {
+    // Default joined fixture: no BullMQ worker. Desktop start/exit scheduling
+    // is required by the production runner path, so record the same durable
+    // intent through an inert scheduler rather than starting a second queue.
+    events.configureRecoveryScheduler({
+      enqueueDesktopRecovery: async () => undefined,
+      enqueueTurn: async () => undefined,
+      heartbeat: async () => undefined,
+    } as unknown as TaskRecoveryScheduler);
+  }
   const storage = new LocalFilesystemObjectStorage({
     ...config,
     objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: input.workspaceRoot },
@@ -190,6 +213,7 @@ export async function startJoinedComputerApi(input: {
     execution: transport, computerExecute: true,
     ...(input.product ? { nativeApprovals: true } : {}),
     ...(control ? { computerControl: control } : {}),
+    ...(recovery ? { onExecutionReady: binding => events.scheduleDesktopRecovery(binding) } : {}),
   });
   const origin = await app.listen({ host: "127.0.0.1", port: 0 });
   return {
@@ -198,11 +222,13 @@ export async function startJoinedComputerApi(input: {
     leases,
     service,
     redisClient: redis.client,
+    redis,
     conversations,
     events,
     modelProviderSettings,
     control: () => control,
     fixture: () => fixture,
+    recovery,
     occupancyKey: localComputerGuiOccupancyKey(input.deviceId),
     bindingKey: scope => desktopComputerFixtureBindingKey(scope),
     sessionExpiresAt,
