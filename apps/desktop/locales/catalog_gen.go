@@ -175,3 +175,55 @@ func DesktopUpdates() string { return In(i18n.Locale()).DesktopUpdates() }
 func (msgs Messages) DesktopUpdates() string {
 	return Catalog.Format(msgs.locale, "desktopUpdates", nil)
 }
+
+// ExportDiagnostics says "导出 LinkSense 诊断信息…"
+// in the language the app shows.
+func ExportDiagnostics() string { return In(i18n.Locale()).ExportDiagnostics() }
+
+// ExportDiagnostics says "导出 LinkSense 诊断信息…"
+// in the language of msgs.
+func (msgs Messages) ExportDiagnostics() string {
+	return Catalog.Format(msgs.locale, "exportDiagnostics", nil)
+}
+
+// DiagnosticsExportTitle says "导出 LinkSense 诊断信息"
+// in the language the app shows.
+func DiagnosticsExportTitle() string { return In(i18n.Locale()).DiagnosticsExportTitle() }
+
+// DiagnosticsExportTitle says "导出 LinkSense 诊断信息"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsExportTitle() string {
+	return Catalog.Format(msgs.locale, "diagnosticsExportTitle", nil)
+}
+
+// DiagnosticsPrivacy says "报告仅包含应用版本、设备连接状态、macOS …"
+// in the language the app shows.
+func DiagnosticsPrivacy() string { return In(i18n.Locale()).DiagnosticsPrivacy() }
+
+// DiagnosticsPrivacy says "报告仅包含应用版本、设备连接状态、macOS …"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsPrivacy() string {
+	return Catalog.Format(msgs.locale, "diagnosticsPrivacy", nil)
+}
+
+// DiagnosticsExportFailedHeading says "诊断信息导出失败"
+// in the language the app shows.
+func DiagnosticsExportFailedHeading() string {
+	return In(i18n.Locale()).DiagnosticsExportFailedHeading()
+}
+
+// DiagnosticsExportFailedHeading says "诊断信息导出失败"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsExportFailedHeading() string {
+	return Catalog.Format(msgs.locale, "diagnosticsExportFailedHeading", nil)
+}
+
+// DiagnosticsExportFailedDetail says "无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。"
+// in the language the app shows.
+func DiagnosticsExportFailedDetail() string { return In(i18n.Locale()).DiagnosticsExportFailedDetail() }
+
+// DiagnosticsExportFailedDetail says "无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。"
+// in the language of msgs.
+func (msgs Messages) DiagnosticsExportFailedDetail() string {
+	return Catalog.Format(msgs.locale, "diagnosticsExportFailedDetail", nil)
+}

@@ -64,6 +64,41 @@ choice persists on this Mac and is off for new and upgraded installs.
 (`Command+N`) actions work after sign-in and respect the app's unsaved-change
 prompts.
 
+### Diagnostics export
+
+The LinkSense app menu has **Export LinkSense Diagnostics…** next to About and
+Desktop updates. It has no keyboard shortcut and is not in the menu-bar menu.
+The action opens the system Save dialog, preferring the main window as its
+parent, and suggests `linksense-diagnostics.json` in the user's Documents
+folder (or as a bare file name when that folder is unavailable). The dialog
+explains that the report contains only the app version, device connection
+state, Accessibility and Screen Recording status, and the latest allowlisted
+connection error code.
+
+The report never includes the server URL, account or device identifiers,
+names, hardware identifiers, paths, messages or task content, runtime output,
+screenshots, keystrokes, tokens, credentials, timestamps, crash reports or raw
+logs. Exporting makes no network request, starts no device connection, does not
+request a macOS permission, and does not open Settings or a permission guide.
+An unpaired, unpackaged or older build still exports an honest report with
+`development` when the bundle has no valid version and `notPackaged`/`unknown`
+permission states when no packaged permission check is available.
+
+Cancelling the dialog writes nothing and shows no failure. On success the app
+writes a private `0600` sibling temporary file, closes it, then atomically
+renames it to the dialog-chosen path. An existing file is not truncated before
+that rename, and a final symlink is replaced rather than followed. On an I/O or
+rename failure the temporary file is removed, any existing target is left
+intact, and a localized bounded failure is shown without the path or raw error.
+A second menu selection while an export is in progress does not open another
+save panel.
+
+Crash-log retention and crash reporting remain separate from this export. This
+menu action does not read, package, upload or verify local crash logs, and it
+adds no telemetry or reporting subsystem. The plan's local crash-log retention
+and crash-reporting switch remain separate work; this slice does not claim a
+live crash UI, log retention or crash reporting.
+
 ### Local workspaces
 
 On macOS, local task files live under the app's private runtime directory.

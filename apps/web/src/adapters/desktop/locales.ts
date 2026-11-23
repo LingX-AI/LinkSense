@@ -59,6 +59,26 @@ export interface Messages {
    * `桌面更新…`
    */
   desktopUpdates(): string;
+  /**
+   * `导出 LinkSense 诊断信息…`
+   */
+  exportDiagnostics(): string;
+  /**
+   * `导出 LinkSense 诊断信息`
+   */
+  diagnosticsExportTitle(): string;
+  /**
+   * `报告仅包含应用版本、设备连接状态、macOS 权限状态以及最新的已知连接错误码。不会包含名称、标识符、路径、消息、屏幕截图、凭据或日志。`
+   */
+  diagnosticsPrivacy(): string;
+  /**
+   * `诊断信息导出失败`
+   */
+  diagnosticsExportFailedHeading(): string;
+  /**
+   * `无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。`
+   */
+  diagnosticsExportFailedDetail(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -87,6 +107,11 @@ const catalog = createCatalog<Messages>({
     "quit": [],
     "showWindow": [],
     "desktopUpdates": [],
+    "exportDiagnostics": [],
+    "diagnosticsExportTitle": [],
+    "diagnosticsPrivacy": [],
+    "diagnosticsExportFailedHeading": [],
+    "diagnosticsExportFailedDetail": [],
   },
   messages: {
     "zh-CN": {
@@ -104,6 +129,11 @@ const catalog = createCatalog<Messages>({
       "quit": "退出",
       "showWindow": "显示 LinkSense",
       "desktopUpdates": "桌面更新…",
+      "exportDiagnostics": "导出 LinkSense 诊断信息…",
+      "diagnosticsExportTitle": "导出 LinkSense 诊断信息",
+      "diagnosticsPrivacy": "报告仅包含应用版本、设备连接状态、macOS 权限状态以及最新的已知连接错误码。不会包含名称、标识符、路径、消息、屏幕截图、凭据或日志。",
+      "diagnosticsExportFailedHeading": "诊断信息导出失败",
+      "diagnosticsExportFailedDetail": "无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。",
     },
     "en-US": {
       "buildConfigurationTitle": "Unable to start LinkSense",
@@ -120,6 +150,11 @@ const catalog = createCatalog<Messages>({
       "quit": "Quit",
       "showWindow": "Show LinkSense",
       "desktopUpdates": "Desktop updates…",
+      "exportDiagnostics": "Export LinkSense Diagnostics…",
+      "diagnosticsExportTitle": "Export LinkSense Diagnostics",
+      "diagnosticsPrivacy": "The report contains only the app version, device connection state, macOS permission states, and the latest known connection error code. It never includes names, identifiers, paths, messages, screenshots, credentials, or logs.",
+      "diagnosticsExportFailedHeading": "Diagnostics export failed",
+      "diagnosticsExportFailedDetail": "The diagnostics file could not be saved. No existing file was replaced. Choose another location and try again.",
     },
     "es-ES": {
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
@@ -136,6 +171,11 @@ const catalog = createCatalog<Messages>({
       "quit": "Salir",
       "showWindow": "Mostrar LinkSense",
       "desktopUpdates": "Actualizaciones de escritorio…",
+      "exportDiagnostics": "Exportar diagnósticos de LinkSense…",
+      "diagnosticsExportTitle": "Exportar diagnósticos de LinkSense",
+      "diagnosticsPrivacy": "El informe solo incluye la versión de la aplicación, el estado de conexión del dispositivo, los estados de permisos de macOS y el código de error de conexión conocido más reciente. Nunca incluye nombres, identificadores, rutas, mensajes, capturas de pantalla, credenciales ni registros.",
+      "diagnosticsExportFailedHeading": "Error al exportar los diagnósticos",
+      "diagnosticsExportFailedDetail": "No se pudo guardar el archivo de diagnóstico. No se reemplazó ningún archivo existente. Elige otra ubicación e inténtalo de nuevo.",
     },
     "fr-FR": {
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
@@ -152,6 +192,11 @@ const catalog = createCatalog<Messages>({
       "quit": "Quitter",
       "showWindow": "Afficher LinkSense",
       "desktopUpdates": "Mises à jour de l’application…",
+      "exportDiagnostics": "Exporter les diagnostics de LinkSense…",
+      "diagnosticsExportTitle": "Exporter les diagnostics de LinkSense",
+      "diagnosticsPrivacy": "Le rapport contient uniquement la version de l’application, l’état de connexion de l’appareil, les états des autorisations macOS et le dernier code d’erreur de connexion connu. Il ne contient jamais de noms, d’identifiants, de chemins, de messages, de captures d’écran, d’identifiants de connexion ni de journaux.",
+      "diagnosticsExportFailedHeading": "Échec de l’exportation des diagnostics",
+      "diagnosticsExportFailedDetail": "Impossible d’enregistrer le fichier de diagnostic. Aucun fichier existant n’a été remplacé. Choisissez un autre emplacement et réessayez.",
     },
     "ja-JP": {
       "buildConfigurationTitle": "LinkSense を起動できません",
@@ -168,6 +213,11 @@ const catalog = createCatalog<Messages>({
       "quit": "終了",
       "showWindow": "LinkSense を表示",
       "desktopUpdates": "デスクトップの更新…",
+      "exportDiagnostics": "LinkSense の診断情報を書き出す…",
+      "diagnosticsExportTitle": "LinkSense の診断情報を書き出す",
+      "diagnosticsPrivacy": "レポートには、アプリのバージョン、デバイスの接続状態、macOS の権限状態、最新の既知の接続エラーコードのみが含まれます。名前、識別子、パス、メッセージ、スクリーンショット、認証情報、ログは含まれません。",
+      "diagnosticsExportFailedHeading": "診断情報の書き出しに失敗しました",
+      "diagnosticsExportFailedDetail": "診断ファイルを保存できませんでした。既存のファイルは置き換えていません。別の場所を選んで、もう一度お試しください。",
     },
     "pt-BR": {
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
@@ -184,6 +234,11 @@ const catalog = createCatalog<Messages>({
       "quit": "Sair",
       "showWindow": "Mostrar o LinkSense",
       "desktopUpdates": "Atualizações do aplicativo…",
+      "exportDiagnostics": "Exportar diagnósticos do LinkSense…",
+      "diagnosticsExportTitle": "Exportar diagnósticos do LinkSense",
+      "diagnosticsPrivacy": "O relatório inclui apenas a versão do aplicativo, o estado de conexão do dispositivo, os estados das permissões do macOS e o código de erro de conexão conhecido mais recente. Ele nunca inclui nomes, identificadores, caminhos, mensagens, capturas de tela, credenciais ou registros.",
+      "diagnosticsExportFailedHeading": "Falha ao exportar os diagnósticos",
+      "diagnosticsExportFailedDetail": "Não foi possível salvar o arquivo de diagnóstico. Nenhum arquivo existente foi substituído. Escolha outro local e tente novamente.",
     },
   },
 });

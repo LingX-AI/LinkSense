@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo"
 )
@@ -45,12 +46,16 @@ type Desktop struct {
 	// the app-local fallback.
 	computerShortcut *computerEmergencyShortcut
 	// downloads is bounded page-local state for the explicit Mac Finder action.
-	downloads    artifactDownloadTracker
+	downloads artifactDownloadTracker
+	// diagnostics guards the single native export and provides local test seams.
+	diagnostics  desktopDiagnostics
 	dataRoot     string
 	shutdownOnce sync.Once
-	// The window and application lifecycle callbacks use these only on the main thread.
-	closeToTray         bool
-	quitting            bool
+	// closeToTray and preferencesWritable are used only on the main thread.
+	closeToTray bool
+	// quitting is set by OnBeforeQuit and cleared by OnQuitCanceled. The
+	// diagnostics worker reads it off the main thread, so it is atomic.
+	quitting            atomic.Bool
 	preferencesWritable bool
 }
 
@@ -299,7 +304,7 @@ func (d *Desktop) openMainWindow() {
 		return nil
 	})
 	win.OnClose(func(event *mygo.CloseEvent) {
-		if d.closeToTray && !d.quitting {
+		if d.closeToTray && !d.quitting.Load() {
 			event.PreventDefault()
 			win.Hide()
 		}

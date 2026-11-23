@@ -25,7 +25,7 @@ var desktopNavigate = mygo.NewEvent[string]("desktop:navigate")
 // when reopening a hidden window.
 func (d *Desktop) presentMainWindow() *mygo.Window {
 	win := d.mainWindow()
-	if win == nil || d.quitting {
+	if win == nil || d.quitting.Load() {
 		return nil
 	}
 	if win.IsDestroyed() {
@@ -101,8 +101,8 @@ func (d *Desktop) installShell(dataRoot string) {
 			d.presentMainWindow()
 		}
 	})
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { d.quitting = true })
-	mygo.App.OnQuitCanceled(func() { d.quitting = false })
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { d.quitting.Store(true) })
+	mygo.App.OnQuitCanceled(func() { d.quitting.Store(false) })
 }
 
 func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
@@ -111,10 +111,12 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	newTask := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/conversations/new") }
 	// Emergency pause must not block the main thread on the acknowledgement.
 	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
+	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
 	app := mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
 			{ID: "desktop-updates", Label: tx.DesktopUpdates(), Click: openSettings},
+			{ID: "export-diagnostics", Label: tx.ExportDiagnostics(), Click: exportDiagnostics},
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
 			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: "Cmd+Shift+Esc", Click: pauseComputer},
