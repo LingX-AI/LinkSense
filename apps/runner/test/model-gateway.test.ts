@@ -2280,6 +2280,74 @@ describe("ModelGateway", () => {
     expect(upstreamBody).not.toHaveProperty("messages");
   });
 
+  it.each(["SSE", "JSON"])("forwards an incomplete %s chat completion without finalizing tools or losing memory usage", async (format) => {
+    const captures: RunnerMemoryUsageCapture[] = [];
+    const usage = { prompt_tokens: 20, completion_tokens: 5 };
+    const toolCall = { index: 0, id: "call-lookup", type: "function", function: { name: "lookup", arguments: '{"query":' } };
+    const message = { content: "Partial answer", tool_calls: [toolCall] };
+    const fetchUpstream = vi.fn<typeof fetch>(async () => format === "JSON"
+      ? Response.json({ choices: [{ message, finish_reason: "length" }], usage })
+      : new Response(
+          `data: ${JSON.stringify({ choices: [{ delta: message, finish_reason: "length" }] })}\n\n` +
+          `data: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        ));
+    const gateway = await startGateway({
+      fetch: fetchUpstream,
+      onMemoryUsage: async (capture) => { captures.push(capture); },
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "incomplete-memory-bridge", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const response = await requestGateway(
+      gateway, lease.token, { model: "model-a", input: "history", stream: true },
+      { "x-codex-turn-metadata": '{"request_kind":"memory"}' },
+    );
+    expect(response.status).toBe(200);
+    const events = await readSse(response);
+    expect(events.filter(({ event }) => event === "response.completed" || event.endsWith(".done"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      event: "response.incomplete",
+      data: { response: {
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        output_text: "Partial answer",
+        output: expect.arrayContaining([{ id: expect.any(String), type: "function_call", status: "incomplete", call_id: "call-lookup", name: "lookup", arguments: '{"query":' }]),
+        usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+      } },
+    });
+    expect(captures).toMatchObject([{
+      operation: "extract", measurement_method: "provider",
+      token_usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+    }]);
+    expect(fetchUpstream).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a bridged SSE with truncated tool arguments even when the provider sends [DONE]", async () => {
+    const toolCall = { index: 0, id: "call-lookup", type: "function", function: { name: "lookup", arguments: '{"query":' } };
+    const fetchUpstream = vi.fn<typeof fetch>(async () => new Response(
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [toolCall] } }] })}\n\ndata: [DONE]\n\n`,
+      { headers: { "content-type": "text/event-stream" } },
+    ));
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "invalid-bridge-arguments", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const events = await readSse(await requestGateway(gateway, lease.token, { model: "model-a", input: "lookup", stream: true }));
+    expect(events.filter(({ event }) => event === "response.completed" || event.endsWith(".done"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      event: "response.failed",
+      data: { response: { status: "failed", error: { code: "model_gateway_error" } } },
+    });
+    expect(fetchUpstream).toHaveBeenCalledTimes(1);
+  });
+
   it.each([false, true])("continues a bridged tool call with commentary through the gateway when streaming is %s", async (stream) => {
     const upstreamRequests: JsonObject[] = [];
     let toolAlias = "";

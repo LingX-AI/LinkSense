@@ -41,12 +41,11 @@ export async function writeSseEvent(
 }
 
 export function beginSseResponse(response: ServerResponse): void {
-  response.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-content-type-options": "nosniff",
-  });
+  response.setHeader("content-type", "text/event-stream; charset=utf-8");
+  response.setHeader("cache-control", "no-cache, no-transform");
+  response.setHeader("connection", "keep-alive");
+  response.setHeader("x-content-type-options", "nosniff");
+  response.writeHead(200);
   response.flushHeaders();
 }
 

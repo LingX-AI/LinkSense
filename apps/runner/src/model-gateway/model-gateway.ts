@@ -1518,7 +1518,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       );
     }
     if (streamRequested) {
-      await writeCompletedResponseAsSse(response, rewritten);
+      await writeResponseAsSse(response, rewritten);
       return;
     }
     writeJson(response, 200, rewritten);
@@ -1576,13 +1576,16 @@ export class ModelGateway implements ModelGatewayRuntime {
       )) {
         const rewritten = rewriteResponsesPayload(event.data, context);
         if (!isRecord(rewritten)) continue;
-        const completed = completedResponseFromEvent(rewritten);
-        if (completed && memoryOperation) {
+        if (
+          memoryOperation &&
+          (event.event === "response.completed" || event.event === "response.incomplete") &&
+          isRecord(rewritten.response)
+        ) {
           await this.captureMemoryUsage(
             lease,
             memoryOperation,
             meteredRequestBody,
-            completed,
+            rewritten.response,
             requestContext,
           );
           memoryOperation = null;
@@ -1613,7 +1616,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       );
     }
     if (streamRequested) {
-      await writeCompletedResponseAsSse(response, rewritten);
+      await writeResponseAsSse(response, rewritten);
       return;
     }
     writeJson(response, 200, rewritten);
@@ -2253,16 +2256,18 @@ function isEventStream(contentType: string | null): boolean {
   return contentType?.toLowerCase().startsWith("text/event-stream") ?? false;
 }
 
-async function writeCompletedResponseAsSse(
+async function writeResponseAsSse(
   response: ServerResponse,
-  completed: JsonObject,
+  result: JsonObject,
 ): Promise<void> {
   beginSseResponse(response);
   let sequence = 0;
-  const output = Array.isArray(completed.output) ? completed.output : [];
+  const incomplete = result.status === "incomplete";
+  const output = !incomplete && Array.isArray(result.output) ? result.output : [];
   const inProgress = {
-    ...completed,
+    ...result,
     status: "in_progress",
+    ...(incomplete ? { incomplete_details: null } : {}),
     output: [],
     output_text: "",
   };
@@ -2290,10 +2295,11 @@ async function writeCompletedResponseAsSse(
       item,
     });
   }
-  await writeSseEvent(response, "response.completed", {
-    type: "response.completed",
+  const terminalEvent = incomplete ? "response.incomplete" : "response.completed";
+  await writeSseEvent(response, terminalEvent, {
+    type: terminalEvent,
     sequence_number: sequence,
-    response: completed,
+    response: result,
   });
   response.end();
 }
