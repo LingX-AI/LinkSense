@@ -1,7 +1,9 @@
+import { ThemeProvider } from "@/app/theme-context"
 import i18n from "@/i18n"
-import { act, screen, waitFor, within } from "@testing-library/react"
+import { SettingsAppearancePage } from "@/pages/settings-pages"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   setupApplicationTests,
   chooseSelectOption,
@@ -474,6 +476,46 @@ describe("LinkSense application", () => {
     expect(currentPassword).toHaveAttribute("type", "password")
     expect(newPassword).toHaveAttribute("type", "text")
     expect(confirmation).toHaveAttribute("type", "text")
+  })
+
+  it("keeps the Mac Appearance page theme-only at the fixed default size", async () => {
+    vi.stubGlobal("mygo", { platform: "darwin" })
+    window.localStorage.setItem("linksense.uiFontSize", "18")
+    const interaction = userEvent.setup()
+    const { container } = render(
+      <ThemeProvider>
+        <SettingsAppearancePage />
+      </ThemeProvider>
+    )
+
+    expect(await screen.findByRole("heading", { name: "外观" })).toBeVisible()
+    expect(
+      screen.queryByText("设置 LinkSense 的界面主题与基准字号。")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("spinbutton", { name: "UI 字号" })
+    ).not.toBeInTheDocument()
+    expect(container.querySelector("#appearance-font-size")).toBeNull()
+    expect(container.querySelector(".appearance-font-size-control")).toBeNull()
+    expect(container.querySelector('[data-slot="settings-card"]')).toBeNull()
+    expect(
+      screen.queryByText("你的 AI 伙伴，助你处理知识、分析与日常工作。")
+    ).not.toBeInTheDocument()
+    expect(document.documentElement.dataset.uiFontSize).toBe("14")
+    expect(
+      document.documentElement.style.getPropertyValue("--app-ui-font-size")
+    ).toBe("14px")
+    expect(window.localStorage.getItem("linksense.uiFontSize")).toBe("18")
+    expect(screen.getByText("主题", { selector: "legend" })).toBeVisible()
+    expect(screen.getAllByRole("radio")).toHaveLength(3)
+
+    await interaction.click(screen.getByRole("radio", { name: "深色" }))
+    expect(screen.getByRole("radio", { name: "深色" })).toBeChecked()
+    expect(document.documentElement).toHaveClass("dark")
+    expect(document.documentElement.dataset.themePreference).toBe("dark")
+    expect(window.localStorage.getItem("linksense.theme")).toBe("dark")
+    expect(document.documentElement.dataset.uiFontSize).toBe("14")
+    expect(window.localStorage.getItem("linksense.uiFontSize")).toBe("18")
   })
 
   it("changes and persists the theme and UI font size from Appearance settings", async () => {

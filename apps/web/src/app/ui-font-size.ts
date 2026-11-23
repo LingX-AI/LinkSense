@@ -25,6 +25,16 @@ export function normalizeUiFontSize(value: string | number | null | undefined) {
   return parsed
 }
 
+export function supportsUiFontSizePreference() {
+  return window.mygo?.platform !== "darwin"
+}
+
+export function readEffectiveUiFontSize() {
+  return supportsUiFontSizePreference()
+    ? readStoredUiFontSize()
+    : DEFAULT_UI_FONT_SIZE
+}
+
 export function readStoredUiFontSize() {
   try {
     return (
@@ -38,14 +48,16 @@ export function readStoredUiFontSize() {
 }
 
 export function applyUiFontSize(value: number) {
-  const fontSize = clampUiFontSize(value)
+  const fontSize = supportsUiFontSizePreference()
+    ? clampUiFontSize(value)
+    : DEFAULT_UI_FONT_SIZE
   const root = document.documentElement
   root.style.setProperty("--app-ui-font-size", `${fontSize}px`)
   root.dataset.uiFontSize = String(fontSize)
 }
 
 export function initializeUiFontSize() {
-  const fontSize = readStoredUiFontSize()
+  const fontSize = readEffectiveUiFontSize()
   applyUiFontSize(fontSize)
   return fontSize
 }

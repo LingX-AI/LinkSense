@@ -9,7 +9,9 @@ import {
   MIN_UI_FONT_SIZE,
   normalizeUiFontSize,
   persistUiFontSize,
+  readEffectiveUiFontSize,
   readStoredUiFontSize,
+  supportsUiFontSizePreference,
   UI_FONT_SIZE_STORAGE_KEY,
 } from "@/app/ui-font-size"
 
@@ -21,6 +23,7 @@ describe("UI font-size preferences", () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
     document.documentElement.style.removeProperty("--app-ui-font-size")
     delete document.documentElement.dataset.uiFontSize
@@ -59,6 +62,42 @@ describe("UI font-size preferences", () => {
       throw new Error("storage blocked")
     })
     expect(readStoredUiFontSize()).toBe(DEFAULT_UI_FONT_SIZE)
+  })
+
+  it("ignores a saved font size on the Mac desktop host", () => {
+    window.localStorage.setItem(UI_FONT_SIZE_STORAGE_KEY, "18")
+    vi.stubGlobal("mygo", { platform: "darwin" })
+
+    expect(supportsUiFontSizePreference()).toBe(false)
+    expect(readEffectiveUiFontSize()).toBe(DEFAULT_UI_FONT_SIZE)
+    expect(initializeUiFontSize()).toBe(DEFAULT_UI_FONT_SIZE)
+    expect(
+      document.documentElement.style.getPropertyValue("--app-ui-font-size")
+    ).toBe("14px")
+    expect(document.documentElement.dataset.uiFontSize).toBe("14")
+    expect(window.localStorage.getItem(UI_FONT_SIZE_STORAGE_KEY)).toBe("18")
+
+    applyUiFontSize(12)
+    expect(
+      document.documentElement.style.getPropertyValue("--app-ui-font-size")
+    ).toBe("14px")
+    expect(document.documentElement.dataset.uiFontSize).toBe("14")
+    expect(window.localStorage.getItem(UI_FONT_SIZE_STORAGE_KEY)).toBe("18")
+  })
+
+  it("keeps the saved font size on Windows and in a Mac browser", () => {
+    window.localStorage.setItem(UI_FONT_SIZE_STORAGE_KEY, "18")
+    vi.stubGlobal("mygo", { platform: "win32" })
+    expect(supportsUiFontSizePreference()).toBe(true)
+    expect(initializeUiFontSize()).toBe(18)
+    expect(document.documentElement.dataset.uiFontSize).toBe("18")
+
+    vi.unstubAllGlobals()
+    document.documentElement.dataset.desktopPlatform = "darwin"
+    expect(supportsUiFontSizePreference()).toBe(true)
+    expect(initializeUiFontSize()).toBe(18)
+    expect(document.documentElement.dataset.uiFontSize).toBe("18")
+    delete document.documentElement.dataset.desktopPlatform
   })
 
   it("initializes and applies the saved value to the document root", () => {
