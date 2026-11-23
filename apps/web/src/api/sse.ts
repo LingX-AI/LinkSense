@@ -13,7 +13,12 @@ import {
   type ConversationEvent,
   type ConversationEventHistoryPage,
 } from "@/api/contracts"
-import { getAccessToken, setAccessToken } from "@/api/session"
+import {
+  getAccessToken,
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+  setAccessToken,
+} from "@/api/session"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 
@@ -107,6 +112,12 @@ export function connectConversationEvents(
   options?: ConversationEventConnectionOptions
 ) {
   const controller = new AbortController()
+  // Each authenticated connector belongs to the login that started it. A
+  // replacement login must not inherit its cursor, refresh, replay, or token
+  // clear. Explicit public credentials are not tied to a login session.
+  const loginSessionBoundary = getLoginSessionBoundary()
+  const isAbandonedLogin = () =>
+    !options?.publicSession && !isLoginSessionCurrent(loginSessionBoundary)
   let lastEventId = options?.replayHistory
     ? ""
     : (options?.initialEventId ?? readLastEventId(conversationId))
@@ -124,6 +135,7 @@ export function connectConversationEvents(
     persistScheduled = false
     if (!dirtyCursor) return
     dirtyCursor = false
+    if (isAbandonedLogin()) return
     saveLastEventId(conversationId, lastEventId)
   }
 
@@ -161,7 +173,7 @@ export function connectConversationEvents(
     pending.push(cursor)
     pendingIds.add(cursor.id)
     const commitCursor = () => {
-      if (cursor.committed) return
+      if (cursor.committed || isAbandonedLogin()) return
       cursor.committed = true
       let consumed = 0
       for (const entry of pending) {
@@ -220,7 +232,16 @@ export function connectConversationEvents(
           }
         )
 
-        if (!options?.publicSession) validateResponseBuild(response.headers)
+        if (!options?.publicSession) {
+          // The response belongs to the login that sent the request. Checking
+          // first also prevents a stale response from triggering the global
+          // build/desktop-update side effects of validateResponseBuild.
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
+          }
+          validateResponseBuild(response.headers)
+        }
         if (
           options?.publicSession &&
           (response.status === 401 ||
@@ -233,12 +254,20 @@ export function connectConversationEvents(
         }
         if (response.status === 401) {
           try {
-            await refreshSession(token)
+            await refreshSession(token, loginSessionBoundary)
           } catch (error) {
+            if (isAbandonedLogin()) {
+              controller.abort()
+              return
+            }
             if (isDefinitiveAuthenticationError(error)) {
               setAccessToken(null)
             }
             throw error
+          }
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
           }
           const refreshedToken = getAccessToken()
           if (refreshedToken)
@@ -254,6 +283,10 @@ export function connectConversationEvents(
               signal: controller.signal,
             }
           )
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
+          }
           validateResponseBuild(response.headers)
           if (response.status === 401) setAccessToken(null)
         }
@@ -271,6 +304,12 @@ export function connectConversationEvents(
           let processingStartedAt = performance.now()
           while (!controller.signal.aborted) {
             const chunk = await reader.read()
+            // A chunk (or EOF) that arrives after the login was replaced must
+            // not be handled, replayed, or acknowledged for the new login.
+            if (isAbandonedLogin()) {
+              controller.abort()
+              return
+            }
             if (chunk.done) break
             buffer += decoder.decode(chunk.value, { stream: true })
             const frames = buffer.split(/\r?\n\r?\n/u)
@@ -294,6 +333,10 @@ export function connectConversationEvents(
                 processingStartedAt = performance.now()
               }
               if (controller.signal.aborted) return
+              if (isAbandonedLogin()) {
+                controller.abort()
+                return
+              }
               processedFrames += 1
               if (rawFrame.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
                 throw new Error("SSE_FRAME_TOO_LARGE")
@@ -311,6 +354,10 @@ export function connectConversationEvents(
           reader.releaseLock()
         }
       } catch (error) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         if (
           error instanceof ApiError &&
           ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
@@ -323,8 +370,16 @@ export function connectConversationEvents(
       }
 
       if (!controller.signal.aborted) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         handlers.onConnectionChange?.("reconnecting")
         await waitForSseReconnectDelay(reconnectDelay, controller.signal)
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
       }
     }

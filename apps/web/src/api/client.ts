@@ -4,6 +4,7 @@ import {
   getDesktopServerUrl,
   hostFetch,
   isDesktopHost,
+  isMacDesktopHost,
   requireDesktopUpdate,
 } from "@/adapters/desktop/desktop-adapter"
 import {
@@ -27,9 +28,12 @@ import {
 import { authSessionSchema, type AccessSession } from "@/api/contracts"
 import {
   getAccessToken,
+  getLoginSessionBoundary,
   getStoredAccessSession,
+  isLoginSessionCurrent,
   restoreAccessTokenFromStorage,
   setAccessToken,
+  type LoginSessionBoundary,
 } from "@/api/session"
 
 const API_BASE_URL =
@@ -148,6 +152,29 @@ type RequestOptions<TSchema extends z.ZodType> = {
   skipRefresh?: boolean
 }
 
+/**
+ * apiRequest-only option. Upload options inherit RequestOptions, and uploads
+ * never run an attempt guard.
+ */
+export type ApiRequestOptions<TSchema extends z.ZodType> =
+  RequestOptions<TSchema> & {
+    /**
+     * Optional synchronous eligibility check for opt-in writes. It runs
+     * immediately before each physical attempt, including the retry after an
+     * authenticated refresh. A rejection is not an HTTP response, so it never
+     * drives authentication renewal or clears the session.
+     */
+    beforeAttempt?: () => void
+    /**
+     * Optional live login-session identity captured when a write was admitted.
+     * Defaults to the boundary captured when the request begins. Token refresh
+     * keeps it unchanged; sign-out or accepting another session advances it. A
+     * stale boundary prevents refresh, retry, and token clearing from crossing
+     * into the replacement login.
+     */
+    loginSessionBoundary?: LoginSessionBoundary
+  }
+
 export type ApiUploadRequestOptions<TSchema extends z.ZodType> = Omit<
   RequestOptions<TSchema>,
   "body" | "cache"
@@ -163,7 +190,55 @@ export type ApiStreamRequestOptions = {
   skipRefresh?: boolean
 }
 
-let refreshPromise: Promise<AccessSession> | null = null
+let refreshPromise: {
+  loginSessionBoundary: LoginSessionBoundary
+  promise: Promise<AccessSession>
+} | null = null
+
+function createSupersededLoginError() {
+  // A replacement login owns the session now, so this is a local cancellation
+  // rather than a server authentication decision. Direct stream consumers
+  // already stop on AbortError without clearing the replacement credentials.
+  return new DOMException(
+    "Request superseded by a newer login session",
+    "AbortError"
+  )
+}
+
+function assertRefreshSessionCurrent(
+  loginSessionBoundary: LoginSessionBoundary
+) {
+  if (isLoginSessionCurrent(loginSessionBoundary)) return
+  throw createSupersededLoginError()
+}
+
+function assertResponseLoginSessionCurrent(
+  response: Response,
+  loginSessionBoundary?: LoginSessionBoundary
+) {
+  if (
+    loginSessionBoundary === undefined ||
+    isLoginSessionCurrent(loginSessionBoundary)
+  ) {
+    return
+  }
+  // Cancel the unread body so native fetch can close its channel.
+  void response.body?.cancel().catch(() => undefined)
+  throw createSupersededLoginError()
+}
+
+function assertResponseBodyLoginSessionCurrent(
+  loginSessionBoundary?: LoginSessionBoundary
+) {
+  if (
+    loginSessionBoundary === undefined ||
+    isLoginSessionCurrent(loginSessionBoundary)
+  ) {
+    return
+  }
+  // Body consumption has already finished, so there is nothing to cancel.
+  throw createSupersededLoginError()
+}
 
 const REFRESH_LOCK_NAME = "linksense.auth.refresh.v1"
 const REFRESH_LEASE_STORAGE_KEY = "linksense.auth.refresh-lease.v1"
@@ -248,11 +323,15 @@ function waitForRefreshLease() {
   })
 }
 
-async function parseError(response: Response) {
+async function parseError(
+  response: Response,
+  loginSessionBoundary?: LoginSessionBoundary
+) {
   let payload: unknown
   try {
     payload = await response.json()
   } catch {
+    assertResponseBodyLoginSessionCurrent(loginSessionBoundary)
     throw new ApiError({
       status: response.status,
       errorCode:
@@ -263,6 +342,7 @@ async function parseError(response: Response) {
             : "API_RESPONSE_INVALID",
     })
   }
+  assertResponseBodyLoginSessionCurrent(loginSessionBoundary)
 
   const parsed = errorEnvelopeSchema.safeParse(payload)
   if (!parsed.success) {
@@ -284,7 +364,8 @@ async function parseError(response: Response) {
 async function rawRequest<TSchema extends z.ZodType>(
   path: string,
   options: RequestOptions<TSchema>,
-  accessTokenOverride?: string | null
+  accessTokenOverride?: string | null,
+  loginSessionBoundary?: LoginSessionBoundary
 ) {
   const headers = new Headers({ Accept: "application/json" })
   prepareClientBuildRequest(headers, path)
@@ -324,9 +405,10 @@ async function rawRequest<TSchema extends z.ZodType>(
     throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
   }
 
+  assertResponseLoginSessionCurrent(response, loginSessionBoundary)
   validateResponseBuild(response.headers)
   if (!response.ok) {
-    await parseError(response)
+    await parseError(response, loginSessionBoundary)
   }
 
   let payload: unknown
@@ -336,11 +418,13 @@ async function rawRequest<TSchema extends z.ZodType>(
         ? { success: true, data: null }
         : await response.json()
   } catch {
+    assertResponseBodyLoginSessionCurrent(loginSessionBoundary)
     throw new ApiError({
       status: response.status,
       errorCode: "API_RESPONSE_INVALID",
     })
   }
+  assertResponseBodyLoginSessionCurrent(loginSessionBoundary)
   const envelope = successEnvelopeSchema.safeParse(payload)
   if (!envelope.success) {
     throw new ApiError({
@@ -363,11 +447,22 @@ async function rawRequest<TSchema extends z.ZodType>(
 function rawUploadRequest<TSchema extends z.ZodType>(
   path: string,
   options: ApiUploadRequestOptions<TSchema>,
-  accessTokenOverride?: string | null
+  accessTokenOverride: string | null | undefined,
+  loginSessionBoundary: LoginSessionBoundary
 ): Promise<z.infer<TSchema>> {
   if (isDesktopHost()) {
     // Native fetch has no byte-level upload progress; completion is observable.
-    return rawRequest(path, options, accessTokenOverride).then((data) => {
+    return rawRequest(
+      path,
+      options,
+      accessTokenOverride,
+      loginSessionBoundary
+    ).then((data) => {
+      // Body consumption can outlive the header check; do not publish a result
+      // or completion progress that belongs to a replaced login.
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw createSupersededLoginError()
+      }
       options.onUploadProgress?.(100)
       return data
     })
@@ -400,6 +495,7 @@ function rawUploadRequest<TSchema extends z.ZodType>(
     }
 
     request.upload.addEventListener("progress", (event) => {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) return
       if (!event.lengthComputable || event.total <= 0) return
       options.onUploadProgress?.(
         Math.min(
@@ -410,6 +506,11 @@ function rawUploadRequest<TSchema extends z.ZodType>(
     })
     request.addEventListener("load", () => {
       cleanup()
+      // Reject before the build observer or schema can apply A's response to B.
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        reject(createSupersededLoginError())
+        return
+      }
       try {
         validateUploadResponseBuild(request)
       } catch (error) {
@@ -488,7 +589,8 @@ function getReusableSession(staleAccessToken: string | null) {
   } satisfies AccessSession
 }
 
-async function requestNewSession() {
+async function requestNewSession(loginSessionBoundary: LoginSessionBoundary) {
+  assertRefreshSessionCurrent(loginSessionBoundary)
   const session = await rawRequest(
     "/auth/refresh",
     {
@@ -496,20 +598,41 @@ async function requestNewSession() {
       schema: authSessionSchema,
       skipRefresh: true,
     },
-    null
-  )
+    null,
+    loginSessionBoundary
+  ).catch((error: unknown): never => {
+    // A refresh that settles after the login generation changed belongs to the
+    // previous login. Surface even a genuine server 401 as local cancellation
+    // so direct consumers do not clear the replacement login.
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw createSupersededLoginError()
+    }
+    throw error
+  })
+  assertRefreshSessionCurrent(loginSessionBoundary)
   setAccessToken(session.access_token, session.access_token_expires_at)
   return session
 }
 
-async function refreshInsideLock(staleAccessToken: string | null) {
-  return getReusableSession(staleAccessToken) ?? requestNewSession()
+async function refreshInsideLock(
+  staleAccessToken: string | null,
+  loginSessionBoundary: LoginSessionBoundary
+) {
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  return (
+    getReusableSession(staleAccessToken) ??
+    requestNewSession(loginSessionBoundary)
+  )
 }
 
-async function refreshWithStorageLease(staleAccessToken: string | null) {
+async function refreshWithStorageLease(
+  staleAccessToken: string | null,
+  loginSessionBoundary: LoginSessionBoundary
+) {
   const ownerId = createRefreshOwnerId()
 
   while (true) {
+    assertRefreshSessionCurrent(loginSessionBoundary)
     const reusableSession = getReusableSession(staleAccessToken)
     if (reusableSession) return reusableSession
 
@@ -519,24 +642,30 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
         ownerId,
         expiresAt: Date.now() + REFRESH_LEASE_DURATION_MS,
       })
-      if (!acquired) return refreshInsideLock(staleAccessToken)
+      if (!acquired)
+        return refreshInsideLock(staleAccessToken, loginSessionBoundary)
 
-      await waitForRefreshLease()
-      if (readRefreshLease()?.ownerId !== ownerId) continue
-
-      const renewTimer = window.setInterval(() => {
-        if (readRefreshLease()?.ownerId === ownerId) {
-          writeRefreshLease({
-            ownerId,
-            expiresAt: Date.now() + REFRESH_LEASE_DURATION_MS,
-          })
-        }
-      }, REFRESH_LEASE_RENEW_INTERVAL_MS)
-
+      let renewTimer: number | null = null
       try {
-        return await refreshInsideLock(staleAccessToken)
+        await waitForRefreshLease()
+        // A replacement login may win during the verification wait; its
+        // acquisition's finally must still release this lease immediately.
+        assertRefreshSessionCurrent(loginSessionBoundary)
+        if (readRefreshLease()?.ownerId !== ownerId) continue
+
+        renewTimer = window.setInterval(() => {
+          if (readRefreshLease()?.ownerId === ownerId) {
+            writeRefreshLease({
+              ownerId,
+              expiresAt: Date.now() + REFRESH_LEASE_DURATION_MS,
+            })
+          }
+        }, REFRESH_LEASE_RENEW_INTERVAL_MS)
+
+        return await refreshInsideLock(staleAccessToken, loginSessionBoundary)
       } finally {
-        window.clearInterval(renewTimer)
+        // Never release or renew a lease another tab has since overwritten.
+        if (renewTimer !== null) window.clearInterval(renewTimer)
         releaseRefreshLease(ownerId)
       }
     }
@@ -545,29 +674,46 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
   }
 }
 
-async function refreshAcrossTabs(staleAccessToken: string | null) {
-  if (isDesktopHost()) return refreshInsideLock(staleAccessToken)
+async function refreshAcrossTabs(
+  staleAccessToken: string | null,
+  loginSessionBoundary: LoginSessionBoundary
+) {
+  if (isDesktopHost())
+    return refreshInsideLock(staleAccessToken, loginSessionBoundary)
   if (navigator.locks) {
     return navigator.locks.request(REFRESH_LOCK_NAME, () =>
-      refreshInsideLock(staleAccessToken)
+      refreshInsideLock(staleAccessToken, loginSessionBoundary)
     )
   }
-  return refreshWithStorageLease(staleAccessToken)
+  return refreshWithStorageLease(staleAccessToken, loginSessionBoundary)
 }
 
-export async function refreshSession(staleAccessToken = getAccessToken()) {
-  if (!refreshPromise) {
-    refreshPromise = refreshAcrossTabs(staleAccessToken).finally(() => {
-      refreshPromise = null
-    })
+export async function refreshSession(
+  staleAccessToken = getAccessToken(),
+  loginSessionBoundary = getLoginSessionBoundary()
+) {
+  // A late authentication failure from a replaced login must not take over or
+  // clear the shared slot that the current generation's refresh occupies.
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  if (refreshPromise?.loginSessionBoundary === loginSessionBoundary) {
+    return refreshPromise.promise
   }
 
-  return refreshPromise
+  const pendingRefresh = {
+    loginSessionBoundary,
+    promise: refreshAcrossTabs(staleAccessToken, loginSessionBoundary).finally(
+      () => {
+        if (refreshPromise === pendingRefresh) refreshPromise = null
+      }
+    ),
+  }
+  refreshPromise = pendingRefresh
+  return pendingRefresh.promise
 }
 
 export async function apiRequest<TSchema extends z.ZodType>(
   path: string,
-  options: RequestOptions<TSchema>
+  options: ApiRequestOptions<TSchema>
 ) {
   if (
     import.meta.env.DEV &&
@@ -588,8 +734,34 @@ export async function apiRequest<TSchema extends z.ZodType>(
     return options.schema.parse(resolveWorkspaceUiDemoRequest(path, options))
   }
   const accessTokenUsed = getAccessToken()
+  // Ordinary callers own the login generation they started in, matching the
+  // upload, stream, and download paths. A response or shared refresh that
+  // finishes after an explicit replacement cannot retry with, or clear, the
+  // replacement credentials.
+  const loginSessionBoundary =
+    options.loginSessionBoundary ?? getLoginSessionBoundary()
+  const responseLoginSessionBoundary = isMacDesktopHost()
+    ? loginSessionBoundary
+    : undefined
+  const assertLoginSessionCurrent = () => {
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw new ApiError({
+        status: 401,
+        errorCode: "AUTH_SESSION_EXPIRED",
+      })
+    }
+  }
+  assertLoginSessionCurrent()
+  // Runs outside the authentication catch: a guard rejection is not an HTTP
+  // response, so it must not rotate the session.
+  options.beforeAttempt?.()
   try {
-    return await rawRequest(path, options, accessTokenUsed)
+    return await rawRequest(
+      path,
+      options,
+      accessTokenUsed,
+      responseLoginSessionBoundary
+    )
   } catch (error) {
     if (
       isDefinitiveAuthenticationError(error) &&
@@ -597,23 +769,39 @@ export async function apiRequest<TSchema extends z.ZodType>(
       path !== "/auth/refresh" &&
       path !== "/auth/login"
     ) {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw error
+      }
       try {
-        await refreshSession(accessTokenUsed)
+        await refreshSession(accessTokenUsed, loginSessionBoundary)
       } catch (refreshError) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) {
+          throw error
+        }
         if (isDefinitiveAuthenticationError(refreshError)) {
           setAccessToken(null)
         }
         throw refreshError
       }
 
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw error
+      }
+      // Runs outside the retry's authentication catch: a guard rejection is
+      // not an authentication failure, so the refreshed session is kept.
+      options.beforeAttempt?.()
       try {
         return await rawRequest(
           path,
           { ...options, skipRefresh: true },
-          getAccessToken()
+          getAccessToken(),
+          responseLoginSessionBoundary
         )
       } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
+        if (
+          isLoginSessionCurrent(loginSessionBoundary) &&
+          isDefinitiveAuthenticationError(retryError)
+        ) {
           setAccessToken(null)
         }
         throw retryError
@@ -633,8 +821,14 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
     rejectWorkspaceUiDemoWrite()
   }
   const accessTokenUsed = getAccessToken()
+  const loginSessionBoundary = getLoginSessionBoundary()
   try {
-    return await rawUploadRequest(path, options, accessTokenUsed)
+    return await rawUploadRequest(
+      path,
+      options,
+      accessTokenUsed,
+      loginSessionBoundary
+    )
   } catch (error) {
     if (
       isDefinitiveAuthenticationError(error) &&
@@ -643,22 +837,28 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
       path !== "/auth/login"
     ) {
       try {
-        await refreshSession(accessTokenUsed)
+        await refreshSession(accessTokenUsed, loginSessionBoundary)
       } catch (refreshError) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
         if (isDefinitiveAuthenticationError(refreshError)) {
           setAccessToken(null)
         }
         throw refreshError
       }
 
+      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
       try {
         return await rawUploadRequest(
           path,
           { ...options, skipRefresh: true },
-          getAccessToken()
+          getAccessToken(),
+          loginSessionBoundary
         )
       } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
+        if (
+          isLoginSessionCurrent(loginSessionBoundary) &&
+          isDefinitiveAuthenticationError(retryError)
+        ) {
           setAccessToken(null)
         }
         throw retryError
@@ -671,7 +871,8 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
 async function rawStreamRequest(
   path: string,
   options: ApiStreamRequestOptions,
-  accessTokenOverride?: string | null
+  accessTokenOverride?: string | null,
+  loginSessionBoundary?: LoginSessionBoundary
 ) {
   const headers = new Headers({
     Accept: "application/x-ndjson, application/json",
@@ -712,6 +913,7 @@ async function rawStreamRequest(
     throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
   }
 
+  assertResponseLoginSessionCurrent(response, loginSessionBoundary)
   validateResponseBuild(response.headers)
   if (!response.ok) {
     await parseError(response)
@@ -737,8 +939,17 @@ export async function apiStreamRequest(
     })
   }
   const accessTokenUsed = getAccessToken()
+  const loginSessionBoundary = getLoginSessionBoundary()
+  const responseLoginSessionBoundary = isMacDesktopHost()
+    ? loginSessionBoundary
+    : undefined
   try {
-    return await rawStreamRequest(path, options, accessTokenUsed)
+    return await rawStreamRequest(
+      path,
+      options,
+      accessTokenUsed,
+      responseLoginSessionBoundary
+    )
   } catch (error) {
     if (
       isDefinitiveAuthenticationError(error) &&
@@ -747,22 +958,28 @@ export async function apiStreamRequest(
       path !== "/auth/login"
     ) {
       try {
-        await refreshSession(accessTokenUsed)
+        await refreshSession(accessTokenUsed, loginSessionBoundary)
       } catch (refreshError) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
         if (isDefinitiveAuthenticationError(refreshError)) {
           setAccessToken(null)
         }
         throw refreshError
       }
 
+      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
       try {
         return await rawStreamRequest(
           path,
           { ...options, skipRefresh: true },
-          getAccessToken()
+          getAccessToken(),
+          responseLoginSessionBoundary
         )
       } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
+        if (
+          isLoginSessionCurrent(loginSessionBoundary) &&
+          isDefinitiveAuthenticationError(retryError)
+        ) {
           setAccessToken(null)
         }
         throw retryError
@@ -792,6 +1009,7 @@ export async function downloadApiFile(
     headers.set("Accept-Language", language)
   }
   const accessTokenUsed = getAccessToken()
+  const loginSessionBoundary = getLoginSessionBoundary()
   if (accessTokenUsed) {
     headers.set("Authorization", `Bearer ${accessTokenUsed}`)
   }
@@ -803,6 +1021,13 @@ export async function downloadApiFile(
       signal,
       cache: options?.cache ?? "no-store",
     })
+    // Check ownership before the build observer or a retry can act on A's
+    // response after a replacement login owns the session.
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      // Cancel the unread body so native fetch can close its channel.
+      void response.body?.cancel().catch(() => undefined)
+      throw createSupersededLoginError()
+    }
     validateResponseBuild(response.headers)
     return response
   }
@@ -826,12 +1051,21 @@ export async function downloadApiFile(
       throw authenticationError
     }
 
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw authenticationError
+    }
     try {
-      await refreshSession(accessTokenUsed)
+      await refreshSession(accessTokenUsed, loginSessionBoundary)
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw authenticationError
+      }
       const refreshedToken = getAccessToken()
       if (refreshedToken)
         headers.set("Authorization", `Bearer ${refreshedToken}`)
     } catch (refreshError) {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw authenticationError
+      }
       if (isDefinitiveAuthenticationError(refreshError)) {
         setAccessToken(null)
       }
@@ -853,11 +1087,19 @@ export async function downloadApiFile(
     try {
       await parseError(response)
     } catch (error) {
-      if (isDefinitiveAuthenticationError(error)) {
+      if (
+        isLoginSessionCurrent(loginSessionBoundary) &&
+        isDefinitiveAuthenticationError(error)
+      ) {
         setAccessToken(null)
       }
       throw error
     }
   }
-  return response.blob()
+  const blob = await response.blob()
+  // Body consumption can outlive the header check; never hand A's bytes to B.
+  if (!isLoginSessionCurrent(loginSessionBoundary)) {
+    throw createSupersededLoginError()
+  }
+  return blob
 }
