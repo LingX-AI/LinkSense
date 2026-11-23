@@ -16,6 +16,7 @@ import type {
   Conversation,
   ConversationEvent,
   ConversationFile,
+  ConversationTurn,
   NativeCodexItem,
 } from "@/api/contracts"
 import {
@@ -36,6 +37,7 @@ import {
   assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import i18n, { normalizeLanguage, supportedLanguages } from "@/i18n"
+import type { NativeReconnectDisplayState } from "@/features/conversations/native-reconnect-simulation"
 import { formatCompactTokenCount } from "@/lib/usage-number"
 import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
 import { createIntersectionObserverMock } from "@/test/intersection-observer"
@@ -3015,6 +3017,73 @@ describe("conversation turn responses", () => {
       )
     )
   })
+
+  it.each([
+    ["running", false, "conversation.processing", false],
+    ["running", true, "conversation.processing", false],
+    [
+      "completed",
+      true,
+      "conversation.nativeActivities.contextCompactionCompleted",
+      true,
+    ],
+    ["failed", true, "statuses.failed", false],
+    ["interrupted", true, "statuses.interrupted", false],
+  ] as const)(
+    "keeps a local %s compaction turn neutral or terminal after its stream is exhausted (finished item: %s)",
+    (status, finishedItem, expectedKey, settled) => {
+      const compactEvent = (
+        sequence: number,
+        method: "item/started" | "item/completed"
+      ) =>
+        nativeItemLifecycleEvent({
+          id: `local-compact-${method}`,
+          sequence,
+          method,
+          item: { id: "local-compact", type: "contextCompaction" },
+        })
+      const summary = renderLocalTurnSummary({
+        turn: localTurnFixture({
+          status,
+          interruptRequestedAt: status === "running" ? null : undefined,
+          taskKind: "compact",
+        }),
+        events: [
+          compactEvent(1, "item/started"),
+          ...(finishedItem ? [compactEvent(2, "item/completed")] : []),
+        ],
+      })
+      const heading = summary.querySelector(".turn-status")
+      const runningLabel = i18n.t(
+        "conversation.nativeActivities.contextCompactionRunning"
+      )
+      const completedLabel = i18n.t(
+        "conversation.nativeActivities.contextCompactionCompleted"
+      )
+      expect(heading).toHaveTextContent(i18n.t(expectedKey))
+      expect(heading).not.toHaveTextContent(runningLabel)
+      if (settled) {
+        expect(heading).toHaveTextContent(completedLabel)
+        expect(summary.querySelector(".turn-summary-heading")).toHaveAttribute(
+          "data-context-compaction",
+          "true"
+        )
+        expect(summary.querySelector(".turn-duration")).toBeNull()
+      } else {
+        expect(heading).not.toHaveTextContent(completedLabel)
+        expect(
+          summary.querySelector(".turn-summary-heading")
+        ).not.toHaveAttribute("data-context-compaction")
+      }
+      if (status === "running") {
+        expect(within(summary).getByRole("alert")).toHaveTextContent(
+          i18n.t("conversation.streamDisconnectedBeforeCompletion")
+        )
+        expect(summary.querySelector('[aria-busy="true"]')).toBeNull()
+        expect(summary.querySelector(".shimmer")).toBeNull()
+      }
+    }
+  )
 
   it("renders the current plugin logo for a selected user capability", () => {
     const knowledgeBaseId = "70000000-0000-4000-8000-000000000010"
@@ -6013,6 +6082,172 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("已中断", { exact: true })).toBeVisible()
     expect(summary.querySelector('[aria-busy="true"]')).toBeNull()
   })
+
+  const localTerminalCases: Array<{
+    presentation: "technical" | "end_user"
+    status: ConversationTurn["status"]
+    label: string
+    duration?: string
+    failureDetailVisible?: boolean
+    terminalTime?: boolean
+    noOutput?: boolean
+  }> = [
+    { presentation: "technical", status: "completed", label: "用时", duration: "3s" },
+    { presentation: "technical", status: "failed", label: "执行失败", duration: "3s", failureDetailVisible: true },
+    { presentation: "technical", status: "interrupted", label: "已中断", duration: "4s" },
+    { presentation: "technical", status: "interrupted", label: "已中断", terminalTime: false },
+    { presentation: "end_user", status: "completed", label: "已完成" },
+    { presentation: "end_user", status: "failed", label: "执行失败", failureDetailVisible: true },
+    { presentation: "end_user", status: "interrupted", label: "已中断" },
+    { presentation: "technical", status: "completed", label: "执行失败", noOutput: true, failureDetailVisible: true },
+    { presentation: "end_user", status: "completed", label: "执行失败", noOutput: true, failureDetailVisible: true },
+  ]
+
+  it.each(localTerminalCases)(
+    "keeps a local $status turn authoritative over a persisted Stop and stale stream failure in $presentation",
+    ({
+      presentation,
+      status,
+      label,
+      duration,
+      failureDetailVisible,
+      terminalTime = true,
+      noOutput = false,
+    }) => {
+      const summary = renderLocalTurnSummary({
+        presentation,
+        turn: localTurnFixture({ status, terminalTime }),
+        messages: noOutput
+          ? [completedConversation.messages![0]!]
+          : completedConversation.messages,
+        userInputRequests: [pendingLocalFormRequest],
+      })
+      const disconnected = i18n.t(
+        "conversation.streamDisconnectedBeforeCompletion"
+      )
+      const completedWithoutOutput = i18n.t(
+        "errors.turnCompletedWithoutOutput"
+      )
+      expect(within(summary).getByText(label, { exact: true })).toBeVisible()
+      expect(summary).not.toHaveTextContent(disconnected)
+      if (duration) {
+        expect(summary.querySelector(".turn-duration")).toHaveTextContent(
+          duration
+        )
+      } else {
+        expect(summary.querySelector(".turn-duration")).toBeNull()
+      }
+      if (failureDetailVisible) {
+        if (presentation === "technical") {
+          fireEvent.click(
+            within(summary).getByRole("button", { name: "展开中间过程" })
+          )
+        }
+        expect(
+          within(summary).getByText(
+            noOutput ? completedWithoutOutput : localFailureDetail
+          )
+        ).toBeVisible()
+      }
+    }
+  )
+
+  it.each([
+    { presentation: "technical" as const, stopRequested: false },
+    { presentation: "technical" as const, stopRequested: true },
+    { presentation: "end_user" as const, stopRequested: false },
+    { presentation: "end_user" as const, stopRequested: true },
+    { presentation: "technical" as const, stopRequested: false, goal: true },
+  ])(
+    "keeps an exhausted local stream unknown rather than interrupted in $presentation (stop=$stopRequested, goal=$goal)",
+    ({ presentation, stopRequested, goal = false }) => {
+      const summary = renderLocalTurnSummary({
+        presentation,
+        turn: localTurnFixture({
+          status: "running",
+          interruptRequestedAt: stopRequested
+            ? "2026-07-11T08:00:02.000Z"
+            : null,
+          ...(goal ? { taskKind: "goal" as const } : {}),
+        }),
+        messages: [
+          completedConversation.messages![0]!,
+          {
+            ...completedConversation.messages![1]!,
+            phase: "commentary",
+          },
+        ],
+        ...(goal
+          ? {
+              goal: {
+                thread_id: "codex-thread-goal",
+                objective: "保持未知",
+                status: "active" as const,
+                token_budget: null,
+                tokens_used: 1,
+                time_used_seconds: 25,
+                created_at: "2026-07-11T08:00:00.000Z",
+                updated_at: "2026-07-11T08:00:25.000Z",
+              },
+            }
+          : {}),
+      })
+      const disconnected = i18n.t(
+        "conversation.streamDisconnectedBeforeCompletion"
+      )
+      expect(
+        within(summary).getAllByText(disconnected, { exact: true })
+      ).toHaveLength(1)
+      expect(within(summary).getByRole("alert")).toHaveTextContent(disconnected)
+      expect(
+        within(summary).queryByText(i18n.t("statuses.interrupted"), {
+          exact: true,
+        })
+      ).toBeNull()
+      expect(summary.querySelector(".turn-duration")).toBeNull()
+      expect(summary.querySelector('[aria-busy="true"]')).toBeNull()
+      expect(summary.querySelector(".shimmer")).toBeNull()
+      if (presentation === "technical") {
+        expect(
+          within(summary).getByText(i18n.t("conversation.processing"), {
+            exact: true,
+          })
+        ).toBeVisible()
+      } else {
+        expect(
+          within(summary).queryByText(i18n.t("conversation.processing"), {
+            exact: true,
+          })
+        ).toBeNull()
+      }
+    }
+  )
+
+  it.each(["technical", "end_user"] as const)(
+    "keeps a genuine local Stop request interrupting while the stream stays healthy in %s",
+    (presentation) => {
+      const summary = renderLocalTurnSummary({
+        presentation,
+        turn: localTurnFixture({ status: "running" }),
+        messages: [completedConversation.messages![0]!],
+        reconnectState: null,
+      })
+      expect(
+        within(summary).getByText(i18n.t("conversation.interrupting"), {
+          exact: true,
+        })
+      ).toBeVisible()
+      expect(
+        within(summary).queryByText(i18n.t("statuses.interrupted"), {
+          exact: true,
+        })
+      ).toBeNull()
+      expect(within(summary).queryByRole("alert")).toBeNull()
+      expect(summary).not.toHaveTextContent(
+        i18n.t("conversation.streamDisconnectedBeforeCompletion")
+      )
+    }
+  )
 
   it("renders a static summary without an empty disclosure when no steps exist", () => {
     render(
@@ -10288,6 +10523,128 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 })
+
+const localFailureDetail = "Mac 本地模型调用失败。"
+
+const pendingLocalFormRequest: NonNullable<
+  Conversation["user_input_requests"]
+>[number] = {
+  id: "30000000-0000-4000-8000-000000000099",
+  conversation_id: completedConversation.id,
+  turn_id: "turn-1",
+  item_id: "linksense-form-local-terminal",
+  kind: "form",
+  server_name: "linksense_core",
+  message: "请确认。",
+  requested_schema: {
+    type: "object",
+    properties: {
+      title: { type: "string", title: "标题" },
+    },
+    required: ["title"],
+  },
+  ui_hints: {},
+  response_semantics: { kind: "input" },
+  waiting_policy: null,
+  response_source: null,
+  response_content: null,
+  status: "pending",
+  auto_resolve_at: null,
+  resolved_at: null,
+  resolved_action: null,
+  created_at: "2026-07-11T08:00:01.000Z",
+  updated_at: "2026-07-11T08:00:01.000Z",
+}
+
+const localStaleReconnectFailure: NativeReconnectDisplayState = {
+  turnId: "turn-1",
+  phase: "failed",
+  round: 3,
+  attempt: 5,
+  roundCount: 3,
+  attemptsPerRound: 5,
+  stoppedAtMs: Date.parse("2026-07-11T08:01:15.000Z"),
+}
+
+function localTurnFixture({
+  status,
+  turnId = "turn-1",
+  interruptRequestedAt = "2026-07-11T08:00:02.000Z",
+  taskKind,
+  terminalTime = true,
+}: {
+  status: ConversationTurn["status"]
+  turnId?: string
+  interruptRequestedAt?: string | null
+  taskKind?: ConversationTurn["task_kind"]
+  terminalTime?: boolean
+}): ConversationTurn {
+  const completed = status === "completed" || status === "failed"
+  return {
+    id: turnId,
+    status,
+    ...(taskKind ? { task_kind: taskKind } : {}),
+    started_at: "2026-07-11T08:00:00.000Z",
+    completed_at:
+      completed && terminalTime ? "2026-07-11T08:00:03.250Z" : null,
+    interrupt_requested_at: interruptRequestedAt,
+    interrupted_at:
+      status === "interrupted" && terminalTime
+        ? "2026-07-11T08:00:04.000Z"
+        : null,
+    ...(status === "failed" ? { error_message: localFailureDetail } : {}),
+  }
+}
+
+function renderLocalTurnSummary({
+  presentation = "technical",
+  reconnectState = localStaleReconnectFailure,
+  turn,
+  turns,
+  runningTurn,
+  messages = [],
+  events = [],
+  goal,
+  userInputRequests,
+}: {
+  presentation?: "technical" | "end_user"
+  reconnectState?: NativeReconnectDisplayState | null
+  turn?: ConversationTurn
+  turns?: NonNullable<Conversation["turns"]>
+  runningTurn?: Conversation["running_turn"]
+  messages?: Conversation["messages"]
+  events?: ConversationEvent[]
+  goal?: Conversation["goal"]
+  userInputRequests?: Conversation["user_input_requests"]
+} = {}) {
+  const renderedTurn =
+    turn ?? turns?.[0] ?? localTurnFixture({ status: "running" })
+  const renderedTurns = turns ?? [renderedTurn]
+  const renderedRunningTurn =
+    runningTurn !== undefined
+      ? runningTurn
+      : (renderedTurns.find((item) => item.status === "running") ?? null)
+  render(
+    <ConversationThread
+      conversation={{
+        ...completedConversation,
+        execution_target: "local",
+        messages,
+        turns: renderedTurns,
+        running_turn: renderedRunningTurn,
+        events,
+        ...(goal !== undefined ? { goal } : {}),
+        ...(userInputRequests !== undefined
+          ? { user_input_requests: userInputRequests }
+          : {}),
+      }}
+      nativeReconnectState={reconnectState}
+      activityPresentation={presentation}
+      onDownload={vi.fn()}
+    />
+  )
+  return screen.getByTestId(`turn-summary-${renderedTurn.id}`)
+}
 
 function nativeLifecycleEvent({
   id,

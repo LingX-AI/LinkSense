@@ -28,6 +28,7 @@ import { notify } from "@/components/feedback/notification"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
 import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
+import { writeNativeReconnectSnapshot } from "@/features/conversations/native-reconnect-simulation"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
 import {
@@ -144,6 +145,173 @@ function createDeferred<T>() {
     reject = nextReject
   })
   return { promise, resolve, reject }
+}
+
+/**
+ * Renders a real ConversationPage whose local/cloud turn is still running
+ * while its native stream has exhausted every reconnect attempt.
+ */
+function renderRunningTurnWithExhaustedStream({
+  executionTarget,
+  showComposer = true,
+  showHeader = true,
+}: {
+  executionTarget: "local" | "cloud"
+  showComposer?: boolean
+  showHeader?: boolean
+}) {
+  const conversationId = `conversation-exhausted-${executionTarget}`
+  const turnId = "40000000-0000-4000-8000-000000000021"
+  const startedAt = "2026-11-19T00:00:00.000Z"
+  const interruptedAt = "2026-11-19T00:00:04.000Z"
+  const interruptRequests: Array<{ method: string; path: string }> = []
+  const turnStartRequests: Array<{ method: string; path: string }> = []
+  let terminal = false
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const path = new URL(url, window.location.origin).pathname
+    const method = init?.method ?? "GET"
+    if (url.includes("/events")) {
+      return Promise.resolve(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        })
+      )
+    }
+    if (path.endsWith("/conversations/prewarm")) {
+      return Promise.resolve(
+        envelope({
+          accepted: true,
+          conversation_id: "71000000-0000-4000-8000-000000000001",
+        })
+      )
+    }
+    if (path.endsWith("/model-preference")) {
+      return Promise.resolve(envelope(modelPreference()))
+    }
+    if (path.endsWith("/capabilities")) {
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    }
+    if (path.endsWith("/knowledge-bases/search-capability")) {
+      return Promise.resolve(
+        envelope({
+          status: "available",
+          reason_code: null,
+          checked_at: startedAt,
+        })
+      )
+    }
+    if (path.endsWith("/knowledge-bases")) {
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    }
+    if (method === "POST" && path.endsWith("/interrupt")) {
+      interruptRequests.push({ method, path })
+      return Promise.resolve(
+        path.endsWith(
+          `/conversations/${conversationId}/turns/${turnId}/interrupt`
+        )
+          ? envelope({ code: RUNNER_TURN_INTERRUPT_REQUESTED })
+          : new Response(null, { status: 404 })
+      )
+    }
+    if (method === "POST" && path.endsWith("/turns")) {
+      turnStartRequests.push({ method, path })
+      return Promise.resolve(
+        path.endsWith(`/conversations/${conversationId}/turns`)
+          ? envelope({ turn_id: turnId, accepted: true, status: "starting" })
+          : new Response(null, { status: 404 })
+      )
+    }
+    if (path.endsWith(`/conversations/${conversationId}`)) {
+      const turn = {
+        id: turnId,
+        status: terminal ? "interrupted" : "running",
+        collaboration_mode: "default",
+        started_at: startedAt,
+        ...(terminal
+          ? { completed_at: interruptedAt, interrupted_at: interruptedAt }
+          : {}),
+      }
+      return Promise.resolve(
+        envelope({
+          project_id: null,
+          id: conversationId,
+          title: "本地运行任务",
+          archived: false,
+          execution_target: executionTarget,
+          execution_status: terminal ? "interrupted" : "running",
+          updated_at: startedAt,
+          messages: [
+            {
+              id: "message-exhausted-stream",
+              role: "user",
+              turn_id: turnId,
+              content: "继续处理这个任务",
+              created_at: startedAt,
+            },
+          ],
+          turns: [turn],
+          running_turn: terminal ? null : turn,
+          pending_requests: [],
+          attachments: [],
+          artifacts: [],
+        })
+      )
+    }
+    return Promise.resolve(new Response(null, { status: 404 }))
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  writeNativeReconnectSnapshot(window.localStorage, {
+    version: 2,
+    conversationId,
+    turnId,
+    phase: "failed",
+    round: 3,
+    attempt: 5,
+    startedAtMs: Date.now() - 75_000,
+    nextAttemptAtMs: null,
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+  render(
+    <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route
+            path="/conversations/:conversationId"
+            element={
+              <ConversationPage
+                conversationId={conversationId}
+                showComposer={showComposer}
+                showHeader={showHeader}
+              />
+            }
+          />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+  return {
+    conversationId,
+    turnId,
+    interruptPath:
+      `/api/v1/conversations/${conversationId}/turns/${turnId}/interrupt`,
+    interruptRequests,
+    turnStartRequests,
+    markTurnInterrupted: () => {
+      terminal = true
+    },
+    refreshConversation: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["conversation", conversationId],
+        exact: true,
+      }),
+  }
 }
 
 function conversation(id: string, title: string) {
@@ -1234,6 +1402,159 @@ describe("conversation knowledge base snapshots", () => {
         answer.resolve(envelope({}))
         client.clear()
       }
+    }
+  )
+
+  it.each([
+    { executionTarget: "cloud" as const, showComposer: true },
+    { executionTarget: "local" as const, showComposer: false },
+  ])(
+    "keeps an exhausted $executionTarget stream on its existing stop path",
+    async ({ executionTarget, showComposer }) => {
+      const fixture = renderRunningTurnWithExhaustedStream({
+        executionTarget,
+        showComposer,
+      })
+      const interaction = userEvent.setup()
+      const disconnectText = i18n.t(
+        "conversation.streamDisconnectedBeforeCompletion"
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText(disconnectText)).toBeVisible()
+      )
+      if (executionTarget === "cloud") {
+        await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
+        const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
+        expect(
+          within(summary).getByText(i18n.t("statuses.interrupted"), {
+            exact: true,
+          })
+        ).toBeVisible()
+      } else {
+        expect(fixture.interruptRequests).toHaveLength(0)
+        const headerStops = within(
+          screen.getByRole("banner")
+        ).getAllByRole("button", {
+          name: i18n.t("conversation.stop"),
+        })
+        expect(headerStops).toHaveLength(1)
+        expect(headerStops[0]).toBeEnabled()
+        await interaction.click(headerStops[0]!)
+        await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
+        const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
+        expect(
+          within(summary).getByText(i18n.t("conversation.processing"), {
+            exact: true,
+          })
+        ).toBeVisible()
+        expect(
+          within(summary).queryByText(i18n.t("statuses.interrupted"), {
+            exact: true,
+          })
+        ).toBeNull()
+      }
+      expect(fixture.interruptRequests).toEqual([
+        { method: "POST", path: fixture.interruptPath },
+      ])
+      expect(fixture.turnStartRequests).toHaveLength(0)
+      expect(screen.getAllByText(disconnectText)).toHaveLength(1)
+    }
+  )
+
+  it.each([
+    { name: "可见页头", showHeader: true },
+    { name: "隐藏页头", showHeader: false },
+  ])(
+    "keeps one visible Stop and the draft for an exhausted local stream ($name)",
+    async ({ showHeader }) => {
+      const fixture = renderRunningTurnWithExhaustedStream({
+        executionTarget: "local",
+        showHeader,
+      })
+      const interaction = userEvent.setup()
+      const disconnectText = i18n.t(
+        "conversation.streamDisconnectedBeforeCompletion"
+      )
+      const stopName = i18n.t("conversation.stop")
+      const composer = await screen.findByRole("textbox", {
+        name: "任务输入框",
+      })
+
+      await waitFor(() =>
+        expect(screen.getByText(disconnectText)).toBeVisible()
+      )
+      await interaction.type(composer, "保留的草稿")
+      const header = screen.getByRole("banner", { hidden: true })
+      const visibleStops = screen.getAllByRole("button", { name: stopName })
+      expect(visibleStops).toHaveLength(1)
+      const stop = visibleStops[0]!
+      expect(stop).toBeEnabled()
+      if (showHeader) {
+        expect(header).not.toHaveAttribute("hidden")
+        expect(header).toContainElement(stop)
+      } else {
+        expect(header).toHaveAttribute("hidden")
+        expect(header).not.toContainElement(stop)
+        expect(stop.closest(".conversation-bottom-stack")).not.toBeNull()
+      }
+      expect(
+        screen.getByRole("button", { name: i18n.t("conversation.send") })
+      ).toBeVisible()
+      expect(fixture.interruptRequests).toHaveLength(0)
+
+      await interaction.click(stop)
+      await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
+      expect(fixture.interruptRequests).toEqual([
+        { method: "POST", path: fixture.interruptPath },
+      ])
+      expect(composer).toHaveValue("保留的草稿")
+      expect(fixture.turnStartRequests).toHaveLength(0)
+
+      await waitFor(() => {
+        expect(
+          screen.queryAllByRole("button", { name: stopName })
+        ).toHaveLength(0)
+        expect(
+          screen.getByRole("button", {
+            name: i18n.t("conversation.interrupting"),
+          })
+        ).toBeDisabled()
+      })
+
+      const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
+      expect(within(summary).getAllByText(disconnectText)).toHaveLength(1)
+      expect(
+        within(summary).getByText(i18n.t("conversation.processing"), {
+          exact: true,
+        })
+      ).toBeVisible()
+      expect(
+        within(summary).queryByText(i18n.t("statuses.interrupted"), {
+          exact: true,
+        })
+      ).toBeNull()
+
+      fixture.markTurnInterrupted()
+      await act(async () => {
+        await fixture.refreshConversation()
+      })
+      await waitFor(() =>
+        expect(
+          within(summary).getByText(i18n.t("statuses.interrupted"), {
+            exact: true,
+          })
+        ).toBeVisible()
+      )
+      expect(screen.queryByText(disconnectText)).toBeNull()
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: stopName })).toBeNull()
+        expect(
+          screen.queryByRole("button", {
+            name: i18n.t("conversation.interrupting"),
+          })
+        ).toBeNull()
+      })
     }
   )
 

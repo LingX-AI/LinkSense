@@ -1747,6 +1747,12 @@ export function ConversationPage({
     (running || pendingTurnExecutionActive || pendingConversationExecution) &&
     !reconnectExhausted
   )
+  const localStreamUnconfirmed = Boolean(
+    reconnectExhausted &&
+    running &&
+    conversation?.execution_target === "local"
+  )
+  const turnStoppable = visuallyRunning || localStreamUnconfirmed
   const runningMessageAction = sideChatReference
     ? "queue"
     : (user?.running_message_action ?? "queue")
@@ -5598,6 +5604,10 @@ export function ConversationPage({
       !running ||
       !conversationId ||
       !turnId ||
+      // A local turn may still be executing while the SSE/model stream is
+      // unconfirmed. Its Stop must stay manual: an automatic interrupt would
+      // POST the same receipt as a user click at an unverified boundary.
+      conversation?.execution_target === "local" ||
       autoInterruptedTurnIdRef.current === turnId
     ) {
       return
@@ -5605,6 +5615,7 @@ export function ConversationPage({
     autoInterruptedTurnIdRef.current = turnId
     requestTurnInterrupt({ targetConversationId: conversationId, turnId })
   }, [
+    conversation?.execution_target,
     conversation?.running_turn?.id,
     conversationId,
     requestTurnInterrupt,
@@ -7149,6 +7160,26 @@ export function ConversationPage({
     }
   }
 
+  const stopTurnButton =
+    (!showComposer ||
+      awaitingDesktopQuestion ||
+      awaitingDesktopApproval ||
+      localStreamUnconfirmed) &&
+    !executionBlocked &&
+    turnStoppable ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={interrupting}
+        onClick={handleInterrupt}
+      >
+        {t(
+          interrupting ? "conversation.interrupting" : "conversation.stop"
+        )}
+      </Button>
+    ) : null
+
   return (
     <ConversationOfficeLayout
       previewBlocksWorkspace={sideChat.open || showBrowserPanel}
@@ -7531,23 +7562,7 @@ export function ConversationPage({
               <MessagesSquareIcon aria-hidden="true" />
             </ConversationHeaderButton>
           )}
-          {(!showComposer || awaitingDesktopQuestion || awaitingDesktopApproval) &&
-            !executionBlocked &&
-            visuallyRunning && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={interrupting}
-                onClick={handleInterrupt}
-              >
-                {t(
-                  interrupting
-                    ? "conversation.interrupting"
-                    : "conversation.stop"
-                )}
-              </Button>
-            )}
+          {stopTurnButton}
         </div>
       </header>
 
@@ -8091,6 +8106,7 @@ export function ConversationPage({
             onError={setError}
           />
         )}
+        {!showHeader && localStreamUnconfirmed && stopTurnButton}
       </div>
 
       <ConversationRenameDialog

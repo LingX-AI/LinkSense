@@ -3688,6 +3688,7 @@ function isVisibleActiveNativeProcessingActivity(
 function TurnSummary({
   turn,
   conversationId,
+  localNativeTurn,
   running,
   startingTask,
   runningTurnAccessory,
@@ -3736,6 +3737,7 @@ function TurnSummary({
 }: {
   turn: ConversationTurn
   conversationId: string
+  localNativeTurn: boolean
   running: boolean
   startingTask: boolean
   runningTurnAccessory?: ReactNode
@@ -3789,6 +3791,7 @@ function TurnSummary({
       ? t("errors.desktopDeviceRevoked")
       : undefined
   const rawRunning = turn.status === "running"
+  const localTerminalTurn = localNativeTurn && !rawRunning
   const interruptRequestedAt = turn.interrupt_requested_at ?? null
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [observedProcessingStart, setObservedProcessingStart] = useState<{
@@ -3846,8 +3849,9 @@ function TurnSummary({
   const nativeSubAgentCoordinationSettled =
     nativeSubAgentCoordinationActivities.length > 0 &&
     nativeSubAgentCoordinationActivities.every((activity) => !activity.running)
-  const nativeReconnectState =
-    nativeReconnectStateOverride?.phase === "failed"
+  const nativeReconnectState = localTerminalTurn
+    ? null
+    : nativeReconnectStateOverride?.phase === "failed"
       ? nativeReconnectStateOverride
       : running
         ? (nativeReconnectStateOverride ?? null)
@@ -3856,10 +3860,15 @@ function TurnSummary({
     nativeReconnectState?.phase === "reconnecting" ? nativeReconnectState : null
   const nativeReconnectFailed = nativeReconnectState?.phase === "failed"
   const visuallyRunning = running && !nativeReconnectFailed
-  const interruptedForDisplay =
-    nativeReconnectFailed ||
-    (Boolean(interruptRequestedAt) && !running) ||
-    turn.status === "interrupted"
+  // A local Stop receipt is not terminal; an exhausted stream stays unknown.
+  const localStreamUnconfirmed = localNativeTurn && nativeReconnectFailed
+  const interruptPending =
+    Boolean(running && interruptRequestedAt) && !localStreamUnconfirmed
+  const interruptedForDisplay = localNativeTurn
+    ? turn.status === "interrupted"
+    : nativeReconnectFailed ||
+      (Boolean(interruptRequestedAt) && !running) ||
+      turn.status === "interrupted"
   const contextCompactionRunning =
     visuallyRunning &&
     !interruptedForDisplay &&
@@ -3874,14 +3883,18 @@ function TurnSummary({
   const contextCompactionInProgress =
     rawRunning &&
     !interruptedForDisplay &&
+    !nativeReconnectFailed &&
     !terminalErrorActivity &&
     completedContextCompaction === undefined &&
     (isContextCompactionTurn || contextCompactionRunning)
   // The compaction result replaces the heading as soon as the native item
-  // completes, before the turn row catches up with its own completion.
+  // completes, before the turn row catches up with its own completion. An
+  // exhausted stream cannot confirm that: neither claim the compaction
+  // finished nor keep reporting it as in progress while the turn may still run.
   const contextCompactionSettled =
     completedContextCompaction !== undefined &&
     !interruptedForDisplay &&
+    !nativeReconnectFailed &&
     !terminalErrorActivity &&
     (rawRunning || turn.status === "completed")
   const savedTokens = contextCompactionSettled
@@ -4045,13 +4058,17 @@ function TurnSummary({
   const showActivityPanel =
     (hasActivityDetails || showThinkingActivity) && !compactionOwnsSummary
 
-  const endedAt = nativeReconnectFailed
-    ? new Date(nativeReconnectState.stoppedAtMs ?? nowMs).toISOString()
-    : running
-      ? null
-      : interruptedForDisplay
-        ? (turn.interrupted_at ?? turn.completed_at ?? interruptRequestedAt)
-        : turn.completed_at
+  const endedAt = localStreamUnconfirmed
+    ? null
+    : nativeReconnectFailed
+      ? new Date(nativeReconnectState.stoppedAtMs ?? nowMs).toISOString()
+      : running
+        ? null
+        : interruptedForDisplay
+          ? (turn.interrupted_at ??
+              turn.completed_at ??
+              (localNativeTurn ? null : interruptRequestedAt))
+          : turn.completed_at
   const turnStartedAtMs = turn.started_at
     ? Date.parse(turn.started_at)
     : Number.NaN
@@ -4129,17 +4146,20 @@ function TurnSummary({
     return () => window.clearInterval(timer)
   }, [goalForDuration, processingStartedAtMs, visuallyRunning])
 
-  const duration =
-    goalForDuration && hasProcessedContent
+  const duration = localStreamUnconfirmed
+    ? null
+    : goalForDuration && hasProcessedContent
       ? formatGoalDuration(
           projectGoalElapsedSeconds(goalForDuration, goalNowMs)
         )
       : Number.isFinite(processingStartedAtMs)
-        ? formatCompactDuration(
-            new Date(processingStartedAtMs).toISOString(),
-            endedAt,
-            nowMs
-          )
+        ? localTerminalTurn && !endedAt
+          ? null
+          : formatCompactDuration(
+              new Date(processingStartedAtMs).toISOString(),
+              endedAt,
+              nowMs
+            )
         : null
   const initialThinking =
     visuallyRunning &&
@@ -4152,7 +4172,7 @@ function TurnSummary({
       ? t("conversation.elapsed")
       : null
   const statusLabel =
-    running && interruptRequestedAt
+    interruptPending
       ? t("conversation.interrupting")
       : contextCompactionLabel
         ? contextCompactionLabel
@@ -4205,13 +4225,15 @@ function TurnSummary({
       completedWithoutOutput ||
       Boolean(terminalErrorActivity)
     let simpleStatus = t(`statuses.${turn.status}`)
-    if (running && interruptRequestedAt)
+    // A stale pending request must not mask a local terminal label; cloud
+    // keeps its historical user-input heading.
+    if (interruptPending)
       simpleStatus = t("conversation.interrupting")
     else if (nativeReconnectFailed)
       simpleStatus = t("conversation.streamDisconnectedBeforeCompletion")
     else if (reconnectingState)
       simpleStatus = t("conversation.activities.reconnecting")
-    else if (hasBlockingRequest)
+    else if (hasBlockingRequest && !localTerminalTurn)
       simpleStatus = t("conversation.userInput.title")
     else if (failed) simpleStatus = t("statuses.failed")
     else if (interruptedForDisplay) simpleStatus = t("statuses.interrupted")
@@ -4840,6 +4862,7 @@ export function ConversationThread({
     Boolean(message.turn_id && planImplementationTurnIds.has(message.turn_id))
   const showWelcome =
     showNewTaskWelcome && !suppressEmptyState && messages.length === 0
+  const localNativeTurn = conversation.execution_target === "local"
   const turns = [...(conversation.turns ?? [])]
   if (
     conversation.running_turn &&
@@ -5470,6 +5493,7 @@ export function ConversationThread({
         activityPresentation={activityPresentation}
         turn={turn}
         conversationId={conversation.id}
+        localNativeTurn={localNativeTurn}
         running={turnRunning}
         activityOpen={activityOpen}
         activityCollapseAvailable={activityCollapseAvailable}
