@@ -345,13 +345,18 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     workspaceManager,
     modelGateway,
     capabilityRuntimeManager: new CapabilityRuntimeManager(
-      isHostWorker
+      isDesktopWorker
         ? {
-            apiIdentity: currentProcessIdentity,
-            taskIdentity: currentProcessIdentity,
+            desktop: true,
             managedBrowserEnabled,
           }
-        : { managedBrowserEnabled },
+        : isHostWorker
+          ? {
+              apiIdentity: currentProcessIdentity,
+              taskIdentity: currentProcessIdentity,
+              managedBrowserEnabled,
+            }
+          : { managedBrowserEnabled },
     ),
     eventSink,
     logger,

@@ -66,7 +66,9 @@ async function statIfPresent(target: string) {
 async function ensureDirectory(target: string, mode: number): Promise<void> {
   await mkdir(target, { mode }).catch((error: unknown) => { if (!isNodeError(error, "EEXIST")) throw error })
   const info = await lstat(target)
-  if (!info.isDirectory() || info.gid !== process.getgid?.()) throw new Error("invalid desktop capability directory")
+  if (!info.isDirectory() || info.uid !== process.geteuid?.() || (info.mode & 0o022) !== 0) {
+    throw new Error("invalid desktop capability directory")
+  }
   await chmod(target, mode)
 }
 
