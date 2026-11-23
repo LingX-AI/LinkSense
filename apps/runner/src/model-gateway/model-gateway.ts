@@ -68,6 +68,10 @@ const UPSTREAM_ERROR_BODY_LIMIT = 64 * 1024;
 const RESPONSES_WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const MODEL_GATEWAY_ENV_KEY = "LINKSENSE_MODEL_GATEWAY_TOKEN";
 const RESPONSE_PATHS = new Set(["/responses", "/v1/responses"]);
+const CHAT_STREAM_USAGE_ENDPOINTS = new Set([
+  "https://api.openai.com/v1/chat/completions",
+  "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+]);
 const SAFE_WEBSOCKET_RESPONSE_HEADERS = [
   "openai-model",
   "x-codex-turn-state",
@@ -1630,11 +1634,8 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     context: ModelGatewayRequestContext,
   ): Promise<Response> {
-    const serialized = JSON.stringify(body);
-    if (Buffer.byteLength(serialized) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
-      throw new GatewayHttpError(413, "request_body_too_large");
-    }
-    const latency = this.createUpstreamLatency(context, "http", body.stream === true);
+    const streaming = body.stream === true;
+    const latency = this.createUpstreamLatency(context, "http", streaming);
     context.latency = latency;
     const timer = setTimeout(
       () => abort.abort("upstream_header_timeout"),
@@ -1646,22 +1647,31 @@ export class ModelGateway implements ModelGatewayRuntime {
       const requestInit = {
         method: "POST",
         headers: {
-          accept:
-            body.stream === true ? "text/event-stream" : "application/json",
+          accept: streaming ? "text/event-stream" : "application/json",
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
           "x-linksense-request-id": context.requestId,
           "user-agent": "LinkSense-Model-Gateway/1.0",
         },
-        body: serialized,
         redirect: "manual" as const,
         signal: abort.controller.signal,
       };
-      const fetcher: typeof fetch = this.options.fetch ?? (async (input) =>
-        await undiciFetch(input instanceof Request ? input.url : input, {
-          ...requestInit,
+      const fetcher: typeof fetch = async (input) => {
+        const includeUsage = streaming && endpoint === "chat/completions" &&
+          CHAT_STREAM_USAGE_ENDPOINTS.has(String(input));
+        const serialized = JSON.stringify(includeUsage
+          ? { ...body, stream_options: { include_usage: true } }
+          : body);
+        if (Buffer.byteLength(serialized) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
+          throw new GatewayHttpError(413, "request_body_too_large");
+        }
+        const init = { ...requestInit, body: serialized };
+        if (this.options.fetch) return this.options.fetch(input, init);
+        return await undiciFetch(input instanceof Request ? input.url : input, {
+          ...init,
           dispatcher: this.httpProxyDispatcher,
-        }) as unknown as Response);
+        }) as unknown as Response;
+      };
       const upstream = await createModelProviderFetch(baseUrl, fetcher)(endpointUrl(baseUrl, endpoint), requestInit);
       context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
       latency.mark("upstream_headers");
