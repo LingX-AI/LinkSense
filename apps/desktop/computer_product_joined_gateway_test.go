@@ -30,6 +30,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type joinedGatewayFixture struct {
@@ -40,18 +42,31 @@ type joinedGatewayFixture struct {
 	DriverProbe   string           `json:"driverProbe,omitempty"`
 }
 
+// joinedGatewayCommand deliberately has no PID, process-name or process-group
+// field. The one app-server exit action derives its target only from this Go
+// host's owned descendants and never from the caller.
 type joinedGatewayCommand struct {
 	Action         string `json:"action"`
 	ConversationID string `json:"conversation_id"`
 	TurnID         string `json:"turn_id"`
 }
 
+// joinedAppServerExitOnce makes kill_app_server one-shot for the lifetime of
+// this disposable gateway. A second invocation while the real supervisor is
+// still recovering the retired worker is refused, so it can never signal the
+// replacement app-server child.
+var joinedAppServerExitOnce sync.Once
+
 // The process protocol carries only an identity pair: the native PID and its
 // Darwin seconds.microseconds start time. It never carries argv, a window, a
-// path, a credential or any other process metadata.
+// path, a credential or any other process metadata. The app-server exit fixture
+// adds one bounded event name and the disposable-gateway env gate.
 const (
 	joinedProcessesEvent       = "processes"
 	joinedProcessProbeEvent    = "process_probe"
+	joinedAppServerExitEvent   = "app_server_exit"
+	joinedAppServerExitEnv     = "LINKSENSE_JOINED_APP_SERVER_EXIT"
+	joinedAppServerExecutable  = "codex"
 	joinedMaxProcessEntries    = 4096
 	joinedMaxProcessReplyBytes = 1 << 20
 	joinedMaxProbeInputBytes   = 1 << 20
@@ -506,6 +521,15 @@ func TestJoinedComputerGateway(t *testing.T) {
 			}()
 		case "processes":
 			emitJoinedProcesses()
+		case "kill_app_server":
+			// Strict one-shot request: only the action field is accepted, and
+			// the process-wide latch refuses a second signal while the real
+			// supervisor is still recovering the retired worker.
+			if !joinedAppServerExitRequest(line) {
+				emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNSUPPORTED")
+				break
+			}
+			joinedAppServerExit()
 		case "select", "renew", "pause", "resume", "stop", "status":
 			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 			result, controlErr := control.control(ctx, desktop, command.ConversationID, command.TurnID, command.Action)
@@ -592,6 +616,150 @@ func emitJoinedProcesses() {
 	emitMu.Lock()
 	fmt.Println(string(data))
 	emitMu.Unlock()
+}
+
+// emitJoinedAppServerExit publishes the one bounded kill result. The frame
+// carries only a boolean and, on failure, a stable reason code. It never
+// carries a PID, argv, a path, a window or a credential.
+func emitJoinedAppServerExit(ok bool, reason string) {
+	event := map[string]any{"event": joinedAppServerExitEvent, "ok": ok}
+	if !ok {
+		event["error"] = reason
+	}
+	emit(event)
+}
+
+// joinedAppServerObservation re-observes one PID from the native process table.
+// The returned comm is the exact kernel P_comm (the executable name), never
+// argv, and the start time is the Darwin seconds.microseconds identity already
+// used by the fixture snapshots. A failed observation is not a match.
+func joinedAppServerObservation(pid int) (string, string, int, bool, bool) {
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || info == nil || int(info.Proc.P_pid) != pid {
+		return "", "", 0, false, false
+	}
+	start := fmt.Sprintf("%d.%06d", info.Proc.P_starttime.Sec, info.Proc.P_starttime.Usec)
+	return unix.ByteSliceToString(info.Proc.P_comm[:]), start, int(info.Eproc.Ppid),
+		info.Proc.P_stat == fixtureZombieState, true
+}
+
+// joinedAppServerExitRequest accepts only the canonical kill_app_server line.
+// The comparison is literal because encoding/json accepts duplicate object
+// keys (the last value wins), so {"action":"stop","action":"kill_app_server"}
+// would otherwise decode as a valid request. Any other byte sequence, an
+// unknown field, a duplicate key or a trailing value is refused before the
+// process table is read, so the request cannot name or add a second target.
+func joinedAppServerExitRequest(line string) bool {
+	return line == `{"action":"kill_app_server"}`
+}
+
+// joinedAppServerTarget selects the single owned descendant that the per-PID
+// observation proves is the packaged app-server. It returns a stable refusal
+// reason instead of skipping an unobservable candidate: an identity it cannot
+// confirm must never be silently replaced by another process.
+func joinedAppServerTarget(descendants []fixtureProcess) (fixtureProcess, string) {
+	var target fixtureProcess
+	matches := 0
+	for _, entry := range descendants {
+		if entry.PID <= 1 || entry.Zombie {
+			continue
+		}
+		comm, start, ppid, zombie, observed := joinedAppServerObservation(entry.PID)
+		if !observed {
+			return fixtureProcess{}, "JOINED_APP_SERVER_EXIT_IDENTITY"
+		}
+		if comm != joinedAppServerExecutable {
+			continue
+		}
+		// A live observation must still be the exact snapshot identity. A
+		// candidate that went zombie after the snapshot is observed but not
+		// eligible, so it also refuses instead of falling through to another.
+		if zombie || start != entry.Start || ppid != entry.PPID {
+			return fixtureProcess{}, "JOINED_APP_SERVER_EXIT_IDENTITY"
+		}
+		target = entry
+		matches++
+	}
+	switch matches {
+	case 0:
+		return fixtureProcess{}, "JOINED_APP_SERVER_EXIT_UNAVAILABLE"
+	case 1:
+		return target, ""
+	default:
+		return fixtureProcess{}, "JOINED_APP_SERVER_EXIT_AMBIGUOUS"
+	}
+}
+
+// joinedAppServerExit is the strictly test-only app-server-only exit fixture.
+// It is disabled unless the disposable gateway was started for the
+// app-server-exit scenario, it is one-shot for this process, and it accepts no
+// caller-selected PID, name or process group. Within this Go host's exact
+// descendants it finds one live process whose kernel P_comm is exactly the
+// packaged Codex executable and whose P_pid, native start time and PPID still
+// match the gateway snapshot. It then rechecks that exact identity and live
+// state against a fresh snapshot and one per-PID observation, and sends
+// SIGKILL to that one PID only.
+func joinedAppServerExit() {
+	if os.Getenv(joinedAppServerExitEnv) != "1" {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNSUPPORTED")
+		return
+	}
+	first := false
+	joinedAppServerExitOnce.Do(func() { first = true })
+	if !first {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_REPEATED")
+		return
+	}
+	table, err := fixtureProcesses()
+	if err != nil {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	host, ok := table[os.Getpid()]
+	if !ok || host.Zombie {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	descendants := fixtureDescendants(table, host.PID)
+	if len(descendants) > joinedMaxProcessEntries {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	target, problem := joinedAppServerTarget(descendants)
+	if problem != "" {
+		emitJoinedAppServerExit(false, problem)
+		return
+	}
+	// Immediately recheck the exact native identity, ownership and live state
+	// against a fresh snapshot before the one signal. A reused PID, a changed
+	// start time or PPID, a zombie, or another eligible descendant is a
+	// refusal, never a signal to a guessed or replacement target.
+	recheck, err := fixtureProcesses()
+	if err != nil {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	host, ok = recheck[os.Getpid()]
+	if !ok || host.Zombie {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	owned := fixtureDescendants(recheck, host.PID)
+	if len(owned) > joinedMaxProcessEntries {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	current, problem := joinedAppServerTarget(owned)
+	if problem != "" || current.PID != target.PID ||
+		current.Start != target.Start || current.PPID != target.PPID {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_IDENTITY")
+		return
+	}
+	if err := unix.Kill(target.PID, unix.SIGKILL); err != nil {
+		emitJoinedAppServerExit(false, "JOINED_APP_SERVER_EXIT_UNAVAILABLE")
+		return
+	}
+	emitJoinedAppServerExit(true, "")
 }
 
 // joinedProbeRequestProblem validates the bounded request without observing any
@@ -853,6 +1021,30 @@ func TestJoinedProcessProbeRequestWhitebox(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			if got := joinedProbeRequestProblem(testCase.request, self, ancestors); got != testCase.want {
 				t.Fatalf("validation reason = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestJoinedAppServerExitRequestWhitebox covers the strict one-shot request
+// shape without observing a process table or sending any signal.
+func TestJoinedAppServerExitRequestWhitebox(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"accepts the action only", `{"action":"kill_app_server"}`, true},
+		{"rejects an unknown field", `{"action":"kill_app_server","pid":42}`, false},
+		{"rejects a duplicate action key", `{"action":"stop","action":"kill_app_server"}`, false},
+		{"rejects a repeated value", `{"action":"kill_app_server"}{"action":"kill_app_server"}`, false},
+		{"rejects another action", `{"action":"stop"}`, false},
+		{"rejects an empty request", ``, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := joinedAppServerExitRequest(testCase.line); got != testCase.want {
+				t.Fatalf("request accepted = %t, want %t", got, testCase.want)
 			}
 		})
 	}

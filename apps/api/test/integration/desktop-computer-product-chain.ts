@@ -20,6 +20,7 @@ import {
 } from "@linksense/shared";
 import { Queue } from "bullmq";
 import Fastify, { type FastifyInstance } from "fastify";
+import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
 import { createPrismaClient } from "../../src/db.js";
@@ -55,7 +56,7 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   LINKSENSE_JOINED_RUNTIME=/path/to/read-only/runtime \
  *     pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-product-chain.ts
  *
- * Three opt-in whitebox modes extend the same harness without replacing the
+ * Four opt-in whitebox modes extend the same harness without replacing the
  * default product-chain receipt:
  *   LINKSENSE_JOINED_SCENARIO=crash   SIGKILL only the owned Go gateway, prove
  *     the real socket-close GUI cleanup, then restart the same staged runtime,
@@ -63,12 +64,19 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   LINKSENSE_JOINED_SCENARIO=revoke  Revoke the live device while its exact
  *     turn holds a pending native approval, then drive the real revoked-Mac
  *     terminal projection and reject the late approval.
+ *   LINKSENSE_JOINED_SCENARIO=app-server-exit  SIGKILL only the one owned Codex
+ *     app-server at the shared first-act checkpoint. The real supervisor retires
+ *     its worker and reports `turn.exited`; the join then processes the exact
+ *     production exit job and requires the real interrupted terminal read from
+ *     native history. The projected event must carry the deterministic
+ *     history-terminal delivery id, so an absent, mismatched or nonterminal
+ *     native terminal fails the proof.
  *   LINKSENSE_JOINED_SCENARIO=stop    Interrupt the exact running projected turn
  *     through the real owner-scoped ConversationService while its first native
  *     approval is pending, then prove the durable native interrupted terminal,
  *     the exact Stop command audit and the released turn slot. This is
  *     Conversation Stop, not the computer-control Pause/Stop.
- * All three modes keep the synthetic platform/executor boundary: no TCC, signed
+ * All four modes keep the synthetic platform/executor boundary: no TCC, signed
  * driver, OS input, real window, live provider or production service.
  */
 
@@ -76,9 +84,9 @@ const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const fixtureModel = "joined-computer-fixture";
 const scenarioInput = process.env.LINKSENSE_JOINED_SCENARIO?.trim() || "product-chain";
-if (scenarioInput !== "product-chain" && scenarioInput !== "crash" &&
-  scenarioInput !== "revoke" && scenarioInput !== "stop") {
-  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash, revoke or stop");
+if (scenarioInput !== "product-chain" && scenarioInput !== "crash" && scenarioInput !== "revoke" &&
+    scenarioInput !== "app-server-exit" && scenarioInput !== "stop") {
+  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash, revoke, app-server-exit or stop");
   process.exit(2);
 }
 const scenario = scenarioInput;
@@ -473,7 +481,7 @@ try {
     reply.type("text/event-stream").send(responseStream(item));
   });
   /**
-   * The first verified running turn, shared by the default chain and all three
+   * The first verified running turn, shared by the default chain and all four
    * opt-in modes: one gated observe on the selected synthetic window, then one
    * real computer_act that becomes the pending native approval. Mode branching
    * only happens after those two stages and the caller's exact state proof.
@@ -626,6 +634,11 @@ try {
    * replaying the interrupted schedule.
    */
   async function whiteboxScript(current: number, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (scenario === "app-server-exit") {
+      // The shared checkpoint is exactly one observe and one pending act
+      // approval. The app-server exit must never produce another model call.
+      throw new Error(`the app-server exit fixture must not accept another model request (phase ${current})`);
+    }
     if (scenario === "crash" && current === 2) {
       assert(JSON.stringify(body).includes(crashFreshInputMarker),
         "a prior turn requested the model again after the crash");
@@ -696,7 +709,7 @@ try {
 
   /**
    * One owned gateway and one bounded JSON line reader, shared by the default
-   * chain and all three opt-in modes. The fixture line carries only the loopback
+   * chain and all four opt-in modes. The fixture line carries only the loopback
    * origin, the native data root, the synthetic device credential and the two
    * marker paths; no argv, window name or private selection is ever sent.
    */
@@ -707,6 +720,9 @@ try {
         TMPDIR: process.env.TMPDIR,
         LINKSENSE_DESKTOP_RUNTIME_DIST: stagedRoot,
         LINKSENSE_JOINED_DRIVER_PROBE: driverProbe,
+        // The one-shot app-server SIGKILL fixture is enabled only on this
+        // disposable gateway and only for the scenario that owns it.
+        ...(scenario === "app-server-exit" ? { LINKSENSE_JOINED_APP_SERVER_EXIT: "1" } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -1008,8 +1024,9 @@ try {
   };
 
   // One owned gateway, one bounded reader and one real product turn for every
-  // mode. The crash/revoke/stop branches start below, only after the picked
-  // window, the real observation and the first pending act are proven.
+  // mode. The crash/revoke/app-server-exit/stop branches start below, only
+  // after the picked window, the real observation and the first pending act
+  // are proven.
   const gateway = await startGateway();
   const { send, stats, waitEvent, controlLog, controlEventsSince, waitControlEvent } = gateway;
 
@@ -1158,7 +1175,9 @@ try {
       ? await runCrashScenario()
       : scenario === "revoke"
         ? await runRevokeScenario()
-        : await runStopScenario();
+        : scenario === "app-server-exit"
+          ? await runAppServerExitScenario()
+          : await runStopScenario();
     succeeded = true;
     break joinedScenario;
   }
@@ -2189,6 +2208,286 @@ try {
   }
 
   /**
+   * Positive app-server-only exit: SIGKILL only the one owned Codex app-server
+   * at the shared first-act checkpoint. The real Go gateway, device socket and
+   * supervisor stay connected; no Conversation Stop or computer stop is sent.
+   * The production process-exit callback retires the worker and reports
+   * `turn.exited`, which enqueues the exact desktop-exit job. Processing that
+   * one job must project the real interrupted native terminal from history.
+   *
+   * The terminal event id must be the deterministic delivery id that only the
+   * native-history terminal ingest assigns, so absent, mismatched or
+   * nonterminal history fails this positive proof.
+   */
+  async function runAppServerExitScenario(): Promise<Record<string, unknown>> {
+    if (!db || !api || !recoveryQueue || !manifest || !api.recovery) {
+      throw new Error("the app-server-exit scenario requires the API recovery scheduler, PostgreSQL and the queue");
+    }
+    const prisma = db;
+    const joined = api;
+    const recovery = joined.recovery;
+    assert(recovery, "the app-server-exit scenario requires the API recovery scheduler");
+    const queue = recoveryQueue;
+    const runtimeManifest = manifest;
+    const requestsBefore = captures.length;
+    assert(binding, "the app-server-exit scenario requires the current device connection");
+    const connectionId = binding.connectionId;
+    const exitJobId = `desktop-exit-${connectionId}-${turn.turn_id}`;
+    const oldSessionId = session.id;
+    const oldGrantIds = grants.map(grant => grant.id);
+
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), true,
+      "the exact turn slot must be held before the app-server exit");
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({
+      where: { id: turn.turn_id }, select: { status: true },
+    })).status, "running", "the exact turn must still be running before the app-server exit");
+    assert.equal(await prisma.conversationEvent.count({
+      where: { conversationId, turnId: turn.turn_id, eventType: "turn/completed" },
+    }), 0, "no terminal event may exist before the app-server exit");
+    assert(await queue.getJob(exitJobId) === undefined,
+      "no exit job may exist before the app-server exit");
+    assert.equal(hasExited(gateway.gateway), false,
+      "the owned gateway must be live before the app-server exit");
+    const controlMark = controlLog.length;
+
+    const killSentAt = Date.now();
+    send({ action: "kill_app_server" });
+    const exitFrame = await waitEvent("app_server_exit", () => true, 30_000);
+    assert.equal(exitFrame.ok, true,
+      `the app-server exit fixture refused the bounded kill: ${String(exitFrame.error ?? "unknown")}`);
+    assert.deepEqual(Object.keys(exitFrame).sort(), ["event", "ok"],
+      "the app-server exit frame must not carry a process, argv or credential");
+
+    // The only production enqueue with this id is `turn.exited`: the runner's
+    // process-exit callback calls `turns.finishAfterAcknowledgement` before
+    // `link.reportTurnExit` (apps/runner/src/desktop/worker-callbacks.ts), and
+    // the recovery scheduler builds this exact desktop-exit id only for that
+    // trigger. The focused runner test "reports app-server exit on the same
+    // link after retiring the actual worker process"
+    // (apps/runner/test/desktop-turns.test.ts) proves that callback runs only
+    // after `provider.hasWorkerForEnvironment` is false, i.e. after the worker
+    // was retired. This fixture's process snapshot carries identities only, so
+    // it cannot separate the unchanged supervisor from the retired worker
+    // without a new protocol; the source contract plus that passing test are
+    // the retirement evidence here. The job did not exist before the kill.
+    const exitJob = await waitFor("the production app-server exit recovery job", async () =>
+      await queue.getJob(exitJobId) ?? null, 120_000);
+    if (exitJob.data.type !== "desktop-turn") {
+      throw new Error("the app-server exit must enqueue a desktop-turn job");
+    }
+    const exitData = exitJob.data;
+    assert((exitJob.id ?? "") === exitJobId && exitJob.name === "desktop-turn",
+      "the app-server exit must arrive on the production turn.exited job shape");
+    assert(exitJob.timestamp >= killSentAt,
+      "the exit job must be enqueued only after the app-server kill");
+    assert(exitData.ownerId === owner.id && exitData.deviceId === device.id &&
+      exitData.connectionId === connectionId && exitData.conversationId === conversationId &&
+      exitData.projectionTurnId === turn.turn_id &&
+      exitData.runtimeGeneration === runtimeGeneration,
+    "the app-server exit job must name exactly the original owner/device/connection/conversation/turn/generation");
+    assert(await queue.getJob(`desktop-reconnect-${connectionId}-${turn.turn_id}`) === undefined,
+      "the app-server exit must not enqueue a reconnect job for the same link");
+
+    // The exit callback must not settle the turn or report native status, and
+    // it must leave the same online, ready link and the original approval in
+    // place. The native gate lifecycle is a separate boundary and is not
+    // asserted here; the API-side GUI authority cleanup is proven below.
+    const exitBinding = await joined.coordinator.executionConnection(device.id);
+    assert(exitBinding !== null && exitBinding.connectionId === connectionId,
+      "the app-server exit must keep the same authenticated device connection");
+    const linkStats = nativeStats(await stats());
+    assert.equal(linkStats.connectionId, connectionId,
+      "the exit callback must keep the same authenticated link");
+    assert.equal(linkStats.connectionState, "online");
+    assert.equal(linkStats.connectionReady, true);
+    const exitTurn = await prisma.conversationTurn.findUniqueOrThrow({
+      where: { id: turn.turn_id },
+      select: {
+        status: true, interruptedAt: true, completedAt: true,
+        errorCode: true, errorMessage: true, codexThreadId: true, codexTurnId: true,
+      },
+    });
+    assert.equal(exitTurn.status, "running", "the exit callback must not report a native terminal");
+    assert(exitTurn.codexThreadId === running.codexThreadId && exitTurn.codexTurnId === running.codexTurnId,
+      "the exit callback must keep the exact original native thread/turn");
+    assert.equal(exitTurn.interruptedAt, null);
+    assert.equal(exitTurn.completedAt, null);
+    assert.equal(exitTurn.errorCode, null);
+    assert.equal(exitTurn.errorMessage, null);
+    assert.equal(await prisma.conversationUserInputRequest.count({
+      where: { id: approvalRequest.id, status: "pending" },
+    }), 1, "the exit callback must leave the original approval pending");
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), true,
+      "the exit callback must not release the exact turn slot");
+    assert.equal(await prisma.conversationEvent.count({
+      where: { conversationId, turnId: turn.turn_id, eventType: "turn/completed" },
+    }), 0, "the exit callback must not project a terminal event");
+    assert.equal(controlEventsSince(controlMark, "stop").length, 0,
+      "the app-server exit must not send a computer stop");
+    assert.equal(hasExited(gateway.gateway), false,
+      "the Go gateway must stay live after the app-server exit");
+
+    // Process only the real exit job, as the crash scenario processes its real
+    // recovery jobs; nothing else in the queue is run.
+    await recovery.process(exitJob);
+    const settled = await waitFor("the recovered interrupted turn", async () => {
+      const row = await prisma.conversationTurn.findUnique({
+        where: { id: turn.turn_id },
+        select: {
+          status: true, interruptedAt: true, completedAt: true,
+          errorCode: true, errorMessage: true, codexThreadId: true, codexTurnId: true,
+        },
+      });
+      return row?.status === "interrupted" ? row : null;
+    }, 60_000);
+    assert(settled.interruptedAt, "the interrupted turn must record its terminal time");
+    assert.equal(settled.completedAt, null);
+    assert.equal(settled.errorCode, null);
+    assert.equal(settled.errorMessage, null);
+    assert(settled.codexThreadId === running.codexThreadId && settled.codexTurnId === running.codexTurnId,
+      "the interrupted turn must keep the exact original native thread/turn");
+
+    const terminalEvents = await prisma.conversationEvent.findMany({
+      where: { conversationId, turnId: turn.turn_id, eventType: "turn/completed" },
+      select: { id: true, payloadJson: true },
+    });
+    assert.equal(terminalEvents.length, 1,
+      "exactly one durable native terminal must be projected");
+    // Only the native-history terminal ingest assigns this v5 delivery id
+    // (events/service.ts reconcileAfterProcessExit). A missing history leaves
+    // no event; an outbox or synthetic terminal carries a different id.
+    assert(terminalEvents[0]!.id === uuidv5("desktop:recovered-terminal", turn.turn_id),
+      "the durable terminal must be the native-history projection, not an outbox delivery");
+    const terminal = z.looseObject({
+      schema_version: z.literal(2),
+      source: z.literal("codex_app_server"),
+      method: z.literal("turn/completed"),
+      params: z.looseObject({
+        threadId: z.string(),
+        turn: z.looseObject({ id: z.string(), status: z.literal("interrupted") }),
+      }),
+    }).parse(terminalEvents[0]!.payloadJson);
+    assert(terminal.params.threadId === running.codexThreadId &&
+      terminal.params.turn.id === running.codexTurnId,
+    "the durable terminal must name the exact original native thread/turn");
+    assert.equal(terminal.params.turn.status, "interrupted");
+    const cancelledApproval = await prisma.conversationUserInputRequest.findUniqueOrThrow({
+      where: { id: approvalRequest.id },
+      select: { status: true, resolvedAction: true, responseContentJson: true },
+    });
+    assert.equal(cancelledApproval.status, "cancelled",
+      "the recovered terminal must cancel the original native approval");
+    assert.equal(cancelledApproval.resolvedAction, null,
+      "the recovered terminal must not accept the original approval");
+    assert.equal(cancelledApproval.responseContentJson, null,
+      "the recovered terminal must not deliver an approval response");
+    assert.equal(await prisma.conversationUserInputRequest.count({
+      where: { conversationId, turnId: turn.turn_id, requestKind: "questions" },
+    }), 1, "the recovery must not duplicate the original native approval");
+    await assert.rejects(joined.conversations.respondToUserInputRequest(
+      owner.id, conversationId, approvalRequest.id,
+      { action: "accept", content: { [approvalRequest.question.id]: "Allow" } }, {},
+    ), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+    assert.equal(captures.length, requestsBefore,
+      "the app-server exit recovery must not ask the model again");
+    assert.equal(phase, 2);
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), false,
+      "the recovered terminal must release the exact turn slot");
+    // The turn.exited callback can revoke the old selection before this job is
+    // processed; wait for the exact compare-delete, session end and grant
+    // revocations if that cleanup is still ordered behind the enqueue.
+    await waitFor("the app-server exit selection cleanup", async () => {
+      try {
+        await assertOldSelectionRetired(turn.turn_id, oldSessionId, oldGrantIds);
+        return true;
+      } catch {
+        return null;
+      }
+    }, 30_000);
+    assert(Date.now() < selection.expiresAt,
+      "the exact selection was cleared by the compare-delete, not by TTL expiry");
+    assert.equal((await prisma.desktopDevice.findUniqueOrThrow({
+      where: { id: device.id }, select: { revokedAt: true },
+    })).revokedAt, null, "an app-server exit must not revoke the device credential");
+    assert(await joined.service.authenticate(token),
+      "an app-server exit must keep the device credential valid");
+    const interruptedAuditCount = await prisma.auditLog.count({
+      where: {
+        action: "conversation_turn_interrupted", targetType: "conversation_turn",
+        targetId: turn.turn_id, result: "success",
+      },
+    });
+    assert.equal(interruptedAuditCount, 1,
+      "the real terminal projection must record exactly one successful interrupted audit");
+    const explicitStopAuditCount = await prisma.auditLog.count({
+      where: {
+        action: "conversation_turn_interrupt_requested",
+        targetType: "conversation_turn", targetId: turn.turn_id,
+      },
+    });
+    assert.equal(explicitStopAuditCount, 0,
+      "the app-server exit must not record an explicit Stop audit");
+    assert.equal(await prisma.auditLog.count({
+      where: { action: "conversation_turn_completed", targetId: turn.turn_id },
+    }), 0, "an app-server exit must not project a completed turn");
+    assert.equal(await prisma.auditLog.count({
+      where: { action: "conversation_turn_failed", targetId: turn.turn_id },
+    }), 0, "an app-server exit must not project a failed turn");
+
+    // The same online, ready link survives, and the exit plus recovery opened
+    // no second picker or executor and sent no act, authorization or mutation.
+    // The native gate lifecycle is a separate boundary and is intentionally
+    // not asserted here.
+    const finalStats = nativeStats(await stats());
+    assert.equal(finalStats.connectionId, connectionId,
+      "the app-server exit must keep the same authenticated link");
+    assert.equal(finalStats.connectionState, "online");
+    assert.equal(finalStats.connectionReady, true);
+    assert.equal(finalStats.connectionComputerReady, true);
+    assert.equal(finalStats.picks, preActionStats.picks,
+      "the app-server exit must not open another picker");
+    assert.equal(finalStats.executors, preActionStats.executors,
+      "the app-server exit must not build another executor");
+    assert.equal(finalStats.stats.acts, preActionStats.stats.acts,
+      "the app-server exit must not send native input");
+    assert.equal(finalStats.stats.authorizations, preActionStats.stats.authorizations);
+    assert.equal(finalStats.stats.mutations, preActionStats.stats.mutations);
+    assert.equal(finalStats.driverProbe, false, "the real agent-desktop driver was invoked");
+    assert.equal(controlEventsSince(controlMark, "stop").length, 0,
+      "the app-server exit must not send a computer stop");
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1,
+      "the app-server exit must not create another local turn");
+    assert.equal(await prisma.conversationTurnStartIntent.count({ where: { conversationId } }), 0,
+      "the app-server exit must not leave a start intent");
+    await assertNoPrivateLeak();
+    await exitJob.remove();
+
+    return {
+      status: "desktop computer product chain: app-server-exit ok",
+      scenario,
+      codex: runtimeManifest.versions.codex,
+      modelRequests: captures.length,
+      terminal: terminal.params.turn.status,
+      terminalSource: terminal.source,
+      linkRetained: true,
+      pickerRetained: true,
+      slotReleased: true,
+      pendingApprovalCancelled: true,
+      lateApproval: "USER_INPUT_REQUEST_UNAVAILABLE",
+      oldSelectionRetired: true,
+      oldSessionEnded: true,
+      oldGrantsRevoked: oldGrantIds.length === 2,
+      credentialRetained: true,
+      interruptedAuditCount,
+      explicitStopAuditCount,
+      driverTouched: false,
+      osInput: false,
+      privateMarkerAbsent: true,
+      boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
+    };
+  }
+
+  /**
    * Explicit Conversation Stop, not the computer-control Pause/Stop. The real
    * owner-scoped service interrupts the exact running projected turn while its
    * first native approval is pending. The REQUESTED reply is only the command
@@ -2322,7 +2621,6 @@ try {
       boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
     };
   }
-
 
 } finally {
   // The body watchdog covers only the proof, never cleanup: a hung cleanup
