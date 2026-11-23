@@ -132,6 +132,10 @@ type m1bComputerRequest struct {
 	NativeCallID string
 	Act          *m1bComputerAct
 	Wait         *m1bComputerWait
+	// StatusExpiresAt is the exact acknowledged selection expiry for the
+	// native-only positive status variant. It is zero for the legacy status
+	// exchange and for every other request kind.
+	StatusExpiresAt time.Time
 }
 
 type m1bComputerCommand struct {
@@ -402,11 +406,48 @@ func (host *m1bComputerHost) selectionCurrentExact(selection m1bComputerSelectio
 	return current.bindingKey() == selection.bindingKey() && current.ExpiresAt.Equal(selection.ExpiresAt)
 }
 
-func (host *m1bComputerHost) currentSelectionFor(kind string, selection m1bComputerSelection) bool {
-	if kind == "wait" {
+func (host *m1bComputerHost) currentSelectionFor(request m1bComputerRequest, selection m1bComputerSelection) bool {
+	if request.Kind == "wait" {
 		return host.selectionCurrentExact(selection)
 	}
+	if request.Kind == "status" && !request.StatusExpiresAt.IsZero() {
+		return request.StatusExpiresAt.Equal(selection.ExpiresAt) && host.selectionCurrentExact(selection)
+	}
 	return host.selectionCurrent(selection)
+}
+
+// statusOutcome is the only path that may report a positive active grant. A
+// legacy status is always informational and false, even when a fixture
+// executor returns true. The native-only variant names the exact acknowledged
+// selection expiry and enters only through the product gate, which owns the
+// pre/post-read exact-generation and input-boundary proof. The executor's
+// driver result remains the availability source, never a permission proof.
+type m1bComputerStatusAttestation interface {
+	// statusAttestation receives the exact publication grant captured at input
+	// admission. A nil or later-rediscovered grant can never authorize positive.
+	statusAttestation(context.Context, m1bComputerSelection, context.Context) m1bComputerResult
+	// statusAttestationContext is the exact open grant's publication lifetime.
+	// It is absent when the boundary is already closed or the grant advanced.
+	statusAttestationContext(m1bComputerSelection) (context.Context, bool)
+}
+
+func (host *m1bComputerHost) statusOutcome(ctx context.Context, selection m1bComputerSelection, request m1bComputerRequest, admittedGrant context.Context) m1bComputerResult {
+	diagnostic := func(outcome m1bComputerResult) m1bComputerResult {
+		if outcome.kind == "status" {
+			outcome.status.ActiveGrant = false
+		}
+		return outcome
+	}
+	if request.StatusExpiresAt.IsZero() {
+		return diagnostic(host.executor.status(ctx, selection))
+	}
+	attest, ok := host.executor.(m1bComputerStatusAttestation)
+	if !ok || !request.StatusExpiresAt.Equal(selection.ExpiresAt) {
+		// A fixture or legacy executor has no product gate evidence. Its status
+		// remains ordinary diagnostics with the positive claim cleared.
+		return diagnostic(host.executor.status(ctx, selection))
+	}
+	return attest.statusAttestation(ctx, selection, admittedGrant)
 }
 
 // retire closes the exact selection's input binding without forgetting the
@@ -696,10 +737,13 @@ type m1bComputerLink struct {
 	socket     *websocket.Conn
 	host       *m1bComputerHost
 	token      uint64
-	linkID     string
-	ctx        context.Context
-	live       func() bool
-	write      func(context.Context, []byte) error
+	// computerStatus is true only for this exact socket generation whose
+	// offer of the status marker was echoed identically with computer.execute.
+	computerStatus bool
+	linkID         string
+	ctx            context.Context
+	live           func() bool
+	write          func(context.Context, []byte) error
 }
 
 func (link *m1bComputerLink) executable() bool {
@@ -777,6 +821,14 @@ func (link *m1bComputerLink) dispatch(data []byte) {
 		link.failClosed()
 		return
 	}
+	if !command.Request.StatusExpiresAt.IsZero() && !link.computerStatus {
+		// The exact status expiry is meaningful only on the socket generation
+		// that offered the marker, received the identical echo, and negotiated
+		// computer.execute. The receipt is claimed above but no host work is
+		// armed: an unsolicited attestation is only a bounded invalid request.
+		link.replyFailure(command.ID, "COMPUTER_INVALID")
+		return
+	}
 	selection := link.host.executor.selection()
 	if failure := m1bComputerBindingFailure(link, command, selection); failure != "" {
 		link.replyFailure(command.ID, failure)
@@ -802,12 +854,12 @@ func (link *m1bComputerLink) dispatch(data []byte) {
 		link.replyFailure(command.ID, failure)
 		return
 	}
-	ctx, cancel := m1bComputerInputContext(link, selection, command.Request.Kind, deadline)
+	ctx, cancel, admittedGrant := m1bComputerInputContext(link, selection, command.Request, deadline)
 	begin := link.host.beginInput(link, selection, command, deadline, ctx, cancel, work)
 	if !link.beginResult(command.ID, begin, cancel) {
 		return
 	}
-	go link.runInput(ctx, cancel, begin.work, selection, command.Request)
+	go link.runInput(ctx, cancel, begin.work, selection, command.Request, admittedGrant)
 }
 
 // beginResult handles tombstone capacity and immediate failure outcomes.
@@ -836,19 +888,19 @@ func (link *m1bComputerLink) failClosed() {
 	}
 }
 
-func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.CancelFunc, work *m1bComputerDispatch, selection m1bComputerSelection, request m1bComputerRequest) {
+func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.CancelFunc, work *m1bComputerDispatch, selection m1bComputerSelection, request m1bComputerRequest, admittedGrant context.Context) {
 	defer cancel()
 	defer link.host.finishPublication(work)
 	entered := false
 	var outcome m1bComputerResult
-	if !link.host.isCanceled(work) && link.executable() && link.host.currentSelectionFor(request.Kind, selection) &&
+	if !link.host.isCanceled(work) && link.executable() && link.host.currentSelectionFor(request, selection) &&
 		time.Now().Before(work.deadline) && ctx.Err() == nil {
 		// Guard immediately before entering the executor, after context,
 		// account lease and runtime-link checks.
 		entered = true
 		switch request.Kind {
 		case "status":
-			outcome = link.host.executor.status(ctx, selection)
+			outcome = link.host.statusOutcome(ctx, selection, request, admittedGrant)
 		case "observe":
 			outcome = link.host.executor.observe(ctx, selection)
 		case "wait":
@@ -886,7 +938,7 @@ func (link *m1bComputerLink) runInput(ctx context.Context, cancel context.Cancel
 		return
 	}
 	if ctx.Err() != nil || !link.host.deliverable(work) || !link.executable() ||
-		!link.host.currentSelectionFor(request.Kind, selection) {
+		!link.host.currentSelectionFor(request, selection) {
 		return
 	}
 	// Suppress or classify uncertainty when the deadline crosses between the
@@ -957,22 +1009,38 @@ func (link *m1bComputerLink) runQuiesce(ctx context.Context, cancel context.Canc
 // lifetime exposed by the product gate, and the existing command deadline.
 // The grant is the direct parent so a pause, stop, expiry or renewal closes a
 // blocked final write synchronously. The transport context is relayed into the
-// same child, so socket shutdown still cancels the work. Non-wait input keeps
-// the previous transport-only context.
-func m1bComputerInputContext(link *m1bComputerLink, selection m1bComputerSelection, kind string, deadline time.Time) (context.Context, context.CancelFunc) {
+// same child, so socket shutdown still cancels the work. Ordinary status,
+// observe and act keep the previous transport-only context.
+func m1bComputerInputContext(link *m1bComputerLink, selection m1bComputerSelection, request m1bComputerRequest, deadline time.Time) (context.Context, context.CancelFunc, context.Context) {
 	if link == nil || link.ctx == nil {
-		return context.WithDeadline(context.Background(), deadline)
+		ctx, cancel := context.WithDeadline(context.Background(), deadline)
+		return ctx, cancel, nil
 	}
-	if kind != "wait" || link.host == nil {
-		return context.WithDeadline(link.ctx, deadline)
+	positiveStatus := request.Kind == "status" && !request.StatusExpiresAt.IsZero()
+	if (request.Kind != "wait" && !positiveStatus) || link.host == nil {
+		ctx, cancel := context.WithDeadline(link.ctx, deadline)
+		return ctx, cancel, nil
 	}
-	grants, ok := link.host.executor.(m1bComputerWaitPublication)
-	if !ok {
-		return context.WithDeadline(link.ctx, deadline)
+	var grant context.Context
+	if positiveStatus {
+		// A positive status uses the exact open grant as its publication
+		// lifetime. If the boundary is already closed or has advanced, the
+		// ordinary transport deadline still permits diagnostics, but the gate
+		// returns them with active_grant false. The same captured grant is
+		// returned to the status decision; a grant discovered later is never
+		// allowed to turn this transport-only admission positive.
+		if attest, ok := link.host.executor.(m1bComputerStatusAttestation); ok {
+			grant, _ = attest.statusAttestationContext(selection)
+		}
+	} else {
+		grants, ok := link.host.executor.(m1bComputerWaitPublication)
+		if ok {
+			grant, _ = grants.waitPublicationContext(selection)
+		}
 	}
-	grant, ok := grants.waitPublicationContext(selection)
-	if !ok || grant == nil {
-		return context.WithDeadline(link.ctx, deadline)
+	if grant == nil {
+		ctx, cancel := context.WithDeadline(link.ctx, deadline)
+		return ctx, cancel, nil
 	}
 	if linkDeadline, has := link.ctx.Deadline(); has && linkDeadline.Before(deadline) {
 		deadline = linkDeadline
@@ -980,13 +1048,13 @@ func m1bComputerInputContext(link *m1bComputerLink, selection m1bComputerSelecti
 	ctx, cancel := context.WithDeadline(grant, deadline)
 	if link.ctx.Err() != nil {
 		cancel()
-		return ctx, cancel
+		return ctx, cancel, grant
 	}
 	stop := context.AfterFunc(link.ctx, cancel)
 	return ctx, func() {
 		stop()
 		cancel()
-	}
+	}, grant
 }
 
 func m1bComputerInputDeadline(selection m1bComputerSelection, command m1bComputerCommand, now time.Time) (time.Time, string) {
@@ -1279,7 +1347,30 @@ func m1bComputerParseRequest(raw []byte) (m1bComputerRequest, error) {
 		return m1bComputerRequest{}, errM1BComputerInvalid
 	}
 	switch header.Kind {
-	case "status", "observe", "quiesce":
+	case "status":
+		var request struct {
+			Kind               string          `json:"kind"`
+			SelectionExpiresAt json.RawMessage `json:"selection_expires_at"`
+		}
+		if m1bDecodeStrict(raw, &request) != nil || request.Kind != "status" {
+			return m1bComputerRequest{}, errM1BComputerInvalid
+		}
+		var selectionExpiresAt time.Time
+		if len(request.SelectionExpiresAt) > 0 {
+			// An explicit null or empty value is not an acknowledged expiry.
+			var value string
+			if bytes.Equal(bytes.TrimSpace(request.SelectionExpiresAt), []byte("null")) ||
+				json.Unmarshal(request.SelectionExpiresAt, &value) != nil {
+				return m1bComputerRequest{}, errM1BComputerInvalid
+			}
+			parsed, err := time.Parse(time.RFC3339Nano, value)
+			if err != nil || parsed.IsZero() {
+				return m1bComputerRequest{}, errM1BComputerInvalid
+			}
+			selectionExpiresAt = parsed
+		}
+		return m1bComputerRequest{Kind: "status", StatusExpiresAt: selectionExpiresAt}, nil
+	case "observe", "quiesce":
 		var request struct {
 			Kind string `json:"kind"`
 		}

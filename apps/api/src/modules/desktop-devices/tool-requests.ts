@@ -37,9 +37,12 @@ type ToolRequestServices = {
     scope: DesktopRunScope;
     request: Extract<DesktopToolRequest, { operation: "computer.execute" }>;
     signal: AbortSignal;
+    computerStatus: boolean;
   }, publishRead?: (publication: DesktopComputerReadPublication) => void) => Promise<ComputerExecuteResult>;
   /** True only for the socket generation that offered computer.wait too. */
   computerWait?: boolean;
+  /** True only for the exact link that negotiated the native status attestation. */
+  computerStatus?: boolean;
   /**
    * Explicit trusted fixture seam, default closed and never set by
    * configuration or the product composition. The joined fixture lane predates
@@ -63,6 +66,7 @@ export async function executeDesktopTool(
   const base = { type: "tool.result", id: frame.id, operation: frame.operation } as const;
   const readKind = frame.operation === "computer.execute" &&
     (frame.body.kind === "observe" || frame.body.kind === "wait") ? frame.body.kind : undefined;
+  const statusRequest = frame.operation === "computer.execute" && frame.body.kind === "status";
   const wait = readKind === "wait";
   const readFailure = (error: ComputerFailureCode): DesktopToolResult => ({
     type: "tool.result", id: frame.id, operation: "computer.execute", ok: true,
@@ -112,7 +116,9 @@ export async function executeDesktopTool(
       // valid; only its wait request is refused, without a device command.
       data = frame.body.kind === "wait" && services.computerWait !== true
         ? { kind: "failure" as const, error: "COMPUTER_UNAVAILABLE" as const }
-        : await services.computerExecute({ scope, request: frame, signal }, publication => {
+        : await services.computerExecute({
+          scope, request: frame, signal, computerStatus: services.computerStatus === true,
+        }, publication => {
           readPublication = publication;
         });
       // Only an act that may have reached the Mac must suppress a retry after a
@@ -140,7 +146,7 @@ export async function executeDesktopTool(
           : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
     }
   } catch (error) {
-    if (readKind) {
+    if (readKind || statusRequest) {
       // Keep the existing failed-attempt audit below, but as a clean bounded
       // read outcome instead of mutation uncertainty.
       result = readFailure(readFailureCode(error, signal));
@@ -155,8 +161,8 @@ export async function executeDesktopTool(
       };
     }
   }
-  if (readKind && signal.aborted && result.ok && result.operation === "computer.execute" &&
-      result.data.kind === readKind) {
+  if ((readKind || statusRequest) && signal.aborted && result.ok &&
+      result.operation === "computer.execute" && result.data.kind === (readKind ?? "status")) {
     // A cancel/deadline that arrived before the attempt audit must not be
     // recorded as a completed read, and the publication is never attempted.
     result = readFailure("COMPUTER_TIMEOUT");
@@ -189,7 +195,7 @@ export async function executeDesktopTool(
             // before authority/queue/publication. `unconfirmed` is the existing
             // delivery vocabulary: a late final denial, an absent proof, or a
             // failed final send never turns this row into a published success.
-            ...(readKind ? { delivery: "unconfirmed" } : {}),
+            ...(readKind || statusRequest ? { delivery: "unconfirmed" } : {}),
           } : {}),
         ...(reason ? { reason_code: reason } : {}),
       },
@@ -198,7 +204,7 @@ export async function executeDesktopTool(
     // The single bounded audit write above is the existing attempt record.
     // A read never becomes mutation uncertainty and never claims a completed
     // read through a rejected audit.
-    if (readKind) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    if (readKind || statusRequest) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
   // One fail-closed publication gate. A read success may reach the device only
@@ -206,6 +212,47 @@ export async function executeDesktopTool(
   // missing or mismatched proof is a bounded unavailable read, never the
   // generic unlocked reply. The explicit trusted fixture seam is the only
   // exception and is never set by configuration or the product composition.
+  if (statusRequest) {
+    // A status request is a read: a typed failure is already final, while a
+    // status result must match this exact request kind. A positive claim is a
+    // candidate only on the negotiated socket, with the exact status proof and
+    // the one post-audit transport send below. Every other status result, and
+    // every failed positive publication, is normalized centrally to the same
+    // diagnostic with the boolean cleared.
+    if (!result.ok || result.operation !== "computer.execute" ||
+        (result.data.kind !== "status" && result.data.kind !== "failure")) {
+      return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    }
+    if (result.data.kind === "failure") return result;
+    const candidate = result.data.result.active_grant === true &&
+      services.computerStatus === true && readPublication?.kind === "status" && publishResult !== undefined;
+    if (candidate && publishResult && readPublication) {
+      const sent = await publishResult(readPublication, result).catch(() => false);
+      if (sent) return result;
+    }
+    const diagnostic: Extract<DesktopToolResult, { ok: true }> = {
+      ...result, data: { kind: "status", result: { ...result.data.result, active_grant: false } },
+    };
+    // Losing only the positive claim is not a diagnostic authorization error.
+    // The ordinary post-audit run check still has to pass before the cleared
+    // diagnostic may be returned; a revoked/stale run becomes a bounded denial.
+    try {
+      await authorize();
+    } catch (error) {
+      return readFailure(readFailureCode(error, signal));
+    }
+    return diagnostic;
+  }
+  if (frame.operation === "computer.execute" && result.ok &&
+      result.operation === "computer.execute" && result.data.kind !== "failure" &&
+      result.data.kind !== frame.body.kind) {
+    // Another operation can never relay a status result (or any other
+    // mismatched kind) through the generic success send. An act that may have
+    // reached the Mac remains uncertain rather than retryable.
+    return frame.body.kind === "act"
+      ? { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" }
+      : readFailure("COMPUTER_UNAVAILABLE");
+  }
   if (readKind) {
     if (result.ok && result.operation === "computer.execute" &&
         (result.data.kind === "observe" || result.data.kind === "wait")) {

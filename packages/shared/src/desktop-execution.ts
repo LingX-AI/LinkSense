@@ -25,6 +25,14 @@ export const desktopExecutionProtocolVersion = 2;
 export const DESKTOP_TOOL_PROTOCOL_HEADER = "x-linksense-desktop-tools";
 export const DESKTOP_TOOL_OPERATIONS_HEADER = "x-linksense-desktop-tool-operations";
 export const desktopToolProtocolVersion = 1;
+/**
+ * Additive API/native negotiation for the positive status attestation. It is
+ * deliberately not a tool operation: the Runner never sees it, and an old
+ * server ignores the unknown header. The gateway echoes the version only on
+ * the exact socket that offered it together with `computer.execute`.
+ */
+export const DESKTOP_COMPUTER_STATUS_HEADER = "x-linksense-desktop-computer-status";
+export const desktopComputerStatusProtocolVersion = 1;
 export const DESKTOP_ATTACHMENT_PROTOCOL_HEADER = "x-linksense-desktop-attachments";
 export const desktopAttachmentProtocolVersion = 1;
 export const desktopAttachmentDownloadPath = "/api/v1/desktop/attachments";
@@ -125,9 +133,21 @@ export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend
   attachment_protocol_version: z.literal(desktopAttachmentProtocolVersion).optional(),
   tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
   tool_operations: toolOperations.optional(),
+  computer_status_version: z.literal(desktopComputerStatusProtocolVersion).optional(),
 });
 
 const computerExecuteStatusRequest = z.strictObject({ kind: z.literal("status") });
+/**
+ * Native-only status variant. The exact acknowledged selection expiry is a
+ * generation identity, never a clipped command deadline. It is absent for the
+ * legacy exchange; the model tool input uses `computerExecuteStatusRequest`
+ * above, which rejects this field.
+ */
+export const desktopComputerStatusAttestationRequestSchema = z.strictObject({
+  kind: z.literal("status"),
+  selection_expires_at: timestampSchema.optional(),
+});
+export type DesktopComputerStatusAttestationRequest = z.infer<typeof desktopComputerStatusAttestationRequestSchema>;
 const computerExecuteObserveRequest = z.strictObject({ kind: z.literal("observe") });
 const computerExecuteActRequest = z.strictObject({
   kind: z.literal("act"),
@@ -161,7 +181,7 @@ export const desktopComputerExecuteBodySchema = z.strictObject({
   // carry the holder the first authorized observe bound.
   holder_id: uuidSchema.nullable(),
   request: z.discriminatedUnion("kind", [
-    computerExecuteStatusRequest,
+    desktopComputerStatusAttestationRequestSchema,
     computerExecuteObserveRequest,
     computerExecuteActRequest,
     computerExecuteWaitRequest,

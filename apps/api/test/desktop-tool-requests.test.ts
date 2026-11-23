@@ -268,6 +268,21 @@ function computerObserveFrame() {
   } };
 }
 
+function computerStatusFrame() {
+  const { scope, raw } = computerObserveFrame();
+  return { scope, raw: { ...raw, body: { kind: "status" } } };
+}
+
+function computerActFrame() {
+  const { scope, raw } = computerObserveFrame();
+  return { scope, raw: { ...raw, body: {
+    kind: "act", native_call_id: "native-call-1",
+    input: { action: "click", observation_id: "obs-1", ref: "e1" },
+  } } };
+}
+
+const privateStatus = { available: true, permissions: { accessibility: "granted" as const }, active_grant: true };
+
 it("refuses a product observe success without request-local proof and never sends its AX text", async () => {
   const { scope, raw } = computerObserveFrame();
   const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
@@ -386,4 +401,126 @@ it("allows the explicit fixture seam to relay a legacy observe success without p
   expect(write).toHaveBeenCalledWith(expect.objectContaining({
     metadata: expect.objectContaining({ computer_request: "observe", delivery: "unconfirmed" }),
   }));
+});
+
+it("normalizes a status true without exact proof or negotiation and still checks the run after audit", async () => {
+  const { scope, raw } = computerStatusFrame();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async () => ({ kind: "status" as const, result: privateStatus }),
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({
+    ok: true, data: { kind: "status", result: { available: true, active_grant: false } },
+  });
+  expect(JSON.stringify(result)).not.toContain('"active_grant":true');
+  expect(sink).not.toHaveBeenCalled();
+});
+
+it("does not publish status true through a mismatched proof kind", async () => {
+  const { scope, raw } = computerStatusFrame();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const publication: DesktopComputerReadPublication = { kind: "observe", publish: async () => true };
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async (_input, publishRead) => {
+      publishRead?.(publication);
+      return { kind: "status" as const, result: privateStatus };
+    },
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "status", result: { active_grant: false } } });
+  expect(sink).not.toHaveBeenCalled();
+});
+
+it("fails a status diagnostic closed when the run is lost after the audit", async () => {
+  const { scope, raw } = computerStatusFrame();
+  let active = true;
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: {
+      claimToolRequest: async () => true,
+      verifyRunBinding: async () => {
+        if (!active) throw new AppError("AUTH_REQUIRED");
+      },
+    },
+    knowledgeSearch: null,
+    audit: { write: async () => { active = false; } },
+    webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async () => ({ kind: "status" as const, result: privateStatus }),
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal);
+  expect(result).toMatchObject({
+    ok: true, data: { kind: "failure", error: "COMPUTER_ACCESS_DENIED" },
+  });
+  expect(JSON.stringify(result)).not.toContain('"active_grant":true');
+});
+
+it.each([
+  { name: "status returning an observation", request: computerStatusFrame, result: {
+    kind: "observe" as const, result: privateObservation,
+  }, expected: { ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" } } },
+  { name: "act returning a status", request: computerActFrame, result: {
+    kind: "status" as const, result: privateStatus,
+  }, expected: { ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" } },
+])("rejects a $name instead of relaying it through the generic send", async ({ request, result: data, expected }) => {
+  const { scope, raw } = request();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const returned = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async () => data,
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(returned).toMatchObject(expected);
+  expect(JSON.stringify(returned)).not.toContain("PRIVATE_AX_TEXT");
+  expect(JSON.stringify(returned)).not.toContain('"active_grant":true');
+  expect(sink).not.toHaveBeenCalled();
+});
+
+it("never returns a status success when the mandatory audit write fails", async () => {
+  const { scope, raw } = computerStatusFrame();
+  const sink = vi.fn<DesktopToolResultDelivery>(async () => true);
+  const publication: DesktopComputerReadPublication = { kind: "status", publish: async () => true };
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null,
+    audit: { write: async () => { throw new Error("audit unavailable"); } },
+    webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async (_input, publishRead) => {
+      publishRead?.(publication);
+      return { kind: "status" as const, result: privateStatus };
+    },
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" } });
+  expect(sink).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toContain('"active_grant":true');
+});
+
+it("publishes status true only through the exact negotiated proof and one post-audit send", async () => {
+  const { scope, raw } = computerStatusFrame();
+  const finalize = vi.fn(() => true);
+  const publication: DesktopComputerReadPublication = { kind: "status", publish: async callback => callback() };
+  const sink = vi.fn<DesktopToolResultDelivery>(async candidate => candidate.publish(finalize));
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write: async () => {} }, webSearchSettings: { search: vi.fn() },
+    computerStatus: true,
+    computerExecute: async (_input, publishRead) => {
+      publishRead?.(publication);
+      return { kind: "status" as const, result: privateStatus };
+    },
+  }, scope, desktopToolRequestSchema.parse(raw), new AbortController().signal, sink);
+  expect(result).toMatchObject({ ok: true, data: { kind: "status", result: { active_grant: true } } });
+  expect(sink).toHaveBeenCalledOnce();
+  expect(finalize).toHaveBeenCalledOnce();
 });

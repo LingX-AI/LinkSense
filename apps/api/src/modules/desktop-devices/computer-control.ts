@@ -7,6 +7,7 @@ import {
   type DesktopComputerControl as DesktopComputerControlFrame,
   type DesktopComputerControlFailureCode,
   type DesktopComputerControlResult,
+  type DesktopComputerStatusAttestationRequest,
   type DesktopToolRequest,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
@@ -1425,6 +1426,8 @@ export class DesktopComputerControl {
     scope: DesktopRunScope;
     request: ComputerExecuteToolRequest;
     signal: AbortSignal;
+    /** True only when this exact device link negotiated the native status marker. */
+    computerStatus?: boolean;
   }, publishRead?: (publication: DesktopComputerReadPublication) => void): Promise<ComputerExecuteResult> {
     let mutationMayHaveRun = false;
     try {
@@ -1460,11 +1463,64 @@ export class DesktopComputerControl {
       if (body.kind === "status") {
         const expiresAt = Math.min(toolExpiresAt, authorization.expiresAt.getTime(), selection.expiresAt);
         if (expiresAt <= this.now().getTime()) return computerExecuteFailure("COMPUTER_TIMEOUT");
+        // The observe authorization above keeps diagnostics available in Plan
+        // or when only observe remains. A positive candidate additionally needs
+        // the original act authority for this exact session/application and the
+        // native link's explicit status marker. A denial here never turns the
+        // diagnostic status into an authorization failure.
+        let statusAttestation: LocalComputerActionAuthorization | undefined;
+        if (input.computerStatus === true && selection.state === "active") {
+          try {
+            const candidate = await this.host.authorize({
+              scope, capability: "computer.act", bundleId: selection.bundleId,
+              runToken: input.request.run_token,
+            });
+            if (candidate.capability === "computer.act" &&
+                sameDesktopRunScope(desktopRunScopeSchema.parse(candidate.scope), scope) &&
+                candidate.sessionId === selection.sessionId && candidate.bundleId === selection.bundleId) {
+              statusAttestation = candidate;
+            }
+          } catch {
+            // The diagnostic path remains available; the boolean stays false.
+          }
+        }
+        // Recompare the exact live generation before naming its acknowledged
+        // expiry on the wire. A pause, renewal, stop or replacement in between
+        // must fall back to the legacy diagnostic command. Without an act
+        // candidate there is no generation to name, so skip the extra read.
+        if (statusAttestation) {
+          const current = await this.activeSelection(scope);
+          if (!current || current.state !== "active" ||
+              current.selectionId !== selection.selectionId || current.sessionId !== selection.sessionId ||
+              current.connectionId !== scope.connectionId || current.controlEpoch !== selection.controlEpoch ||
+              current.expiresAt !== selection.expiresAt) {
+            statusAttestation = undefined;
+          }
+        }
+        const request: DesktopComputerStatusAttestationRequest = statusAttestation === undefined
+          ? { kind: "status" }
+          : { kind: "status", selection_expires_at: new Date(selection.expiresAt).toISOString() };
         const result = await sendComputerExecute(this.host.transport, binding, scope, {
-          sessionId: selection.sessionId, selectionId, holderId: null, request: { kind: "status" },
+          sessionId: selection.sessionId, selectionId, holderId: null, request,
           expiresAt, signal: input.signal, admission,
         });
-        return expectComputerExecuteKind(result, "status");
+        const typed = expectComputerExecuteKind(result, "status");
+        if (typed.kind !== "status") return typed;
+        // A legacy or unnegotiated native status is informational only. The
+        // same normalization clears a positive claim after the native exact
+        // selection check fails.
+        const diagnostics: ComputerExecuteResult = {
+          kind: "status", result: { ...typed.result, active_grant: false },
+        };
+        if (statusAttestation === undefined || typed.result.active_grant !== true || !publishRead) {
+          return diagnostics;
+        }
+        // The positive claim is published only through the audited read
+        // continuation below, using this original act grant and exact selection.
+        publishRead(this.statusPublication({
+          scope, selection, authorization: statusAttestation, expiresAt, signal: input.signal,
+        }));
+        return typed;
       }
 
       if (body.kind === "observe") {
@@ -1618,6 +1674,59 @@ export class DesktopComputerControl {
       }
       return computerExecuteFailure(mutationMayHaveRun ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE");
     }
+  }
+
+  /**
+   * Positive status publication proof. The native result is only a candidate;
+   * the exact act grant, the original selection generation, cancellation and
+   * the command deadline are rechecked under the existing dispatch
+   * conversation lock before the one synchronous send. Diagnostics that lose
+   * only this positive claim fall back to the same status payload with
+   * `active_grant: false`, through the transport's single reply path.
+   */
+  private statusPublication(input: {
+    scope: DesktopRunScope;
+    selection: DesktopComputerSelection;
+    authorization: LocalComputerActionAuthorization;
+    expiresAt: number;
+    signal: AbortSignal;
+  }): DesktopComputerReadPublication {
+    let attempted = false;
+    let timedOut = false;
+    return {
+      kind: "status",
+      timedOut: () => timedOut,
+      publish: async finalize => {
+        if (attempted) return false;
+        attempted = true;
+        let published = false;
+        try {
+          await this.host.verifyDispatch({
+            scope: input.scope, sessionId: input.selection.sessionId,
+            grantId: input.authorization.grantId, capability: "computer.act",
+            bundleId: input.selection.bundleId, expiresAt: input.authorization.expiresAt,
+          }, async () => {
+            if (!await this.host.store.verifyActiveFinal(input.scope, input.selection)) return false;
+            if (input.signal.aborted) return false;
+            const now = this.now().getTime();
+            if (now >= Math.min(
+              input.expiresAt, input.authorization.expiresAt.getTime(), input.selection.expiresAt,
+            )) {
+              timedOut = true;
+              return false;
+            }
+            if (!finalize()) return false;
+            published = true;
+            return true;
+          });
+        } catch {
+          // A transaction failure after the one synchronous send already went
+          // out is an uncertain commit, not a second reply.
+          return published;
+        }
+        return published;
+      },
+    };
   }
 
   /**

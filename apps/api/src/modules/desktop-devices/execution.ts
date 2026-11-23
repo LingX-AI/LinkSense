@@ -147,7 +147,7 @@ export async function registerDesktopExecution(
       : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
   },
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
-    async ({ ownerId, toolOperations, ...binding }, frame, signal, readDelivery) => {
+    async ({ ownerId, toolOperations, computerStatus, ...binding }, frame, signal, readDelivery) => {
       const scope = { ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId, ...turnScope(frame) };
       if (frame.type === "tool.request") {
         return executeDesktopTool({
@@ -159,6 +159,7 @@ export async function registerDesktopExecution(
           // Mac never offers computer.wait, so its wait kind is refused here
           // before the lane or a device command exists.
           computerWait: supportsDesktopComputerWait(toolOperations),
+          computerStatus,
           ...(fixtureComputerRead ? { allowUnprotectedComputerRead: true } : {}),
           ...(computerExecute ? {
             computerExecute: (input, publishRead) => {

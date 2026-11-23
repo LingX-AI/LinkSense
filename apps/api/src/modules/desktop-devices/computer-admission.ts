@@ -29,8 +29,8 @@ export type DesktopComputerDispatchAdmission = z.infer<typeof desktopComputerDis
 export type DesktopComputerDispatchAdmissionInput = z.input<typeof desktopComputerDispatchAdmissionSchema>;
 
 /**
- * Request-local continuation for publishing one read-only observe or wait
- * success.
+ * Request-local continuation for publishing one read-only status, observe, or
+ * wait success.
  *
  * The Mac's AX text or `met`/`timed_out` result is produced before the API has
  * a final authoritative view of the run. This carries only the identity
@@ -45,9 +45,10 @@ export type DesktopComputerReadPublication = {
   /**
    * Exact request kind this continuation was issued for. The tool-request lane
    * compares it with the request and the returned read before any send, so an
-   * observe proof can never publish a wait result (or the reverse).
+   * observe proof can never publish a wait or positive status result (or the
+   * reverse).
    */
-  kind: "observe" | "wait";
+  kind: "status" | "observe" | "wait";
   /** `finalize` performs only local socket checks and the one send. */
   publish: (finalize: () => boolean) => Promise<boolean>;
   /** Read after `publish` resolves false: the final synchronous deadline elapsed. */

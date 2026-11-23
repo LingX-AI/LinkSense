@@ -9,6 +9,7 @@ import {
   type ComputerExecuteResult,
   type ComputerFailureCode,
   type DesktopComputerExecuteBody,
+  type DesktopComputerStatusAttestationRequest,
   type DesktopExecutionResult,
   type DesktopToolRequest,
 } from "@linksense/shared";
@@ -438,7 +439,7 @@ export async function sendComputerExecute(
     sessionId: string;
     selectionId: string;
     holderId: string | null;
-    request: ComputerExecuteInput | { kind: "quiesce" };
+    request: ComputerExecuteInput | DesktopComputerStatusAttestationRequest | { kind: "quiesce" };
     expiresAt: number;
     signal: AbortSignal;
     admission?: DesktopComputerDispatchAdmissionInput;

@@ -114,6 +114,99 @@ func (gate *computerExecutorGate) status(ctx context.Context, selection m1bCompu
 	return inner.status(ctx, selection)
 }
 
+// statusAttestationContext returns the exact open grant's publication lifetime
+// for a positive status. A closed boundary or an advanced/expired grant has no
+// positive lifetime; the host then falls back to the transport deadline for
+// ordinary diagnostics.
+func (gate *computerExecutorGate) statusAttestationContext(selection m1bComputerSelection) (context.Context, bool) {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	if gate.inner == nil || !gate.inputOpen ||
+		!sameComputerBinding(gate.inner.selection(), selection) ||
+		selection.ExpiresAt.IsZero() || !time.Now().Before(selection.ExpiresAt) ||
+		gate.grant == nil || !sameComputerBinding(gate.grantSelection, selection) ||
+		gate.grant.Err() != nil {
+		return nil, false
+	}
+	return gate.grant, true
+}
+
+// statusAuthorityLocked is the one positive-authority check used before and
+// after the driver read. admitted is the exact grant captured by input
+// admission. A nil admission, or a grant installed after the transport context
+// was chosen, can never authorize positive even if the current selection later
+// opens. The grant identity, binding, input boundary and expiry must all still
+// be the same. The caller holds gate.mu.
+func (gate *computerExecutorGate) statusAuthorityLocked(inner computerProductExecutor, selection m1bComputerSelection, admitted context.Context, now time.Time) bool {
+	return gate.inner == inner && gate.inputOpen &&
+		sameComputerBinding(inner.selection(), selection) &&
+		!selection.ExpiresAt.IsZero() && now.Before(selection.ExpiresAt) &&
+		admitted != nil && gate.grant == admitted &&
+		sameComputerBinding(gate.grantSelection, selection) &&
+		admitted.Err() == nil
+}
+
+// statusAttestation is the only positive, native-only status entry. The product
+// gate owns both the pre-read and post-read exact-generation proof: the same
+// binding must be current, input must remain open, the acknowledged lifetime
+// must still be live, and the exact grant captured at admission must still be
+// installed and uncanceled. A locally closed boundary still permits ordinary
+// diagnostics, but returns them with active_grant false; a read that loses its
+// generation or deadline returns only a typed timeout, never stale data. The
+// grant is never rediscovered from the current state after dispatch.
+func (gate *computerExecutorGate) statusAttestation(ctx context.Context, selection m1bComputerSelection, admitted context.Context) m1bComputerResult {
+	if ctx == nil {
+		return m1bComputerFailure("COMPUTER_INVALID")
+	}
+	gate.mu.Lock()
+	inner := gate.inner
+	if inner == nil {
+		gate.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_UNAVAILABLE")
+	}
+	if !sameComputerBinding(inner.selection(), selection) {
+		gate.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_TARGET_CHANGED")
+	}
+	now := time.Now()
+	if selection.ExpiresAt.IsZero() || !now.Before(selection.ExpiresAt) {
+		gate.mu.Unlock()
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	authority := gate.statusAuthorityLocked(inner, selection, admitted, now)
+	gate.mu.Unlock()
+	if !authority {
+		// Status diagnostics do not require act input. Read them normally, but
+		// never claim the positive grant when the admitted lifetime is absent.
+		if ctx.Err() != nil {
+			return m1bComputerFailure("COMPUTER_TIMEOUT")
+		}
+		outcome := inner.status(ctx, selection)
+		gate.mu.Lock()
+		current := gate.inner == inner && sameComputerBinding(inner.selection(), selection)
+		gate.mu.Unlock()
+		if !current || ctx.Err() != nil || !time.Now().Before(selection.ExpiresAt) {
+			return m1bComputerFailure("COMPUTER_TIMEOUT")
+		}
+		if outcome.kind == "status" {
+			outcome.status.ActiveGrant = false
+		}
+		return outcome
+	}
+	outcome := inner.status(ctx, selection)
+	if outcome.kind != "status" {
+		return outcome
+	}
+	gate.mu.Lock()
+	current := gate.statusAuthorityLocked(inner, selection, admitted, time.Now())
+	gate.mu.Unlock()
+	if !current || ctx.Err() != nil {
+		return m1bComputerFailure("COMPUTER_TIMEOUT")
+	}
+	outcome.status.ActiveGrant = true
+	return outcome
+}
+
 func (gate *computerExecutorGate) observe(ctx context.Context, selection m1bComputerSelection) m1bComputerResult {
 	if ctx == nil {
 		return m1bComputerFailure("COMPUTER_INVALID")

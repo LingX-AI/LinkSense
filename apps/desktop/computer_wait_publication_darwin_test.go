@@ -26,7 +26,7 @@ type waitPublicationHarness struct {
 // the fixture holder on the real host, and opens one synthetic socket view with
 // a controllable write. Control transitions still run through the real gate and
 // controller; no driver, AX, GUI or real socket write is used.
-func newWaitPublicationHarness(t *testing.T, executor *controlTestExecutor) *waitPublicationHarness {
+func newWaitPublicationHarness(t *testing.T, executor computerProductExecutor) *waitPublicationHarness {
 	t.Helper()
 	platform := &controlTestPlatform{
 		eligible: true,

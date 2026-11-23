@@ -27,6 +27,7 @@ import {
   authorizeLocalComputerAction,
   verifyLocalComputerDispatch,
 } from "../../src/modules/local-computer/authorization.js";
+import type { DesktopComputerReadPublication } from "../../src/modules/desktop-devices/computer-admission.js";
 import { LocalComputerGuiOccupancy, localComputerGuiOccupancyKey } from "../../src/modules/local-computer/occupancy.js";
 import { LocalComputerService } from "../../src/modules/local-computer/service.js";
 import {
@@ -1443,6 +1444,71 @@ try {
   assert.equal(await redis.client.exists(localComputerGuiOccupancyKey(device.id)), 0);
   assert.equal((await store.scopesForTurn(older.turn.id)).length, 0);
   assert.equal((await store.scopesForTurn(newer.turn.id)).length, 0);
+
+  // The positive status candidate is still provisional until the original act
+  // authority and exact selection are rechecked under the dispatch lock. An
+  // act-only revoke that wins that wait leaves the observe/diagnostic path
+  // usable but never publishes the positive boolean.
+  const statusPositive = await runTurn();
+  await coordinator.connect(device.id, replacementConnection);
+  let statusPublication: DesktopComputerReadPublication | undefined;
+  let statusCommands = 0;
+  const statusControl = new DesktopComputerControl({
+    ...hostOptions,
+    transport: {
+      connection: async deviceId => deviceId === device.id
+        ? { deviceId, connectionId: replacementConnection, gatewayId: randomUUID() } : null,
+      send: async (_binding, command) => {
+        if (command.operation !== "computer.execute" || command.body.request.kind !== "status") {
+          throw new Error("unexpected status command");
+        }
+        statusCommands += 1;
+        return desktopExecutionResultSchema.parse({
+          type: "command.result", id: command.id, operation: "computer.execute", ok: true,
+          result: {
+            kind: "status",
+            result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+          },
+        });
+      },
+    },
+    authorize: input => authorizeLocalComputerAction(db!, { leases, connections: coordinator }, input),
+    verifyDispatch: (input, finalize) => verifyLocalComputerDispatch(db!, input, undefined, finalize),
+  });
+  const statusRequest = desktopToolRequestSchema.parse({
+    type: "tool.request", id: randomUUID(),
+    conversation_id: statusPositive.scope.conversationId,
+    runtime_generation: statusPositive.scope.runtimeGeneration,
+    turn_id: statusPositive.scope.turnId,
+    expires_at: new Date(Date.now() + 25_000).toISOString(),
+    run_token: statusPositive.runToken,
+    operation: "computer.execute",
+    body: { kind: "status" },
+  });
+  if (statusRequest.operation !== "computer.execute") throw new Error("unexpected tool operation");
+  const statusCandidate = await statusControl.execute({
+    scope: statusPositive.scope, request: statusRequest, signal: new AbortController().signal,
+    computerStatus: true,
+  }, publication => { statusPublication = publication; });
+  assert.equal(statusCandidate.kind, "status");
+  if (statusCandidate.kind !== "status") throw new Error("status candidate missing");
+  assert.equal(statusCandidate.result.active_grant, true);
+  assert.equal(statusCommands, 1);
+  assert.ok(statusPublication, "positive status captured its publication continuation");
+  const revokedAct = await actGrant(statusPositive.selection);
+  await service.changePermission(actor, statusPositive.scope.conversationId, {
+    action: "revoke", session_id: statusPositive.selection.sessionId, grant_id: revokedAct.id,
+  });
+  let positiveSends = 0;
+  assert.equal(await statusPublication.publish(() => { positiveSends += 1; return true; }), false);
+  assert.equal(positiveSends, 0);
+  // The original diagnostic authority is a different capability and remains
+  // usable; the act-only revoke is never surfaced as a status error.
+  await assert.doesNotReject(authorizeLocalComputerAction(db, { leases, connections: coordinator }, {
+    scope: statusPositive.scope, capability: "computer.observe", bundleId, runToken: statusPositive.runToken,
+    requestKind: "status",
+  }));
+  await otherReplica.revokeScope(statusPositive.scope);
 
   // Account epoch changes invalidate the locked authority.
   await db.user.update({ where: { id: other.id }, data: { authValidAfter: new Date(other.authValidAfter.getTime() + 1_000) } });

@@ -96,6 +96,11 @@ const (
 	desktopToolVersion          = 1
 	desktopToolHeader           = "X-LinkSense-Desktop-Tools"
 	desktopToolOperationsHeader = "X-LinkSense-Desktop-Tool-Operations"
+	// desktopComputerStatusHeader negotiates the additive positive status
+	// attestation on the exact API/native link. It is not a tool operation and
+	// never enters the runtime link.open list.
+	desktopComputerStatusHeader  = "X-LinkSense-Desktop-Computer-Status"
+	desktopComputerStatusVersion = 1
 	// desktopComputerWaitOperation is an additive negotiation marker for the
 	// read-only wait kind inside computer.execute. It is not a second wire
 	// operation: an old server ignores the unknown offered string and an old
@@ -309,6 +314,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		}
 	}
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
+	offerComputerStatus := offerExecution && connection.computer != nil
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
 		if runtime.GOOS == "darwin" {
@@ -318,8 +324,10 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
 		if connection.computer != nil {
 			// Only the installed Mac product host offers the read-only wait,
-			// and it rides the existing computer.execute operation.
+			// and it rides the existing computer.execute operation. The status
+			// attestation is a separate header, never a tool operation.
 			operations += "," + m1bComputerOperation + "," + desktopComputerWaitOperation
+			headers.Set(desktopComputerStatusHeader, strconv.Itoa(desktopComputerStatusVersion))
 		}
 		headers.Set(desktopToolOperationsHeader, operations)
 	}
@@ -359,6 +367,14 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
 	if ready.ExecutionVersion != nil && !offerExecution {
+		return true, "DESKTOP_PROTOCOL_ERROR"
+	}
+	// The status marker is accepted only as the identical echo of this exact
+	// socket's offer, and only when the same ready frame negotiated
+	// computer.execute. An unoffered marker is a protocol error; a missing echo
+	// keeps the legacy status exchange.
+	if ready.ComputerStatusVersion != nil && (!offerComputerStatus ||
+		!hasM1BComputerOperation(ready.ToolOperations)) {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
 	if !connection.authorized() {
@@ -421,6 +437,9 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	// release a newer one.
 	computer := &m1bComputerLink{
 		connection: connection, socket: socket, linkID: ready.ConnectionID, ctx: socketContext,
+		computerStatus: offerComputerStatus && ready.ComputerStatusVersion != nil &&
+			*ready.ComputerStatusVersion == desktopComputerStatusVersion &&
+			hasM1BComputerOperation(ready.ToolOperations),
 		live: func() bool {
 			return link != nil && runtimeLinkLive(link) && (link.current == nil || link.current()) &&
 				connection.runtime != nil && connection.runtime.ready.Load()
@@ -556,15 +575,16 @@ func isDesktopExecutionInput(data []byte) bool {
 }
 
 type deviceReady struct {
-	Type                string   `json:"type"`
-	DeviceID            string   `json:"device_id"`
-	ConnectionID        string   `json:"connection_id"`
-	ProtocolVersion     int      `json:"protocol_version"`
-	HeartbeatIntervalMS int      `json:"heartbeat_interval_ms"`
-	ExecutionVersion    *int     `json:"execution_protocol_version,omitempty"`
-	AttachmentVersion   *int     `json:"attachment_protocol_version,omitempty"`
-	ToolVersion         *int     `json:"tool_protocol_version,omitempty"`
-	ToolOperations      []string `json:"tool_operations,omitempty"`
+	Type                  string   `json:"type"`
+	DeviceID              string   `json:"device_id"`
+	ConnectionID          string   `json:"connection_id"`
+	ProtocolVersion       int      `json:"protocol_version"`
+	HeartbeatIntervalMS   int      `json:"heartbeat_interval_ms"`
+	ExecutionVersion      *int     `json:"execution_protocol_version,omitempty"`
+	AttachmentVersion     *int     `json:"attachment_protocol_version,omitempty"`
+	ToolVersion           *int     `json:"tool_protocol_version,omitempty"`
+	ToolOperations        []string `json:"tool_operations,omitempty"`
+	ComputerStatusVersion *int     `json:"computer_status_version,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -580,6 +600,8 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) ||
 		(ready.AttachmentVersion != nil && (ready.ExecutionVersion == nil || *ready.AttachmentVersion != desktopAttachmentVersion)) ||
 		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) ||
+		(ready.ComputerStatusVersion != nil && (*ready.ComputerStatusVersion != desktopComputerStatusVersion ||
+			ready.ExecutionVersion == nil || ready.ToolVersion == nil)) ||
 		(len(ready.ToolOperations) > 0 && ready.ToolVersion == nil) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}

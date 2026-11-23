@@ -60,6 +60,8 @@ type fixtureComputerExecutor struct {
 	waitStarted      chan m1bComputerWait
 	waitCanceled     chan struct{}
 	waitCancelOnce   sync.Once
+	statusHold       chan struct{}
+	statusStarted    chan struct{}
 	calls            int
 	actCalls         int
 	waitCalls        int
@@ -84,12 +86,13 @@ func newFixtureComputerExecutor(target m1bComputerSelection) *fixtureComputerExe
 				{Ref: "e2", Role: "AXTextField", Name: &name},
 			},
 		},
-		actResult:    m1bComputerActResult{OK: true, Effect: "done", WaitedMS: 1},
-		waitResult:   m1bComputerWaitResult{Result: computerWaitMet, WaitedMS: 1},
-		started:      make(chan string, 16),
-		canceled:     make(chan struct{}),
-		waitStarted:  make(chan m1bComputerWait, 16),
-		waitCanceled: make(chan struct{}),
+		actResult:     m1bComputerActResult{OK: true, Effect: "done", WaitedMS: 1},
+		waitResult:    m1bComputerWaitResult{Result: computerWaitMet, WaitedMS: 1},
+		started:       make(chan string, 16),
+		canceled:      make(chan struct{}),
+		waitStarted:   make(chan m1bComputerWait, 16),
+		waitCanceled:  make(chan struct{}),
+		statusStarted: make(chan struct{}, 16),
 	}
 }
 
@@ -131,6 +134,12 @@ func (f *fixtureComputerExecutor) holdNextWait(hold chan struct{}) {
 	f.mu.Lock()
 	f.waitHold = hold
 	f.waitCancelWait = nil
+	f.mu.Unlock()
+}
+
+func (f *fixtureComputerExecutor) holdNextStatus(hold chan struct{}) {
+	f.mu.Lock()
+	f.statusHold = hold
 	f.mu.Unlock()
 }
 
@@ -189,12 +198,19 @@ func (f *fixtureComputerExecutor) actDeadline() time.Time {
 
 func (f *fixtureComputerExecutor) status(ctx context.Context, selection m1bComputerSelection) m1bComputerResult {
 	f.record()
+	select {
+	case f.statusStarted <- struct{}{}:
+	default:
+	}
+	f.mu.Lock()
+	hold, result := f.statusHold, f.statusResult
+	f.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
 	if ctx.Err() != nil {
 		return m1bComputerFailure("COMPUTER_TIMEOUT")
 	}
-	f.mu.Lock()
-	result := f.statusResult
-	f.mu.Unlock()
 	return m1bComputerStatusResult(result)
 }
 
@@ -315,12 +331,18 @@ type fixtureComputerSocket struct {
 	close        func()
 }
 
-func sendComputerReady(ctx context.Context, socket *websocket.Conn, deviceID, connectionID string, operations []string) error {
+func sendComputerReady(ctx context.Context, socket *websocket.Conn, deviceID, connectionID string, operations []string, computerStatus bool) error {
 	execution, tool := desktopExecutionVersion, desktopToolVersion
+	var status *int
+	if computerStatus {
+		version := desktopComputerStatusVersion
+		status = &version
+	}
 	data, err := json.Marshal(deviceReady{
 		Type: "ready", DeviceID: deviceID, ConnectionID: connectionID,
 		ProtocolVersion: 1, HeartbeatIntervalMS: 15_000,
 		ExecutionVersion: &execution, ToolVersion: &tool, ToolOperations: operations,
+		ComputerStatusVersion: status,
 	})
 	if err != nil {
 		return err
@@ -331,7 +353,7 @@ func sendComputerReady(ctx context.Context, socket *websocket.Conn, deviceID, co
 // newComputerFixtureServer accepts device sockets and publishes each ready
 // generation. It is a unit-test seam only; the integration harness dials the
 // real gateway instead.
-func newComputerFixtureServer(t *testing.T, credential deviceCredential, operations []string, connectionIDs []string) (*httptest.Server, <-chan *fixtureComputerSocket) {
+func newComputerFixtureServer(t *testing.T, credential deviceCredential, operations []string, connectionIDs []string, statusEcho ...bool) (*httptest.Server, <-chan *fixtureComputerSocket) {
 	t.Helper()
 	sockets := make(chan *fixtureComputerSocket, 4)
 	var accepted atomic.Int64
@@ -360,7 +382,10 @@ func newComputerFixtureServer(t *testing.T, credential deviceCredential, operati
 		if slot < len(connectionIDs) {
 			connectionID = connectionIDs[slot]
 		}
-		if err := sendComputerReady(ctx, socket, credential.DeviceID, connectionID, operations); err != nil {
+		echoStatus := slot < len(statusEcho) && statusEcho[slot] &&
+			strings.Contains(r.Header.Get(desktopToolOperationsHeader), m1bComputerOperation) &&
+			r.Header.Get(desktopComputerStatusHeader) == fmt.Sprint(desktopComputerStatusVersion)
+		if err := sendComputerReady(ctx, socket, credential.DeviceID, connectionID, operations, echoStatus); err != nil {
 			return
 		}
 		fixture := &fixtureComputerSocket{
@@ -1191,7 +1216,7 @@ func TestComputerBlockedWriteNeverPublishesAfterCancelOrDeadline(t *testing.T) {
 			request := m1bComputerRequest{Kind: "act", NativeCallID: "call-1", Act: &m1bComputerAct{
 				Action: "click", ObservationID: "obs-1", Ref: "e1", TimeoutMS: 8000,
 			}}
-			go link.runInput(workCtx, workCancel, begin.work, selection, request)
+			go link.runInput(workCtx, workCancel, begin.work, selection, request, nil)
 			select {
 			case <-started:
 			case <-time.After(2 * time.Second):

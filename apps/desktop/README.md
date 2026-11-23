@@ -657,6 +657,27 @@ the service rechecks the original authorization, the same selection and live
 device connection, cancellation and deadline. It never automatically repeats a
 wait or sends a duplicate success.
 
+#### Positive status attestation
+
+`computer_status` remains read-only and no-argument. Ordinary status uses the
+existing observe authorization, so Plan, observe-only, paused and act-revoked
+callers still receive diagnostics with `active_grant:false`. A positive
+`active_grant` is informational only: it is never an input permit, and standing
+grants and the one-shot `computer.act` approval are unchanged. It can be true
+only when the exact selected generation is current, the original `computer.act`
+authority for the same canonical scope, session, application and selection is
+still valid on the API, and the native product gate proves the same exact grant
+and open input boundary before and after its driver status read. A missing
+proof, pause, renewal, expiry, revoke, cancellation or lost final write yields
+diagnostics with the boolean cleared or a bounded failure, never `true`.
+
+The additive status marker is API/native only; it is not a Runner tool, is not
+implied by `computer.wait`, and is offered and echoed only on the exact socket
+that negotiates `computer.execute`. Old API/new Mac and new API/old Mac keep the
+legacy status exchange with `active_grant:false`. Reading status acquires no
+holder, approval, input or replay. These tests use synthetic fixtures and make
+no hardware, installed-driver, Accessibility/TCC or real-window claim.
+
 #### Selecting one window
 
 The **Computer Use** card appears only for a running local turn whose persisted
@@ -812,11 +833,11 @@ and grant action codes with resource ids and a strict allowlist (operation,
 conversation/turn/device ids, request kind, click or type, duration, stable
 reason code). It is not a transcript of typed or observed text, element values,
 titles, paths, screenshots, clipboard content or native driver output. Each
-observe or wait attempt writes its single attempt row with the exact
-`computer_request=observe` or `computer_request=wait` and
-`delivery=unconfirmed`; that row is written before final delivery, is not a
-published-success claim, and excludes observation ids, refs, timeouts, AX
-contents, screenshots and other contents. The
+status, observe or wait attempt writes its single attempt row with the exact
+`computer_request=status`, `computer_request=observe` or
+`computer_request=wait` and `delivery=unconfirmed`; that row is written before
+final delivery, is not a published-success claim, and excludes observation ids,
+refs, timeouts, AX contents, screenshots and other contents. The
 `computer.control` frames carry opaque selection ids and the picked bundle id;
 they do not carry the window id, PID, process instance, title or path. The
 2026-11-22 product-chain receipt checked events and audit for a private native
@@ -839,15 +860,19 @@ typed or observed text or images stored there.
 #### Client and server negotiation, enable and disable
 
 `computer.execute` is an additive tool operation. `computer.wait` is an
-additive negotiation marker for the read-only wait kind, not a second wire
-operation, and it has no separate user-managed flag. A new Mac offers both on
-the authenticated device socket only when its host can build the signed
-packaged driver. The API accepts the wait kind only when
+additive negotiation marker for the read-only wait kind, and the positive
+status marker is a separate exact-socket offer/echo; neither is a second wire
+operation or a Runner tool, and neither has a separate user-managed flag. A new
+Mac offers them on the authenticated device socket only when its host can build
+the signed packaged driver. The API accepts the wait kind only when
 `LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED` is on and this exact socket generation
-offered both markers. An immediate pre-wait Mac or API still negotiates and
-supports `computer.execute` (status/observe/act), but an old/new link does not
-negotiate `computer.wait`; an older API ignores the unknown marker and an older
-Mac never offers it. If either side lacks `computer.execute`, or the switch is
+offered `computer.execute` and `computer.wait` together, and sends exact status
+attestation only when the status marker was echoed identically with
+`computer.execute`. An immediate
+pre-wait Mac or API still negotiates and supports `computer.execute`
+(status/observe/act), but an old/new link does not negotiate the additive
+markers; an older API ignores the unknown markers and an older Mac never offers
+them. If either side lacks `computer.execute`, or the switch is
 off, the new Mac sees no computer operation, reports `computerReady: false`,
 hides the card and does not request Accessibility; existing users keep their
 local and cloud modes, tools and approvals, and this is not an

@@ -8,6 +8,7 @@ import { z, ZodError } from "zod";
 import {
   DESKTOP_APP_VERSION_HEADER,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
+  DESKTOP_COMPUTER_STATUS_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
@@ -20,6 +21,7 @@ import {
   desktopAttachmentProtocolVersion,
   desktopComputerControlResultSchema,
   desktopComputerControlSchema,
+  desktopComputerStatusProtocolVersion,
   desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
@@ -109,7 +111,7 @@ export async function registerDesktopDeviceRoutes(
   });
   const connected = new Map<WebSocket, {
     device: DesktopDeviceRecord; connectionId: string; execution: boolean;
-    tools: readonly DesktopNegotiatedOperation[]; detach?: () => void;
+    tools: readonly DesktopNegotiatedOperation[]; computerStatus: boolean; detach?: () => void;
     ready: boolean; controls: Set<string>; /** Exact id of the one open transition. */
     controlInFlight: string | null;
     /** Exact action and target of the open transition for the one stop takeover. */
@@ -216,6 +218,9 @@ export async function registerDesktopDeviceRoutes(
                     // otherwise unchanged.
                     ? options.computerExecute === true && offered.has(desktopComputerExecuteOperation)
                     : options.knowledgeTools)));
+    const supportsComputerStatus = supportsTools && options.computerExecute === true &&
+      offered?.has(desktopComputerExecuteOperation) === true &&
+      request.headers[DESKTOP_COMPUTER_STATUS_HEADER] === String(desktopComputerStatusProtocolVersion);
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);
@@ -411,6 +416,7 @@ export async function registerDesktopDeviceRoutes(
           const state: NonNullable<ReturnType<typeof connected.get>> = {
             device, connectionId, execution: supportsExecution && device.platform === "darwin",
             tools: device.platform === "darwin" ? tools : [],
+            computerStatus: device.platform === "darwin" && supportsComputerStatus,
             ready: false, controls: new Set(), controlInFlight: null,
             controlKind: null, controlTarget: null, controlTakeover: null, controlSettled: null,
           };
@@ -431,6 +437,7 @@ export async function registerDesktopDeviceRoutes(
             const detach = await execution.attach({
               ownerId: device.ownerId, deviceId: device.id, connectionId,
               attachments: supportsAttachments,
+              computerStatus: supportsComputerStatus,
               toolOperations: state.tools,
               verifyCredential: () => service.hasCurrentCredential(device),
               send: frame => {
@@ -455,6 +462,7 @@ export async function registerDesktopDeviceRoutes(
               tool_protocol_version: desktopToolProtocolVersion,
               ...(offered ? { tool_operations: state.tools } : {}),
             } : {}),
+            ...(state.computerStatus ? { computer_status_version: desktopComputerStatusProtocolVersion } : {}),
           }) : ready));
           readySent = true;
           state.ready = true;

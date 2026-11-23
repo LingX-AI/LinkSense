@@ -12,7 +12,11 @@ import {
   computerWaitResultSchema,
   type ComputerScreenshot,
 } from "./computer-use.js";
-import { desktopExecutionMaxFrameBytes } from "./desktop-execution.js";
+import {
+  computerExecuteInputSchema,
+  desktopComputerExecuteBodySchema,
+  desktopExecutionMaxFrameBytes,
+} from "./desktop-execution.js";
 
 const click = { action: "click", observation_id: "obs-1", ref: "e1" };
 /** Synthetic 2x3 PNG; 74 decoded bytes. */
@@ -74,6 +78,37 @@ describe("local computer tool contracts", () => {
     expect(computerActResultSchema.safeParse({
       ok: false, error: "COMPUTER_STALE_REF", waited_ms: 0,
     }).success).toBe(true);
+  });
+});
+
+describe("native computer status attestation contract", () => {
+  const sessionId = "10000000-0000-4000-8000-000000000001";
+  const selectionId = "10000000-0000-4000-8000-000000000002";
+  const expiresAt = "2030-01-01T00:00:00.000Z";
+  const body = (request: Record<string, unknown>) => ({
+    session_id: sessionId, selection_id: selectionId, holder_id: null, request,
+  });
+
+  it("keeps the model status input free of the native selection expiry", () => {
+    expect(computerExecuteInputSchema.safeParse({ kind: "status" }).success).toBe(true);
+    expect(computerExecuteInputSchema.safeParse({
+      kind: "status", selection_expires_at: expiresAt,
+    }).success).toBe(false);
+  });
+
+  it("permits the exact acknowledged expiry only on the native status command variant", () => {
+    expect(desktopComputerExecuteBodySchema.safeParse(body({
+      kind: "status", selection_expires_at: expiresAt,
+    })).success).toBe(true);
+    expect(desktopComputerExecuteBodySchema.safeParse(body({ kind: "status" })).success).toBe(true);
+    for (const request of [
+      { kind: "observe", selection_expires_at: expiresAt },
+      { kind: "wait", selection_expires_at: expiresAt, input: { observation_id: "obs-1", ref: "@obs-1:e1" } },
+      { kind: "act", selection_expires_at: expiresAt, native_call_id: "call-1", input: click },
+      { kind: "quiesce", selection_expires_at: expiresAt },
+    ]) {
+      expect(desktopComputerExecuteBodySchema.safeParse(body(request)).success).toBe(false);
+    }
   });
 });
 

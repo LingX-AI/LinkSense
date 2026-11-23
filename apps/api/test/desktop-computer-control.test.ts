@@ -6,12 +6,14 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DESKTOP_COMPUTER_STATUS_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   desktopComputerControlResultSchema,
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
+  desktopComputerStatusProtocolVersion,
   desktopExecutionProtocolVersion,
   desktopExecutionResultSchema,
   desktopToolProtocolVersion,
@@ -400,6 +402,7 @@ async function fixture() {
     if (auditGate) await auditGate;
   });
   let authorizeFailure: Error | undefined;
+  let actAuthorizeFailure: Error | undefined;
   let verifyGate: Promise<void> | undefined;
   let verifyFailure: Error | undefined;
   let verifyStartResolvers: Array<() => void> = [];
@@ -408,7 +411,9 @@ async function fixture() {
     capability: "computer.observe" | "computer.act";
     bundleId: string;
   }): Promise<LocalComputerActionAuthorization> => {
-    if (authorizeFailure) throw authorizeFailure;
+    if (authorizeFailure || (input.capability === "computer.act" && actAuthorizeFailure)) {
+      throw authorizeFailure ?? actAuthorizeFailure;
+    }
     const selection = await store.read(input.scope);
     if (!selection) throw new AppError("FORBIDDEN");
     return {
@@ -458,7 +463,9 @@ async function fixture() {
     },
     app.log, encryption,
     async (
-      binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly string[] },
+      binding: DesktopExecutionBinding & {
+        ownerId: string; toolOperations: readonly string[]; computerStatus: boolean;
+      },
       frame: DesktopExecutionCallback,
       signal: AbortSignal,
       readDelivery?: (
@@ -481,6 +488,7 @@ async function fixture() {
         checkPublication: async () => {},
         computerWait: binding.toolOperations.includes("computer.execute") &&
           binding.toolOperations.includes("computer.wait"),
+        computerStatus: binding.computerStatus,
         computerExecute: (input, publishRead) => {
           if (!routeRef.control) throw new AppError("RUNNER_UNAVAILABLE");
           return routeRef.control.execute(input, publishRead);
@@ -516,6 +524,7 @@ async function fixture() {
     nextFinalCheckStarted: () => new Promise<void>(resolve => { store.finalCheckStartResolvers.push(resolve); }),
     setFinalCheckGate: (gate: Promise<void> | undefined) => { store.finalCheckGate = gate; },
     setAuthorizeFailure: (error: Error | undefined) => { authorizeFailure = error; },
+    setActAuthorizeFailure: (error: Error | undefined) => { actAuthorizeFailure = error; },
     setAuditGate: (gate: Promise<void> | undefined) => { auditGate = gate; },
     setVerifyGate: (gate: Promise<void> | undefined) => { verifyGate = gate; },
     setVerifyFailure: (error: Error | undefined) => { verifyFailure = error; },
@@ -536,13 +545,19 @@ function readFrame(socket: WebSocket): Promise<unknown> {
   return once(socket, "message", { signal: AbortSignal.timeout(2_000) }).then(([data]) => JSON.parse(String(data)));
 }
 
-async function connect(app: ReturnType<typeof Fastify>, token: string, offer: string | undefined) {
+async function connect(
+  app: ReturnType<typeof Fastify>, token: string, offer: string | undefined,
+  options: { computerStatus?: boolean } = {},
+) {
   const address = app.server.listening
     ? `http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`
     : await app.listen({ host: "127.0.0.1", port: 0 });
   const socket = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`, {
     headers: {
       [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(desktopExecutionProtocolVersion),
+      ...(options.computerStatus ? {
+        [DESKTOP_COMPUTER_STATUS_HEADER]: String(desktopComputerStatusProtocolVersion),
+      } : {}),
       ...(offer === undefined ? {} : {
         [DESKTOP_TOOL_PROTOCOL_HEADER]: String(desktopToolProtocolVersion),
         [DESKTOP_TOOL_OPERATIONS_HEADER]: offer,
@@ -597,9 +612,10 @@ function commandResult(command: DesktopExecutionCommand, result: unknown) {
 
 async function prepareSocket(
   state: Awaited<ReturnType<typeof fixture>>, offer = "computer.execute",
+  options: { computerStatus?: boolean } = {},
 ) {
   const { device, token } = await paired(state.app);
-  const { socket } = await connect(state.app, token, offer);
+  const { socket, ready } = await connect(state.app, token, offer, options);
   const frames = frameQueue(socket);
   const binding = await state.transport.connection(device.id);
   if (!binding) throw new Error("product socket did not negotiate execution");
@@ -612,7 +628,7 @@ async function prepareSocket(
   };
   state.store.conversations.set(`${conversationId}:${device.id}`, { deviceId: device.id, runtimeGeneration });
   const runToken = await issueRun(state.leases, device.id, binding.connectionId, conversationId, turnId, runtimeGeneration);
-  return { token, socket, frames, binding, scope, runToken, device };
+  return { token, socket, ready, frames, binding, scope, runToken, device };
 }
 
 async function sendCancelAndAwaitApplied(
@@ -718,6 +734,194 @@ describe("M1b product computer control", () => {
         kind: "act", result: { ok: true, effect: "done", waited_ms: 1 },
       })));
       await frames.until(isToolResult);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("publishes a positive status only under the negotiated exact act authority and one send", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, ready } = await prepareSocket(
+        state, "computer.execute", { computerStatus: true },
+      );
+      expect(ready.computer_status_version).toBe(desktopComputerStatusProtocolVersion);
+      await select(state, socket, frames, scope);
+      const selection = state.store.selections.get(desktopComputerSelectionKey(scope));
+      if (!selection) throw new Error("selection missing");
+      const send = vi.spyOn(state.transport, "send");
+
+      socket.send(JSON.stringify(toolRequest("status", scope, runToken)));
+      const command = commandOf(await frames.until(isCommand));
+      expect(command.body).toMatchObject({
+        session_id: selection.sessionId, selection_id: selectionA, holder_id: null,
+        request: {
+          kind: "status",
+          selection_expires_at: new Date(selection.expiresAt).toISOString(),
+        },
+      });
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "status",
+        result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+      })));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true,
+        data: { kind: "status", result: { available: true, active_grant: true } },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result"))
+        .toEqual([]);
+
+      const actCall = state.authorize.mock.calls.findIndex(([input]) => input.capability === "computer.act");
+      expect(actCall).toBeGreaterThanOrEqual(0);
+      const actAuthorization = await state.authorize.mock.results[actCall]!.value;
+      expect(state.verifyDispatch.mock.lastCall?.[0]).toMatchObject({
+        scope, sessionId: selection.sessionId, grantId: actAuthorization.grantId,
+        capability: "computer.act", bundleId, expiresAt: actAuthorization.expiresAt,
+      });
+      expect(state.store.finalCheckCalls).toBe(1);
+      expect(state.store.claimInputCalls).toHaveLength(0);
+      expect(await redis.client.keys("linksense:desktop-native-call:*")).toHaveLength(0);
+      expect(await redis.client.exists(localComputerGuiOccupancyKey(scope.deviceId))).toBe(0);
+      expect(state.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+        action: "desktop_tool_requested", result: "success",
+        metadata: expect.objectContaining({ computer_request: "status" }),
+      }));
+      // The positive publication reuses the transport's single send, not a
+      // second device command.
+      expect(send.mock.calls.filter(([, value]) => value.operation === "computer.execute")).toHaveLength(1);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("keeps legacy, unnegotiated, paused, and act-only status diagnostics false", async () => {
+    for (const variant of ["legacy", "paused", "act-denied"] as const) {
+      const state = await fixture();
+      try {
+        const negotiated = variant !== "legacy";
+        const { socket, frames, scope, runToken, ready } = await prepareSocket(
+          state, "computer.execute", negotiated ? { computerStatus: true } : {},
+        );
+        expect(ready.computer_status_version).toBe(
+          negotiated ? desktopComputerStatusProtocolVersion : undefined,
+        );
+        await select(state, socket, frames, scope);
+        if (variant === "paused") {
+          const selection = state.store.selections.get(desktopComputerSelectionKey(scope));
+          if (!selection) throw new Error("selection missing");
+          selection.state = "paused";
+        }
+        if (variant === "act-denied") state.setActAuthorizeFailure(new AppError("FORBIDDEN"));
+
+        socket.send(JSON.stringify(toolRequest("status", scope, runToken)));
+        const command = commandOf(await frames.until(isCommand));
+        expect(command.body.holder_id).toBeNull();
+        if (variant !== "legacy") expect(command.body.request).toEqual({ kind: "status" });
+        socket.send(JSON.stringify(commandResult(command, {
+          kind: "status",
+          result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+        })));
+        expect(await frames.until(isToolResult)).toMatchObject({
+          ok: true,
+          data: { kind: "status", result: { available: true, active_grant: false } },
+        });
+        expect(state.authorize.mock.calls.some(([input]) => input.capability === "computer.act"))
+          .toBe(variant === "legacy" ? false : variant !== "paused");
+        expect(state.verifyDispatch.mock.calls.some(([input]) => input.capability === "computer.act"))
+          .toBe(false);
+        expect((await frames.settle()).filter(frame => frame.type === "tool.result")).toEqual([]);
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("rejects a model-supplied status selection expiry before any native command", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(
+        state, "computer.execute", { computerStatus: true },
+      );
+      await select(state, socket, frames, scope);
+      const closed = once(socket, "close", { signal: AbortSignal.timeout(2_000) });
+      const request = toolRequest("status", scope, runToken);
+      socket.send(JSON.stringify({
+        ...request,
+        body: { kind: "status", selection_expires_at: new Date(Date.now() + 60_000).toISOString() },
+      }));
+      expect((await closed)[0]).toBe(4400);
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+      expect(state.authorize.mock.calls.some(([input]) => input.capability === "computer.act")).toBe(false);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("withholds positive status when the original act authority is revoked, renewed, or expires before publication", async () => {
+    for (const loss of ["revoke", "renewal", "expiry"] as const) {
+      const state = await fixture();
+      try {
+        const { socket, frames, scope, runToken } = await prepareSocket(
+          state, "computer.execute", { computerStatus: true },
+        );
+        await select(state, socket, frames, scope);
+        let releaseAudit!: () => void;
+        state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+        const auditStarted = state.nextAuditStarted();
+        socket.send(JSON.stringify(toolRequest("status", scope, runToken)));
+        const command = commandOf(await frames.until(isCommand));
+        socket.send(JSON.stringify(commandResult(command, {
+          kind: "status",
+          result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+        })));
+        await auditStarted;
+        const selection = state.store.selections.get(desktopComputerSelectionKey(scope));
+        if (!selection) throw new Error("selection missing");
+        if (loss === "revoke") state.setVerifyFailure(new AppError("FORBIDDEN"));
+        if (loss === "renewal") selection.controlEpoch = randomUUID();
+        if (loss === "expiry") selection.expiresAt = Date.now() - 1;
+        releaseAudit();
+        const result = await frames.until(isToolResult);
+        expect(result).toMatchObject({
+          ok: true, data: { kind: "status", result: { active_grant: false } },
+        });
+        expect(JSON.stringify(result)).not.toContain('"active_grant":true');
+        expect((await frames.settle()).filter(frame => frame.type === "tool.result")).toEqual([]);
+        expect(state.store.claimInputCalls).toHaveLength(0);
+      } finally {
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("suppresses a positive status after a late tool cancel without replaying the command", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(
+        state, "computer.execute", { computerStatus: true },
+      );
+      await select(state, socket, frames, scope);
+      let releaseAudit!: () => void;
+      state.setAuditGate(new Promise<void>(resolve => { releaseAudit = resolve; }));
+      const auditStarted = state.nextAuditStarted();
+      const request = toolRequest("status", scope, runToken);
+      socket.send(JSON.stringify(request));
+      const command = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(command, {
+        kind: "status",
+        result: { available: true, permissions: { accessibility: "granted" }, active_grant: true },
+      })));
+      await auditStarted;
+      await sendCancelAndAwaitApplied(state, socket, {
+        id: request.id, operation: "computer.execute",
+        conversation_id: request.conversation_id, turn_id: request.turn_id,
+        runtime_generation: request.runtime_generation,
+      });
+      releaseAudit();
+      const leftover = await frames.settle(250);
+      expect(leftover.filter(frame => frame.type === "tool.result")).toEqual([]);
+      expect(JSON.stringify(leftover)).not.toContain('"active_grant":true');
+      expect(leftover.filter(frame => frame.type === "command")).toEqual([]);
     } finally {
       await state.cleanup();
     }

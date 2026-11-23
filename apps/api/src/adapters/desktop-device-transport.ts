@@ -70,6 +70,7 @@ type DeviceSocket = {
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
   attachments: boolean;
+  computerStatus: boolean;
   toolOperations: readonly DesktopNegotiatedOperation[];
   tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
   lifetime: AbortController;
@@ -94,17 +95,19 @@ type ExecutionAuthority = (
   barrier?: AdmissionFinalizer,
 ) => Promise<boolean>;
 /**
- * Final send sink for one read-only observe or wait candidate. The callback
- * composes the read result, but only this transport owns the local socket token
- * and the one true send, so the request-local publication continuation is
- * handed back here.
+ * Final send sink for one read-only status, observe, or wait candidate. The
+ * callback composes the read result, but only this transport owns the local
+ * socket token and the one true send, so the request-local publication
+ * continuation is handed back here.
  */
 type ReadDelivery = (
   publication: DesktopComputerReadPublication,
   ack: DesktopExecutionAck,
 ) => Promise<boolean>;
 type ExecutionCallback = (
-  binding: DesktopExecutionBinding & { ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[] },
+  binding: DesktopExecutionBinding & {
+    ownerId: string; toolOperations: readonly DesktopNegotiatedOperation[]; computerStatus: boolean;
+  },
   frame: DesktopExecutionCallback,
   signal: AbortSignal,
   readDelivery?: ReadDelivery,
@@ -157,13 +160,16 @@ export class DesktopDeviceTransport {
   }
 
   async attach(
-    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
+    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime" | "computerStatus"> &
+      Partial<Pick<DeviceSocket, "computerStatus">> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
     const { ownerId, deviceId, connectionId, verifyCredential, send, close, toolOperations, attachments } = socket;
     const binding = { deviceId, connectionId, gatewayId: this.id };
     const connection: DeviceSocket = {
-      ownerId, binding, verifyCredential, send, close, toolOperations, attachments, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
+      ownerId, binding, verifyCredential, send, close, toolOperations, attachments,
+      computerStatus: socket.computerStatus === true,
+      pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
     };
     this.sockets.set(connectionId, connection);
     const detach = () => {
@@ -333,7 +339,7 @@ export class DesktopDeviceTransport {
     let delivered = false;
     const readDelivery: ReadDelivery | undefined = tool ? async (publication, ack) => {
       if (frame.type !== "tool.request" || frame.operation !== "computer.execute" ||
-          (frame.body.kind !== "observe" && frame.body.kind !== "wait")) return false;
+          (frame.body.kind !== "status" && frame.body.kind !== "observe" && frame.body.kind !== "wait")) return false;
       return await publication.publish(() => {
         if (delivered || signal.aborted || socket.tools.get(frame.id) !== tool ||
             this.sockets.get(connectionId) !== socket || Date.now() >= deadline) return false;
@@ -385,7 +391,7 @@ export class DesktopDeviceTransport {
         return;
       }
       const ack = await this.callback(
-        { ...binding, ownerId, toolOperations: socket.toolOperations }, frame, signal, readDelivery,
+        { ...binding, ownerId, toolOperations: socket.toolOperations, computerStatus: socket.computerStatus }, frame, signal, readDelivery,
       );
       if (frame.operation === "attachments.ready" &&
           (!pending || !await this.coordinator.mayDispatch(binding, pending.command.id))) return;
