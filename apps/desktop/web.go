@@ -247,7 +247,11 @@ func validUUID(id string) bool {
 }
 
 func (d *Desktop) openMainWindow() {
-	pageOptions := mygo.PageOptions{DevTools: mygo.DevToolsDisabled}
+	d.openMainWindowInSession(nil)
+}
+
+func (d *Desktop) openMainWindowInSession(session *mygo.Session) {
+	pageOptions := mygo.PageOptions{DevTools: mygo.DevToolsDisabled, Session: session}
 	if runtime.GOOS == "darwin" {
 		// Keep the existing completion feed running after Close to Menu Bar.
 		pageOptions.BackgroundThrottling = mygo.ThrottlingOff

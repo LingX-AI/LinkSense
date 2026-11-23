@@ -856,17 +856,22 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 		journeyRuntime.close()
 	})
 
-	desktop.openMainWindow()
+	// The temporary PathUserData does not isolate WebKit's default store.
+	// Give the page a disposable store before it loads or reads any draft.
+	desktop.openMainWindowInSession(mygo.NewEphemeralSession())
 	win := desktop.mainWindow()
 	defer win.Destroy()
 	page := win.Page()
 	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
-	deviceJourneyForeground(t, page)
-	if _, err := page.Eval(`localStorage.clear(); sessionStorage.clear(); true`); err != nil {
-		t.Fatal(err)
-	}
-	if err := page.LoadURL("/conversations/new"); err != nil {
-		t.Fatal(err)
+	const storageSentinelKey = `"linksense.whitebox.device-journey.unrelated"`
+	if seeded, err := page.Eval(`(() => {
+		const key = ` + storageSentinelKey + `;
+		if (localStorage.getItem(key) !== null || sessionStorage.getItem(key) !== null) return false;
+		localStorage.setItem(key, "keep");
+		sessionStorage.setItem(key, "keep");
+		return true;
+	})()`); err != nil || seeded != true {
+		t.Fatalf("could not seed unrelated sentinels in the fresh test store: seeded=%v err=%v", seeded, err)
 	}
 	whiteboxWait(t, page, `(`+deviceJourneyTargetTriggerJS+`) !== undefined &&
 		document.querySelector('textarea[aria-label="Task composer"]') !== null`)
@@ -1082,4 +1087,8 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 		t.Fatalf("the draft was lost after revocation: %q", prompt)
 	}
 	whiteboxWait(t, page, `(`+deviceJourneyTargetTriggerJS+`)?.textContent.includes("This Mac")`)
+	if preserved, err := page.Eval(`localStorage.getItem(` + storageSentinelKey + `) === "keep" &&
+		sessionStorage.getItem(` + storageSentinelKey + `) === "keep"`); err != nil || preserved != true {
+		t.Fatalf("the journey changed unrelated test storage: preserved=%v err=%v", preserved, err)
+	}
 }
