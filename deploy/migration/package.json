@@ -21,6 +21,7 @@
   "pnpm": {
     "overrides": {
       "deepmerge-ts@<8.0.2": "8.0.2",
+      "@prisma/config@7.8.0>effect": "3.22.1",
       "mysql2@<3.22.0": "3.22.0",
       "source-map-js@<1.2.2": "1.2.2"
     },
