@@ -43,11 +43,14 @@ export function DesktopExecutionTargetPicker({
   value,
   onValueChange,
   availability,
+  cloudAvailable = true,
   disabled = false,
 }: Readonly<{
   value: ConversationExecutionTarget
   onValueChange: (target: ConversationExecutionTarget) => void
   availability: DesktopExecutionDeviceAvailability
+  /** False when the deployment rollout closes the cloud entry point. */
+  cloudAvailable?: boolean
   disabled?: boolean
 }>) {
   const { t } = useTranslation()
@@ -68,18 +71,31 @@ export function DesktopExecutionTargetPicker({
   })
   const TargetIcon = value === "local" ? LaptopIcon : CloudIcon
   const localAvailable = availability.kind === "ready"
+  const cloudDisabled = disabled || !cloudAvailable
   const localDisabled = disabled || !localAvailable
   const availabilityKey = desktopExecutionAvailabilityMessageKey(availability)
+  const cloudDescription = cloudAvailable
+    ? t("desktopExecution.cloudDescription")
+    : t("desktopExecution.cloudTargetUnavailable")
   const localDescription = availabilityKey
     ? t(availabilityKey)
     : t("desktopExecution.localDescription")
-  const localDegraded = value === "local" && !localAvailable
+  const selectedUnavailable =
+    value === "local" ? !localAvailable : !cloudAvailable
+  // The closed trigger carries the localized reason itself, so the state is
+  // discoverable without submitting or opening the picker.
+  const selectedUnavailableDescription = selectedUnavailable
+    ? value === "local"
+      ? localDescription
+      : cloudDescription
+    : undefined
   const showSettings =
     availability.kind === "unavailable" &&
     settingsReasons.has(availability.reason)
 
   const select = (next: string) => {
     if (next !== "cloud" && next !== "local") return
+    if (next === "cloud" && !cloudAvailable) return
     if (next === "local" && !localAvailable) return
     onValueChange(next)
     setOpen(false)
@@ -95,6 +111,7 @@ export function DesktopExecutionTargetPicker({
             size="sm"
             className="composer-control h-7 max-w-40 gap-1.5 px-1.5 font-normal @max-[28rem]/conversation-workspace:max-w-28"
             aria-label={triggerLabel}
+            aria-description={selectedUnavailableDescription}
             disabled={disabled}
           />
         }
@@ -104,7 +121,7 @@ export function DesktopExecutionTargetPicker({
           aria-hidden="true"
         />
         <span className="min-w-0 truncate">{targetLabel}</span>
-        {localDegraded ? (
+        {selectedUnavailable ? (
           <CircleAlertIcon
             className="size-3.5 shrink-0 text-destructive"
             aria-hidden="true"
@@ -147,12 +164,16 @@ export function DesktopExecutionTargetPicker({
         >
           <RadioGroupOption
             htmlFor={`${id}-cloud`}
-            className="w-full items-start gap-2.5 rounded-xl px-3 py-2.5"
+            className={cn(
+              "w-full items-start gap-2.5 rounded-xl px-3 py-2.5",
+              cloudDisabled && "cursor-not-allowed opacity-60"
+            )}
           >
             <RadioGroupItem
               id={`${id}-cloud`}
               value="cloud"
               className="mt-0.5"
+              disabled={cloudDisabled}
               aria-labelledby={cloudLabelId}
               aria-describedby={cloudDescriptionId}
             />
@@ -167,7 +188,7 @@ export function DesktopExecutionTargetPicker({
                 id={cloudDescriptionId}
                 className="text-xs leading-5 text-muted-foreground"
               >
-                {t("desktopExecution.cloudDescription")}
+                {cloudDescription}
               </span>
             </span>
           </RadioGroupOption>

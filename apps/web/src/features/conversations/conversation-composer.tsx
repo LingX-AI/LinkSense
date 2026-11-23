@@ -513,6 +513,11 @@ type ConversationComposerProps = Readonly<{
   compactAvailable?: boolean
   compacting?: boolean
   taskStartDisabled?: boolean
+  /**
+   * Narrow submission-only restriction for a create that cannot reach any run
+   * target. Editing, attachments and the slash application picker stay usable.
+   */
+  submissionBlocked?: boolean
   onGoalModeChange?: (enabled: boolean) => void
   onPlanModeChange?: (enabled: boolean) => void
   onStartNewTask: () => void
@@ -596,6 +601,7 @@ export const ConversationComposer = forwardRef<
     compactAvailable = false,
     compacting = false,
     taskStartDisabled = false,
+    submissionBlocked = false,
     onGoalModeChange,
     onPlanModeChange,
     onStartNewTask,
@@ -1012,6 +1018,7 @@ export const ConversationComposer = forwardRef<
     !hasAttachmentUploadsPending &&
     !interactionBlocked &&
     !taskStartDisabled &&
+    !submissionBlocked &&
     modelReady &&
     !knowledgeBaseSelectionPending
   const canSend = canSendValue(value)
@@ -1024,6 +1031,7 @@ export const ConversationComposer = forwardRef<
     hasAttachmentUploadsPending ||
     interactionBlocked ||
     taskStartDisabled ||
+    submissionBlocked ||
     !modelReady ||
     knowledgeBaseSelectionPending
   const attachmentActionUnavailable =

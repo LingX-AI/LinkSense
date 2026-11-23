@@ -9,6 +9,9 @@ export type BootstrapContextValue = {
   refetch: () => void
 }
 
+/** Single source of truth for the bootstrap query cache entry. */
+export const bootstrapQueryKey = ["system", "bootstrap"] as const
+
 export const BootstrapContext = createContext<BootstrapContextValue | null>(null)
 
 export function useBootstrap() {

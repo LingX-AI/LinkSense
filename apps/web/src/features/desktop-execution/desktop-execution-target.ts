@@ -1,6 +1,7 @@
 import type { ConversationExecutionTarget } from "@linksense/shared"
 
 import type { DesktopDeviceStatus } from "@/adapters/desktop/desktop-device-adapter"
+import type { BootstrapStatus } from "@/api/contracts"
 
 export type DesktopExecutionDeviceAvailability =
   | Readonly<{ kind: "ready"; deviceId: string }>
@@ -13,6 +14,7 @@ export type DesktopExecutionDeviceAvailability =
         | "unpaired"
         | "revoked"
         | "not_ready"
+        | "local_computer_disabled"
         | "status_unavailable"
     }>
 
@@ -23,7 +25,29 @@ export type DesktopExecutionAvailabilityMessageKey =
   | "desktopExecution.deviceUnpaired"
   | "desktopExecution.deviceRevoked"
   | "desktopExecution.deviceNotReady"
+  | "desktopExecution.localComputerUnavailable"
   | "desktopExecution.deviceStatusUnavailable"
+
+/**
+ * Deployment-wide rollout policy discovered through the existing bootstrap
+ * payload. Both fields keep legacy behavior when absent: cloud stays the
+ * default, and local availability is decided by the native device status.
+ */
+export type DesktopExecutionTargetPolicy = Readonly<{
+  /** New local tasks need this rollout flag and an existing ready device. */
+  localComputer: boolean
+  /** Mac new-task cloud entry only; not a server-side cloud kill switch. */
+  cloudTarget: boolean
+}>
+
+export function desktopExecutionTargetPolicy(
+  bootstrap: Pick<BootstrapStatus, "desktop"> | undefined
+): DesktopExecutionTargetPolicy {
+  return {
+    localComputer: bootstrap?.desktop?.local_computer ?? true,
+    cloudTarget: bootstrap?.desktop?.cloud_target ?? true,
+  }
+}
 
 // The device-settings lane owns the section behind this anchor; only Mac
 // clients render it, and local execution is unavailable anywhere else.
@@ -55,6 +79,19 @@ export function desktopExecutionDeviceQueryAvailability(query: {
   return query.isError
     ? { kind: "unavailable", reason: "status_unavailable" }
     : desktopExecutionDeviceAvailability(query.data)
+}
+
+/**
+ * A rollout flag off hides local for new tasks even while the device is ready;
+ * the flag-on path keeps the existing native readiness rules untouched.
+ */
+export function desktopExecutionGatedDeviceAvailability(
+  availability: DesktopExecutionDeviceAvailability,
+  localComputerEnabled: boolean
+): DesktopExecutionDeviceAvailability {
+  return localComputerEnabled
+    ? availability
+    : { kind: "unavailable", reason: "local_computer_disabled" }
 }
 
 export function desktopExecutionLocalDeviceId(
@@ -115,6 +152,7 @@ const availabilityMessages: Record<
   unpaired: "desktopExecution.deviceUnpaired",
   revoked: "desktopExecution.deviceRevoked",
   not_ready: "desktopExecution.deviceNotReady",
+  local_computer_disabled: "desktopExecution.localComputerUnavailable",
   status_unavailable: "desktopExecution.deviceStatusUnavailable",
 }
 

@@ -6,7 +6,9 @@ import {
   desktopExecutionDeviceAvailability,
   desktopExecutionDeviceQueryAvailability,
   desktopExecutionFreshDeviceCheck,
+  desktopExecutionGatedDeviceAvailability,
   desktopExecutionLocalDeviceId,
+  desktopExecutionTargetPolicy,
   shouldOfferDesktopExecutionTarget,
 } from "./desktop-execution-target"
 
@@ -199,5 +201,73 @@ describe("desktop execution availability", () => {
     expect(desktopDeviceSettingsHref).toBe(
       "/settings/general#desktop-devices-heading"
     )
+  })
+
+  describe("desktop execution rollout policy", () => {
+    it("keeps legacy availability when the bootstrap has no policy", () => {
+      expect(desktopExecutionTargetPolicy(undefined)).toEqual({
+        localComputer: true,
+        cloudTarget: true,
+      })
+      expect(desktopExecutionTargetPolicy({})).toEqual({
+        localComputer: true,
+        cloudTarget: true,
+      })
+      expect(desktopExecutionTargetPolicy({ desktop: {} })).toEqual({
+        localComputer: true,
+        cloudTarget: true,
+      })
+    })
+
+    it("applies each explicitly provided rollout flag independently", () => {
+      expect(
+        desktopExecutionTargetPolicy({ desktop: { local_computer: false } })
+      ).toEqual({ localComputer: false, cloudTarget: true })
+      expect(
+        desktopExecutionTargetPolicy({ desktop: { cloud_target: false } })
+      ).toEqual({ localComputer: true, cloudTarget: false })
+      expect(
+        desktopExecutionTargetPolicy({
+          desktop: { local_computer: true, cloud_target: true },
+        })
+      ).toEqual({ localComputer: true, cloudTarget: true })
+      expect(
+        desktopExecutionTargetPolicy({
+          desktop: { local_computer: false, cloud_target: false },
+        })
+      ).toEqual({ localComputer: false, cloudTarget: false })
+    })
+
+    it("closes local for a ready device when the rollout flag is off", () => {
+      const ready = { kind: "ready" as const, deviceId: "device-1" }
+      expect(desktopExecutionGatedDeviceAvailability(ready, false)).toEqual({
+        kind: "unavailable",
+        reason: "local_computer_disabled",
+      })
+      expect(desktopExecutionGatedDeviceAvailability(ready, true)).toEqual(
+        ready
+      )
+    })
+
+    it("keeps the existing device reasons when the rollout flag is on", () => {
+      expect(
+        desktopExecutionGatedDeviceAvailability(
+          { kind: "unavailable", reason: "offline" },
+          true
+        )
+      ).toEqual({ kind: "unavailable", reason: "offline" })
+      expect(
+        desktopExecutionGatedDeviceAvailability(
+          { kind: "unavailable", reason: "offline" },
+          false
+        )
+      ).toEqual({ kind: "unavailable", reason: "local_computer_disabled" })
+      expect(
+        desktopExecutionAvailabilityMessageKey({
+          kind: "unavailable",
+          reason: "local_computer_disabled",
+        })
+      ).toBe("desktopExecution.localComputerUnavailable")
+    })
   })
 })

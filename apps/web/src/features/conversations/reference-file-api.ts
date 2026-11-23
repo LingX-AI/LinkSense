@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { apiRequest } from "@/api/client"
+import { apiRequest, type ApiRequestOptions } from "@/api/client"
 import { conversationFileSchema } from "@/api/contracts"
 
 const referenceableFileSchema = z.object({
@@ -50,11 +50,20 @@ export function getReferenceableFiles(input: {
 
 export function referenceConversationFile(
   conversationId: string,
-  sourceFileId: string
+  sourceFileId: string,
+  /**
+   * Optional fresh Mac attempt fence. It keeps the existing 401 refresh retry
+   * inside the login generation that admitted the reference.
+   */
+  attemptFence?: Pick<
+    ApiRequestOptions<typeof conversationFileSchema>,
+    "beforeAttempt" | "loginSessionBoundary"
+  >
 ): Promise<z.infer<typeof conversationFileSchema>> {
   return apiRequest(`/conversations/${conversationId}/attachments/references`, {
     method: "POST",
     body: { source_file_id: sourceFileId },
     schema: conversationFileSchema,
+    ...attemptFence,
   })
 }

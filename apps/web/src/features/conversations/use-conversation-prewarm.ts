@@ -32,7 +32,10 @@ type PrewarmScope = {
   enqueued: { mode: ConversationCollaborationMode; at: number } | null
 }
 
-async function prewarm(scope: PrewarmScope): Promise<void> {
+async function prewarm(
+  scope: PrewarmScope,
+  guard?: () => void
+): Promise<void> {
   if (
     !scope.active ||
     !scope.enabled ||
@@ -50,6 +53,21 @@ async function prewarm(scope: PrewarmScope): Promise<void> {
   const mode = scope.mode
   const targetId = scope.conversationId ?? scope.reservationId
   scope.inFlight = true
+  const beforeAttempt = guard
+    ? () => {
+        // The retry after an authenticated refresh is a new physical attempt.
+        // The user can switch the target, leave the page, or claim the
+        // reservation while that refresh awaits, so re-read the live scope
+        // instead of relying on the entry check.
+        if (!scope.active || !scope.enabled || scope.claimed) {
+          throw new ApiError({
+            status: 409,
+            errorCode: "PREWARM_SCOPE_INACTIVE",
+          })
+        }
+        guard()
+      }
+    : undefined
   let reservationExpired = false
   try {
     const receipt = await apiRequest("/conversations/prewarm", {
@@ -62,6 +80,7 @@ async function prewarm(scope: PrewarmScope): Promise<void> {
           : {}),
       },
       schema: receiptSchema,
+      ...(beforeAttempt ? { beforeAttempt } : {}),
     })
     if (!scope.active || scope.claimed) return
     if (!scope.conversationId) scope.reservationId = receipt.conversation_id
@@ -89,7 +108,7 @@ async function prewarm(scope: PrewarmScope): Promise<void> {
       !scope.claimed &&
       (scope.mode !== mode || reservationExpired)
     ) {
-      await prewarm(scope)
+      await prewarm(scope, guard)
     }
   }
 }
@@ -102,6 +121,12 @@ export function useConversationPrewarm(input: {
   projectId?: string | null
   configurationKey?: string
   enabled?: boolean
+  /**
+   * Synchronous eligibility check for callers that gate prewarm on policy.
+   * Throwing (for example when a rollout closes the cloud entry) stops the
+   * attempt before any HTTP request is issued.
+   */
+  guard?: () => void
 }): { claim: () => string | null; reset: () => void } {
   const {
     ownerId,
@@ -111,8 +136,14 @@ export function useConversationPrewarm(input: {
     projectId,
     configurationKey,
     enabled = true,
+    guard,
   } = input
   const scopeRef = useRef<PrewarmScope | null>(null)
+  const guardRef = useRef(guard)
+  // Keep the latest caller guard without re-running the prewarm scope effect.
+  useLayoutEffect(() => {
+    guardRef.current = guard
+  })
   const [resetVersion, increaseResetVersion] = useReducer(
     (value: number) => value + 1,
     0
@@ -155,18 +186,18 @@ export function useConversationPrewarm(input: {
   useEffect(() => {
     const scope = scopeRef.current
     if (!scope?.active || !scope.enabled) return
-    void prewarm(scope)
+    void prewarm(scope, guardRef.current)
     const recordActivity = () => {
       scope.lastActivityAt = Date.now()
     }
     const refreshVisible = () => {
       if (document.visibilityState === "hidden") return
       recordActivity()
-      void prewarm(scope)
+      void prewarm(scope, guardRef.current)
     }
     const timer = window.setInterval(() => {
       if (Date.now() - scope.lastActivityAt < activityWindowMs)
-        void prewarm(scope)
+        void prewarm(scope, guardRef.current)
     }, renewalIntervalMs)
     document.addEventListener("visibilitychange", refreshVisible)
     document.addEventListener("keydown", recordActivity)

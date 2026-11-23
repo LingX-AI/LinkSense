@@ -5,6 +5,10 @@ import {
   type ConversationEventHandlers,
 } from "@/api/sse"
 import type { ConversationEvent } from "@/api/contracts"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+} from "@/api/session"
 import { isStreamOnlyNativeEvent } from "@/features/conversations/conversation-live-events"
 import { recordFirstTextReceived } from "./response-latency"
 
@@ -41,6 +45,9 @@ export function useConversationEvents(
 
   useEffect(() => {
     if (!conversationId) return
+    const loginSessionBoundary = getLoginSessionBoundary()
+    const isPinnedLoginCurrent = () =>
+      isLoginSessionCurrent(loginSessionBoundary)
     let active = true
     let connectionGeneration = 0
     let disconnect: (() => void) | null = null
@@ -58,7 +65,9 @@ export function useConversationEvents(
       commitCursor?: () => void
     }> = []
     const isActiveConversation = () =>
-      active && readActiveConversationId() === conversationId
+      active &&
+      isPinnedLoginCurrent() &&
+      readActiveConversationId() === conversationId
     const clearWarningTimer = () => {
       if (warningTimer === null) return
       window.clearTimeout(warningTimer)
@@ -167,7 +176,12 @@ export function useConversationEvents(
       }, conversationReconnectingWarningDelayMs)
     }
     const connect = () => {
-      if (disconnect || document.visibilityState === "hidden") return
+      if (
+        !isPinnedLoginCurrent() ||
+        disconnect ||
+        document.visibilityState === "hidden"
+      )
+        return
       const generation = ++connectionGeneration
       disconnect = connectConversationEvents(
         conversationId,
@@ -190,6 +204,10 @@ export function useConversationEvents(
       disconnect = null
     }
     const handleVisibilityChange = () => {
+      if (!isPinnedLoginCurrent()) {
+        releaseConnection()
+        return
+      }
       if (document.visibilityState !== "hidden") {
         connect()
         return

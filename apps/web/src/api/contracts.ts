@@ -338,6 +338,14 @@ export const bootstrapSchema = z
     password_email: integrationStatusSchema.optional(),
     registration: sharedRegistrationAvailabilitySchema.optional(),
     knowledge: z.object({ enabled: z.boolean() }).optional(),
+    // Additive desktop rollout policy. Older deployments omit it entirely and
+    // keep the legacy cloud default plus native local-device availability.
+    desktop: z
+      .object({
+        local_computer: z.boolean().optional(),
+        cloud_target: z.boolean().optional(),
+      })
+      .optional(),
     smtp: integrationStatusSchema.optional(),
     auth: z
       .object({

@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query"
 
 import { apiRequest, ApiError } from "@/api/client"
 import { bootstrapSchema } from "@/api/contracts"
-import { BootstrapContext } from "@/app/bootstrap-state"
+import { BootstrapContext, bootstrapQueryKey } from "@/app/bootstrap-state"
 import { applyProductMetadata } from "@/app/product-branding"
 
 export function BootstrapProvider({ children }: { children: ReactNode }) {
   const query = useQuery({
-    queryKey: ["system", "bootstrap"],
+    queryKey: bootstrapQueryKey,
     queryFn: ({ signal }) =>
       apiRequest("/system/bootstrap", {
         schema: bootstrapSchema,

@@ -22,7 +22,9 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
-import { setAccessToken } from "@/api/session"
+import * as desktopAdapter from "@/adapters/desktop/desktop-adapter"
+import { beginLoginSession, setAccessToken } from "@/api/session"
+import { notify } from "@/components/feedback/notification"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
 import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
@@ -524,6 +526,146 @@ describe("archived conversation pagination", () => {
     expect(screen.getByRole("button", { name: "上一页" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled()
   })
+})
+
+describe("conversation file downloads", () => {
+  afterEach(() => {
+    cleanup()
+    setAccessToken(null)
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    { entry: "artifact", bodyResult: "completed" },
+    { entry: "artifact", bodyResult: "failed" },
+    { entry: "source preview", bodyResult: "completed" },
+    { entry: "source preview", bodyResult: "failed" },
+  ] as const)(
+    "keeps a $bodyResult $entry download from the previous Mac login silent and reports a current failure on retry",
+    async ({ entry, bodyResult }) => {
+      vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(true)
+      setAccessToken("test-account-a")
+      await i18n.changeLanguage("zh-CN")
+      const conversationId = "conversation-download"
+      const route = `/conversations/${conversationId}`
+      const artifact = {
+        id: "artifact-1",
+        filename: "report.mp3",
+        mime_type: "audio/mpeg",
+        kind: "artifact",
+        downloadable: true,
+      }
+      const artifactPath = `/api/v1${route}/files/${artifact.id}`
+      const pendingBody = createDeferred<Blob>()
+      const response = new Response()
+      const readBody = vi
+        .spyOn(response, "blob")
+        .mockReturnValue(pendingBody.promise)
+      const requestFile = vi
+        .fn<() => Promise<Response>>()
+        .mockResolvedValueOnce(response)
+        .mockResolvedValueOnce(errorEnvelope(404, "ARTIFACT_NOT_FOUND"))
+      const createObjectURL = vi.fn(() => "blob:conversation-download")
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL = createObjectURL
+          static revokeObjectURL = vi.fn()
+        }
+      )
+      const notifyError = vi.spyOn(notify, "error").mockReturnValue("error")
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path === `${artifactPath}/download`) return requestFile()
+          if (path === `${artifactPath}/preview`) {
+            return envelope({
+              url: "https://files.example.test/report.mp3",
+              expires_at: "2999-01-01T00:00:00.000Z",
+            })
+          }
+          if (path === `/api/v1${route}`) {
+            return envelope({
+              id: conversationId,
+              project_id: null,
+              title: "报告任务",
+              updated_at: "2026-09-08T00:00:00.000Z",
+              execution_status: "idle",
+              messages: [
+                {
+                  id: "message-1",
+                  role: "assistant",
+                  content: "报告已生成。",
+                  artifacts: [artifact],
+                },
+              ],
+            })
+          }
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events")) {
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          }
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })
+      render(
+        <MemoryRouter initialEntries={[route]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      const interaction = userEvent.setup()
+      const reply = await screen.findByRole("article", { name: "助手回复" })
+      let download: HTMLElement
+      if (entry === "source preview") {
+        await interaction.click(
+          within(reply).getByRole("button", { name: "预览文件 report.mp3" })
+        )
+        download = await screen.findByRole("button", {
+          name: "下载文档 report.mp3",
+        })
+      } else {
+        download = within(reply).getByRole("button", { name: "下载 report.mp3" })
+      }
+      await interaction.click(download)
+      await waitFor(() => expect(readBody).toHaveBeenCalledOnce())
+
+      await act(async () => {
+        beginLoginSession()
+        setAccessToken("test-account-b")
+        if (bodyResult === "failed") {
+          pendingBody.reject(new Error("File body read failed"))
+        } else {
+          pendingBody.resolve(new Blob(["old file"]))
+        }
+      })
+      expect(createObjectURL).not.toHaveBeenCalled()
+      expect(notifyError).not.toHaveBeenCalled()
+
+      await interaction.click(download)
+      await waitFor(() =>
+        expect(notifyError).toHaveBeenCalledExactlyOnceWith("未找到该产物。", {
+          id: "conversation-file-download-error",
+        })
+      )
+      expect(requestFile).toHaveBeenCalledTimes(2)
+      expect(createObjectURL).not.toHaveBeenCalled()
+    }
+  )
 })
 
 describe("conversation knowledge base snapshots", () => {

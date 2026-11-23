@@ -318,6 +318,30 @@ describe("API response contracts", () => {
     ).toBe(false)
   })
 
+  it("retains the additive desktop rollout policy in bootstrap", () => {
+    expect(
+      bootstrapSchema.parse({
+        desktop: { local_computer: false, cloud_target: true },
+      }).desktop
+    ).toEqual({ local_computer: false, cloud_target: true })
+  })
+
+  it("accepts older bootstrap responses without the desktop rollout policy", () => {
+    expect(
+      bootstrapSchema.parse({ initialized: true }).desktop
+    ).toBeUndefined()
+  })
+
+  it("rejects non-boolean desktop rollout fields", () => {
+    for (const desktop of [
+      { local_computer: "false" },
+      { cloud_target: 0 },
+      { local_computer: true, cloud_target: "true" },
+    ]) {
+      expect(bootstrapSchema.safeParse({ desktop }).success).toBe(false)
+    }
+  })
+
   it("normalizes current user token usage summaries", () => {
     const result = userSchema.parse({
       id: "user-1",

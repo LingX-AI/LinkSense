@@ -28,6 +28,7 @@ function renderPicker(
   props: Partial<{
     value: "cloud" | "local"
     availability: DesktopExecutionDeviceAvailability
+    cloudAvailable: boolean
     disabled: boolean
     onValueChange: (target: "cloud" | "local") => void
   }> = {}
@@ -39,6 +40,7 @@ function renderPicker(
         value={props.value ?? "cloud"}
         onValueChange={onValueChange}
         availability={props.availability ?? ready}
+        cloudAvailable={props.cloudAvailable}
         disabled={props.disabled}
       />
     </MemoryRouter>
@@ -180,6 +182,100 @@ describe("DesktopExecutionTargetPicker", () => {
     const { onValueChange } = renderPicker({ disabled: true })
     const trigger = screen.getByRole("button", { name: /运行位置/u })
     expect(trigger).toBeDisabled()
+    expect(onValueChange).not.toHaveBeenCalled()
+  })
+
+  it("closes cloud with a rollout reason but keeps local selectable", async () => {
+    const { onValueChange } = renderPicker({ cloudAvailable: false })
+    const trigger = screen.getByRole("button", { name: /运行位置/u })
+    expect(trigger).toHaveTextContent("云电脑")
+    expect(trigger.querySelector("svg.text-destructive")).not.toBeNull()
+    expect(trigger).toHaveAttribute(
+      "aria-description",
+      "云电脑当前不可用，暂时无法新建云端任务。"
+    )
+
+    const interaction = await openPicker()
+    const cloud = screen.getByRole("radio", { name: "云电脑" })
+    expect(cloud).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByText("云电脑当前不可用，暂时无法新建云端任务。")
+    ).toBeVisible()
+
+    await interaction.click(cloud)
+    expect(onValueChange).not.toHaveBeenCalled()
+
+    const local = screen.getByRole("radio", { name: "本地电脑" })
+    expect(local).not.toHaveAttribute("aria-disabled", "true")
+    await interaction.click(local)
+    expect(onValueChange).toHaveBeenCalledWith("local")
+  })
+
+  it("skips a disabled cloud radio with the keyboard", async () => {
+    const { onValueChange } = renderPicker({ cloudAvailable: false })
+    const interaction = userEvent.setup()
+    const trigger = screen.getByRole("button", { name: /运行位置/u })
+    trigger.focus()
+    await interaction.keyboard("{Enter}")
+
+    const local = await screen.findByRole("radio", { name: "本地电脑" })
+    local.focus()
+    await interaction.keyboard("{ArrowUp}")
+    await interaction.keyboard("{ArrowDown}")
+    expect(onValueChange).not.toHaveBeenCalled()
+    expect(local).toHaveFocus()
+  })
+
+  it("closes local for a healthy device when the rollout flag is off", async () => {
+    renderPicker({
+      availability: {
+        kind: "unavailable",
+        reason: "local_computer_disabled",
+      },
+    })
+    await openPicker()
+
+    expect(screen.getByRole("radio", { name: "本地电脑" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    expect(
+      screen.getByText(
+        "这台 Mac 的本地任务当前不可用，暂时无法新建本地任务。"
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "管理设备" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("disables both radios when no target is available", async () => {
+    const { onValueChange } = renderPicker({
+      value: "local",
+      availability: {
+        kind: "unavailable",
+        reason: "local_computer_disabled",
+      },
+      cloudAvailable: false,
+    })
+    const trigger = screen.getByRole("button", { name: /运行位置/u })
+    expect(trigger).toHaveTextContent("本地电脑")
+    expect(trigger).toHaveAttribute(
+      "aria-description",
+      "这台 Mac 的本地任务当前不可用，暂时无法新建本地任务。"
+    )
+    const interaction = await openPicker()
+
+    expect(screen.getByRole("radio", { name: "云电脑" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    expect(screen.getByRole("radio", { name: "本地电脑" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    await interaction.click(screen.getByRole("radio", { name: "云电脑" }))
+    await interaction.click(screen.getByRole("radio", { name: "本地电脑" }))
     expect(onValueChange).not.toHaveBeenCalled()
   })
 })

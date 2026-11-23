@@ -77,6 +77,11 @@ import { toast } from "sonner"
 import dayjs from "dayjs"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+  type LoginSessionBoundary,
+} from "@/api/session"
 import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { readDesktopDeviceStatus } from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
@@ -97,6 +102,7 @@ import {
   shouldOfferDesktopExecutionTarget,
 } from "@/features/desktop-execution/desktop-execution-target"
 import { useDesktopExecutionDevice } from "@/features/desktop-execution/use-desktop-execution-device"
+import { useDesktopExecutionTargetPolicy } from "@/features/desktop-execution/use-desktop-execution-target-policy"
 import { withRequiredConversationCapabilities } from "@/features/conversations/conversation-capability-selection"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
@@ -234,6 +240,7 @@ import {
   readLocalConversationDraft,
   writeDesktopAttachmentStart,
   writeLocalConversationDraft,
+  type LocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
@@ -468,7 +475,56 @@ type OptimisticTurnStart = Readonly<{
   attachmentConsumption: OptimisticAttachmentConsumption | undefined
   sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
   pendingExecutionConversationId: string | undefined
+  loginSessionBoundary: LoginSessionBoundary | undefined
 }>
+
+type ConversationCreationOrigin = Readonly<{
+  routeEpoch: number
+  executionOwnerId: string | undefined
+  gated: boolean
+  routeConversationId: string | null
+  loginSessionBoundary: LoginSessionBoundary
+}>
+
+type FreshSendPlaceholderSnapshot = Readonly<{
+  optimisticId: string
+  timingKey: string
+  pendingExecution: boolean
+  pendingSubmission: PendingConversationTurnSubmission | null
+  draft: LocalConversationDraft | null
+  draftOwnerId: string | undefined
+}>
+
+function freshSendTimingKey(optimisticId: string) {
+  return `new-send:${optimisticId}`
+}
+
+function localConversationDraftMatches(
+  left: LocalConversationDraft,
+  right: LocalConversationDraft
+) {
+  const sameReferences =
+    (left.taskReferences ?? []).length ===
+      (right.taskReferences ?? []).length &&
+    (left.taskReferences ?? []).every(
+      (reference, index) =>
+        reference.id === right.taskReferences?.[index]?.id &&
+        reference.title === right.taskReferences?.[index]?.title
+    )
+  return (
+    left.input === right.input &&
+    left.capabilityIds.length === right.capabilityIds.length &&
+    left.capabilityIds.every(
+      (capabilityId, index) => capabilityId === right.capabilityIds[index]
+    ) &&
+    left.knowledgeBaseIds.length === right.knowledgeBaseIds.length &&
+    left.knowledgeBaseIds.every(
+      (knowledgeBaseId, index) =>
+        knowledgeBaseId === right.knowledgeBaseIds[index]
+    ) &&
+    sameReferences
+  )
+}
 
 type UserCreditQuotaUsage = NonNullable<
   NonNullable<User["credit_quota"]>["weekly"]
@@ -907,6 +963,20 @@ export function ConversationPage({
     epoch: number
     promise: Promise<string>
   } | null>(null)
+  const sendCreationOriginRef = useRef<ConversationCreationOrigin | null>(null)
+  const freshSendPlaceholderRef = useRef<FreshSendPlaceholderSnapshot | null>(
+    null
+  )
+  const goalCreationOriginRef = useRef<ConversationCreationOrigin | null>(null)
+  const attachmentCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
+  const referenceCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
+  const officeCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
   const sendSubmissionConversationIdRef = useRef<string | null>(null)
   const goalStartSubmissionConversationIdRef = useRef<string | null>(null)
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
@@ -928,6 +998,12 @@ export function ConversationPage({
     }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
+    return () => {
+      // Unmounting (for example, leaving the task page for Settings) must
+      // supersede pending work such as an awaited native readiness read, so
+      // it cannot create a conversation after this page is gone.
+      routeEpochRef.current += 1
+    }
   }, [
     currentRouteConversationId,
     location.key,
@@ -1349,10 +1425,47 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  // Rollout policy comes from the existing bootstrap polling. The gate belongs
+  // to a fresh task in the main Mac window, decided from the route and surface
+  // rather than the transient composer visibility used to render the picker.
+  const desktopExecutionPolicy = useDesktopExecutionTargetPolicy()
+  const desktopExecutionTargetGated =
+    isNew &&
+    isMacDesktopHost() &&
+    !embedded &&
+    !development &&
+    !isApplicationConversation
+  const desktopLocalComputerEnabled =
+    !desktopExecutionTargetGated || desktopExecutionPolicy.localComputer
+  const desktopCloudTargetEnabled =
+    !desktopExecutionTargetGated || desktopExecutionPolicy.cloudTarget
+  const desktopNoTargetAvailable =
+    desktopExecutionTargetGated &&
+    !desktopExecutionPolicy.localComputer &&
+    !desktopExecutionPolicy.cloudTarget
+  // A poll can close the cloud entry after this render, so the background
+  // prewarm writes re-read the current rollout right before each attempt.
+  // Only a rollout-gated fresh Mac task opts in; other prewarm calls keep
+  // their existing flow.
+  const assertPrewarmTargetAllowed = desktopExecutionTargetGated
+    ? () => {
+        if (!desktopExecutionPolicy.readLatest().cloudTarget) {
+          throw new ApiError({
+            status: 409,
+            errorCode: "DESKTOP_EXECUTION_CLOUD_TARGET_DISABLED",
+            messageKey: "desktopExecution.cloudTargetUnavailable",
+          })
+        }
+      }
+    : undefined
   // Only a fresh task can choose local here; an existing local task's route is
   // owned by the backend, so this page does not need to poll device status.
+  // A rollout flag off also stops the native polling it would never use.
   const executionDeviceAvailability = useDesktopExecutionDevice(
-    isMacDesktopHost() && isNew ? user?.id : undefined
+    isMacDesktopHost() && isNew && desktopLocalComputerEnabled
+      ? user?.id
+      : undefined,
+    desktopLocalComputerEnabled
   )
   const canShowSiteDeliveries = Boolean(
     user &&
@@ -1645,11 +1758,14 @@ export function ConversationPage({
       !modelPreferenceMutation.isPending &&
       !modelPreferenceQuery.isPending &&
       // A local draft or local task must never reserve or warm a cloud runner.
+      // A cloud entry closed by rollout must not start a new reservation; an
+      // existing reservation keeps its existing expiry behavior.
       (isNew
-        ? executionTarget === "cloud"
+        ? executionTarget === "cloud" && desktopCloudTargetEnabled
         : conversation
           ? conversation.execution_target !== "local"
           : false),
+    guard: assertPrewarmTargetAllowed,
   })
 
   const startNewTaskFromComposer = useCallback(() => {
@@ -3063,6 +3179,66 @@ export function ConversationPage({
     return () => window.clearTimeout(timer)
   }, [conversation?.id, conversation?.pending_requests, pendingOfficeQuestion])
 
+  // A mutation can be paused offline before its mutationFn runs, and
+  // MutationObserver.setOptions can replace that mutationFn after the route or
+  // account changed. Capture the submission origin before the pause so a
+  // resumed fresh Mac create cannot reuse a new route ID or POST elsewhere.
+  const captureConversationCreationOrigin = (): ConversationCreationOrigin => ({
+    routeEpoch: routeEpochRef.current,
+    executionOwnerId: executionOwnerIdRef.current,
+    gated: desktopExecutionTargetGated,
+    routeConversationId: routeConversationIdRef.current,
+    loginSessionBoundary: getLoginSessionBoundary(),
+  })
+  const isConversationSubmissionContextCurrent = (
+    origin: ConversationCreationOrigin | null | undefined,
+    targetConversationId?: string | null
+  ) =>
+    !origin?.gated ||
+    (isLoginSessionCurrent(origin.loginSessionBoundary) &&
+      executionOwnerIdRef.current === origin.executionOwnerId &&
+      (targetConversationId
+        ? routeConversationIdRef.current === targetConversationId
+        : routeEpochRef.current === origin.routeEpoch))
+  const isConversationCreationOriginCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) =>
+    !origin?.gated ||
+    (isConversationSubmissionContextCurrent(origin) &&
+      routeConversationIdRef.current === origin.routeConversationId)
+  const assertConversationCreationOriginCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => {
+    if (isConversationCreationOriginCurrent(origin)) return
+    throw new ApiError({
+      status: 409,
+      errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+      messageKey: "desktopExecution.deviceChanged",
+    })
+  }
+  const isConversationCreationSessionCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => !origin?.gated || isLoginSessionCurrent(origin.loginSessionBoundary)
+  const assertConversationCreationSessionCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => {
+    if (isConversationCreationSessionCurrent(origin)) return
+    throw new ApiError({
+      status: 409,
+      errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+      messageKey: "desktopExecution.deviceChanged",
+    })
+  }
+  const creationRequestOptions = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) =>
+    origin?.gated
+      ? {
+          beforeAttempt: () => assertConversationCreationSessionCurrent(origin),
+          loginSessionBoundary: origin.loginSessionBoundary,
+        }
+      : {}
+
   const ensureConversation = async ({
     suppressEmptyStateUntilFirstMessage = false,
     initialInput = "",
@@ -3071,6 +3247,8 @@ export function ConversationPage({
     initialTaskReferences = taskReferences,
     initialCollaborationMode = collaborationMode,
     initialLocalDeviceId,
+    creationOrigin,
+    freshSendPlaceholder,
   }: {
     suppressEmptyStateUntilFirstMessage?: boolean
     initialInput?: string
@@ -3079,9 +3257,14 @@ export function ConversationPage({
     initialTaskReferences?: ComposerSubmission["taskReferences"]
     initialCollaborationMode?: ConversationCollaborationMode
     initialLocalDeviceId?: string
+    creationOrigin?: ConversationCreationOrigin | null
+    freshSendPlaceholder?: FreshSendPlaceholderSnapshot | null
   } = {}) => {
+    assertConversationCreationOriginCurrent(creationOrigin)
     if (routeConversationIdRef.current) return routeConversationIdRef.current
-    const routeEpoch = routeEpochRef.current
+    const routeEpoch = creationOrigin?.gated
+      ? creationOrigin.routeEpoch
+      : routeEpochRef.current
     if (ensureConversationPromiseRef.current?.epoch === routeEpoch) {
       return ensureConversationPromiseRef.current.promise
     }
@@ -3096,6 +3279,64 @@ export function ConversationPage({
             executionDeviceAvailability
           )
         : undefined)
+    // A locked submission target wins over a picker change while this create
+    // is prepared. The rollout is read again right before the POST so a policy
+    // change during the awaited native read cannot post to a closed target.
+    const creationTarget: ConversationExecutionTarget =
+      localDeviceId || executionTarget === "local" ? "local" : "cloud"
+    const creationOwnerId = creationOrigin?.gated
+      ? creationOrigin.executionOwnerId
+      : executionOwnerIdRef.current
+    // Capture the placeholder draft before the create network pause. The
+    // active route instance and this snapshot (plus the send's optimistic id
+    // when present) decide whether this receipt may clear it later.
+    const placeholderDraftSnapshot = creationOrigin?.gated
+      ? (freshSendPlaceholder?.draft ??
+        (user && user.id === creationOwnerId
+          ? readLocalConversationDraft(
+              window.localStorage,
+              user.id,
+              newConversationPlaceholderId
+            )
+          : null))
+      : null
+    const assertCreationTargetAllowed = () => {
+      // Re-check a gated submission's captured origin even when the updated
+      // mutation closure no longer renders a fresh Mac task.
+      if (creationOrigin?.gated)
+        assertConversationCreationOriginCurrent(creationOrigin)
+      // Only the rollout-gated Mac task page owns this gate; Web and the other
+      // existing create surfaces keep their current behavior.
+      if (!desktopExecutionTargetGated) return
+      // Never create or retry a create for a page the user left or an account
+      // that changed while this create was prepared.
+      if (
+        routeEpochRef.current !== routeEpoch ||
+        executionOwnerIdRef.current !== creationOwnerId
+      ) {
+        throw new ApiError({
+          status: 409,
+          errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+          messageKey: "desktopExecution.deviceChanged",
+        })
+      }
+      const policy = desktopExecutionPolicy.readLatest()
+      if (creationTarget === "local" && !policy.localComputer) {
+        throw new ApiError({
+          status: 409,
+          errorCode: "DESKTOP_EXECUTION_LOCAL_COMPUTER_DISABLED",
+          messageKey: "desktopExecution.localComputerUnavailable",
+        })
+      }
+      if (creationTarget === "cloud" && !policy.cloudTarget) {
+        throw new ApiError({
+          status: 409,
+          errorCode: "DESKTOP_EXECUTION_CLOUD_TARGET_DISABLED",
+          messageKey: "desktopExecution.cloudTargetUnavailable",
+        })
+      }
+    }
+    assertCreationTargetAllowed()
     if (isNew && executionTarget === "local" && !localDeviceId) {
       throw new ApiError({
         status: 409,
@@ -3103,7 +3344,6 @@ export function ConversationPage({
         messageKey: "desktopExecution.deviceUnavailable",
       })
     }
-    const creationOwnerId = executionOwnerIdRef.current
     const creation = (async () => {
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
@@ -3140,17 +3380,10 @@ export function ConversationPage({
           })
         }
         // Do not create a conversation for a page the user already left or an
-        // account that changed while the native read was in flight.
-        if (
-          routeEpochRef.current !== routeEpoch ||
-          executionOwnerIdRef.current !== creationOwnerId
-        ) {
-          throw new ApiError({
-            status: 409,
-            errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
-            messageKey: "desktopExecution.deviceChanged",
-          })
-        }
+        // account that changed while the native read was in flight, and
+        // re-read the rollout so this create cannot post to a target that
+        // just closed.
+        assertCreationTargetAllowed()
       }
       const prewarmedConversationId = localDeviceId ? null : claimPrewarm()
       const createdConversation = await apiRequest("/conversations", {
@@ -3170,12 +3403,40 @@ export function ConversationPage({
               : {}),
         },
         schema: conversationSchema,
+        // A 401 retry is a new physical POST. Re-check the same route/owner
+        // and rollout conditions immediately before it, including after a
+        // successful token refresh; the guard's rejection keeps the session.
+        beforeAttempt: assertCreationTargetAllowed,
+        ...(creationOrigin?.gated
+          ? { loginSessionBoundary: creationOrigin.loginSessionBoundary }
+          : {}),
       })
-      if (user) {
+      assertConversationCreationSessionCurrent(creationOrigin)
+      const createdConversationId = createdConversation.id
+      // Local draft metadata is scoped to the account whose create was
+      // admitted. An account switch during the POST must not write or clear a
+      // draft that now belongs to another account.
+      const localDraftOwnerId =
+        user &&
+        executionOwnerIdRef.current === creationOwnerId &&
+        user.id === executionOwnerIdRef.current
+          ? user.id
+          : undefined
+      const pendingPlaceholderSubmission = freshSendPlaceholder
+        ? getPendingConversationTurnSubmission(
+            queryClient,
+            newConversationPlaceholderId
+          )
+        : null
+      const ownsPlaceholder =
+        !freshSendPlaceholder ||
+        pendingPlaceholderSubmission?.optimisticId ===
+          freshSendPlaceholder.optimisticId
+      if (localDraftOwnerId) {
         writeLocalConversationDraft(
           window.localStorage,
-          user.id,
-          createdConversation.id,
+          localDraftOwnerId,
+          createdConversationId,
           {
             input: initialInput,
             capabilityIds: initialCapabilityIds,
@@ -3183,37 +3444,123 @@ export function ConversationPage({
             taskReferences: initialTaskReferences,
           }
         )
-        clearLocalConversationDraft(window.localStorage, user.id, "new")
+        const activeRouteOwnsPlaceholder =
+          !creationOrigin?.gated ||
+          (routeEpochRef.current === creationOrigin.routeEpoch &&
+            routeConversationIdRef.current ===
+              creationOrigin.routeConversationId)
+        const placeholderDraft = readLocalConversationDraft(
+          window.localStorage,
+          localDraftOwnerId,
+          newConversationPlaceholderId
+        )
+        const capturedPlaceholderDraft =
+          freshSendPlaceholder?.draft ?? placeholderDraftSnapshot
+        // Never clear a draft that belongs to a newer route instance or to a
+        // different send. Content equality is only a consistency check.
+        const clearsPlaceholderDraft = freshSendPlaceholder
+          ? freshSendPlaceholder.draft !== null &&
+            freshSendPlaceholder.draftOwnerId === localDraftOwnerId &&
+            activeRouteOwnsPlaceholder &&
+            ownsPlaceholder &&
+            localConversationDraftMatches(
+              placeholderDraft,
+              freshSendPlaceholder.draft
+            )
+          : !creationOrigin?.gated ||
+            (capturedPlaceholderDraft !== null &&
+              activeRouteOwnsPlaceholder &&
+              localConversationDraftMatches(
+                placeholderDraft,
+                capturedPlaceholderDraft
+              ))
+        if (clearsPlaceholderDraft)
+          clearLocalConversationDraft(
+            window.localStorage,
+            localDraftOwnerId,
+            newConversationPlaceholderId
+          )
       }
       queryClient.setQueryData(
-        ["conversation", createdConversation.id],
+        ["conversation", createdConversationId],
         createdConversation
       )
-      responseLatency.move(newConversationPlaceholderId, createdConversation.id)
+      if (freshSendPlaceholder) {
+        // The fresh send moved its timing to a submission-private key before
+        // any other page could begin the shared placeholder timing again.
+        responseLatency.move(
+          freshSendPlaceholder.timingKey,
+          createdConversationId
+        )
+      } else {
+        responseLatency.move(
+          newConversationPlaceholderId,
+          createdConversationId
+        )
+      }
       if (suppressEmptyStateUntilFirstMessage) {
         const runningConversation: Conversation = {
           ...createdConversation,
           execution_status: "running",
         }
-        movePendingConversationExecution(
-          queryClient,
-          newConversationPlaceholderId,
-          createdConversation.id
-        )
-        movePendingConversationTurnSubmission(
-          queryClient,
-          newConversationPlaceholderId,
-          createdConversation.id
-        )
-        queryClient.setQueryData<
-          InfiniteData<Paginated<Conversation>, string | undefined>
-        >(["conversations", "sidebar"], (cached) =>
-          replaceSidebarConversation(
-            cached,
-            newConversationPlaceholderId,
-            runningConversation
+        if (!freshSendPlaceholder) {
+          // A Goal or another fresh creator has no send placeholder of its
+          // own. Never consume a send's pending marker or sidebar row.
+          queryClient.setQueryData<
+            InfiniteData<Paginated<Conversation>, string | undefined>
+          >(["conversations", "sidebar"], (cached) =>
+            upsertSidebarConversation(cached, runningConversation)
           )
-        )
+        } else {
+          // Only the submission that still owns the cached placeholder may
+          // migrate it. Ownership is the optimistic id captured before the
+          // await, compared with the id cached at migration time. If the
+          // entry is already gone, this create can only seed its own snapshot.
+          if (ownsPlaceholder) {
+            movePendingConversationExecution(
+              queryClient,
+              newConversationPlaceholderId,
+              createdConversationId
+            )
+            movePendingConversationTurnSubmission(
+              queryClient,
+              newConversationPlaceholderId,
+              createdConversationId
+            )
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (cached) =>
+              replaceSidebarConversation(
+                cached,
+                newConversationPlaceholderId,
+                runningConversation
+              )
+            )
+          } else {
+            // Another submission owns the placeholder. Seed this accepted
+            // create from its own captured snapshot instead of migrating the
+            // placeholder, and upsert its row beside the newer placeholder.
+            if (freshSendPlaceholder.pendingExecution)
+              markConversationExecutionPending(
+                queryClient,
+                createdConversationId
+              )
+            if (freshSendPlaceholder.pendingSubmission)
+              setPendingConversationTurnSubmission(
+                queryClient,
+                createdConversationId,
+                {
+                  ...freshSendPlaceholder.pendingSubmission,
+                  conversationId: createdConversationId,
+                }
+              )
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (cached) =>
+              upsertSidebarConversation(cached, runningConversation)
+            )
+          }
+        }
       }
       if (
         routeEpochRef.current === routeEpoch &&
@@ -3239,14 +3586,29 @@ export function ConversationPage({
     }
   }
 
-  const refreshSubmittedConversation = async (id: string) => {
+  const refreshSubmittedConversation = async (
+    id: string,
+    loginSessionBoundary = getLoginSessionBoundary()
+  ) => {
     const queryKey = ["conversation", id] as const
+    const isLoginSessionCurrentForRefresh = () =>
+      isLoginSessionCurrent(loginSessionBoundary)
+    if (!isLoginSessionCurrentForRefresh()) return null
     await queryClient.cancelQueries({ queryKey, exact: true }, { silent: true })
-    const detail = await queryClient.fetchQuery({
-      ...conversationDetailQueryOptions(id),
-      staleTime: 0,
-    })
-    return detail
+    if (!isLoginSessionCurrentForRefresh()) return null
+    try {
+      const detail = await queryClient.fetchQuery({
+        ...conversationDetailQueryOptions(id, { loginSessionBoundary }),
+        staleTime: 0,
+      })
+      if (!isLoginSessionCurrentForRefresh()) return null
+      return detail
+    } catch (error) {
+      // A stale login's failed or superseded detail refresh is not an error
+      // for the replacement login; never let its caller invalidate by key.
+      if (!isLoginSessionCurrentForRefresh()) return null
+      throw error
+    }
   }
 
   const refreshAfterMutation = async (id: string) => {
@@ -3456,12 +3818,24 @@ export function ConversationPage({
 
   const sendMutation = useMutation({
     onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      const creationOrigin = captureConversationCreationOrigin()
+      sendCreationOriginRef.current = creationOrigin
+      const freshSendOptimisticId =
+        isNew && submission.optimisticId ? submission.optimisticId : undefined
+      const freshSendTiming = freshSendOptimisticId
+        ? freshSendTimingKey(freshSendOptimisticId)
+        : null
       responseLatency.begin(
         isNew
           ? newConversationPlaceholderId
           : (conversationId ?? newConversationPlaceholderId),
         isNew ? "new_task" : "follow_up"
       )
+      if (freshSendTiming) {
+        // Keep this send's timing independent of the shared placeholder before
+        // a later page instance starts its own fresh-task timing there.
+        responseLatency.move(newConversationPlaceholderId, freshSendTiming)
+      }
       // A sidebar refetch may have started before this submission. Cancel it
       // before applying the optimistic status so its older snapshot cannot
       // replace this task -- or the other running task rows -- when it settles.
@@ -3480,6 +3854,39 @@ export function ConversationPage({
           pendingExecutionConversationId
         )
       }
+      if (freshSendOptimisticId && freshSendTiming) {
+        // Snapshot this send's own placeholder state before the first await.
+        // A newer page instance can replace the shared placeholder while the
+        // admitted create is still in flight.
+        const pendingSubmission = getPendingConversationTurnSubmission(
+          queryClient,
+          newConversationPlaceholderId
+        )
+        freshSendPlaceholderRef.current = {
+          optimisticId: freshSendOptimisticId,
+          timingKey: freshSendTiming,
+          pendingExecution: Boolean(
+            getPendingConversationExecution(
+              queryClient,
+              newConversationPlaceholderId
+            )
+          ),
+          pendingSubmission:
+            pendingSubmission?.optimisticId === freshSendOptimisticId
+              ? pendingSubmission
+              : null,
+          draft: user
+            ? readLocalConversationDraft(
+                window.localStorage,
+                user.id,
+                newConversationPlaceholderId
+              )
+            : null,
+          draftOwnerId: user?.id,
+        }
+      } else {
+        freshSendPlaceholderRef.current = null
+      }
       await sidebarCancellation
       try {
         const attachmentConsumption = submission.waitForDesktopAttachmentStart
@@ -3489,6 +3896,9 @@ export function ConversationPage({
           attachmentConsumption,
           sidebarExecutionStatus,
           pendingExecutionConversationId,
+          loginSessionBoundary: creationOrigin.gated
+            ? creationOrigin.loginSessionBoundary
+            : undefined,
         }
       } catch (error) {
         if (pendingExecutionConversationId) {
@@ -3506,9 +3916,13 @@ export function ConversationPage({
       }
     },
     mutationFn: async (submission: ComposerSubmission) => {
-      sendSubmissionConversationIdRef.current = isNew
-        ? null
-        : (conversationId ?? null)
+      const creationOrigin = sendCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
+      sendSubmissionConversationIdRef.current = creationOrigin?.gated
+        ? creationOrigin.routeConversationId
+        : isNew
+          ? null
+          : (conversationId ?? null)
       const requestedInput = submission.input
       const requestedCapabilityIds = [...submission.capabilityIds]
       const requestedKnowledgeBaseIds = [...submission.knowledgeBaseIds]
@@ -3521,7 +3935,13 @@ export function ConversationPage({
         initialTaskReferences: submission.taskReferences ?? [],
         initialCollaborationMode: submission.collaborationMode,
         initialLocalDeviceId: submission.localDeviceId,
+        creationOrigin,
+        freshSendPlaceholder:
+          isNew && submission.optimisticId
+            ? freshSendPlaceholderRef.current
+            : null,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       sendSubmissionConversationIdRef.current = id
       if (submission.optimisticId) {
         setPendingTurnSubmission((current) => {
@@ -3564,6 +3984,7 @@ export function ConversationPage({
           operation
         )
       }
+      assertConversationCreationSessionCurrent(creationOrigin)
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -3642,8 +4063,10 @@ export function ConversationPage({
           knowledge_base_ids: requestedKnowledgeBaseIds,
           idempotency_key: idempotencyKey,
           collaboration_mode: submission.collaborationMode,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
@@ -3667,6 +4090,11 @@ export function ConversationPage({
       return { id, idempotencyKey, status: receipt.status }
     },
     onSuccess: (result, submission, optimisticTurnStart) => {
+      if (
+        optimisticTurnStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+      )
+        return
       const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
@@ -3674,7 +4102,10 @@ export function ConversationPage({
         sendSubmissionConversationIdRef.current = null
         // Admission is not confirmation. The detail projection consumes the
         // keyed draft (and the server binds its staged files) on native start.
-        void refreshSubmittedConversation(result.id).catch(() => undefined)
+        void refreshSubmittedConversation(
+          result.id,
+          optimisticTurnStart?.loginSessionBoundary
+        ).catch(() => undefined)
         return
       }
       if (routeConversationIdRef.current !== result.id) {
@@ -3711,17 +4142,35 @@ export function ConversationPage({
       // Keep submitted attachments filtered until the admission refresh has
       // settled too. That refresh can briefly return pre-consumption staged
       // attachments and must not put them back into the composer.
-      void refreshSubmittedConversation(result.id)
-        .catch(() =>
-          queryClient.invalidateQueries({
+      void refreshSubmittedConversation(
+        result.id,
+        optimisticTurnStart?.loginSessionBoundary
+      )
+        .catch(() => {
+          if (
+            optimisticTurnStart?.loginSessionBoundary !== undefined &&
+            !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+          )
+            return
+          return queryClient.invalidateQueries({
             queryKey: ["conversation", result.id],
           })
-        )
+        })
         .finally(() => {
+          if (
+            optimisticTurnStart?.loginSessionBoundary !== undefined &&
+            !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+          )
+            return
           commitOptimisticallyConsumedAttachments(attachmentConsumption)
         })
     },
     onError: (nextError, submission, optimisticTurnStart) => {
+      if (
+        optimisticTurnStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+      )
+        return
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       if (
@@ -3739,9 +4188,10 @@ export function ConversationPage({
         if (routeConversationIdRef.current === targetConversationId)
           setTurnAdmissionError(nextError)
         sendSubmissionConversationIdRef.current = null
-        void refreshSubmittedConversation(targetConversationId).catch(
-          () => undefined
-        )
+        void refreshSubmittedConversation(
+          targetConversationId,
+          optimisticTurnStart?.loginSessionBoundary
+        ).catch(() => undefined)
         return
       }
       if (
@@ -3754,10 +4204,44 @@ export function ConversationPage({
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
       )
-      restoreOptimisticSidebarExecutionStatus(
-        optimisticTurnStart?.sidebarExecutionStatus,
-        targetConversationId
-      )
+      // A paused fresh submission can restart after the same placeholder was
+      // reused by another page instance. Its pending cache entry belongs to
+      // the newer submission, so only clean up the placeholder version that
+      // this mutation created.
+      const pendingPlaceholderSubmission =
+        optimisticTurnStart?.pendingExecutionConversationId ===
+        newConversationPlaceholderId
+          ? getPendingConversationTurnSubmission(
+              queryClient,
+              newConversationPlaceholderId
+            )
+          : null
+      const ownsPendingPlaceholder =
+        !pendingPlaceholderSubmission ||
+        !submission.optimisticId ||
+        pendingPlaceholderSubmission.optimisticId === submission.optimisticId
+      if (ownsPendingPlaceholder) {
+        restoreOptimisticSidebarExecutionStatus(
+          optimisticTurnStart?.sidebarExecutionStatus,
+          targetConversationId
+        )
+      } else if (
+        targetConversationId &&
+        optimisticTurnStart?.sidebarExecutionStatus?.kind === "inserted"
+      ) {
+        // This send was promoted to its own conversation even though a newer
+        // submission owns the fresh placeholder. Restore only this send's own
+        // row; the placeholder row and markers belong to that submission.
+        queryClient.setQueryData<
+          InfiniteData<Paginated<Conversation>, string | undefined>
+        >(["conversations", "sidebar"], (cached) =>
+          patchSidebarConversationExecutionStatus(
+            cached,
+            targetConversationId,
+            undefined
+          )
+        )
+      }
       if (targetConversationId) {
         clearPendingConversationExecution(queryClient, targetConversationId)
         clearPendingConversationTurnSubmission(
@@ -3766,6 +4250,7 @@ export function ConversationPage({
         )
       }
       if (
+        ownsPendingPlaceholder &&
         optimisticTurnStart?.pendingExecutionConversationId &&
         optimisticTurnStart.pendingExecutionConversationId !==
           targetConversationId
@@ -3779,7 +4264,14 @@ export function ConversationPage({
           optimisticTurnStart.pendingExecutionConversationId
         )
       }
-      if (routeConversationIdRef.current !== targetConversationId) {
+      const creationContextCurrent = isConversationSubmissionContextCurrent(
+        sendCreationOriginRef.current,
+        targetConversationId
+      )
+      if (
+        routeConversationIdRef.current !== targetConversationId ||
+        !creationContextCurrent
+      ) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
         )
@@ -3789,6 +4281,10 @@ export function ConversationPage({
             ? null
             : current
         )
+        if (!targetConversationId && !creationContextCurrent) {
+          setPendingFirstMessageConversationId(null)
+          setPendingTurnSubmission(null)
+        }
         sendSubmissionConversationIdRef.current = null
         return
       }
@@ -3929,18 +4425,30 @@ export function ConversationPage({
 
   const goalStartMutation = useMutation({
     onMutate: async (submission: ComposerSubmission) => {
+      const creationOrigin = captureConversationCreationOrigin()
+      goalCreationOriginRef.current = creationOrigin
       responseLatency.begin(
         isNew
           ? newConversationPlaceholderId
           : (conversationId ?? newConversationPlaceholderId),
         isNew ? "new_task" : "follow_up"
       )
-      return optimisticallyConsumeSubmissionAttachments(submission)
+      return {
+        attachmentConsumption:
+          await optimisticallyConsumeSubmissionAttachments(submission),
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
     },
     mutationFn: async (submission: ComposerSubmission) => {
-      goalStartSubmissionConversationIdRef.current = isNew
-        ? null
-        : (conversationId ?? null)
+      const creationOrigin = goalCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
+      goalStartSubmissionConversationIdRef.current = creationOrigin?.gated
+        ? creationOrigin.routeConversationId
+        : isNew
+          ? null
+          : (conversationId ?? null)
       const requestedObjective = submission.input.trim()
       const requestedCapabilityIds = [...submission.capabilityIds]
       const requestedKnowledgeBaseIds = [...submission.knowledgeBaseIds]
@@ -3952,7 +4460,9 @@ export function ConversationPage({
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
         initialCollaborationMode: "default",
         initialLocalDeviceId: submission.localDeviceId,
+        creationOrigin,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       goalStartSubmissionConversationIdRef.current = id
       setOptimisticGoal((current) => {
         if (
@@ -3985,6 +4495,7 @@ export function ConversationPage({
         knowledge_base_ids: knowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -4030,8 +4541,10 @@ export function ConversationPage({
           priority_capability_ids: capabilityIds,
           knowledge_base_ids: knowledgeBaseIds,
           idempotency_key: idempotencyKey,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
@@ -4046,16 +4559,30 @@ export function ConversationPage({
       )
       let refreshedConversation: Conversation | null = null
       try {
-        refreshedConversation = await refreshSubmittedConversation(id)
+        refreshedConversation = await refreshSubmittedConversation(
+          id,
+          creationOrigin?.gated
+            ? creationOrigin.loginSessionBoundary
+            : undefined
+        )
       } catch {
-        void queryClient.invalidateQueries({
-          queryKey: ["conversation", id],
-        })
+        if (isConversationCreationSessionCurrent(creationOrigin))
+          void queryClient.invalidateQueries({
+            queryKey: ["conversation", id],
+          })
       }
+      assertConversationCreationSessionCurrent(creationOrigin)
       return { id, idempotencyKey, refreshedConversation }
     },
-    onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
-      commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+    onSuccess: (result, _submission, optimisticGoalStart) => {
+      if (
+        optimisticGoalStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticGoalStart.loginSessionBoundary)
+      )
+        return
+      commitOptimisticallyConsumedAttachments(
+        optimisticGoalStart?.attachmentConsumption
+      )
       if (result.refreshedConversation?.goal) {
         setOptimisticGoal((current) =>
           current?.conversationId === result.id ? null : current
@@ -4086,11 +4613,25 @@ export function ConversationPage({
       goalStartSubmissionConversationIdRef.current = null
       void refreshConversationList()
     },
-    onError: (nextError, submission, optimisticAttachmentConsumption) => {
+    onError: (nextError, submission, optimisticGoalStart) => {
+      if (
+        optimisticGoalStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticGoalStart.loginSessionBoundary)
+      )
+        return
       const targetConversationId = goalStartSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
-      restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
-      if (routeConversationIdRef.current !== targetConversationId) {
+      restoreOptimisticallyConsumedAttachments(
+        optimisticGoalStart?.attachmentConsumption
+      )
+      const creationContextCurrent = isConversationSubmissionContextCurrent(
+        goalCreationOriginRef.current,
+        targetConversationId
+      )
+      if (
+        routeConversationIdRef.current !== targetConversationId ||
+        !creationContextCurrent
+      ) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
         )
@@ -4106,6 +4647,11 @@ export function ConversationPage({
             ? null
             : current
         )
+        if (!targetConversationId && !creationContextCurrent) {
+          setPendingFirstMessageConversationId(null)
+          setPendingTurnSubmission(null)
+          setOptimisticGoal(null)
+        }
         goalStartSubmissionConversationIdRef.current = null
         return
       }
@@ -4215,6 +4761,15 @@ export function ConversationPage({
     mutateAsync: submitOfficeQuestion,
     isPending: officeQuestionPending,
   } = useMutation({
+    onMutate: () => {
+      const creationOrigin = captureConversationCreationOrigin()
+      officeCreationOriginRef.current = creationOrigin
+      return {
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
+    },
     mutationFn: async (
       input:
         | {
@@ -4223,10 +4778,14 @@ export function ConversationPage({
           }
         | Parameters<ApplicationAnnotationSubmit>[0]
     ) => {
+      const creationOrigin = officeCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
       const id = await ensureConversation({
         initialKnowledgeBaseIds: validSelectedKnowledgeBaseIds,
         initialCollaborationMode: collaborationMode,
+        creationOrigin,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       const messageDisplay =
         "annotation" in input
           ? input.annotation
@@ -4252,6 +4811,7 @@ export function ConversationPage({
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
         }
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       const createdAt = new Date().toISOString()
       if (shouldQueueSelection) {
         const optimisticRequest: PendingRequest = {
@@ -4283,8 +4843,10 @@ export function ConversationPage({
               message_display: messageDisplay,
             },
             schema: pendingRequestSchema,
+            ...creationRequestOptions(creationOrigin),
           }
         )
+        assertConversationCreationSessionCurrent(creationOrigin)
         setPendingOfficeQuestion((current) =>
           current?.conversationId === id &&
           current.idempotencyKey === idempotencyKey
@@ -4323,8 +4885,10 @@ export function ConversationPage({
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
           message_display: messageDisplay,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -4338,12 +4902,22 @@ export function ConversationPage({
       )
       return { id, idempotencyKey, mode: "turn" as const }
     },
-    onSuccess: ({ id }) => {
+    onSuccess: ({ id }, _variables, optimisticOfficeStart) => {
+      if (
+        optimisticOfficeStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticOfficeStart.loginSessionBoundary)
+      )
+        return
       officeTurnSubmitOperationRef.current = null
       officeTurnSubmitAttemptRef.current = null
       void refreshAfterMutation(id).catch(() => undefined)
     },
-    onError: (nextError) => {
+    onError: (nextError, _variables, optimisticOfficeStart) => {
+      if (
+        optimisticOfficeStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticOfficeStart.loginSessionBoundary)
+      )
+        return
       const idempotencyKey = officeTurnSubmitOperationRef.current?.id
       setPendingTurnSubmission((current) =>
         idempotencyKey && current?.idempotencyKey === idempotencyKey
@@ -4505,6 +5079,7 @@ export function ConversationPage({
 
   const attachMutation = useMutation({
     mutationFn: async (files: File[]) => {
+      const creationOrigin = attachmentCreationOriginRef.current
       const uploadableFiles = files.filter(isMeaningfulComposerUploadFile)
       if (uploadableFiles.length === 0) {
         throw new ApiError({
@@ -4512,11 +5087,13 @@ export function ConversationPage({
           errorCode: "ATTACHMENT_TEMPORARY_FILE_SKIPPED",
         })
       }
-      const id = await ensureConversation()
+      const id = await ensureConversation({ creationOrigin })
+      assertConversationCreationSessionCurrent(creationOrigin)
       attachmentMutationTargetConversationIdRef.current = id
       const previewResources: ConversationAttachmentPreviewResource[] = []
       try {
         for (const file of uploadableFiles) {
+          assertConversationCreationSessionCurrent(creationOrigin)
           const formData = new FormData()
           formData.append("file", file)
           const attachment = await apiRequest(
@@ -4525,8 +5102,10 @@ export function ConversationPage({
               method: "POST",
               body: formData,
               schema: conversationFileSchema,
+              ...creationRequestOptions(creationOrigin),
             }
           )
+          assertConversationCreationSessionCurrent(creationOrigin)
           if (
             isPreviewableImageMimeType(attachment.mime_type) &&
             isPreviewableImageMimeType(file.type)
@@ -4540,13 +5119,16 @@ export function ConversationPage({
           }
         }
       } catch (nextError) {
-        await refreshAfterMutation(id).catch(() => undefined)
+        if (isConversationCreationSessionCurrent(creationOrigin))
+          await refreshAfterMutation(id).catch(() => undefined)
         previewResources.forEach(releaseConversationAttachmentPreviewResource)
         throw nextError
       }
       return { id, previewResources }
     },
     onMutate: (files) => {
+      const creationOrigin = captureConversationCreationOrigin()
+      attachmentCreationOriginRef.current = creationOrigin
       const pendingUploads = files
         .filter(isMeaningfulComposerUploadFile)
         .map(createPendingAttachmentUpload)
@@ -4556,10 +5138,26 @@ export function ConversationPage({
           ...pendingUploads,
         ])
       }
-      return { pendingUploadIds: pendingUploads.map((file) => file.id) }
+      return {
+        pendingUploadIds: pendingUploads.map((file) => file.id),
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
     },
-    onSuccess: async ({ id, previewResources }) => {
+    onSuccess: async (
+      { id, previewResources },
+      _files,
+      optimisticAttachmentUpload
+    ) => {
       try {
+        if (
+          optimisticAttachmentUpload?.loginSessionBoundary !== undefined &&
+          !isLoginSessionCurrent(
+            optimisticAttachmentUpload.loginSessionBoundary
+          )
+        )
+          return
         await refreshAfterMutation(id)
       } finally {
         previewResources.forEach(releaseConversationAttachmentPreviewResource)
@@ -4576,13 +5174,36 @@ export function ConversationPage({
   })
 
   const referenceFileMutation = useMutation({
+    onMutate: () => {
+      const creationOrigin = captureConversationCreationOrigin()
+      referenceCreationOriginRef.current = creationOrigin
+      return {
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
+    },
     mutationFn: async (file: ReferenceableFile) => {
-      const id = await ensureConversation()
+      const creationOrigin = referenceCreationOriginRef.current
+      const id = await ensureConversation({ creationOrigin })
+      assertConversationCreationSessionCurrent(creationOrigin)
       attachmentMutationTargetConversationIdRef.current = id
-      await referenceConversationFile(id, file.id)
+      await referenceConversationFile(
+        id,
+        file.id,
+        creationRequestOptions(creationOrigin)
+      )
+      assertConversationCreationSessionCurrent(creationOrigin)
       return id
     },
-    onSuccess: (id) => refreshAfterMutation(id),
+    onSuccess: (id, _file, optimisticReference) => {
+      if (
+        optimisticReference?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticReference.loginSessionBoundary)
+      )
+        return
+      return refreshAfterMutation(id)
+    },
   })
 
   const removeAttachmentMutation = useMutation({
@@ -4686,7 +5307,13 @@ export function ConversationPage({
       return true
     } catch (error) {
       const targetId = attachmentMutationTargetConversationIdRef.current
-      if (targetId) await refreshAfterMutation(targetId).catch(() => undefined)
+      // A stale login's failed reference must not refresh the replacement
+      // login's cache for the old conversation.
+      if (
+        targetId &&
+        isConversationCreationSessionCurrent(referenceCreationOriginRef.current)
+      )
+        await refreshAfterMutation(targetId).catch(() => undefined)
       throw error
     } finally {
       attachmentMutationTargetConversationIdRef.current = null
@@ -5498,6 +6125,26 @@ export function ConversationPage({
     })
   }
 
+  const desktopExecutionTargetBlockMessage = (): string | null => {
+    // Existing tasks are routed by the backend and are not gated here.
+    if (!desktopExecutionTargetGated) return null
+    if (desktopNoTargetAvailable)
+      return t("desktopExecution.noTargetAvailable")
+    if (executionTarget === "cloud")
+      return desktopCloudTargetEnabled
+        ? null
+        : t("desktopExecution.cloudTargetUnavailable")
+    if (!desktopLocalComputerEnabled)
+      return t("desktopExecution.localComputerUnavailable")
+    if (executionDeviceAvailability.kind === "ready") return null
+    return t(
+      executionDeviceAvailability.kind === "unavailable" &&
+        executionDeviceAvailability.reason === "status_unavailable"
+        ? "desktopExecution.deviceStatusUnavailable"
+        : "desktopExecution.deviceUnavailable"
+    )
+  }
+
   const submitComposer = (input: string) => {
     if (
       applicationSubmissionSending ||
@@ -5517,22 +6164,11 @@ export function ConversationPage({
       attachmentOperationPending
     )
       return
-    const localExecutionRequired =
-      isNew && isMacDesktopHost() && executionTarget === "local"
-    if (
-      localExecutionRequired &&
-      executionDeviceAvailability.kind !== "ready"
-    ) {
-      // Keep the draft and the selected target; never fall back to cloud.
-      // An existing local task is routed by the backend and is not gated here.
-      setError(
-        t(
-          executionDeviceAvailability.kind === "unavailable" &&
-            executionDeviceAvailability.reason === "status_unavailable"
-            ? "desktopExecution.deviceStatusUnavailable"
-            : "desktopExecution.deviceUnavailable"
-        )
-      )
+    // Keep the draft and the selected target on every block; never switch to
+    // an available target on the user's behalf.
+    const targetBlockMessage = desktopExecutionTargetBlockMessage()
+    if (targetBlockMessage) {
+      setError(targetBlockMessage)
       return
     }
     const localDeviceId = isNew
@@ -5797,7 +6433,8 @@ export function ConversationPage({
   )
 
   const reportFileDownloadError = useCallback(
-    (nextError: unknown) => {
+    (nextError: unknown, boundary?: LoginSessionBoundary) => {
+      if (boundary !== undefined && !isLoginSessionCurrent(boundary)) return
       notify.error(getErrorMessage(nextError, t), {
         id: "conversation-file-download-error",
       })
@@ -5808,6 +6445,9 @@ export function ConversationPage({
   const downloadArtifact = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
+      const boundary = isMacDesktopHost()
+        ? getLoginSessionBoundary()
+        : undefined
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -5816,7 +6456,7 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        reportFileDownloadError(nextError)
+        reportFileDownloadError(nextError, boundary)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
@@ -5850,6 +6490,9 @@ export function ConversationPage({
   const downloadSourcePreview = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
+      const boundary = isMacDesktopHost()
+        ? getLoginSessionBoundary()
+        : undefined
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -5861,7 +6504,7 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        reportFileDownloadError(nextError)
+        reportFileDownloadError(nextError, boundary)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
@@ -7208,6 +7851,18 @@ export function ConversationPage({
             <AlertDescription>{applicationUnavailableMessage}</AlertDescription>
           </Alert>
         )}
+        {desktopNoTargetAvailable && (
+          <Alert
+            role="status"
+            aria-label={t("desktopExecution.noTargetAvailable")}
+            className="mx-auto w-full max-w-[var(--app-composer-width)] rounded-[18px] border-[color:var(--app-border)] bg-[var(--app-composer)] shadow-[var(--app-shadow)]"
+          >
+            <CircleAlertIcon aria-hidden="true" />
+            <AlertDescription>
+              {t("desktopExecution.noTargetAvailable")}
+            </AlertDescription>
+          </Alert>
+        )}
         {showConversationComposer &&
           attachmentUpdateConversationId === conversationId &&
           attachments.length > 0 && (
@@ -7275,6 +7930,7 @@ export function ConversationPage({
                   value={executionTarget}
                   onValueChange={setExecutionTarget}
                   availability={executionDeviceAvailability}
+                  cloudAvailable={desktopCloudTargetEnabled}
                   disabled={
                     sendMutation.isPending ||
                     goalStartMutation.isPending ||
@@ -7392,6 +8048,7 @@ export function ConversationPage({
             taskStartDisabled={
               taskStartDisabledByCreditQuota || newProjectResolving
             }
+            submissionBlocked={desktopNoTargetAvailable}
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {
               if (

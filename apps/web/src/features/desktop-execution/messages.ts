@@ -5,8 +5,11 @@ type DesktopExecutionMessages = {
   targetSelectorDescription: string
   cloud: string
   cloudDescription: string
+  cloudTargetUnavailable: string
   local: string
   localDescription: string
+  localComputerUnavailable: string
+  noTargetAvailable: string
   targetBadge: string
   deviceChecking: string
   deviceConnecting: string
@@ -29,8 +32,11 @@ export const desktopExecutionMessages: Record<
     targetSelectorDescription: "选择新任务的运行位置。任务创建后不能再更改。",
     cloud: "云电脑",
     cloudDescription: "在云端隔离环境中运行任务。",
+    cloudTargetUnavailable: "云电脑当前不可用，暂时无法新建云端任务。",
     local: "本地电脑",
     localDescription: "在这台 Mac 上运行任务。",
+    localComputerUnavailable: "这台 Mac 的本地任务当前不可用，暂时无法新建本地任务。",
+    noTargetAvailable: "云电脑和本地电脑当前都不可用，暂时无法新建任务。",
     targetBadge: "运行位置：{{target}}",
     deviceChecking: "正在检查这台 Mac 是否可用…",
     deviceConnecting: "正在连接这台 Mac…",
@@ -49,8 +55,14 @@ export const desktopExecutionMessages: Record<
       "Choose where new tasks run. This cannot be changed after the task is created.",
     cloud: "Cloud computer",
     cloudDescription: "Run tasks in an isolated cloud environment.",
+    cloudTargetUnavailable:
+      "Cloud computers aren’t available right now, so new cloud tasks can’t be started.",
     local: "This Mac",
     localDescription: "Run tasks on this Mac.",
+    localComputerUnavailable:
+      "Local tasks on this Mac aren’t available right now, so new local tasks can’t be started.",
+    noTargetAvailable:
+      "Neither cloud nor local tasks are available right now, so new tasks can’t be started.",
     targetBadge: "Run location: {{target}}",
     deviceChecking: "Checking whether this Mac is available…",
     deviceConnecting: "Connecting to this Mac…",
@@ -73,8 +85,14 @@ export const desktopExecutionMessages: Record<
       "Elige dónde se ejecutan las tareas nuevas. No se puede cambiar después de crear la tarea.",
     cloud: "Equipo en la nube",
     cloudDescription: "Ejecuta las tareas en un entorno aislado en la nube.",
+    cloudTargetUnavailable:
+      "Los equipos en la nube no están disponibles ahora mismo, así que no se pueden iniciar tareas nuevas en la nube.",
     local: "Este Mac",
     localDescription: "Ejecuta las tareas en este Mac.",
+    localComputerUnavailable:
+      "Las tareas locales en este Mac no están disponibles ahora mismo, así que no se pueden iniciar tareas locales nuevas.",
+    noTargetAvailable:
+      "Ni la nube ni las tareas locales están disponibles ahora mismo, así que no se pueden iniciar tareas nuevas.",
     targetBadge: "Ubicación de ejecución: {{target}}",
     deviceChecking: "Comprobando si este Mac está disponible…",
     deviceConnecting: "Conectando con este Mac…",
@@ -100,8 +118,14 @@ export const desktopExecutionMessages: Record<
       "Escolha onde as novas tarefas serão executadas. Isso não pode ser alterado depois que a tarefa é criada.",
     cloud: "Computador na nuvem",
     cloudDescription: "Execute tarefas em um ambiente isolado na nuvem.",
+    cloudTargetUnavailable:
+      "Os computadores na nuvem não estão disponíveis no momento, então não é possível iniciar novas tarefas na nuvem.",
     local: "Este Mac",
     localDescription: "Execute tarefas neste Mac.",
+    localComputerUnavailable:
+      "As tarefas locais neste Mac não estão disponíveis no momento, então não é possível iniciar novas tarefas locais.",
+    noTargetAvailable:
+      "Nem a nuvem nem as tarefas locais estão disponíveis no momento, então não é possível iniciar novas tarefas.",
     targetBadge: "Local de execução: {{target}}",
     deviceChecking: "Verificando se este Mac está disponível…",
     deviceConnecting: "Conectando a este Mac…",
@@ -127,8 +151,14 @@ export const desktopExecutionMessages: Record<
       "Choisissez où les nouvelles tâches s’exécutent. Ce choix ne peut plus être modifié après la création de la tâche.",
     cloud: "Ordinateur cloud",
     cloudDescription: "Exécutez les tâches dans un environnement cloud isolé.",
+    cloudTargetUnavailable:
+      "Les ordinateurs cloud ne sont pas disponibles pour le moment, il est donc impossible de démarrer de nouvelles tâches cloud.",
     local: "Ce Mac",
     localDescription: "Exécutez les tâches sur ce Mac.",
+    localComputerUnavailable:
+      "Les tâches locales sur ce Mac ne sont pas disponibles pour le moment, il est donc impossible de démarrer de nouvelles tâches locales.",
+    noTargetAvailable:
+      "Ni le cloud ni les tâches locales ne sont disponibles pour le moment, il est donc impossible de démarrer de nouvelles tâches.",
     targetBadge: "Emplacement d’exécution : {{target}}",
     deviceChecking: "Vérification de la disponibilité de ce Mac…",
     deviceConnecting: "Connexion à ce Mac…",
@@ -152,8 +182,14 @@ export const desktopExecutionMessages: Record<
       "新しいタスクの実行場所を選択します。タスクの作成後は変更できません。",
     cloud: "クラウド PC",
     cloudDescription: "クラウドの分離された環境でタスクを実行します。",
+    cloudTargetUnavailable:
+      "クラウド PC は現在利用できないため、新しいクラウドタスクを開始できません。",
     local: "この Mac",
     localDescription: "この Mac でタスクを実行します。",
+    localComputerUnavailable:
+      "この Mac のローカルタスクは現在利用できないため、新しいローカルタスクを開始できません。",
+    noTargetAvailable:
+      "クラウド PC とローカルタスクのどちらも現在利用できないため、新しいタスクを開始できません。",
     targetBadge: "実行場所：{{target}}",
     deviceChecking: "この Mac が利用可能か確認しています…",
     deviceConnecting: "この Mac に接続しています…",
