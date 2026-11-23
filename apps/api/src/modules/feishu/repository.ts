@@ -21,6 +21,7 @@ export type PendingFeishuDelivery = {
 };
 
 export type FeishuTurnOutcome =
+  | { status: "conversation_missing" }
   | { status: "running" }
   | { status: "completed"; text: string | null }
   | { status: "failed"; errorCode: string | null };
@@ -653,11 +654,21 @@ export class PrismaFeishuRepository {
     });
   }
 
-  async getTurnOutcome(turnId: string): Promise<FeishuTurnOutcome> {
+  async getTurnOutcome(
+    turnId: string,
+    conversationId?: string,
+  ): Promise<FeishuTurnOutcome> {
     const turn = await this.prisma.conversationTurn.findUnique({
       where: { id: turnId },
       select: { status: true, errorCode: true, collaborationMode: true },
     });
+    if (!turn && conversationId) {
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { id: true },
+      });
+      if (!conversation) return { status: "conversation_missing" };
+    }
     if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) {
       return { status: "running" };
     }

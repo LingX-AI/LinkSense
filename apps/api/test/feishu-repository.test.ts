@@ -262,6 +262,16 @@ describe("PrismaFeishuRepository", () => {
     });
   });
 
+  it("preserves the unscoped outcome for automation notifications when a turn is absent", async () => {
+    const repository = new PrismaFeishuRepository({
+      conversationTurn: { findUnique: vi.fn(async () => null) },
+    } as unknown as PrismaClient);
+
+    await expect(repository.getTurnOutcome(TURN_ID)).resolves.toEqual({
+      status: "running",
+    });
+  });
+
   it("waits for the native final answer projection before delivery", async () => {
     const prisma = {
       conversationTurn: {

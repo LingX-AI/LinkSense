@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { PrismaClient } from "../src/generated/prisma/client.js";
 import type { ConversationService } from "../src/modules/conversations/service.js";
 import {
   FeishuProtocolError,
   type FeishuOfficialClient,
 } from "../src/modules/feishu/client.js";
 import type { RedisFeishuCoordinator } from "../src/modules/feishu/coordinator.js";
-import type { PrismaFeishuRepository } from "../src/modules/feishu/repository.js";
+import { PrismaFeishuRepository } from "../src/modules/feishu/repository.js";
 import { FeishuRuntime } from "../src/modules/feishu/runtime.js";
 import { encryptFeishuCredentials } from "../src/modules/feishu/state.js";
 
@@ -260,46 +261,88 @@ describe("FeishuRuntime", () => {
     await runtime.close();
   });
 
+  it.each([
+    ["deleted", "failed"],
+    ["active", "pending"],
+    ["archived", "pending"],
+  ] as const)(
+    "settles a reply with no projected turn for a %s task as %s without sending it",
+    async (taskState, expectedStatus) => {
+      const { connection, inbound, delivery } = createReplyFixture();
+      const lease = { key: "delivery-lease", token: "delivery-token" };
+      const findConversation = vi.fn(async () =>
+        taskState === "deleted" ? null : { id: CONVERSATION_ID },
+      );
+      const updateMany = vi.fn(async () => ({ count: 1 }));
+      const repository = new PrismaFeishuRepository({
+        conversation: { findUnique: findConversation },
+        conversationTurn: { findUnique: vi.fn(async () => null) },
+        feishuOutboundDelivery: {
+          updateMany,
+          findFirst: vi.fn(async () => ({
+            ...delivery,
+            status: "processing",
+            processingToken: lease.token,
+          })),
+        },
+      } as unknown as PrismaClient);
+      vi.spyOn(repository, "listActiveConnections").mockResolvedValue([]);
+      vi.spyOn(repository, "findActiveConnection").mockResolvedValue(connection);
+      vi.spyOn(repository, "listPendingInbound").mockResolvedValue([]);
+      vi.spyOn(repository, "listPendingDeliveries")
+        .mockResolvedValueOnce([{ connection, inbound, delivery }])
+        .mockResolvedValue([]);
+      const coordinator = {
+        acquireLease: vi.fn(async () => lease),
+        releaseLease: vi.fn(async () => undefined),
+      };
+      const sendText = vi.fn(async () => undefined);
+      const runtime = new FeishuRuntime(
+        repository,
+        coordinator as unknown as RedisFeishuCoordinator,
+        { sendText } as unknown as FeishuOfficialClient,
+        {} as ConversationService,
+        encryption,
+        () => NOW,
+      );
+
+      try {
+        await runtime.start();
+        await vi.waitFor(() =>
+          expect(coordinator.releaseLease).toHaveBeenCalledWith(lease),
+        );
+        expect(updateMany).toHaveBeenCalledTimes(2);
+        expect(updateMany).toHaveBeenLastCalledWith({
+          where: {
+            id: DELIVERY_ID,
+            status: "processing",
+            processingToken: lease.token,
+          },
+          data: {
+            status: expectedStatus,
+            processingToken: null,
+            ...(expectedStatus === "failed"
+              ? {
+                  attempts: delivery.attempts,
+                  lastErrorCode: "CONVERSATION_NOT_FOUND",
+                  nextAttemptAt: NOW,
+                }
+              : { nextAttemptAt: new Date(NOW.getTime() + 1_000) }),
+          },
+        });
+        expect(findConversation).toHaveBeenCalledWith({
+          where: { id: CONVERSATION_ID },
+          select: { id: true },
+        });
+        expect(sendText).not.toHaveBeenCalled();
+      } finally {
+        await runtime.close();
+      }
+    },
+  );
+
   it("connects with encrypted credentials, persists inbound messages, and delivers replies", async () => {
-    const connection = createConnection();
-    const inbound = {
-      id: INBOUND_ID,
-      connectionId: CONNECTION_ID,
-      messageKey: "om_message",
-      chatId: "oc_chat",
-      senderOpenId: "ou_owner",
-      contentText: "hello",
-      status: "accepted",
-      peerSessionId: PEER_ID,
-      conversationId: CONVERSATION_ID,
-      turnId: TURN_ID,
-      ingestOrder: BigInt(1),
-      processingToken: null,
-      errorCode: null,
-      attempts: 0,
-      nextAttemptAt: NOW,
-      processedAt: NOW,
-      receivedAt: NOW,
-      createdAt: NOW,
-      updatedAt: NOW,
-    };
-    const delivery = {
-      id: DELIVERY_ID,
-      connectionId: CONNECTION_ID,
-      peerSessionId: PEER_ID,
-      inboundMessageId: INBOUND_ID,
-      conversationId: CONVERSATION_ID,
-      turnId: TURN_ID,
-      status: "pending",
-      processingToken: null,
-      sentChunkCount: 0,
-      attempts: 0,
-      nextAttemptAt: NOW,
-      lastErrorCode: null,
-      sentAt: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    };
+    const { connection, inbound, delivery } = createReplyFixture();
     let deliveryAvailable = true;
     let sentChunkCount = 0;
     const repository = {
@@ -405,6 +448,49 @@ describe("FeishuRuntime", () => {
     expect(closeConnection).toHaveBeenCalledTimes(1);
   });
 });
+
+function createReplyFixture() {
+  const connection = createConnection();
+  const inbound = {
+    id: INBOUND_ID,
+    connectionId: CONNECTION_ID,
+    messageKey: "om_message",
+    chatId: "oc_chat",
+    senderOpenId: "ou_owner",
+    contentText: "hello",
+    status: "accepted",
+    peerSessionId: PEER_ID,
+    conversationId: CONVERSATION_ID,
+    turnId: TURN_ID,
+    ingestOrder: BigInt(1),
+    processingToken: null,
+    errorCode: null,
+    attempts: 0,
+    nextAttemptAt: NOW,
+    processedAt: NOW,
+    receivedAt: NOW,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const delivery = {
+    id: DELIVERY_ID,
+    connectionId: CONNECTION_ID,
+    peerSessionId: PEER_ID,
+    inboundMessageId: INBOUND_ID,
+    conversationId: CONVERSATION_ID,
+    turnId: TURN_ID,
+    status: "pending",
+    processingToken: null,
+    sentChunkCount: 0,
+    attempts: 0,
+    nextAttemptAt: NOW,
+    lastErrorCode: null,
+    sentAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  return { connection, inbound, delivery };
+}
 
 function createConnection() {
   return {

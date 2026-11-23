@@ -576,7 +576,22 @@ export class FeishuRuntime {
         await this.#deferDelivery(claimed.id, lease.token);
         return;
       }
-      const outcome = await this.repository.getTurnOutcome(claimed.turnId);
+      const outcome = await this.repository.getTurnOutcome(
+        claimed.turnId,
+        claimed.conversationId,
+      );
+      if (outcome.status === "conversation_missing") {
+        guard.assertActive();
+        await this.repository.markDeliveryRetry({
+          deliveryId: claimed.id,
+          processingToken: lease.token,
+          attempts: claimed.attempts,
+          errorCode: "CONVERSATION_NOT_FOUND",
+          nextAttemptAt: this.now(),
+          terminal: true,
+        });
+        return;
+      }
       if (outcome.status === "running") {
         await this.#deferDelivery(claimed.id, lease.token);
         return;
