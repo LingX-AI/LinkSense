@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 
 import {
   browserUseApprovalSchema,
+  browserUseFailure,
   browserUseResultSchema,
   connectionResultSchema,
   conversationStartFailurePayloadSchema,
@@ -23,6 +24,7 @@ import {
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
   RUNNER_TURN_INTERRUPT_REQUESTED,
+  type BrowserUseRequest,
   type DesktopArtifactReceipt,
 } from "@linksense/shared";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -38,11 +40,28 @@ import type { HtmlPreviewService } from "../../src/modules/html-preview/service.
 import type { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import type { WebSiteService } from "../../src/modules/web-sites/service.js";
 
+// Opt-in Chromium fixture contract shared with the Web E2E helper; the API never imports the helper.
+export type DesktopBrowserExtensionFixture = {
+  title: string;
+  button: string;
+  url: string;
+  assertClickCounts: (shared: number) => Promise<void>;
+  revoke: () => Promise<void>;
+  close: () => Promise<void>;
+};
+
+export type AttachDesktopBrowserExtension = (input: {
+  address: string;
+  ownerId: string;
+  scratch: string;
+}) => Promise<DesktopBrowserExtensionFixture>;
+
 const fixtureModel = "desktop-fixture";
 const readPrompt = "Read the local fixture file";
 const interruptPrompt = "Wait for the local interruption";
 const interruptApprovalPrompt = "Wait for interruption during browser approval";
 const nativeApprovalPrompt = "Wait for the local native approval";
+const joinedBrowserPrompt = "Click the button on the shared Chromium fixture";
 const approvalShell = "printf 'approved\\n' > approved.txt";
 const stoppedAttachmentPrompt = "Never run this attachment transfer";
 const answer = "The packaged Mac read the workspace.";
@@ -75,6 +94,7 @@ export async function verifyPackagedDesktopGateway(input: {
   searchMarker: string;
   connector: { driveName: string; documentName: string; documentText: string };
   browser: { title: string; tabId: number; image: Buffer; ref: string; observed: readonly string[] };
+  attachBrowserExtension?: () => Promise<DesktopBrowserExtensionFixture>;
   knowledge: { baseId: string; baseName: string; documentName: string; content: string };
 }): Promise<{
   id: string; turnId: string; conversationId: string; sizeBytes: number; websiteArtifactId: string;
@@ -119,7 +139,7 @@ export async function verifyPackagedDesktopGateway(input: {
   const websiteCss = "h1{color:rebeccapurple}";
   const websiteAssets = ["assets/theme.css", "index.html"];
   const model = Fastify();
-  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, aborted: false };
+  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, browser: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
   let citation: string | undefined;
@@ -127,6 +147,9 @@ export async function verifyPackagedDesktopGateway(input: {
   let connectorText = "";
   let connectorPages = 0;
   let browserStep = 0;
+  let extension: DesktopBrowserExtensionFixture | undefined;
+  let sharedTab: number | undefined;
+  let sharedClick: Extract<BrowserUseRequest, { action: "click" }> | undefined;
   model.setErrorHandler((error, _request, reply) => {
     modelFailure = error instanceof assert.AssertionError
       ? `Synthetic provider: ${error.message}`
@@ -160,9 +183,11 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     const interruptApproval = text.includes(interruptApprovalPrompt);
     const nativeApproval = text.includes(nativeApprovalPrompt);
-    assert(interruptApproval || nativeApproval || text.includes(readPrompt), "unexpected input");
+    const joinedBrowser = text.includes(joinedBrowserPrompt);
+    assert(interruptApproval || nativeApproval || joinedBrowser || text.includes(readPrompt), "unexpected input");
     const call = interruptApproval ? ++modelRequests.interruptApproval
-      : nativeApproval ? ++modelRequests.nativeApproval : ++modelRequests.read;
+      : nativeApproval ? ++modelRequests.nativeApproval
+        : joinedBrowser ? ++modelRequests.browser : ++modelRequests.read;
     const functions = body.tools?.find(tool => tool.type === "namespace" &&
       tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
     const callTool = (name: string, args: object, group = functions) => {
@@ -173,6 +198,41 @@ export async function verifyPackagedDesktopGateway(input: {
         namespace: group.name, arguments: JSON.stringify(args), status: "completed",
       }));
     };
+    if (joinedBrowser) {
+      assert(extension, "the real Chromium extension fixture was not started");
+      if (call === 1) return callTool("browser_use", { action: "status" });
+      const result = browserUseResultSchema.parse(toolOutput(body.input, `fixture-call-${call - 1}`));
+      if (call === 2) {
+        assert(result.ok && result.data.connected && result.data.browser === "chrome", "Mac did not see the real Chromium extension");
+        return callTool("browser_use", { action: "tabs" });
+      }
+      if (call === 3) {
+        assert(result.ok && result.data.tabs?.length === 1, "only the shared fixture tab may be visible");
+        const [tab] = result.data.tabs;
+        assert(tab && tab.title === extension.title && tab.url === extension.url);
+        sharedTab = tab.tab_id;
+        return callTool("browser_use", { action: "snapshot", tab_id: sharedTab });
+      }
+      if (call === 4) {
+        assert(result.ok && result.data.tab_id === sharedTab && result.data.title === extension.title && sharedTab);
+        const button = result.data.elements?.find(element => element.role === "button" && element.name === extension?.button);
+        assert(button, "Chromium did not return the fixture button's ref");
+        sharedClick = { action: "click", tab_id: sharedTab, ref: button.ref };
+        return callTool("browser_use", sharedClick);
+      }
+      if (call === 5) {
+        assert(sharedClick && result.ok && result.data.tab_id === sharedTab, "the approved Chromium click failed");
+        await extension.assertClickCounts(1);
+        await extension.revoke();
+        return callTool("browser_use", sharedClick);
+      }
+      assert.equal(call, 6, "unexpected Chromium action or replay");
+      assert.deepEqual(result, browserUseFailure("BROWSER_USE_NOT_CONNECTED"));
+      return reply.type("text/event-stream").send(responseStream({
+        id: "fixture-chromium-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
+        content: [{ type: "output_text", text: "The Chromium fixture was clicked once and revoked.", annotations: [] }],
+      }));
+    }
     const fixtureClick = { action: "click", tab_id: input.browser.tabId, ref: input.browser.ref };
     if (interruptApproval) {
       assert.equal(call, 1, "interrupted browser approval replayed the turn");
@@ -941,6 +1001,38 @@ export async function verifyPackagedDesktopGateway(input: {
       event.event_type === "turn/completed" && event.turn_id === pending.turn_id,
     ).length, 1);
 
+    if (input.attachBrowserExtension) {
+      extension = await input.attachBrowserExtension();
+      const joined = await task("Packaged Mac with real Chromium extension");
+      const run = await conversations.acceptTurn(ownerId, joined.id, submission(joinedBrowserPrompt, "desktop-chromium"), {});
+      const actions = ["status", "tabs", "snapshot", "click", "click"] as const;
+      for (const [index, action] of actions.entries()) {
+        const request = await waitForBrowserApproval(joined.id, run.turn_id, action);
+        assert.equal(request.itemId, `fixture-call-${index + 1}`);
+        assert.equal(await browserAuditCount(run.turn_id), index, `${action} reached the gateway before its approval`);
+        await extension.assertClickCounts(index === actions.length - 1 ? 1 : 0);
+        assert.equal((await conversations.respondToUserInputRequest(ownerId, joined.id, request.id, {
+          action: "accept", content: { [request.questionId]: "Allow" },
+        }, {})).status, "answered");
+      }
+      await waitFor("the completed Chromium turn and slot release", async () =>
+        await status(run.turn_id) === "completed" && !await redis.hasTurnSlot(joined.id, run.turn_id, ownerId),
+      );
+      assert.equal(modelRequests.browser, 6);
+      const audit = await prisma.auditLog.findMany({
+        where: { action: "desktop_tool_requested", targetType: "browser_use", metadataJson: { path: ["turn_id"], equals: run.turn_id } },
+        select: { result: true, metadataJson: true },
+        orderBy: { createdAt: "asc" },
+      });
+      const auditMetadata = z.object({ browser_action: z.string(), reason_code: z.string().optional() });
+      assert.deepEqual(audit.map(row => ({ result: row.result, ...auditMetadata.parse(row.metadataJson) })), [
+        ...actions.slice(0, -1).map(browser_action => ({ result: "success", browser_action })),
+        { result: "failure", browser_action: "click", reason_code: "BROWSER_USE_NOT_CONNECTED" },
+      ]);
+      await extension.assertClickCounts(1);
+      console.log("Joined Mac and Chromium passed: paired via popup, listed only the shared tab, approved snapshot and one click, revoked via HTTP, denied the next approved click (BROWSER_USE_NOT_CONNECTED); shared count = 1, unshared count = 0.");
+    }
+
     child.stdin.end();
     assert.equal(await childExit, 0, "native bridge failed to stop cleanly");
     assert.equal(modelRequests.interrupt, 1);
@@ -961,7 +1053,7 @@ export async function verifyPackagedDesktopGateway(input: {
       child.kill();
       await childExit?.catch(() => null);
     }
-    await model.close();
+    await model.close().finally(() => extension?.close());
   }
 }
 

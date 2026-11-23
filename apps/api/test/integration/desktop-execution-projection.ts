@@ -38,6 +38,7 @@ import { Queue } from "bullmq";
 import Fastify from "fastify";
 import JSZip from "jszip";
 import { WebSocket } from "ws";
+import { z } from "zod";
 
 import { BackgroundJobs, type MaintenanceJob } from "../../src/adapters/jobs.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -78,7 +79,9 @@ import { WebSiteService } from "../../src/modules/web-sites/service.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
 import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js";
-import { installPackagedAttachmentTransferGate, verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
+import {
+  installPackagedAttachmentTransferGate, verifyPackagedDesktopGateway, type AttachDesktopBrowserExtension,
+} from "./desktop-package-roundtrip.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
 import { attachDesktopBrowserFixture } from "./desktop-browser-fixture.js";
@@ -126,6 +129,8 @@ export async function verifyDesktopExecutionProjection(input: {
     "desktop-maintenance-fixture", { connection: { path: socketPath } },
   );
   const app = Fastify();
+  const joinBrowserExtension = process.env.LINKSENSE_TEST_DESKTOP_BROWSER_EXTENSION === "1";
+  const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   const sockets: WebSocket[] = [];
   const relayUploads = new Set<string>();
@@ -139,9 +144,12 @@ export async function verifyDesktopExecutionProjection(input: {
     const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
     const leases = new DesktopRunLeases(redis.client, (scope, phase) => isDesktopRunActive(prisma, coordinator, scope, phase));
     const browserStore = new RedisBrowserStore(redis.client);
+    assert(!joinBrowserExtension || runtimeRoot, "the Chromium fixture requires a staged Mac runtime");
     const browser = new BrowserUseService(browserStore, "http://127.0.0.1/api/v1/browser-use", {
       ...config, isActiveRun: scope => leases.isActiveToolScope(scope),
     });
+    if (joinBrowserExtension) app.get("/settings/general", (_request, reply) => reply.type("text/html")
+      .send("<!doctype html><title>LinkSense pairing fixture</title>"));
     const runner = new RunnerClient(config, async (owner, conversationId) => {
       const row = await prisma.conversation.findFirst({
         where: { id: conversationId, ownerId: owner },
@@ -259,6 +267,10 @@ export async function verifyDesktopExecutionProjection(input: {
       socket.once("close", () => { attachmentSockets.delete(socket); });
     });
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    if (joinBrowserExtension) {
+      // Only the real Chromium fixture needs the kernel-assigned pairing origin.
+      Object.defineProperty(browser, "endpoint", { value: new URL("/api/v1/browser-use", address).href });
+    }
     const browserFixture = await attachDesktopBrowserFixture({ app, address, ownerId });
     sockets.push(browserFixture.socket);
     const connect = async (expectRecovery = true, tools = false, operations = false) => {
@@ -968,7 +980,6 @@ export async function verifyDesktopExecutionProjection(input: {
     }
     await conversations.delete(ownerId, legacyProbe.id, {});
 
-    const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
     if (runtimeRoot) {
       replacement.socket.terminate();
       const websiteStore = new WebSiteRepository(prisma);
@@ -992,6 +1003,15 @@ export async function verifyDesktopExecutionProjection(input: {
         searchMarker,
         connector,
         browser: browserFixture,
+        ...(joinBrowserExtension && {
+          attachBrowserExtension: async () => {
+            const helper = new URL("../../../web/e2e/support/desktop-browser-extension.ts", import.meta.url);
+            const { attachDesktopBrowserExtension } = z.object({
+              attachDesktopBrowserExtension: z.custom<AttachDesktopBrowserExtension>(value => typeof value === "function"),
+            }).parse(await import(helper.href));
+            return attachDesktopBrowserExtension({ address, ownerId, scratch: input.workspaceRoot });
+          },
+        }),
         knowledge: {
           baseId: knowledge.owned.base.id, baseName: knowledge.owned.base.name,
           documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,

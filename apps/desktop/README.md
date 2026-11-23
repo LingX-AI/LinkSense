@@ -515,6 +515,14 @@ The fixture uses a local synthetic provider. Separate acceptance is required
 for orphaned Shell processes after a force quit, installed upgrades and
 production signing/notarization.
 
+For the joined Browser Use check on Apple silicon, run `pnpm desktop:prepare`, [build the extension](../../docs/development/browser-use.md#构建与部署), and have Playwright Chromium, `initdb`, `pg_ctl`, and `redis-server` installed. With workspace dependencies and the Prisma client ready, run from the repository root:
+
+```sh
+LINKSENSE_TEST_DESKTOP_BROWSER_EXTENSION=1 LINKSENSE_DESKTOP_RUNTIME_DIST="$PWD/apps/desktop/resources/darwin-arm64/runtime" pnpm test:desktop:postgres
+```
+
+It uses disposable PostgreSQL and Redis, a fresh Chromium profile, and simulated authentication and inference. Verify the flow in the signed, installed app separately.
+
 On macOS, **Settings → General → This Mac** shows this Mac's native device
 state and the account's paired devices. A signed-in account pairs this Mac by
 naming it; the page requests a one-time pairing code and hands it to the native
