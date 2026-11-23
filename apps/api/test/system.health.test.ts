@@ -137,6 +137,25 @@ describe("system health", () => {
     })
   })
 
+  it("advertises the exact desktop target availability resolved from launch flags", async () => {
+    const defaults = createSystemService(directory)
+
+    expect((await defaults.service.bootstrap()).desktop).toEqual({
+      local_computer: false,
+      cloud_target: true,
+    })
+
+    const configured = createSystemService(directory, {
+      desktopLocalExecutionEnabled: true,
+      desktopCloudTargetEnabled: false,
+    })
+
+    expect((await configured.service.bootstrap()).desktop).toEqual({
+      local_computer: true,
+      cloud_target: false,
+    })
+  })
+
   it("advertises every locale accepted by user preferences", async () => {
     const { service } = createSystemService(directory)
 
@@ -728,6 +747,8 @@ function createSystemService(
     publicBaseUrl?: string
     initializationToken?: string
     systemSettingsJson?: Record<string, unknown>
+    desktopLocalExecutionEnabled?: boolean
+    desktopCloudTargetEnabled?: boolean
     authenticationSettings?: AuthenticationSettingsReader
     knowledgeHealth?: ConstructorParameters<typeof SystemService>[9]
   } = {},
@@ -787,6 +808,20 @@ function createSystemService(
     ...(overrides.publicBaseUrl
       ? { LINKSENSE_PUBLIC_BASE_URL: overrides.publicBaseUrl }
       : {}),
+    ...(overrides.desktopLocalExecutionEnabled === undefined
+      ? {}
+      : {
+          LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: String(
+            overrides.desktopLocalExecutionEnabled,
+          ),
+        }),
+    ...(overrides.desktopCloudTargetEnabled === undefined
+      ? {}
+      : {
+          LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: String(
+            overrides.desktopCloudTargetEnabled,
+          ),
+        }),
     LINKSENSE_INITIALIZATION_TOKEN: overrides.initializationToken,
   })
   return {

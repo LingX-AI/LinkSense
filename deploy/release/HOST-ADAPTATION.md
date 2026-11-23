@@ -135,6 +135,47 @@ This upgrades the existing instance and management tools; it does not require
 recreating accounts, resources, or data volumes. Subsequent upgrades use the
 updated installed tooling.
 
+## Desktop cloud target entry
+
+`LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED` advertises the desktop cloud-target
+entry for newly created tasks in the Mac app through the public bootstrap
+response (`desktop.cloud_target`). It only gates that entry: it is not an
+admission or security restriction, and disabling it does not stop existing
+tasks, cloud execution, or normal Web and app use. This entry flag does not
+change the separate local-execution guard used for white-box testing.
+
+Upgrade to a release whose API, Compose files, and installed management tools
+recognize the key before adding it to the installed `.env`. Use the current
+release upgrade procedure in
+[Check and install LinkSense updates](../../apps/docs/docs/admin-guide/system-update.md);
+for an installation created before host adaptation, use the current root
+bootstrap described under [Fresh resource profiles](#fresh-resource-profiles).
+Older installed tools reject the unknown runtime key during repair or upgrade,
+and an older Compose file does not pass it to the API.
+
+Add the key to the protected `<install-dir>/.env` as an unquoted value. The API
+accepts only `true` or `false` and rejects any other value at startup; Compose
+treats an absent or empty value as the default `true`.
+
+```sh
+LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=false
+```
+
+Apply it with the existing `linksense start` path, which uses Compose `up` to
+recreate containers whose environment changed. `linksense restart` only
+restarts the existing containers and reuses their environment.
+
+Verify the installed origin through the public bootstrap route
+`GET /api/v1/system/bootstrap`. `linksense address` reports the installed public
+base URL; the success envelope's `data.desktop.cloud_target` must be `false`:
+
+```sh
+curl -fsS "$(linksense address)/api/v1/system/bootstrap"
+```
+
+To re-enable, set `true` (or remove the assignment to use the default) and
+apply it with `linksense start` again.
+
 ## Downloads and resumable installation
 
 Script/resource downloads use HTTPS and redirect restrictions, connect and

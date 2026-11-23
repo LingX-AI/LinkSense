@@ -81,6 +81,26 @@ describe("parseConfig", () => {
       .toThrow("desktop_local_execution_not_released")
   })
 
+  it("keeps the desktop cloud target entry on by default and accepts only strict booleans", () => {
+    expect(parseConfig(testEnvironment()).desktopCloudTargetEnabled).toBe(true)
+    expect(parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: "true" }))
+      .desktopCloudTargetEnabled).toBe(true)
+    expect(parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: "false" }))
+      .desktopCloudTargetEnabled).toBe(false)
+    expect(() => parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: "0" })))
+      .toThrow()
+    expect(() => parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: "yes" })))
+      .toThrow()
+  })
+
+  it("does not let the desktop cloud entry flag relax the production local-execution block", () => {
+    expect(() => parseConfig(testEnvironment({
+      NODE_ENV: "production",
+      LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true",
+      LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: "false",
+    }))).toThrow("desktop_local_execution_not_released")
+  })
+
   it("requires separate opt-in for the API desktop Browser Use transport", () => {
     const localExecution = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
     const desktopBrowser = { LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: "true" }

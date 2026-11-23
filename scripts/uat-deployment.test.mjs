@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
+import { parseEnv } from "node:util";
 import { prepareUat } from "../deploy/uat/prepare.mjs";
 
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
@@ -46,6 +47,21 @@ test("UAT updates preserve operator-supplied dynamic application settings", t =>
   writeFileSync(file, readFileSync(file, "utf8") + settings);
   prepareUat(root, { revision: "b".repeat(40), publicUrl: "http://localhost:19090" });
   assert.ok(readFileSync(file, "utf8").endsWith(settings));
+});
+
+test("UAT repeated updates preserve a desktop cloud target opt-out", t => {
+  const root = fixture(t);
+  prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+  const file = resolve(root, ".data/uat/runtime.env");
+  const assignment = 'LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED="false"\n';
+  writeFileSync(file, readFileSync(file, "utf8") + assignment);
+  for (const revisionDigit of ["b", "c"]) {
+    prepareUat(root, { revision: revisionDigit.repeat(40), publicUrl: "http://localhost:19090" });
+    const written = readFileSync(file, "utf8");
+    assert.ok(written.endsWith(assignment));
+    assert.equal(written.split(assignment).length, 2);
+    assert.equal(parseEnv(written).LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED, "false");
+  }
 });
 
 test("UAT repeated updates preserve optional assignment bytes and keep multiline passwords out of managed settings", t => {

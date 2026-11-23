@@ -418,6 +418,35 @@ test("Compose forwards bounded ClawHub synchronization settings to the API", asy
   );
 });
 
+test("API Compose maps the desktop cloud target entry flag with a default true", async () => {
+  const [baseSource, releaseSource, environmentExample] = await Promise.all([
+    readFile(composePath, "utf8"),
+    readFile(resolve("deploy/release/compose.common.yml"), "utf8"),
+    readFile(environmentExamplePath, "utf8"),
+  ]);
+  for (const source of [baseSource, releaseSource]) {
+    const api = section(source, "  api:", "  web:");
+    assert.match(
+      api,
+      /^\s+LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: \$\{LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED:-true\}$/mu,
+    );
+    assert.equal(
+      [...source.matchAll(/^\s+LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED:/gmu)]
+        .length,
+      1,
+      "the desktop cloud target entry flag must map only the API service",
+    );
+    assert.doesNotMatch(
+      source,
+      /LINKSENSE_DESKTOP_(?:LOCAL_EXECUTION|BROWSER_USE|NATIVE_APPROVALS|ARTIFACTS|WEBSITE_ARTIFACTS|COMPUTER_USE)_ENABLED/u,
+    );
+  }
+  assert.match(
+    environmentExample,
+    /^LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=true$/mu,
+  );
+});
+
 test("production stack Compose exposes the merged deployment through one platform-independent entrypoint", async () => {
   const compose = await readFile(productionStackComposePath, "utf8");
 

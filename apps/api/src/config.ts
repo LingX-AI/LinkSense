@@ -333,6 +333,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
     LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: z
       .enum(["true", "false"])
       .default("false")
@@ -632,6 +636,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
+    desktopCloudTargetEnabled: raw.LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED,
     desktopBrowserUseEnabled: raw.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED,
     desktopNativeApprovalsEnabled: raw.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
     desktopArtifactsEnabled: raw.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,

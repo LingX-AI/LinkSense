@@ -1,10 +1,12 @@
 import Fastify, { type FastifyRequest } from "fastify";
+import pino from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { conversationRoutes } from "../src/modules/conversations/routes.js";
 import type { AppServices } from "../src/services.js";
+import { testConfig } from "./test-config.js";
 import type { SideChatSelection } from "@linksense/shared";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -234,7 +236,9 @@ describe("conversation create route", () => {
   });
 
   it("passes an explicit local device and rejects inconsistent execution selections", async () => {
-    const { app, create } = await conversationRouteFixture();
+    const { app, create } = await conversationRouteFixture(null, false, {
+      desktopLocalExecutionEnabled: true,
+    });
     const device = "10000000-0000-4000-8000-000000000009";
     expect((await app.inject({
       method: "POST", url: "/conversations", payload: { execution_target: "local", desktop_device_id: device },
@@ -248,6 +252,79 @@ describe("conversation create route", () => {
       expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
     }
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a valid local task with the existing unavailable error before the service when desktop execution is disabled", async () => {
+    const logLines: Record<string, unknown>[] = [];
+    const { app, create, config } = await conversationRouteFixture(null, false, { logLines });
+    expect(config.desktopLocalExecutionEnabled).toBe(false);
+    const device = "10000000-0000-4000-8000-000000000009";
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: { execution_target: "local", desktop_device_id: device },
+    });
+
+    expect(response.statusCode, response.body).toBe(503);
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "RUNNER_UNAVAILABLE",
+      message_key: "errors.runner.unavailable",
+      message: "执行服务暂不可用，请稍后重试。",
+      request_id: expect.any(String),
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(logLines).toHaveLength(1);
+    expect(logLines[0]).toMatchObject({
+      event: "desktop_local_execution_denied",
+      target: "local",
+      reason_code: "desktop_local_execution_disabled",
+      reqId: expect.any(String),
+    });
+    expect(JSON.stringify(logLines)).not.toContain(device);
+  });
+
+  it("keeps cloud task creation available when the desktop cloud entry is disabled", async () => {
+    const { app, create, config } = await conversationRouteFixture(null, false, {
+      desktopCloudTargetEnabled: false,
+    });
+    expect(config.desktopCloudTargetEnabled).toBe(false);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: {},
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({
+      executionTarget: "cloud",
+      desktopDeviceId: null,
+    }));
+  });
+
+  it("keeps invalid bodies and unauthenticated requests ahead of the desktop admission gate", async () => {
+    const { app, create } = await conversationRouteFixture();
+    for (const payload of [
+      { execution_target: "local" },
+      { execution_target: "hybrid" },
+    ]) {
+      expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
+    }
+    expect(create).not.toHaveBeenCalled();
+
+    const unauthenticated = await conversationRouteFixture(null, false, { authenticated: false });
+    const response = await unauthenticated.app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: {
+        execution_target: "local",
+        desktop_device_id: "10000000-0000-4000-8000-000000000009",
+      },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(unauthenticated.create).not.toHaveBeenCalled();
   });
 
   it("rejects removed server-draft fields", async () => {
@@ -1454,6 +1531,12 @@ describe("conversation pending request route", () => {
 async function conversationRouteFixture(
   applicationId: string | null = null,
   applicationAllowsUserModelSelection = false,
+  options: {
+    desktopLocalExecutionEnabled?: boolean;
+    desktopCloudTargetEnabled?: boolean;
+    authenticated?: boolean;
+    logLines?: Record<string, unknown>[];
+  } = {},
 ) {
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
   const getInteractiveTaskState = vi.fn(async () => ({ status: "idle", turn_id: null, file_ids: [], can_submit: true, interrupt_requested: false }));
@@ -1661,9 +1744,38 @@ async function conversationRouteFixture(
     created_at: "2026-09-03T04:00:00.000Z",
     updated_at: "2026-09-03T04:00:00.000Z",
   }));
-  const app = Fastify();
+  const config = testConfig({
+    ...(options.desktopLocalExecutionEnabled === undefined
+      ? {}
+      : {
+          LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: String(
+            options.desktopLocalExecutionEnabled,
+          ),
+        }),
+    ...(options.desktopCloudTargetEnabled === undefined
+      ? {}
+      : {
+          LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: String(
+            options.desktopCloudTargetEnabled,
+          ),
+        }),
+  });
+  const logLines = options.logLines;
+  const app = Fastify({
+    loggerInstance: pino(
+      { level: logLines ? "warn" : "silent" },
+      logLines
+        ? {
+            write(line: string) {
+              logLines.push(JSON.parse(line) as Record<string, unknown>);
+            },
+          }
+        : undefined,
+    ),
+  });
   apps.push(app);
   app.decorate("authenticate", async (request: FastifyRequest) => {
+    if (options.authenticated === false) throw new AppError("AUTH_REQUIRED");
     request.authUser = {
       id: OWNER_ID,
       email: "owner@example.test",
@@ -1681,6 +1793,7 @@ async function conversationRouteFixture(
   await app.register(conversationRoutes, {
     prefix: "/conversations",
     services: {
+      config,
       conversations: {
         getSideChat,
         openSideChat,
@@ -1723,6 +1836,7 @@ async function conversationRouteFixture(
   });
   return {
     app,
+    config,
     getSideChat,
     openSideChat,
     getInteractiveTaskState,

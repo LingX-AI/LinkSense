@@ -32,6 +32,10 @@ docker compose --project-directory "$PWD" --env-file .data/uat/runtime.env -p li
 
 公开访问时应使用 HTTPS；HTTP 适合本机或可信测试网络，部分浏览器能力和第三方登录需要 HTTPS。
 
+## 可选：关闭桌面端云目标入口
+
+桌面端云目标入口默认开启。如需在 UAT 关闭该入口，在 `.data/uat/runtime.env` 中设置 `LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=false`；`prepare.mjs` 会在后续部署中保留该值。该开关只影响新任务的桌面入口，不阻止已有任务或云端执行。
+
 ## 可选：动态应用（Appwrite）接入
 
 UAT 默认关闭动态应用。在 `.data/uat/runtime.env` 中提供 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`（管理员属于多个组织时再加 `LINKSENSE_APPWRITE_ORGANIZATION_ID`）后，`prepare.mjs` 会在后续部署中保留这些值。新建应用使用主站 `/app/{address}` 沙箱和 SDK，无需额外泛域名或证书。历史独立域名应用仍须保留 `LINKSENSE_DYNAMIC_APPS_BASE_URL` 和原入口；不要清空既有配置来切换运行模式。相关配置全为空时保持关闭。

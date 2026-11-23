@@ -20,6 +20,7 @@ import {
 } from "@linksense/shared";
 
 import { ok } from "../../lib/http.js";
+import { AppError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
 import { MAX_CONVERSATION_TITLE_CHARACTERS } from "../../lib/conversation-title.js";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
@@ -213,6 +214,14 @@ export const conversationRoutes: FastifyPluginAsync<{
   app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const body = conversationCreateInputSchema.parse(request.body);
+    if (body.execution_target === "local" && !services.config.desktopLocalExecutionEnabled) {
+      request.log.warn({
+        event: "desktop_local_execution_denied",
+        target: "local",
+        reason_code: "desktop_local_execution_disabled",
+      });
+      throw new AppError("RUNNER_UNAVAILABLE");
+    }
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
       executionTarget: body.execution_target,
