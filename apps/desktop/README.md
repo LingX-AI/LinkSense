@@ -93,11 +93,12 @@ intact, and a localized bounded failure is shown without the path or raw error.
 A second menu selection while an export is in progress does not open another
 save panel.
 
-Crash-log retention and crash reporting remain separate from this export. This
-menu action does not read, package, upload or verify local crash logs, and it
-adds no telemetry or reporting subsystem. The plan's local crash-log retention
-and crash-reporting switch remain separate work; this slice does not claim a
-live crash UI, log retention or crash reporting.
+**View Crash Reports…**, next to the export action, opens macOS Console. Select
+**Crash Reports** in its sidebar to look for reports about LinkSense. macOS
+creates and retains those reports. LinkSense does not read or send them. Review
+any report for sensitive information before sharing it. The separate opt-in
+crash reporter is not implemented; it needs a reporting service and an agreed
+privacy policy.
 
 ### Local workspaces
 

@@ -17,5 +17,8 @@
   "diagnosticsExportTitle": "LinkSense の診断情報を書き出す",
   "diagnosticsPrivacy": "レポートには、アプリのバージョン、デバイスの接続状態、macOS の権限状態、最新の既知の接続エラーコードのみが含まれます。名前、識別子、パス、メッセージ、スクリーンショット、認証情報、ログは含まれません。",
   "diagnosticsExportFailedHeading": "診断情報の書き出しに失敗しました",
-  "diagnosticsExportFailedDetail": "診断ファイルを保存できませんでした。既存のファイルは置き換えていません。別の場所を選んで、もう一度お試しください。"
+  "diagnosticsExportFailedDetail": "診断ファイルを保存できませんでした。既存のファイルは置き換えていません。別の場所を選んで、もう一度お試しください。",
+  "viewCrashReports": "クラッシュレポートを表示…",
+  "crashReportsOpenFailedHeading": "コンソールを開けませんでした",
+  "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。"
 }

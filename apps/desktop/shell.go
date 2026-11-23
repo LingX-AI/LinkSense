@@ -21,6 +21,11 @@ var trayIcon []byte
 
 var desktopNavigate = mygo.NewEvent[string]("desktop:navigate")
 
+var (
+	openCrashReportsPath    = mygo.Shell.OpenPath
+	showCrashReportsMessage = mygo.Dialog.Message
+)
+
 // presentMainWindow runs on the main thread and keeps the existing WebView
 // when reopening a hidden window.
 func (d *Desktop) presentMainWindow() *mygo.Window {
@@ -112,11 +117,28 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	// Emergency pause must not block the main thread on the acknowledgement.
 	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
 	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
+	viewCrashReports := func(*mygo.MenuItem, *mygo.Window) {
+		if d.quitting.Load() || openCrashReportsPath("/System/Applications/Utilities/Console.app") == nil {
+			return
+		}
+		log.Print("DESKTOP_CRASH_REPORTS_OPEN_FAILED")
+		go func() {
+			if !d.quitting.Load() {
+				_, _ = showCrashReportsMessage(mygo.MessageOptions{
+					Parent:  d.mainWindow(),
+					Type:    mygo.MessageError,
+					Message: tx.CrashReportsOpenFailedHeading(),
+					Detail:  tx.CrashReportsOpenFailedDetail(),
+				})
+			}
+		}()
+	}
 	app := mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
 			{ID: "desktop-updates", Label: tx.DesktopUpdates(), Click: openSettings},
 			{ID: "export-diagnostics", Label: tx.ExportDiagnostics(), Click: exportDiagnostics},
+			{ID: "view-crash-reports", Label: tx.ViewCrashReports(), Click: viewCrashReports},
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
 			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: "Cmd+Shift+Esc", Click: pauseComputer},

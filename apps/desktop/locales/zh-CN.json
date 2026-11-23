@@ -17,5 +17,8 @@
   "diagnosticsExportTitle": "导出 LinkSense 诊断信息",
   "diagnosticsPrivacy": "报告仅包含应用版本、设备连接状态、macOS 权限状态以及最新的已知连接错误码。不会包含名称、标识符、路径、消息、屏幕截图、凭据或日志。",
   "diagnosticsExportFailedHeading": "诊断信息导出失败",
-  "diagnosticsExportFailedDetail": "无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。"
+  "diagnosticsExportFailedDetail": "无法保存诊断文件。未替换任何现有文件。请选择其他位置后重试。",
+  "viewCrashReports": "查看崩溃报告…",
+  "crashReportsOpenFailedHeading": "无法打开控制台",
+  "crashReportsOpenFailedDetail": "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。"
 }

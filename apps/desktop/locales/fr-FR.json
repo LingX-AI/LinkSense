@@ -17,5 +17,8 @@
   "diagnosticsExportTitle": "Exporter les diagnostics de LinkSense",
   "diagnosticsPrivacy": "Le rapport contient uniquement la version de l’application, l’état de connexion de l’appareil, les états des autorisations macOS et le dernier code d’erreur de connexion connu. Il ne contient jamais de noms, d’identifiants, de chemins, de messages, de captures d’écran, d’identifiants de connexion ni de journaux.",
   "diagnosticsExportFailedHeading": "Échec de l’exportation des diagnostics",
-  "diagnosticsExportFailedDetail": "Impossible d’enregistrer le fichier de diagnostic. Aucun fichier existant n’a été remplacé. Choisissez un autre emplacement et réessayez."
+  "diagnosticsExportFailedDetail": "Impossible d’enregistrer le fichier de diagnostic. Aucun fichier existant n’a été remplacé. Choisissez un autre emplacement et réessayez.",
+  "viewCrashReports": "Afficher les rapports de blocage…",
+  "crashReportsOpenFailedHeading": "Impossible d’ouvrir Console",
+  "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale."
 }

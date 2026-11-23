@@ -17,5 +17,8 @@
   "diagnosticsExportTitle": "Exportar diagnósticos do LinkSense",
   "diagnosticsPrivacy": "O relatório inclui apenas a versão do aplicativo, o estado de conexão do dispositivo, os estados das permissões do macOS e o código de erro de conexão conhecido mais recente. Ele nunca inclui nomes, identificadores, caminhos, mensagens, capturas de tela, credenciais ou registros.",
   "diagnosticsExportFailedHeading": "Falha ao exportar os diagnósticos",
-  "diagnosticsExportFailedDetail": "Não foi possível salvar o arquivo de diagnóstico. Nenhum arquivo existente foi substituído. Escolha outro local e tente novamente."
+  "diagnosticsExportFailedDetail": "Não foi possível salvar o arquivo de diagnóstico. Nenhum arquivo existente foi substituído. Escolha outro local e tente novamente.",
+  "viewCrashReports": "Ver relatórios de falha…",
+  "crashReportsOpenFailedHeading": "Não foi possível abrir o Console",
+  "crashReportsOpenFailedDetail": "Abra o Console em Aplicativos > Utilitários e selecione “Relatórios de Falha” na barra lateral."
 }

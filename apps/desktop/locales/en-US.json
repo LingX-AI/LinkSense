@@ -17,5 +17,8 @@
   "diagnosticsExportTitle": "Export LinkSense Diagnostics",
   "diagnosticsPrivacy": "The report contains only the app version, device connection state, macOS permission states, and the latest known connection error code. It never includes names, identifiers, paths, messages, screenshots, credentials, or logs.",
   "diagnosticsExportFailedHeading": "Diagnostics export failed",
-  "diagnosticsExportFailedDetail": "The diagnostics file could not be saved. No existing file was replaced. Choose another location and try again."
+  "diagnosticsExportFailedDetail": "The diagnostics file could not be saved. No existing file was replaced. Choose another location and try again.",
+  "viewCrashReports": "View Crash Reports…",
+  "crashReportsOpenFailedHeading": "Could not open Console",
+  "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar."
 }

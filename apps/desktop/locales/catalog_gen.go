@@ -227,3 +227,33 @@ func DiagnosticsExportFailedDetail() string { return In(i18n.Locale()).Diagnosti
 func (msgs Messages) DiagnosticsExportFailedDetail() string {
 	return Catalog.Format(msgs.locale, "diagnosticsExportFailedDetail", nil)
 }
+
+// ViewCrashReports says "查看崩溃报告…"
+// in the language the app shows.
+func ViewCrashReports() string { return In(i18n.Locale()).ViewCrashReports() }
+
+// ViewCrashReports says "查看崩溃报告…"
+// in the language of msgs.
+func (msgs Messages) ViewCrashReports() string {
+	return Catalog.Format(msgs.locale, "viewCrashReports", nil)
+}
+
+// CrashReportsOpenFailedHeading says "无法打开控制台"
+// in the language the app shows.
+func CrashReportsOpenFailedHeading() string { return In(i18n.Locale()).CrashReportsOpenFailedHeading() }
+
+// CrashReportsOpenFailedHeading says "无法打开控制台"
+// in the language of msgs.
+func (msgs Messages) CrashReportsOpenFailedHeading() string {
+	return Catalog.Format(msgs.locale, "crashReportsOpenFailedHeading", nil)
+}
+
+// CrashReportsOpenFailedDetail says "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。"
+// in the language the app shows.
+func CrashReportsOpenFailedDetail() string { return In(i18n.Locale()).CrashReportsOpenFailedDetail() }
+
+// CrashReportsOpenFailedDetail says "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。"
+// in the language of msgs.
+func (msgs Messages) CrashReportsOpenFailedDetail() string {
+	return Catalog.Format(msgs.locale, "crashReportsOpenFailedDetail", nil)
+}
