@@ -17,6 +17,7 @@ import { DesktopCommandUncertainError, type DesktopDeviceTransport } from "../..
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
+import { lockDesktopConversationForRetirement } from "../desktop-credentials/run-authority.js";
 import {
   desktopRunLeaseKey,
   desktopRunScopeSchema,
@@ -1173,7 +1174,13 @@ export class PrismaDesktopComputerControl implements DesktopComputerControlStore
   async discard(input: { scope: DesktopRunScope; selection: DesktopComputerSelection }): Promise<void> {
     const exact = { ...input.scope, connectionId: input.selection.connectionId };
     try {
-      await withDesktopComputerLock(this.prisma, exact, async tx => {
+      // A real device revoke retires the credential before the socket close
+      // runs this cleanup, so the live-only conversation lock would refuse the
+      // exact scope and leave stale metadata until expiry. The retirement lock
+      // takes the same row locks and binding predicates but authorizes
+      // nothing; every exact-identity check below is unchanged.
+      await this.prisma.$transaction(async tx => {
+        await lockDesktopConversationForRetirement(tx, exact);
         const cleared = await this.selections.clear(exact, input.selection);
         if (cleared) {
           // Holder release is downstream of the exact clear only; the holder

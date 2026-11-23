@@ -18,12 +18,17 @@ export async function lockDesktopArtifactPublication(tx: Prisma.TransactionClien
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`desktop-artifact:${turnId.toLowerCase()}`}, 0))`;
 }
 
-/** Hold the same device and account credential fence until the projection commits. */
-export async function lockDesktopConversation(
+type LockedDesktopConversationRow = BoundDeviceCredential & { codexThreadId: string | null };
+
+/**
+ * Shared exact row lock and binding predicates for one bound conversation.
+ * Callers decide separately whether a live credential is required.
+ */
+async function lockDesktopConversationRow(
   tx: Prisma.TransactionClient,
   { ownerId, deviceId, conversationId, runtimeGeneration }: DesktopConversationBinding,
-): Promise<{ codexThreadId: string | null; ownerEpoch: Date }> {
-  const [row] = await tx.$queryRaw<Array<BoundDeviceCredential & { codexThreadId: string | null }>>`
+): Promise<LockedDesktopConversationRow | undefined> {
+  const [row] = await tx.$queryRaw<LockedDesktopConversationRow[]>`
     SELECT d.revoked_at AS "revokedAt", d.auth_valid_after AS "deviceEpoch",
       u.auth_valid_after AS "ownerEpoch", u.status AS "ownerStatus", c.codex_thread_id AS "codexThreadId"
     FROM conversations c
@@ -33,8 +38,37 @@ export async function lockDesktopConversation(
       AND c.archive_status = 'active' AND c.execution_target = 'local'
       AND c.runtime_generation = ${runtimeGeneration}::uuid AND d.id = ${deviceId}::uuid AND d.platform = 'darwin'
     FOR NO KEY UPDATE OF c FOR SHARE OF d, u`;
+  return row;
+}
+
+/** Hold the same device and account credential fence until the projection commits. */
+export async function lockDesktopConversation(
+  tx: Prisma.TransactionClient,
+  binding: DesktopConversationBinding,
+): Promise<{ codexThreadId: string | null; ownerEpoch: Date }> {
+  const row = await lockDesktopConversationRow(tx, binding);
   if (!currentCredential(row)) throw new AppError("FORBIDDEN");
   return row;
+}
+
+/**
+ * Cleanup-only lock for retiring one already-bound selection generation.
+ *
+ * A real device revocation retires the credential row before the socket close
+ * releases selection metadata, so the live credential check above would refuse
+ * the exact scope that must be cleaned and leave stale Redis state until
+ * expiry. This entry point keeps the same row locks and owner/device/
+ * conversation/runtime-generation/platform/execution/archive predicates, and
+ * still throws FORBIDDEN when the binding is missing or has been rebound. It
+ * intentionally skips only the live credential check because it must never
+ * authorize an operation: its sole caller is selection retirement, which may
+ * remove precisely scoped metadata and end that retired session.
+ */
+export async function lockDesktopConversationForRetirement(
+  tx: Prisma.TransactionClient,
+  binding: DesktopConversationBinding,
+): Promise<void> {
+  if (await lockDesktopConversationRow(tx, binding) === undefined) throw new AppError("FORBIDDEN");
 }
 
 export async function isDesktopRunActive(

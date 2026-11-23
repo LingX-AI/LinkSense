@@ -18,6 +18,8 @@ import {
   type DesktopComputerSelection,
 } from "../../src/modules/desktop-devices/computer-control.js";
 import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
+import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
+import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import {
   desktopRunLeaseKey,
   DesktopRunLeases,
@@ -133,7 +135,7 @@ try {
       submitMode: "normal", capabilityGeneration: "0".repeat(64), capabilitiesJson: [], startedAt: new Date(),
     },
   });
-  await db.conversationTurn.create({
+  const foreignTurn = await db.conversationTurn.create({
     data: {
       conversationId: foreign.id, sequenceNo: 1, submittedBy: other.id,
       codexThreadId: foreign.codexThreadId!, codexTurnId: randomUUID(), status: "running",
@@ -1510,11 +1512,229 @@ try {
   }));
   await otherReplica.revokeScope(statusPositive.scope);
 
-  // Account epoch changes invalidate the locked authority.
-  await db.user.update({ where: { id: other.id }, data: { authValidAfter: new Date(other.authValidAfter.getTime() + 1_000) } });
-  await coordinator.connect(otherDevice.id, randomUUID());
+  // ---------------------------------------------------------------------
+  // Retirement through a real device revocation. DesktopDeviceService
+  // retires the device row, every database session/grant, and the
+  // coordinator presence; the selection cleanup that follows is the only
+  // remaining Redis authority. The conversation lock used by discard must
+  // still accept the now-revoked credential row, or an exact idle selection
+  // would survive until its TTL. A wrong connection never clears; the exact
+  // old scope clears only its own idle selection; a sibling's pending input
+  // marker keeps its selection and holder byte for byte; and a serialized
+  // record written before pendingInput cannot prove that no act was admitted,
+  // so the same exact walk fences it and its holder as well.
+  // ---------------------------------------------------------------------
+  await coordinator.connect(device.id, replacementConnection);
+  const devices = new DesktopDeviceService(new PrismaDesktopDeviceRepository(db), coordinator);
+
+  // A different, still-healthy device keeps an exact live selection, holder,
+  // session, and act grant through the whole revoked-device walk. The owner
+  // epoch change below is the only thing that invalidates it.
+  const foreignDeviceRecord = await db.desktopDevice.findUniqueOrThrow({ where: { id: otherDevice.id } });
+  const otherConnection = randomUUID();
+  await coordinator.connect(otherDevice.id, otherConnection);
+  const otherScope: DesktopRunScope = {
+    ownerId: other.id, deviceId: otherDevice.id, connectionId: otherConnection,
+    conversationId: foreign.id, turnId: foreignTurn.id, runtimeGeneration: foreign.runtimeGeneration,
+  };
+  const otherRunToken = await bindRun(otherScope);
+  const otherSelection = await store.select({ scope: otherScope, selectionId: randomUUID(), bundleId });
+  await putHolder(otherScope, otherSelection);
+  const otherGrant = await actGrant(otherSelection);
+  const otherSelectionRaw = await redis.client.get(desktopComputerSelectionKey(otherScope));
+  const otherHolderRaw = await redis.client.get(localComputerGuiOccupancyKey(otherDevice.id));
+  if (otherSelectionRaw === null || otherHolderRaw === null) {
+    throw new Error("other device authority missing");
+  }
+
+  // A separate idle record carries its own holder, so this stage never
+  // overwrites another tested holder. The freshly stored value proves the
+  // known-idle null; deleting only that field with KEEPTTL models a record
+  // serialized before pendingInput existed.
+  const legacy = await runTurn();
+  const legacyHolder = await putHolder(legacy.scope, legacy.selection);
+  const legacyHolderRaw = await redis.client.get(localComputerGuiOccupancyKey(device.id));
+  const legacyRaw = await redis.client.get(desktopComputerSelectionKey(legacy.scope));
+  if (legacyHolderRaw === null || legacyRaw === null) throw new Error("legacy authority missing");
+  const legacyRecord = JSON.parse(legacyRaw) as Record<string, unknown>;
+  assert.equal(legacyRecord.pendingInput, null);
+  delete legacyRecord.pendingInput;
+  const legacyFieldlessRaw = JSON.stringify(legacyRecord);
+  await redis.client.set(desktopComputerSelectionKey(legacy.scope), legacyFieldlessRaw, "KEEPTTL");
+  const legacyStored = await redis.client.get(desktopComputerSelectionKey(legacy.scope));
+  if (legacyStored === null) throw new Error("legacy selection missing");
+  assert.equal(JSON.parse(legacyStored).pendingInput, undefined);
+  assert.equal(await store.read(legacy.scope), null);
+
+  // The exact connection walk fences the fieldless record byte for byte and
+  // retains its holder, while the other device's authority is untouched.
+  await otherReplica.releaseConnection(device.id, replacementConnection);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(legacy.scope)), legacyFieldlessRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), legacyHolderRaw);
+  assert.equal((await occupancy.read(device.id))?.holderId, legacyHolder);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(otherScope)), otherSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(otherDevice.id)), otherHolderRaw);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: otherSelection.sessionId },
+  })).status, "active");
+  assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({
+    where: { id: otherGrant.id },
+  })).revokedAt, null);
+  assert.equal(await occupancy.release(device.id, legacyHolder), true);
+
+  const retiring = await runTurn();
+  const sibling = await runTurn();
+  const siblingHolder = await putHolder(sibling.scope, sibling.selection);
+  const siblingCommand = randomUUID();
+  assert.equal(await store.claimInput({
+    scope: sibling.scope, selection: sibling.selection,
+    holderId: siblingHolder, commandId: siblingCommand,
+  }), true);
+  const siblingSelection = await store.read(sibling.scope);
+  if (!siblingSelection) throw new Error("sibling selection missing");
+  assert.equal(siblingSelection.pendingInput?.commandId, siblingCommand);
+  const siblingSelectionRaw = await redis.client.get(desktopComputerSelectionKey(sibling.scope));
+  const siblingHolderRaw = await redis.client.get(localComputerGuiOccupancyKey(device.id));
+  if (siblingSelectionRaw === null || siblingHolderRaw === null) throw new Error("sibling authority missing");
+  const retiringSelection = await store.read(retiring.scope);
+  if (!retiringSelection) throw new Error("retiring selection missing");
+  assert.equal(retiringSelection.pendingInput, null);
+
+  await devices.revoke(owner.id, device.id);
+  assert.notEqual((await db.desktopDevice.findUniqueOrThrow({ where: { id: device.id } })).revokedAt, null);
+  assert.equal(await coordinator.isCurrentConnection(device.id, replacementConnection), false);
+  // The service itself already retired the database authority for both
+  // generations before any selection cleanup runs.
+  for (const selection of [retiring.selection, sibling.selection]) {
+    assert.equal((await db.localComputerSession.findUniqueOrThrow({
+      where: { id: selection.sessionId },
+    })).status, "ended");
+    const grants = await db.computerPermissionGrant.findMany({ where: { sessionId: selection.sessionId } });
+    assert.ok(grants.length > 0 && grants.every(row => row.revokedAt !== null));
+  }
+
+  // A delayed disconnect cleanup from another connection may not clear either
+  // scope even when it names this device and the exact old key scope.
+  await computerControl.revokeScope(
+    { ...retiring.scope, connectionId: randomUUID() }, { requireConnection: true },
+  );
+  assert.deepEqual(await store.read(retiring.scope), retiringSelection);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(sibling.scope)), siblingSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), siblingHolderRaw);
+
+  // Exact retirement must still clear the idle old generation after the
+  // credential was revoked; the pre-fix live-only lock refuses that row and
+  // leaves the selection until its TTL. This is the cross-replica walk: the
+  // real Redis device index, an empty process-local map, and the exact
+  // connection. The fieldless legacy record and the sibling's pending marker
+  // keep their selections byte for byte.
+  await otherReplica.releaseConnection(device.id, replacementConnection);
+  assert.equal(await store.read(retiring.scope), null);
+  assert.equal(await redis.client.exists(desktopComputerSelectionKey(retiring.scope)), 0);
+  assert.deepEqual(await store.read(sibling.scope), siblingSelection);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(sibling.scope)), siblingSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), siblingHolderRaw);
+  assert.equal((await occupancy.read(device.id))?.holderId, siblingHolder);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(legacy.scope)), legacyFieldlessRaw);
+  assert.equal(await store.read(legacy.scope), null);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(otherScope)), otherSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(otherDevice.id)), otherHolderRaw);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: otherSelection.sessionId },
+  })).status, "active");
+  assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({
+    where: { id: otherGrant.id },
+  })).revokedAt, null);
+
+  // The sibling's pinned pending marker survives even exact cleanup: a
+  // possible act is not over because the credential was retired, so the
+  // selection and holder are retained for the exact terminal proof/expiry.
+  await otherReplicaStore.discard({ scope: sibling.scope, selection: siblingSelection });
+  assert.deepEqual(await store.read(sibling.scope), siblingSelection);
+  assert.equal((await store.read(sibling.scope))?.pendingInput?.holderId, siblingHolder);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(sibling.scope)), siblingSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), siblingHolderRaw);
+
+  // The revoked device credential itself grants nothing and dispatches
+  // nothing: the locked authority refuses before any selection is consulted.
+  await assert.rejects(authorizeLocalComputerAction(db, { leases, connections: coordinator }, {
+    scope: sibling.scope, capability: "computer.act", bundleId,
+    runToken: sibling.runToken, requestKind: "act",
+  }), { code: "FORBIDDEN" });
+  const siblingGrant = await actGrant(sibling.selection);
+  await assert.rejects(verifyLocalComputerDispatch(db, {
+    scope: sibling.scope, sessionId: sibling.selection.sessionId, grantId: siblingGrant.id,
+    capability: "computer.act", bundleId, expiresAt: new Date(Date.now() + 60_000), requestKind: "act",
+  }), { code: "FORBIDDEN" });
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(sibling.scope)), siblingSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), siblingHolderRaw);
+
+  // Account epoch changes invalidate the same currentCredential predicate used
+  // by maintain, locked action authorization, and dispatch verification. The
+  // other device's scope is genuine and usable immediately before the change,
+  // and its SQL session/grant are still unrevoked when both checks deny.
+  assert.equal(await devices.maintain(foreignDeviceRecord, otherConnection), "online");
+  // Capture the exact permit the action authority returns and reuse that same
+  // admission for the positive and negative dispatch checks below, so the
+  // post-epoch refusal cannot be explained by a malformed or already-unusable
+  // admission.
+  const otherAdmission = {
+    ...await authorizeLocalComputerAction(db, { leases, connections: coordinator }, {
+      scope: otherScope, capability: "computer.act", bundleId,
+      runToken: otherRunToken, requestKind: "act",
+    }),
+    requestKind: "act" as const,
+  };
+  assert.equal(otherAdmission.sessionId, otherSelection.sessionId);
+  assert.equal(otherAdmission.grantId, otherGrant.id);
+  await assert.doesNotReject(verifyLocalComputerDispatch(db, otherAdmission));
+  await db.user.update({
+    where: { id: other.id },
+    data: { authValidAfter: new Date(other.authValidAfter.getTime() + 1_000) },
+  });
+  assert.equal(await devices.maintain(foreignDeviceRecord, otherConnection), "revoked");
+  // The revoked verdict comes from the credential predicate alone and leaves
+  // the canonical connection current, so the denials below are attributable to
+  // the epoch rather than an absent presence key.
+  assert.equal(await coordinator.isCurrentConnection(otherDevice.id, otherConnection), true);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: otherSelection.sessionId },
+  })).status, "active");
+  assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({
+    where: { id: otherGrant.id },
+  })).revokedAt, null);
+  await assert.rejects(authorizeLocalComputerAction(db, { leases, connections: coordinator }, {
+    scope: otherScope, capability: "computer.act", bundleId,
+    runToken: otherRunToken, requestKind: "act",
+  }), { code: "FORBIDDEN" });
+  await assert.rejects(verifyLocalComputerDispatch(db, otherAdmission), { code: "FORBIDDEN" });
+
+  // The exact connection walk still retires that scope under the retirement
+  // lock and ends only its database session/grants. The revoked device's
+  // pending and fieldless fences survive untouched.
+  await otherReplica.releaseConnection(otherDevice.id, otherConnection);
+  assert.equal(await store.read(otherScope), null);
+  assert.equal(await redis.client.exists(desktopComputerSelectionKey(otherScope)), 0);
+  assert.equal(await redis.client.exists(localComputerGuiOccupancyKey(otherDevice.id)), 0);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: otherSelection.sessionId },
+  })).status, "ended");
+  const otherGrants = await db.computerPermissionGrant.findMany({ where: { sessionId: otherSelection.sessionId } });
+  assert.ok(otherGrants.length > 0 && otherGrants.every(row => row.revokedAt !== null));
+  assert.equal(await db.localComputerSession.count({
+    where: { ownerId: other.id, deviceId: otherDevice.id },
+  }), 1);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(sibling.scope)), siblingSelectionRaw);
+  assert.equal(await redis.client.get(localComputerGuiOccupancyKey(device.id)), siblingHolderRaw);
+  assert.equal(await redis.client.get(desktopComputerSelectionKey(legacy.scope)), legacyFieldlessRaw);
+
+  // The epoch change also still refuses a native select of the original valid
+  // scope after its cleanup, without consulting the retired selection. The
+  // exact canonical connection remains current, so presence cannot explain
+  // the refusal.
+  assert.equal(await coordinator.isCurrentConnection(otherDevice.id, otherConnection), true);
   await assert.rejects(
-    store.select({ scope: { ...foreignScope, connectionId: randomUUID() }, selectionId: randomUUID(), bundleId }),
+    store.select({ scope: otherScope, selectionId: otherSelection.selectionId, bundleId }),
     { code: "FORBIDDEN" },
   );
 
