@@ -13,7 +13,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { conversationUserInputQuestionSchema } from "@linksense/shared";
+import {
+  conversationUserInputQuestionSchema,
+  RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
+  RUNNER_TURN_INTERRUPT_REQUESTED,
+} from "@linksense/shared";
 import { Queue } from "bullmq";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -51,7 +55,7 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   LINKSENSE_JOINED_RUNTIME=/path/to/read-only/runtime \
  *     pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-product-chain.ts
  *
- * Two opt-in whitebox modes extend the same harness without replacing the
+ * Three opt-in whitebox modes extend the same harness without replacing the
  * default product-chain receipt:
  *   LINKSENSE_JOINED_SCENARIO=crash   SIGKILL only the owned Go gateway, prove
  *     the real socket-close GUI cleanup, then restart the same staged runtime,
@@ -59,7 +63,12 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   LINKSENSE_JOINED_SCENARIO=revoke  Revoke the live device while its exact
  *     turn holds a pending native approval, then drive the real revoked-Mac
  *     terminal projection and reject the late approval.
- * Both modes keep the synthetic platform/executor boundary: no TCC, signed
+ *   LINKSENSE_JOINED_SCENARIO=stop    Interrupt the exact running projected turn
+ *     through the real owner-scoped ConversationService while its first native
+ *     approval is pending, then prove the durable native interrupted terminal,
+ *     the exact Stop command audit and the released turn slot. This is
+ *     Conversation Stop, not the computer-control Pause/Stop.
+ * All three modes keep the synthetic platform/executor boundary: no TCC, signed
  * driver, OS input, real window, live provider or production service.
  */
 
@@ -67,8 +76,9 @@ const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const fixtureModel = "joined-computer-fixture";
 const scenarioInput = process.env.LINKSENSE_JOINED_SCENARIO?.trim() || "product-chain";
-if (scenarioInput !== "product-chain" && scenarioInput !== "crash" && scenarioInput !== "revoke") {
-  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash or revoke");
+if (scenarioInput !== "product-chain" && scenarioInput !== "crash" &&
+  scenarioInput !== "revoke" && scenarioInput !== "stop") {
+  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash, revoke or stop");
   process.exit(2);
 }
 const scenario = scenarioInput;
@@ -463,7 +473,7 @@ try {
     reply.type("text/event-stream").send(responseStream(item));
   });
   /**
-   * The first verified running turn, shared by the default chain and both
+   * The first verified running turn, shared by the default chain and all three
    * opt-in modes: one gated observe on the selected synthetic window, then one
    * real computer_act that becomes the pending native approval. Mode branching
    * only happens after those two stages and the caller's exact state proof.
@@ -686,7 +696,7 @@ try {
 
   /**
    * One owned gateway and one bounded JSON line reader, shared by the default
-   * chain and both opt-in modes. The fixture line carries only the loopback
+   * chain and all three opt-in modes. The fixture line carries only the loopback
    * origin, the native data root, the synthetic device credential and the two
    * marker paths; no argv, window name or private selection is ever sent.
    */
@@ -998,8 +1008,8 @@ try {
   };
 
   // One owned gateway, one bounded reader and one real product turn for every
-  // mode. Crash/revoke branching starts below, only after the picked window,
-  // the real observation and the first pending act are proven.
+  // mode. The crash/revoke/stop branches start below, only after the picked
+  // window, the real observation and the first pending act are proven.
   const gateway = await startGateway();
   const { send, stats, waitEvent, controlLog, controlEventsSince, waitControlEvent } = gateway;
 
@@ -1010,7 +1020,7 @@ try {
     await api.redisClient.hset("linksense:running-turn-recovery-status",
       "outcome", "succeeded", "last_success_at", new Date().toISOString());
   } else {
-    // Both opt-in modes run the real production startup recovery cycle before
+    // Every opt-in mode runs the real production startup recovery cycle before
     // the first turn; no turn exists yet, so only the baseline is observed.
     await api.events.recoverRunningTurns();
   }
@@ -1142,9 +1152,13 @@ try {
 
   joinedScenario: {
   if (scenario !== "product-chain") {
-    // Both opt-in modes branch only here: the first running turn, picked
+    // Every opt-in mode branches only here: the first running turn, picked
     // window, real observation and pending first act are already proven.
-    receipt = scenario === "crash" ? await runCrashScenario() : await runRevokeScenario();
+    receipt = scenario === "crash"
+      ? await runCrashScenario()
+      : scenario === "revoke"
+        ? await runRevokeScenario()
+        : await runStopScenario();
     succeeded = true;
     break joinedScenario;
   }
@@ -2168,6 +2182,141 @@ try {
       oldGrantsRevoked: oldGrantIds.length === 2,
       credentialRevoked: true,
       nativeSocket: "revoked",
+      driverTouched: false,
+      privateMarkerAbsent: true,
+      boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
+    };
+  }
+
+  /**
+   * Explicit Conversation Stop, not the computer-control Pause/Stop. The real
+   * owner-scoped service interrupts the exact running projected turn while its
+   * first native approval is pending. The REQUESTED reply is only the command
+   * receipt; the Stop proof is the durable native turn/completed terminal, the
+   * terminal audit, the closed approval (a late Allow is refused) and the
+   * released slot. Native ids are compared in memory only.
+   */
+  async function runStopScenario(): Promise<Record<string, unknown>> {
+    if (!db || !api || !manifest) {
+      throw new Error("the stop scenario requires the API and PostgreSQL");
+    }
+    const prisma = db;
+    const joined = api;
+    const runtimeManifest = manifest;
+    const nativeThreadId = running.codexThreadId;
+    const nativeTurnId = running.codexTurnId;
+    assert(nativeThreadId !== null, "the stop scenario requires the projected native thread id");
+    assert(nativeTurnId !== null, "the stop scenario requires the projected native turn id");
+    assert(binding, "the stop scenario requires the current device connection");
+    const turnAuditCount = async (action: string): Promise<number> => await prisma.auditLog.count({
+      where: { actorId: owner.id, action, targetType: "conversation_turn", targetId: turn.turn_id, result: "success" },
+    });
+
+    // The shared checkpoint already proved the exact connection, the one
+    // observe and no act/authorization/mutation; Stop adds the held slot, the
+    // exact terminal and the closed approval.
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), true,
+      "the running turn must hold its exact slot before Stop");
+    const stopped = await joined.conversations.interrupt(owner.id, conversationId, turn.turn_id, {});
+    assert.equal(stopped.code, RUNNER_TURN_INTERRUPT_REQUESTED);
+    assert.equal(stopped.turn_id, turn.turn_id);
+
+    const settled = await waitFor("the projected explicit Stop terminal", async () =>
+      await prisma.conversationTurn.findFirst({
+        where: { id: turn.turn_id, conversationId, status: "interrupted" },
+        select: {
+          interruptedAt: true, completedAt: true, errorCode: true,
+          codexThreadId: true, codexTurnId: true,
+        },
+      }), 60_000);
+    assert(settled.interruptedAt !== null && settled.completedAt === null && settled.errorCode === null &&
+      settled.codexThreadId === nativeThreadId && settled.codexTurnId === nativeTurnId,
+      "the Stop terminal must be the exact native interrupted turn");
+
+    // Exactly one persisted native terminal with the pinned source/method and
+    // exact ids; boolean comparisons keep ids out of failure diagnostics.
+    const terminals = await prisma.conversationEvent.findMany({
+      where: { conversationId, turnId: turn.turn_id, eventType: "turn/completed" },
+      select: { payloadJson: true },
+    });
+    assert.equal(terminals.length, 1, "the Stop must persist exactly one native turn/completed receipt");
+    const terminal = z.object({
+      source: z.literal("codex_app_server"), method: z.literal("turn/completed"),
+      params: z.object({
+        threadId: z.string().min(1),
+        turn: z.object({ id: z.string().min(1), status: z.literal("interrupted") }),
+      }),
+    }).safeParse(terminals[0]?.payloadJson);
+    if (!terminal.success) assert.fail("the Stop receipt must be the native interrupted turn/completed");
+    assert(terminal.data.params.threadId === nativeThreadId &&
+      terminal.data.params.turn.id === nativeTurnId,
+      "the native receipt must name the exact native thread and turn");
+    assert.equal(await turnAuditCount("conversation_turn_interrupt_requested"), 1,
+      "the explicit Stop must record exactly one command audit");
+    assert.equal(await turnAuditCount("conversation_turn_interrupted"), 1,
+      "the native terminal must record exactly one interrupted audit");
+    await waitFor("the explicit Stop turn slot release", async () =>
+      (await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id)) === false, 15_000);
+
+    // The terminal projection cancels a still-pending approval; a native
+    // serverRequest/resolved winning the race records the same request expired.
+    const approvalRequests = await prisma.conversationUserInputRequest.findMany({
+      where: { conversationId, turnId: turn.turn_id, requestKind: "questions" },
+      select: { id: true, status: true, resolvedAction: true, responseContentJson: true },
+    });
+    assert.equal(approvalRequests.length, 1, "the Stop must not create another native approval request");
+    const closedApproval = approvalRequests[0]!;
+    assert(closedApproval.id === approvalRequest.id &&
+      (closedApproval.status === "cancelled" || closedApproval.status === "expired") &&
+      closedApproval.resolvedAction !== "accept" && closedApproval.responseContentJson === null,
+      "the Stop must close the one original approval without accepting or delivering it");
+    await assert.rejects(joined.conversations.respondToUserInputRequest(
+      owner.id, conversationId, approvalRequest.id,
+      { action: "accept", content: { [approvalRequest.question.id]: "Allow" } }, {},
+    ), { code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+
+    const repeated = await joined.conversations.interrupt(owner.id, conversationId, turn.turn_id, {});
+    assert.equal(repeated.code, RUNNER_TURN_INTERRUPT_NOT_ACTIVE);
+    assert.equal(repeated.turn_id, turn.turn_id);
+    assert.equal(await turnAuditCount("conversation_turn_interrupt_requested"), 1,
+      "a repeat after the native terminal must not record another Stop audit");
+
+    // Same healthy link and credential, no second native turn, model request,
+    // approval or executor mutation.
+    assert.equal(hasExited(gateway.gateway), false, "the explicit Stop must keep the owned gateway live");
+    assert(await joined.service.authenticate(token),
+      "the explicit Stop must keep the exact device credential valid");
+    const finalStats = nativeStats(await gateway.stats());
+    assert(finalStats.connectionId === binding.connectionId && finalStats.connectionState === "online" &&
+      finalStats.connectionReady && finalStats.connectionComputerReady && finalStats.picks === 1 &&
+      finalStats.executors === 1,
+      "the same authenticated computer-ready link and its one picker/executor must stay healthy after Stop");
+    assert(finalStats.stats.observes === 1 && finalStats.stats.acts === 0 &&
+      finalStats.stats.authorizations === 0 && finalStats.stats.mutations === 0,
+      "the explicit Stop must not read, act, authorize a native call or mutate");
+    assert.deepEqual(finalStats.stats.act_native_ids ?? [], [], "the explicit Stop must claim no native act");
+    assert.equal(finalStats.driverProbe, false, "the real agent-desktop driver was invoked");
+    assert.equal(captures.length, 2, "the explicit Stop must not replay the model");
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1,
+      "the explicit Stop must not create another local turn");
+    await assertNoPrivateLeak();
+
+    return {
+      status: "desktop computer product chain: stop ok",
+      scenario,
+      codex: runtimeManifest.versions.codex,
+      modelRequests: captures.length,
+      turns: 1,
+      explicitStopAuditCount: 1,
+      terminalAuditCount: 1,
+      terminalStatus: "interrupted",
+      nativeIdsMatched: true,
+      pendingApprovalStatus: closedApproval.status,
+      lateApproval: "USER_INPUT_REQUEST_UNAVAILABLE",
+      turnSlotReleased: true,
+      healthySameLink: true,
+      repeatNotActive: true,
+      credentialRetained: true,
       driverTouched: false,
       privateMarkerAbsent: true,
       boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
