@@ -469,7 +469,7 @@ flowchart TB
 **窗口与能力**
 
 - 独立原生窗口：`WindowOptions.Content`（native UI）+ `Window.NewWebView`，不复用主窗口；主窗口仍是整页 webview，**不改成 native UI**。
-- 工具条：后退/前进/刷新/停止、地址栏、标签页（每个标签一个 webview）、下载、页内查找、缩放；DevTools 仅开发构建。
+- 工具条：后退/前进/刷新/停止、地址栏、标签页（每个标签一个 webview）、下载、页内查找；Mac 内置浏览器保持 100%（沿用 MyGo 默认），不提供页面缩放控件、快捷键或捏合缩放；DevTools 仅开发构建。
 - 会话：[`mygo.NewSession("browser")`](https://github.com/egoist/mygo/blob/v0.10.0/docs/app.md#sessions) 独立 cookie/storage，macOS 14 起持久化；前一版本仅内存。第三方页始终 `Untrusted`，清理时关闭仍持有旧数据的页；隐私模式用 `NewEphemeralSession`。
 - 下载与导航：[`Page.OnWillDownload`](https://github.com/egoist/mygo/blob/v0.10.0/docs/windows.md#downloads) 显式确认并使用安全目标路径。地址栏、程序导航、新窗口和页面导航分别校验协议；`mailto:` 等允许的外部协议交系统。依赖 `window.opener` 的 OAuth 弹窗回到系统浏览器或扩展。
 - 链接：应用内链接默认内置浏览器打开；`target=_blank` 新标签；设置可改回系统浏览器。
