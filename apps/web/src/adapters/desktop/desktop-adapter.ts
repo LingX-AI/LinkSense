@@ -208,6 +208,19 @@ let notificationClickBridgeInstalled = false
 let notificationClickListener:
   ((target: DesktopNotificationClick) => void) | null = null
 let pendingNotificationClick: DesktopNotificationClick | null = null
+let navigationBridgeInstalled = false
+let menuNavigationListener: ((path: DesktopMenuPath) => void) | null = null
+let conversationNavigationListener:
+  ((path: DesktopConversationPath) => void) | null = null
+let conversationContext: DesktopConversationContext = {
+  authenticated: false,
+  ownerId: null,
+  ready: false,
+}
+let pendingConversationNavigation: {
+  path: DesktopConversationPath
+  ownerId: string | null
+} | null = null
 let updateRequired = false
 const updateListeners = new Set<() => void>()
 
@@ -317,15 +330,118 @@ const desktopMenuPathSchema = z.enum([
   "/settings/general",
   "/conversations/new",
 ])
+// Go validates the 8-4-4-4-12 hex shape. z.guid() mirrors that native parsing
+// contract; it does not imply the API can retrieve a non-RFC identifier.
+const desktopConversationPathSchema = z.templateLiteral([
+  "/conversations/",
+  z.guid(),
+])
+const desktopNavigationPathSchema = z.union([
+  desktopMenuPathSchema,
+  desktopConversationPathSchema,
+])
 
+export type DesktopMenuPath = z.infer<typeof desktopMenuPathSchema>
+export type DesktopConversationPath = z.infer<
+  typeof desktopConversationPathSchema
+>
+export type DesktopNavigationPath = z.infer<typeof desktopNavigationPathSchema>
+
+export type DesktopConversationContext = {
+  authenticated: boolean
+  ownerId: string | null
+  ready: boolean
+}
+
+// A launch link can arrive before React mounts, just like a notification
+// click. Conversation paths are held as the latest validated intent; menu
+// actions stay live-only.
+export function installDesktopNavigationBridge(): void {
+  if (navigationBridgeInstalled || !isDesktopHost()) return
+  navigationBridgeInstalled = true
+  events.desktopNavigate.on((value) => {
+    const navigation = desktopNavigationPathSchema.safeParse(value)
+    if (!navigation.success) return
+    const menuPath = desktopMenuPathSchema.safeParse(navigation.data)
+    if (menuPath.success) {
+      menuNavigationListener?.(menuPath.data)
+      return
+    }
+    const conversationPath = desktopConversationPathSchema.safeParse(
+      navigation.data
+    )
+    if (!conversationPath.success) return
+    if (
+      conversationNavigationListener &&
+      conversationContext.authenticated &&
+      conversationContext.ready
+    ) {
+      conversationNavigationListener(conversationPath.data)
+      return
+    }
+    pendingConversationNavigation = {
+      path: conversationPath.data,
+      ownerId: conversationContext.ownerId,
+    }
+  })
+}
+
+// Menus are only delivered while their current protected route owns them.
 export function subscribeDesktopNavigation(
-  navigate: (path: z.infer<typeof desktopMenuPathSchema>) => void
+  navigate: (path: DesktopMenuPath) => void
 ) {
   if (!isDesktopHost()) return
-  return events.desktopNavigate.on((value) => {
-    const path = desktopMenuPathSchema.safeParse(value)
-    if (path.success) navigate(path.data)
-  })
+  menuNavigationListener = navigate
+  installDesktopNavigationBridge()
+  return () => {
+    if (menuNavigationListener === navigate) menuNavigationListener = null
+  }
+}
+
+export function subscribeDesktopConversationNavigation(
+  navigate: (path: DesktopConversationPath) => void
+) {
+  if (!isDesktopHost()) return
+  conversationNavigationListener = navigate
+  installDesktopNavigationBridge()
+  flushPendingConversationNavigation()
+  return () => {
+    if (conversationNavigationListener === navigate) {
+      conversationNavigationListener = null
+    }
+  }
+}
+
+// The auth/bootstrap gate publishes whether the current surface may open a
+// protected conversation and which signed-in owner (if any) captured it.
+// An ownerless intent is adopted by the first authenticated owner even while
+// that owner cannot route (for example under maintenance), so a later owner
+// mismatch fences it. A link received before the first sign-in still survives
+// an anonymous cancel/restart because no owner is ever published.
+export function updateDesktopConversationContext(
+  context: DesktopConversationContext
+): void {
+  conversationContext = context
+  const pending = pendingConversationNavigation
+  if (pending && pending.ownerId === null && context.ownerId !== null) {
+    pending.ownerId = context.ownerId
+  }
+  if (
+    pending &&
+    pending.ownerId !== null &&
+    pending.ownerId !== context.ownerId
+  ) {
+    pendingConversationNavigation = null
+  }
+  flushPendingConversationNavigation()
+}
+
+function flushPendingConversationNavigation(): void {
+  const pending = pendingConversationNavigation
+  if (!pending || !conversationNavigationListener) return
+  if (!conversationContext.authenticated || !conversationContext.ready) return
+  pendingConversationNavigation = null
+  conversationNavigationListener(pending.path)
 }
 
 export async function initializeDesktopHost(): Promise<null> {

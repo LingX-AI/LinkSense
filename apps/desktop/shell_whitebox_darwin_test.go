@@ -124,6 +124,254 @@ func TestNativeMenuDoesNotInterruptBrowserSignIn(t *testing.T) {
 	whiteboxWait(t, p, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
 }
 
+func TestNativeConversationDeepLinkHonorsUnsavedSettingsOnce(t *testing.T) {
+	nativeWhiteboxSession(t, true)
+	d := nativeWhitebox.desktop
+	d.openMainWindow()
+	w := d.mainWindow()
+	defer w.Destroy()
+	p := w.Page()
+	whiteboxWait(t, p, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+
+	if err := p.LoadURL("/settings/personalization"); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `document.querySelector("#custom-instructions")?.disabled === false`)
+	if _, err := p.Eval(`(() => {
+		window.__conversationDeepLinkSentinel = "retained";
+		const field = document.querySelector("#custom-instructions");
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, "Unsaved fixture");
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `document.querySelector("#custom-instructions")?.form.querySelector("button[type=submit]").disabled === false`)
+
+	const target = "71000000-0000-4000-8000-000000000901"
+	link := "linksense-desktop://conversation/" + target
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && !!document.querySelector("[role=alertdialog]")`)
+	if _, err := p.Eval(`(() => {
+		const dialog = document.querySelector("[role=alertdialog]");
+		const stay = [...dialog.querySelectorAll("button")].find(button => button.textContent.trim() === "Stay on Page");
+		if (!stay) throw new Error("Stay on Page is missing");
+		stay.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	// Canceling the built-in unsaved dialog must neither replay the target nor
+	// reload the document that holds the draft.
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/settings/personalization" &&
+		!document.querySelector("[role=alertdialog]") &&
+		window.__conversationDeepLinkSentinel === "retained"), 200))`)
+
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && !!document.querySelector("[role=alertdialog]")`)
+	if _, err := p.Eval(`(() => {
+		const dialog = document.querySelector("[role=alertdialog]");
+		const discard = [...dialog.querySelectorAll("button")].find(button => button.textContent.trim() === "Discard Changes");
+		if (!discard) throw new Error("Discard Changes is missing");
+		discard.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "retained"`)
+
+	// The same current target is a no-op, and an invalid link cannot reload or
+	// replace the document either.
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/conversations/`+target+`" &&
+		window.__conversationDeepLinkSentinel === "retained"), 200))`)
+	d.handleOpenURL(link + "?token=fixture")
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/conversations/`+target+`" &&
+		window.__conversationDeepLinkSentinel === "retained"), 200))`)
+}
+
+func TestNativeConversationDeepLinkSurvivesBrowserSignIn(t *testing.T) {
+	nativeWhiteboxSession(t, false)
+	d := nativeWhitebox.desktop
+	request := make(chan string, 1)
+	originalBrowser := d.openBrowser
+	d.openBrowser = func(raw string) error {
+		select {
+		case request <- raw:
+			return nil
+		default:
+			return errors.New("browser sign-in was requested twice")
+		}
+	}
+	t.Cleanup(func() { d.openBrowser = originalBrowser })
+	d.openMainWindow()
+	w := d.mainWindow()
+	defer w.Destroy()
+	p := w.Page()
+
+	const target = "71000000-0000-4000-8000-000000000902"
+	link := "linksense-desktop://conversation/" + target
+	// Deliver before React mounts. The initial page must stay the login handoff,
+	// and the target waits for the protected router after a successful callback.
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `location.pathname === "/login" && !!document.querySelector("[data-desktop-sign-in]")`)
+	if _, err := p.Eval(`window.__conversationDeepLinkSentinel = "login"`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Eval(`document.querySelector("[data-desktop-sign-in]").click()`); err != nil {
+		t.Fatal(err)
+	}
+	var authorization *url.URL
+	select {
+	case raw := <-request:
+		var err error
+		authorization, err = url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("browser sign-in didn't start")
+	}
+
+	// A conversation link during the cancellable browser handoff must not reload
+	// the WebView or bypass the authenticated route guard.
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `location.pathname === "/login" && document.querySelector("[data-desktop-sign-in]")?.disabled === true && window.__conversationDeepLinkSentinel === "login"`)
+	d.handleOpenURL(desktopLoginRedirectURI + "?" + url.Values{
+		"state": {authorization.Query().Get("state")}, "code": {strings.Repeat("c", 43)},
+	}.Encode())
+	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "login"`)
+}
+
+func TestNativeSignedInConversationDeepLinkReplacesPublicPasswordPage(t *testing.T) {
+	nativeWhiteboxSession(t, true)
+	d := nativeWhitebox.desktop
+	d.openMainWindow()
+	w := d.mainWindow()
+	defer w.Destroy()
+	p := w.Page()
+	whiteboxWait(t, p, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+
+	// Settings -> Security -> Set up password opens an authenticated public
+	// page through a same-document React Router transition.
+	if err := p.LoadURL("/settings/security"); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `document.querySelector('a[href="/forgot-password"]') !== null`)
+	if _, err := p.Eval(`window.__conversationDeepLinkSentinel = "security"`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Eval(`document.querySelector('a[href="/forgot-password"]').click()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `location.pathname === "/forgot-password" && window.__conversationDeepLinkSentinel === "security"`)
+
+	const target = "71000000-0000-4000-8000-000000000914"
+	link := "linksense-desktop://conversation/" + target
+	d.handleOpenURL(link)
+	// The link must open at once without reloading the document, and it must
+	// not remain queued for a later protected route.
+	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "security"`)
+
+	// Leaving the conversation must not replay the delivered link.
+	mygo.RunOnMain(func() { d.navigateMainWindow("/conversations/new") })
+	whiteboxWait(t, p, `location.pathname === "/conversations/new" && window.__conversationDeepLinkSentinel === "security"`)
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/conversations/new" &&
+		window.__conversationDeepLinkSentinel === "security"), 200))`)
+}
+
+func TestNativeConversationDeepLinkSurvivesCancelledSignIn(t *testing.T) {
+	nativeWhiteboxSession(t, false)
+	d := nativeWhitebox.desktop
+	requests := make(chan string, 4)
+	originalBrowser := d.openBrowser
+	d.openBrowser = func(raw string) error {
+		select {
+		case requests <- raw:
+			return nil
+		default:
+			return errors.New("browser sign-in was requested twice")
+		}
+	}
+	t.Cleanup(func() { d.openBrowser = originalBrowser })
+	d.openMainWindow()
+	w := d.mainWindow()
+	defer w.Destroy()
+	p := w.Page()
+	whiteboxWait(t, p, `location.pathname === "/login" && !!document.querySelector("[data-desktop-sign-in]")`)
+
+	const target = "71000000-0000-4000-8000-000000000915"
+	link := "linksense-desktop://conversation/" + target
+	d.handleOpenURL(link)
+	if _, err := p.Eval(`window.__conversationDeepLinkSentinel = "login"`); err != nil {
+		t.Fatal(err)
+	}
+	startSignIn := func() *url.URL {
+		if _, err := p.Eval(`(() => {
+			const button = document.querySelector("[data-desktop-sign-in]");
+			if (!button || button.disabled) throw new Error("sign-in is unavailable");
+			button.click();
+		})()`); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case raw := <-requests:
+			authorization, err := url.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return authorization
+		case <-time.After(5 * time.Second):
+			t.Fatal("browser sign-in didn't start")
+			return nil
+		}
+	}
+	const cancel = `[...document.querySelectorAll("button")].find(button => !button.hasAttribute("data-desktop-sign-in") && ["Cancel", "取消"].includes(button.textContent.trim()))`
+
+	startSignIn()
+	whiteboxWait(t, p, cancel+` !== undefined`)
+	if _, err := p.Eval(`(() => {
+		const button = ` + cancel + `;
+		if (!button) throw new Error("Cancel is missing");
+		button.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	// Cancel signs out while the browser is still anonymous. The waiting link
+	// and the document must survive so the restarted sign-in can open it.
+	whiteboxWait(t, p, `location.pathname === "/login" && window.__conversationDeepLinkSentinel === "login" && document.querySelector("[data-desktop-sign-in]")?.disabled === false && `+cancel+` === undefined`)
+
+	authorization := startSignIn()
+	d.handleOpenURL(desktopLoginRedirectURI + "?" + url.Values{
+		"state": {authorization.Query().Get("state")}, "code": {strings.Repeat("c", 43)},
+	}.Encode())
+	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "login"`)
+}
+
+func TestNativeAuthenticatedConversationDeepLinkSurvivesIndexRedirect(t *testing.T) {
+	nativeWhiteboxSession(t, true)
+	d := nativeWhitebox.desktop
+	d.openMainWindow()
+	w := d.mainWindow()
+	defer w.Destroy()
+	p := w.Page()
+
+	const target = "71000000-0000-4000-8000-000000000903"
+	link := "linksense-desktop://conversation/" + target
+	// The initial "*/" route redirects to New Task after React mounts. A launch
+	// link delivered before that point must still win over the redirect.
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`"`)
+	if _, err := p.Eval(`window.__conversationDeepLinkSentinel = "ready"`); err != nil {
+		t.Fatal(err)
+	}
+	d.handleOpenURL(link)
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/conversations/`+target+`" &&
+		window.__conversationDeepLinkSentinel === "ready"), 200))`)
+}
+
 func TestNativeShellRestoresPreferenceAndQuits(t *testing.T) {
 	const fixturePath = "LINKSENSE_TEST_SHELL_DATA"
 	if dir := os.Getenv(fixturePath); dir != "" {

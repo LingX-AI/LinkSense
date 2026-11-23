@@ -38,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const bootstrapInitialized = bootstrap?.initialized
   const [status, setStatus] = useState<AuthContextValue["status"]>("loading")
   const [user, setUser] = useState<User | null>(null)
+  // Explicit Retry increments this revision so the same bounded restore effect
+  // runs again without reloading the document that holds a pending launch link.
+  const [restoreRevision, setRestoreRevision] = useState(0)
   const accountResetPromiseRef = useRef<Promise<void> | null>(null)
   const resumedDesktopOwnerRef = useRef<string | null>(null)
 
@@ -71,6 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     )
     return resetPromise
   }, [queryClient])
+
+  const retryRestore = useCallback(() => {
+    // The status guard consumes one click and prevents a parallel restore.
+    if (status !== "error") return
+    setStatus("loading")
+    setRestoreRevision((revision) => revision + 1)
+  }, [status])
 
   const refreshUser = useCallback(
     async (options?: { signal?: AbortSignal }) => {
@@ -163,7 +173,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [acceptSession, bootstrapInitialized, refreshUser, resetAccountState])
+  }, [
+    acceptSession,
+    bootstrapInitialized,
+    refreshUser,
+    resetAccountState,
+    restoreRevision,
+  ])
 
   useEffect(
     () =>
@@ -200,9 +216,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       acceptSession,
       refreshUser,
+      retryRestore,
       signOut,
     }),
-    [acceptSession, effectiveStatus, refreshUser, signOut, user]
+    [acceptSession, effectiveStatus, refreshUser, retryRestore, signOut, user]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

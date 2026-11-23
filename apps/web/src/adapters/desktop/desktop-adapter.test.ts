@@ -1,4 +1,32 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { StrictMode, createElement } from "react"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+
+import {
+  authSessionSchema,
+  bootstrapSchema,
+  userSchema,
+  type BootstrapStatus,
+} from "@/api/contracts"
+import { setAccessToken } from "@/api/session"
+import { AuthProvider } from "@/app/auth-context"
+import { AuthContext, type AuthContextValue } from "@/app/auth-state"
+import { BootstrapContext } from "@/app/bootstrap-state"
+import {
+  BootstrapGate,
+  ProtectedRoute,
+  PublicAuthRoute,
+} from "@/app/route-guards"
+import i18n from "@/i18n"
 
 const native = vi.hoisted(() => ({
   isDesktop: false,
@@ -13,6 +41,7 @@ const native = vi.hoisted(() => ({
   workspaceUsage: vi.fn(),
   cleanupWorkspaces: vi.fn(),
   workspaceNotice: vi.fn(),
+  resumeDevice: vi.fn(),
   getUpdateState: vi.fn(),
   checkForUpdate: vi.fn(),
   installUpdate: vi.fn(),
@@ -33,6 +62,7 @@ vi.mock("./mygo", () => ({
     workspaceUsage: native.workspaceUsage,
     cleanupWorkspaces: native.cleanupWorkspaces,
     workspaceNotice: native.workspaceNotice,
+    resumeDevice: native.resumeDevice,
     getUpdateState: native.getUpdateState,
     checkForUpdate: native.checkForUpdate,
     installUpdate: native.installUpdate,
@@ -56,6 +86,7 @@ import {
   getDesktopUpdateState,
   hostFetch,
   initializeDesktopHost,
+  installDesktopNavigationBridge,
   installDesktopUpdate,
   openDesktopExternal,
   openDesktopUpdateInstaller,
@@ -65,10 +96,12 @@ import {
   setDesktopUpdateChannel,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
+  subscribeDesktopConversationNavigation,
   subscribeDesktopNavigation,
   subscribeDesktopNotificationClick,
   subscribeDesktopUpdateChanged,
   supportsNativeDesktopNotifications,
+  updateDesktopConversationContext,
 } from "./desktop-adapter"
 
 let emitNotificationClick: (value: unknown) => void = () => undefined
@@ -79,12 +112,174 @@ native.onNotificationClick.mockImplementation(
   }
 )
 
+let emitDesktopNavigation: (value: unknown) => void = () => undefined
+native.onNavigate.mockImplementation((callback: (path: unknown) => void) => {
+  emitDesktopNavigation = callback
+  return vi.fn()
+})
+
+const maintenanceBootstrap = bootstrapSchema.parse({
+  initialized: true,
+  system_name: "LinkSense",
+  maintenance: {
+    enabled: true,
+    active: true,
+    reason: "Fixture maintenance",
+    start_at: null,
+    end_at: null,
+  },
+})
+const activeBootstrap = bootstrapSchema.parse({
+  initialized: true,
+  system_name: "LinkSense",
+})
+
+type TestSession = {
+  status: AuthContextValue["status"]
+  userId?: string
+  role?: "admin" | "user"
+}
+
+function testSessionUser(session: TestSession) {
+  // AuthProvider keeps the last user during a transient "loading" restore and
+  // clears it only for a confirmed anonymous reset.
+  if (!session.userId) return null
+  return userSchema.parse({
+    id: session.userId,
+    name: "Test user",
+    email: "user@example.test",
+    role: session.role ?? "user",
+    status: "active",
+    registration_source: "organization_invitation",
+  })
+}
+
+function LocationProbe() {
+  const location = useLocation()
+  return createElement(
+    "output",
+    { "data-testid": "current-path" },
+    location.pathname
+  )
+}
+
+const JSDOM_NAVIGATION_ERROR = "Not implemented: navigation to another Document"
+
+function watchJsdomNavigationErrors(): string[] {
+  const errors: string[] = []
+  const runtime = window as Window & {
+    jsdom?: {
+      virtualConsole: {
+        on: (event: "jsdomError", listener: (error: Error) => void) => void
+      }
+    }
+  }
+  runtime.jsdom?.virtualConsole.on("jsdomError", (error) => {
+    if (error.message === JSDOM_NAVIGATION_ERROR) errors.push(error.message)
+  })
+  return errors
+}
+
+// The real guards, auth/bootstrap contexts, and desktop adapter, with a
+// two-session harness. It reproduces maintenance unmounting ProtectedRoute and
+// the public password page that a signed-in Settings flow opens.
+function renderDeepLinkHarness({
+  bootstrap,
+  session,
+  pathname,
+  retryRestore,
+}: {
+  bootstrap: BootstrapStatus
+  session: TestSession
+  pathname: string
+  retryRestore?: () => void
+}) {
+  const tree = (nextSession: TestSession, nextBootstrap: BootstrapStatus) =>
+    createElement(
+      BootstrapContext.Provider,
+      {
+        value: {
+          bootstrap: nextBootstrap,
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        },
+      },
+      createElement(
+        AuthContext.Provider,
+        {
+          value: {
+            status: nextSession.status,
+            user: testSessionUser(nextSession),
+            acceptSession: vi.fn(),
+            refreshUser: vi.fn(),
+            retryRestore,
+            signOut: vi.fn(),
+          },
+        },
+        createElement(
+          MemoryRouter,
+          { initialEntries: [pathname] },
+          createElement(LocationProbe),
+          createElement(
+            Routes,
+            null,
+            createElement(
+              Route,
+              { element: createElement(BootstrapGate) },
+              createElement(Route, {
+                path: "/forgot-password",
+                element: createElement("p", null, "Forgot password"),
+              }),
+              createElement(
+                Route,
+                { element: createElement(PublicAuthRoute) },
+                createElement(Route, {
+                  path: "/login",
+                  element: createElement("p", null, "Sign in"),
+                })
+              ),
+              createElement(
+                Route,
+                { element: createElement(ProtectedRoute) },
+                createElement(Route, {
+                  path: "/conversations/new",
+                  element: createElement("p", null, "New task"),
+                }),
+                createElement(Route, {
+                  path: "/conversations/:conversationId",
+                  element: createElement("p", null, "Conversation task"),
+                })
+              )
+            )
+          )
+        )
+      )
+    )
+  const view = render(tree(session, bootstrap))
+  return (
+    nextSession: TestSession,
+    nextBootstrap: BootstrapStatus = bootstrap
+  ) => view.rerender(tree(nextSession, nextBootstrap))
+}
+
+beforeAll(async () => {
+  await i18n.changeLanguage("en-US")
+})
+
 describe("desktop host boundary", () => {
   afterEach(() => {
+    cleanup()
+    setAccessToken(null)
     native.isDesktop = false
     vi.clearAllMocks()
     vi.unstubAllGlobals()
     delete document.documentElement.dataset.desktopPlatform
+    updateDesktopConversationContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+    })
   })
 
   it("keeps the existing browser transport and does not call native services", async () => {
@@ -149,9 +344,7 @@ describe("desktop host boundary", () => {
     const unsubscribe = vi.fn()
     native.onNavigate.mockImplementation(
       (callback: (path: unknown) => void) => {
-        callback("https://outside.example.test")
-        callback({ path: "/settings/general" })
-        callback("/settings/general")
+        emitDesktopNavigation = callback
         return unsubscribe
       }
     )
@@ -159,10 +352,512 @@ describe("desktop host boundary", () => {
     expect(navigate).not.toHaveBeenCalled()
 
     native.isDesktop = true
-    expect(subscribeDesktopNavigation(navigate)).toBe(unsubscribe)
+    const stop = subscribeDesktopNavigation(navigate)
+    expect(stop).toBeTypeOf("function")
+    emitDesktopNavigation("https://outside.example.test")
+    emitDesktopNavigation({ path: "/settings/general" })
+    emitDesktopNavigation("/settings/general")
     expect(navigate).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledWith("/settings/general")
+    stop?.()
   })
+
+  it("holds only the latest valid conversation path until the guarded router subscribes", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-a",
+      ready: true,
+    })
+    const first = "/conversations/71000000-0000-4000-8000-000000000901"
+    // Go validates the 8-4-4-4-12 hex shape; z.guid mirrors that native parsing.
+    const latest = "/conversations/71000000-0000-0000-0000-000000000903"
+
+    emitDesktopNavigation("/settings/general")
+    emitDesktopNavigation("/conversations/new")
+    emitDesktopNavigation(first)
+    emitDesktopNavigation(first + "?token=fixture")
+    emitDesktopNavigation(first + "#token=fixture")
+    emitDesktopNavigation("https://outside.example.test" + first)
+    emitDesktopNavigation({ path: first })
+    emitDesktopNavigation(latest)
+
+    const navigate = vi.fn()
+    const stop = subscribeDesktopConversationNavigation(navigate)
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(navigate).toHaveBeenCalledWith(latest)
+    stop?.()
+
+    // Menu actions remain live-only when no protected listener is active.
+    emitDesktopNavigation("/settings/general")
+    const next = vi.fn()
+    const stopNext = subscribeDesktopNavigation(next)
+    expect(next).not.toHaveBeenCalled()
+    stopNext?.()
+    const after = "/conversations/71000000-0000-4000-8000-000000000904"
+    emitDesktopNavigation(after)
+    expect(next).not.toHaveBeenCalled()
+
+    const final = vi.fn()
+    const stopFinal = subscribeDesktopConversationNavigation(final)
+    expect(final).toHaveBeenCalledOnce()
+    expect(final).toHaveBeenCalledWith(after)
+    stopFinal?.()
+  })
+
+  it("defers a conversation path until the index redirect settles", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopConversationNavigation(navigate)
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-a",
+      ready: false,
+    })
+    const target = "/conversations/71000000-0000-4000-8000-000000000905"
+    emitDesktopNavigation(target)
+    expect(navigate).not.toHaveBeenCalled()
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-a",
+      ready: true,
+    })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(navigate).toHaveBeenCalledWith(target)
+    stop?.()
+  })
+
+  it("drops a waiting conversation when the signed-in owner signs out", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopConversationNavigation(navigate)
+    const target = "/conversations/71000000-0000-4000-8000-000000000906"
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-a",
+      ready: false,
+    })
+    emitDesktopNavigation(target)
+    expect(navigate).not.toHaveBeenCalled()
+
+    updateDesktopConversationContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+    })
+    updateDesktopConversationContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+    })
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-b",
+      ready: true,
+    })
+    expect(navigate).not.toHaveBeenCalled()
+    stop?.()
+  })
+
+  it("keeps a pre-auth conversation link across an anonymous sign-out", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopConversationNavigation(navigate)
+    const target = "/conversations/71000000-0000-4000-8000-000000000907"
+    updateDesktopConversationContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+    })
+    emitDesktopNavigation(target)
+    // DesktopSignInPage Cancel signs out even though the browser is anonymous.
+    updateDesktopConversationContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+    })
+    updateDesktopConversationContext({
+      authenticated: true,
+      ownerId: "owner-a",
+      ready: true,
+    })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(navigate).toHaveBeenCalledWith(target)
+    stop?.()
+  })
+
+  it("opens a conversation link immediately from a signed-in public page", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000a1",
+        role: "user",
+      },
+      pathname: "/forgot-password",
+    })
+    expect(screen.getByText("Forgot password")).toBeVisible()
+
+    const target = "/conversations/71000000-0000-4000-8000-000000000908"
+    act(() => emitDesktopNavigation(target))
+
+    expect(screen.getByTestId("current-path")).toHaveTextContent(target)
+    expect(screen.getByText("Conversation task")).toBeVisible()
+    expect(screen.queryByText("Forgot password")).toBeNull()
+  })
+
+  it("does not deliver a maintenance-pending link to a replacement account", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const update = renderDeepLinkHarness({
+      bootstrap: maintenanceBootstrap,
+      session: {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000a2",
+        role: "user",
+      },
+      pathname: "/conversations/new",
+    })
+    // Maintenance keeps ProtectedRoute unmounted for a non-admin account.
+    expect(screen.queryByText("New task")).toBeNull()
+    act(() =>
+      emitDesktopNavigation(
+        "/conversations/71000000-0000-4000-8000-000000000909"
+      )
+    )
+
+    // MaintenancePage's admin entry signs A out before B signs in.
+    update({ status: "anonymous" })
+    update(
+      {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000b2",
+        role: "admin",
+      },
+      maintenanceBootstrap
+    )
+
+    expect(screen.getByText("New task")).toBeVisible()
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      "/conversations/new"
+    )
+    expect(screen.queryByText("Conversation task")).toBeNull()
+  })
+
+  it("fences a pre-auth launch link to the first owner restored under maintenance", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const target = "/conversations/71000000-0000-4000-8000-000000000912"
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { status: "loading" },
+      pathname: "/conversations/new",
+    })
+    // The native link arrives before auth publishes an owner.
+    act(() => emitDesktopNavigation(target))
+
+    // A is restored, but maintenance keeps ProtectedRoute unmounted.
+    update(
+      {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000a5",
+        role: "user",
+      },
+      maintenanceBootstrap
+    )
+    expect(screen.queryByText("New task")).toBeNull()
+    expect(screen.queryByText("Conversation task")).toBeNull()
+
+    // A chooses Admin Entry and signs out.
+    update({ status: "anonymous" }, maintenanceBootstrap)
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      "/conversations/new"
+    )
+
+    // B signs in with an active bootstrap; the stale link must not route.
+    update(
+      {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000b5",
+        role: "user",
+      },
+      activeBootstrap
+    )
+    expect(screen.getByText("New task")).toBeVisible()
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      "/conversations/new"
+    )
+    expect(screen.queryByText("Conversation task")).toBeNull()
+  })
+
+  it("keeps a pre-auth link while a signed-out user cancels and restarts sign-in", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { status: "anonymous" },
+      pathname: "/login",
+    })
+    const target = "/conversations/71000000-0000-4000-8000-000000000910"
+    act(() => emitDesktopNavigation(target))
+
+    // Cancel calls signOut while still anonymous, then the retry signs in.
+    update({ status: "anonymous" })
+    update({
+      status: "authenticated",
+      userId: "10000000-0000-4000-8000-0000000000a3",
+      role: "user",
+    })
+
+    expect(screen.getByTestId("current-path")).toHaveTextContent(target)
+    expect(screen.getByText("Conversation task")).toBeVisible()
+  })
+
+  it("keeps a known owner pending link across a transient session restore", () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    const update = renderDeepLinkHarness({
+      bootstrap: maintenanceBootstrap,
+      session: {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000a4",
+        role: "user",
+      },
+      pathname: "/conversations/new",
+    })
+    const target = "/conversations/71000000-0000-4000-8000-000000000911"
+    act(() => emitDesktopNavigation(target))
+
+    update({
+      status: "loading",
+      userId: "10000000-0000-4000-8000-0000000000a4",
+      role: "user",
+    })
+    update(
+      {
+        status: "authenticated",
+        userId: "10000000-0000-4000-8000-0000000000a4",
+        role: "user",
+      },
+      activeBootstrap
+    )
+
+    expect(screen.getByTestId("current-path")).toHaveTextContent(target)
+    expect(screen.getByText("Conversation task")).toBeVisible()
+  })
+
+  it("keeps a pending conversation link through an explicit session-restore retry", async () => {
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    native.resumeDevice.mockResolvedValue({ state: "unpaired" })
+    await initializeDesktopHost()
+    installDesktopNavigationBridge()
+    setAccessToken(null)
+
+    const target = "/conversations/71000000-0000-4000-8000-000000000913"
+    const targetUserId = "10000000-0000-4000-8000-0000000000d4"
+    const recoveredUser = testSessionUser({
+      status: "authenticated",
+      userId: targetUserId,
+    })
+    const session = authSessionSchema.parse({
+      access_token: "deep-link-recovery-access-token-00000001",
+      access_token_expires_at: "2099-01-01T00:00:00.000Z",
+      refresh_session_expires_at: "2099-03-01T00:00:00.000Z",
+      user: {
+        id: targetUserId,
+        email: "deep-link@example.test",
+        name: "Deep Link User",
+        avatar_object_key: null,
+        role: "user",
+        status: "active",
+        preferred_locale: "en-US",
+        running_message_action: "queue",
+        last_login_at: null,
+        last_login_method: "password",
+        password_updated_at: null,
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    })
+    const jsonResponse = (data: unknown, status = 200) =>
+      new Response(JSON.stringify(data), {
+        status,
+        headers: {
+          "Content-Type": "application/json",
+          "x-linksense-desktop-protocol": "1",
+        },
+      })
+    let refreshCalls = 0
+    let releaseInitialRefresh!: (response: Response) => void
+    let releaseRecoveredRefresh!: (response: Response) => void
+    const initialRefresh = new Promise<Response>((resolve) => {
+      releaseInitialRefresh = resolve
+    })
+    const recoveredRefresh = new Promise<Response>((resolve) => {
+      releaseRecoveredRefresh = resolve
+    })
+    native.request.mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === "/api/v1/auth/refresh") {
+        refreshCalls += 1
+        return refreshCalls === 1 ? initialRefresh : recoveredRefresh
+      }
+      if (url.pathname === "/api/v1/me") {
+        return jsonResponse({ success: true, data: recoveredUser })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    const documentBeforeRestore = document
+    const navigationErrors = watchJsdomNavigationErrors()
+    const paths: string[] = []
+    function PathHistoryProbe() {
+      const location = useLocation()
+      if (paths.at(-1) !== location.pathname) paths.push(location.pathname)
+      return createElement(
+        "output",
+        { "data-testid": "path-history" },
+        paths.join(",")
+      )
+    }
+
+    render(
+      createElement(
+        StrictMode,
+        null,
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            BootstrapContext.Provider,
+            {
+              value: {
+                bootstrap: activeBootstrap,
+                isLoading: false,
+                error: null,
+                refetch: vi.fn(),
+              },
+            },
+            createElement(
+              AuthProvider,
+              null,
+              createElement(
+                MemoryRouter,
+                { initialEntries: ["/conversations/new"] },
+                createElement(LocationProbe),
+                createElement(PathHistoryProbe),
+                createElement(
+                  Routes,
+                  null,
+                  createElement(
+                    Route,
+                    { element: createElement(BootstrapGate) },
+                    createElement(
+                      Route,
+                      { element: createElement(ProtectedRoute) },
+                      createElement(Route, {
+                        path: "/conversations/new",
+                        element: createElement("p", null, "New task"),
+                      }),
+                      createElement(Route, {
+                        path: "/conversations/:conversationId",
+                        element: createElement("p", null, "Conversation task"),
+                      })
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+
+    await waitFor(() => expect(refreshCalls).toBe(1))
+    act(() => emitDesktopNavigation(target))
+    expect(screen.queryByText("Conversation task")).toBeNull()
+
+    await act(async () => {
+      releaseInitialRefresh(
+        jsonResponse(
+          { success: false, error_code: "AUTH_RESTORE_REJECTED" },
+          400
+        )
+      )
+    })
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible()
+    expect(screen.queryByText("Conversation task")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+
+    await waitFor(() => expect(refreshCalls).toBe(2))
+    expect(await screen.findByText("Loading…")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument()
+
+    await act(async () => {
+      releaseRecoveredRefresh(jsonResponse({ success: true, data: session }))
+    })
+
+    expect(await screen.findByText("Conversation task")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent(target)
+    )
+    expect(screen.queryByText("New task")).toBeNull()
+    expect(screen.getByTestId("path-history")).toHaveTextContent(
+      `/conversations/new,${target}`
+    )
+    expect(refreshCalls).toBe(2)
+    expect(document).toBe(documentBeforeRestore)
+    expect(navigationErrors).toEqual([])
+  })
+
+  it.each(["web", "windows"] as const)(
+    "reloads the document on %s Retry instead of retrying in place",
+    async (host) => {
+      if (host === "windows") {
+        native.isDesktop = true
+        native.info.mockResolvedValue({
+          bridgeVersion: 1,
+          serverUrl: "https://example.com",
+          platform: "windows",
+          version: "0.1.0",
+        })
+        await initializeDesktopHost()
+      }
+      const retryRestore = vi.fn()
+      const navigationErrors = watchJsdomNavigationErrors()
+      renderDeepLinkHarness({
+        bootstrap: activeBootstrap,
+        session: { status: "error" },
+        pathname: "/login",
+        retryRestore,
+      })
+
+      fireEvent.click(await screen.findByRole("button", { name: "Retry" }))
+
+      expect(retryRestore).not.toHaveBeenCalled()
+      expect(navigationErrors).toEqual([JSDOM_NAVIGATION_ERROR])
+    }
+  )
 
   it("verifies notification support and keeps delivery failures distinct", async () => {
     native.isDesktop = true

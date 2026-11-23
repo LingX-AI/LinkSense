@@ -7,6 +7,9 @@ export type AuthContextValue = {
   user: User | null
   acceptSession: (session: AccessSession) => Promise<void>
   refreshUser: (options?: { signal?: AbortSignal }) => Promise<void>
+  // Optional only for state-only context fixtures; AuthProvider always supplies
+  // the bounded retry routine used by the restore-error screen.
+  retryRestore?: () => void
   signOut: () => Promise<void>
 }
 

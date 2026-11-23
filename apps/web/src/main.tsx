@@ -16,6 +16,7 @@ import { ClientUpdateNotice } from "@/components/shell/client-update-notice"
 import { ApplicationLoadError } from "@/app/application-load-error"
 import {
   initializeDesktopHost,
+  installDesktopNavigationBridge,
   installDesktopNotificationClickBridge,
 } from "@/adapters/desktop/desktop-adapter"
 
@@ -23,6 +24,7 @@ initializeTheme()
 initializeUiFontSize()
 clearClientUpdateUrl()
 installDesktopNotificationClickBridge()
+installDesktopNavigationBridge()
 const disposeClientBuildListeners = installClientBuildListeners()
 
 const rootElement = document.getElementById("root")

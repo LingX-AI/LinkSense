@@ -1,14 +1,18 @@
 import { CloudOffIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
 import {
   desktopNotificationRouteForUser,
+  isMacDesktopHost,
+  subscribeDesktopConversationNavigation,
   subscribeDesktopNavigation,
   subscribeDesktopNotificationClick,
+  updateDesktopConversationContext,
 } from "@/adapters/desktop/desktop-adapter"
-import { useAuth } from "@/app/auth-state"
+import { type User, type BootstrapStatus } from "@/api/contracts"
+import { useAuth, type AuthContextValue } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
 import { hasMaintenanceAdminEntry } from "@/app/maintenance-admin-entry"
@@ -34,12 +38,81 @@ const maintenanceAdminAuthPaths = new Set([
   "/auth/social/callback",
 ])
 
+// These locations may redirect as soon as auth/bootstrap settles. Let their
+// own navigation commit before consuming a launch link so it cannot be
+// overwritten, while stable signed-in public pages remain eligible.
+const conversationRedirectPaths = new Set([
+  "/",
+  "/initialize",
+  "/login",
+  "/register",
+  "/register/activate",
+  "/auth/oidc/callback",
+  "/auth/saml/callback",
+  "/auth/social/callback",
+])
+
+// A launch link must stay pending while the app cannot show a protected
+// conversation. The stable subscription lives above ProtectedRoute so it also
+// covers maintenance, setup, and signed-in public pages such as the password
+// setup page reached from Settings.
+function useDesktopConversationNavigation({
+  status,
+  user,
+  bootstrap,
+  pathname,
+}: {
+  status: AuthContextValue["status"]
+  user: User | null
+  bootstrap: BootstrapStatus | undefined
+  pathname: string
+}): void {
+  const navigate = useNavigate()
+  const currentPathname = useRef(pathname)
+  useLayoutEffect(() => {
+    currentPathname.current = pathname
+  }, [pathname])
+
+  const ownerId = user?.id ?? null
+  const ready =
+    status === "authenticated" &&
+    user !== null &&
+    bootstrap?.initialized === true &&
+    !(bootstrap.maintenance?.active && user.role !== "admin") &&
+    !conversationRedirectPaths.has(pathname)
+
+  useEffect(() => {
+    updateDesktopConversationContext({
+      authenticated: status === "authenticated",
+      ownerId,
+      ready,
+    })
+  }, [ownerId, ready, status])
+
+  useEffect(
+    () =>
+      subscribeDesktopConversationNavigation((path) => {
+        if (path === currentPathname.current) return
+        void Promise.resolve(navigate(path)).catch(() => {
+          console.error("DESKTOP_NAVIGATION_UNAVAILABLE")
+        })
+      }),
+    [navigate]
+  )
+}
+
 export function BootstrapGate() {
   const { t } = useTranslation()
   const productName = useProductName()
   const { bootstrap, isLoading, error, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
+  useDesktopConversationNavigation({
+    status,
+    user,
+    bootstrap,
+    pathname: location.pathname,
+  })
   const content = (
     <>
       <Outlet />
@@ -91,6 +164,9 @@ export function ProtectedRoute() {
   const navigate = useNavigate()
   useEffect(() => {
     if (status !== "authenticated") return
+    // Menu actions stay live-only: they are delivered only while their
+    // protected route owns the listener. Conversation links use the stable
+    // BootstrapGate subscription so signed-in public pages can consume them.
     return subscribeDesktopNavigation((path) => {
       if (path === location.pathname) return
       void Promise.resolve(navigate(path)).catch(() => {
@@ -165,12 +241,20 @@ export function PublicAuthRoute() {
 function SessionRestoreError() {
   const { t } = useTranslation()
   const productName = useProductName()
+  const { retryRestore } = useAuth()
+
+  // Only the Mac host keeps a pending launch intent in this document. Web,
+  // Windows, and an unresolved platform retain the reload fallback.
+  const onRetry =
+    retryRestore && isMacDesktopHost()
+      ? retryRestore
+      : () => window.location.reload()
 
   return (
     <PublicFailureScreen
       title={t("bootstrap.unavailableTitle", { productName })}
       message={t("auth.sessionRestoreFailed")}
-      onRetry={() => window.location.reload()}
+      onRetry={onRetry}
     />
   )
 }

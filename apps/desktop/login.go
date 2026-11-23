@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -81,11 +82,18 @@ func (d *Desktop) handleOpenURL(raw string) {
 		return
 	}
 	if route, err := conversationDeepLink(raw); err == nil {
-		mygo.RunOnMain(func() {
-			if win := d.presentMainWindow(); win != nil {
-				_ = win.Page().LoadURL(route)
-			}
-		})
+		if runtime.GOOS != "darwin" {
+			mygo.RunOnMain(func() {
+				if win := d.presentMainWindow(); win != nil {
+					_ = win.Page().LoadURL(route)
+				}
+			})
+			return
+		}
+		// A launch link can arrive before the main callback opens the window, and
+		// the page can still be loading React. Wait like the notification click
+		// path, then hand the route to the trusted page's existing event bridge.
+		mygo.App.WhenReady(func() { d.navigateMainWindow(route) })
 	}
 }
 
