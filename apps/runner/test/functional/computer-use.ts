@@ -11,7 +11,6 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computerScreenshotMaxBytes, computerScreenshotMaxEncodedBytes } from "@linksense/shared";
 import pino from "pino";
 import { z } from "zod";
 
@@ -29,10 +28,29 @@ const tinyJpeg =
 /** Synthetic 2x3 PNG used by the computer_use fallback fixture. */
 const fallbackPng =
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII=";
+/** Same truncation the fixture applies; the test never reads the fixture's copy. */
+const truncatedPng = Buffer.from(fallbackPng, "base64").subarray(0, 50).toString("base64");
+/** Raster or private-payload markers that must never appear in tool text. */
+const leakMarkers = [
+  fallbackPng,
+  tinyJpeg,
+  truncatedPng,
+  "data:image",
+  "data_base64",
+  "base64,",
+  '"capture"',
+  '"proof"',
+  '"scope"',
+  '"user_opt_in"',
+  '"screen_recording"',
+];
+/** Known fixture-only structuredContent marker. */
+const structuredMarker = "FIXTURE_STRUCTURED_MARKER";
 const typedText = "你好，LinkSense 👋";
 const results: Array<Record<string, unknown>> = [];
 
-for (const mode of ["default", "plan"] as const) {
+for (const mode of ["default", "plan", "no-screenshots"] as const) {
+  const collaborationMode = mode === "plan" ? "plan" : "default";
   const root = await mkdtemp(join(tmpdir(), `linksense-computer-${mode}-`));
   const codexHome = join(root, ".codex");
   const workspace = join(root, "workspace");
@@ -41,33 +59,43 @@ for (const mode of ["default", "plan"] as const) {
   await mkdir(workspace);
 
   const checks: Array<{ name: string; passed: boolean; details?: unknown }> = [];
-  const captures: Array<Record<string, unknown>> = [];
   const check = (name: string, passed: boolean, details?: unknown) => {
     checks.push({ name, passed, ...(details === undefined ? {} : { details }) });
+  };
+  /** Healthy and truncated observations must both reject their image with no image parts. */
+  const checkRejectedImage = (name: string, callId: string, body: Record<string, unknown>) => {
+    const call = callOutput(body, callId);
+    const images = call?.images ?? [];
+    const codeMatches = call?.result?.code === "COMPUTER_INVALID";
+    check(name, call !== undefined && images.length === 0 && codeMatches && textSafe(call), {
+      imageCount: images.length,
+      codeMatches,
+    });
   };
 
   let step = 0;
   let observationId: string | undefined;
   let secondObservationId: string | undefined;
   let imageChecked = false;
+  let scenarioCompleted = false;
 
   const provider = createServer(async (request, response) => {
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    const body = JSON.parse(raw) as Record<string, unknown>;
-    captures.push(body);
     step += 1;
+    const current = step;
     let item: Record<string, unknown>;
     try {
-      item = await script(body, step);
-    } catch (error) {
-      check("fixture script", false, String(error));
-      item = message(`fixture error: ${String(error)}`);
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      item = script(JSON.parse(raw) as Record<string, unknown>, current);
+    } catch {
+      // Fixed label and numeric step only; never echo the request or error.
+      check("fixture request failed", false, { step: current });
+      item = message("fixture error");
     }
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     const emit = (type: string, value: object) =>
       response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`);
-    const id = `resp_${step}`;
+    const id = `resp_${current}`;
     emit("response.created", { response: { id, object: "response", status: "in_progress", output: [] } });
     emit("response.output_item.done", { output_index: 0, item });
     emit("response.completed", {
@@ -83,6 +111,35 @@ for (const mode of ["default", "plan"] as const) {
   });
 
   function script(body: Record<string, unknown>, current: number): Record<string, unknown> {
+    if (mode === "no-screenshots") {
+      if (current === 1) {
+        return toolCall(body, "computer_observe", {}, "call_observe_noscreens") ??
+          message("missing no-screenshots observe");
+      }
+      if (current === 2) {
+        const call = callOutput(body, "call_observe_noscreens");
+        const observation = call?.result;
+        const images = call?.images ?? [];
+        const nodeCount = observation?.nodes?.length ?? 0;
+        const screenshotAbsent = observation !== undefined && !("screenshot" in observation);
+        check(
+          "screenshots:false returns the nonempty tree without a screenshot",
+          call !== undefined &&
+            images.length === 0 &&
+            observation?.observation_id === "obs-noscreens" &&
+            observation?.tree_quality === "unusable" &&
+            observation?.truncated === false &&
+            nodeCount === 1 &&
+            screenshotAbsent &&
+            textSafe(call),
+          { callId: "call_observe_noscreens", imageCount: images.length, nodeCount, screenshotAbsent },
+        );
+        scenarioCompleted = true;
+        return message("COMPUTER_NOSCREENSHOTS_OK");
+      }
+      return message("COMPUTER_NOSCREENSHOTS_OK");
+    }
+
     if (mode === "plan") {
       if (current === 1) {
       check(
@@ -106,6 +163,7 @@ for (const mode of ["default", "plan"] as const) {
         }, "call_plan_act");
       }
       check("Plan mode rejects the model-originated act", !output(body, "call_plan_act")?.ok);
+      scenarioCompleted = true;
       return message("COMPUTER_PLAN_OK");
     }
 
@@ -133,7 +191,7 @@ for (const mode of ["default", "plan"] as const) {
     }
     if (current === 4) {
       const effect = output(body, "call_click");
-      check("click effect reaches the next model input", effect?.ok === true && effect?.effect === "done", effect);
+      check("click effect reaches the next model input", effect?.ok === true && effect?.effect === "done");
       return toolCall(body, "computer_observe", {}, "call_observe_2") ?? message("missing observe");
     }
     if (current === 5) {
@@ -148,7 +206,7 @@ for (const mode of ["default", "plan"] as const) {
     }
     if (current === 6) {
       const effect = output(body, "call_type");
-      check("UTF-8 type effect reaches the next model input", effect?.ok === true && effect?.effect === "done", effect);
+      check("UTF-8 type effect reaches the next model input", effect?.ok === true && effect?.effect === "done");
       return toolCall(body, "computer_act", {
         action: "click",
         observation_id: secondObservationId,
@@ -163,64 +221,73 @@ for (const mode of ["default", "plan"] as const) {
     }
     if (current === 8) return toolCall(body, "fixture_image", {}, "call_image") ?? message("missing image");
     if (current === 9) {
-      const serialized = JSON.stringify(body);
-      imageChecked = serialized.includes('"type":"input_image"') && serialized.includes(tinyJpeg);
-      check("existing MCP image content reaches the next model input", imageChecked);
+      const call = callOutput(body, "call_image");
+      const images = call?.images ?? [];
+      imageChecked = call !== undefined &&
+        images.length === 1 &&
+        images[0] === `data:image/jpeg;base64,${tinyJpeg}` &&
+        textSafe(call);
+      check("existing MCP image content reaches the next model input", imageChecked, { imageCount: images.length });
       return toolCall(body, "computer_observe", {}, "call_observe_fallback") ?? message("missing fallback observe");
     }
     if (current === 10) {
-      const metadata = output(body, "call_observe_fallback");
-      const image = outputImage(body, "call_observe_fallback");
-      const metadataText = JSON.stringify(metadata);
+      const call = callOutput(body, "call_observe_fallback");
+      const observation = call?.result;
+      const images = call?.images ?? [];
+      const metadataMatches = observation?.tree_quality === "unusable" &&
+        observation?.screenshot?.mime_type === "image/png" &&
+        observation?.screenshot?.width === 2 &&
+        observation?.screenshot?.height === 3;
       check(
         "an unusable tree carries a bounded PNG fallback",
-        metadata?.tree_quality === "unusable" &&
-          metadata?.screenshot?.mime_type === "image/png" &&
-          metadata?.screenshot?.width === 2 &&
-          metadata?.screenshot?.height === 3 &&
-          image?.mimeType === "image/png" &&
-          image.data === fallbackPng &&
-          metadataText !== undefined &&
-          !metadataText.includes(fallbackPng) &&
-          !metadataText.includes("capture") &&
-          Buffer.byteLength(image.data, "base64") <= computerScreenshotMaxBytes &&
-          image.data.length <= computerScreenshotMaxEncodedBytes,
-        { metadata, image: image ? { mimeType: image.mimeType, encodedBytes: image.data.length } : undefined },
+        call !== undefined &&
+          images.length === 1 &&
+          images[0] === `data:image/png;base64,${fallbackPng}` &&
+          metadataMatches &&
+          textSafe(call),
+        { imageCount: images.length, metadataMatches },
       );
       return toolCall(body, "computer_observe", {}, "call_observe_healthy") ?? message("missing healthy observe");
     }
     if (current === 11) {
-      const metadata = output(body, "call_observe_healthy");
-      check(
-        "a healthy tree rejects its screenshot",
-        metadata?.code === "COMPUTER_INVALID" &&
-          outputImage(body, "call_observe_healthy") === undefined,
-        metadata,
-      );
+      checkRejectedImage("a healthy tree rejects its screenshot", "call_observe_healthy", body);
       return toolCall(body, "computer_observe", {}, "call_observe_truncated") ?? message("missing truncated observe");
     }
     if (current === 12) {
-      const metadata = output(body, "call_observe_truncated");
-      check(
-        "a truncated image with valid metadata is rejected",
-        metadata?.code === "COMPUTER_INVALID" &&
-          outputImage(body, "call_observe_truncated") === undefined,
-        metadata,
-      );
+      checkRejectedImage("a truncated image with valid metadata is rejected", "call_observe_truncated", body);
       return toolCall(body, "computer_observe", {}, "call_observe_partial") ?? message("missing partial observe");
     }
     if (current === 13) {
-      const metadata = output(body, "call_observe_partial");
-      const image = outputImage(body, "call_observe_partial");
+      const call = callOutput(body, "call_observe_partial");
+      const observation = call?.result;
+      const images = call?.images ?? [];
+      const metadataMatches = observation?.tree_quality === "partial" &&
+        observation?.truncated === true &&
+        observation?.screenshot?.mime_type === "image/jpeg" &&
+        observation?.screenshot?.width === 1 &&
+        observation?.screenshot?.height === 1;
       check(
         "a partial tree carries a bounded JPEG fallback",
-        metadata?.tree_quality === "partial" &&
-          metadata?.truncated === true &&
-          metadata?.screenshot?.mime_type === "image/jpeg" &&
-          image?.mimeType === "image/jpeg" &&
-          image.data === tinyJpeg,
-        { metadata, image: image ? { mimeType: image.mimeType, encodedBytes: image.data.length } : undefined },
+        call !== undefined &&
+          images.length === 1 &&
+          images[0] === `data:image/jpeg;base64,${tinyJpeg}` &&
+          metadataMatches &&
+          textSafe(call),
+        { imageCount: images.length, metadataMatches },
       );
+      return toolCall(body, "fixture_image", { structured: true }, "call_image_structured") ??
+        message("missing structured image");
+    }
+    if (current === 14) {
+      const call = callOutput(body, "call_image_structured");
+      const images = call?.images ?? [];
+      const markerMatches = call?.result?.marker === structuredMarker;
+      check(
+        "structuredContent replaces the sibling image in the tool output",
+        call !== undefined && markerMatches && images.length === 0 && textSafe(call),
+        { imageCount: images.length, markerMatches },
+      );
+      scenarioCompleted = true;
       return message("COMPUTER_SCREENSHOT_OK");
     }
     return message("COMPUTER_MCP_OK");
@@ -262,7 +329,7 @@ for (const mode of ["default", "plan"] as const) {
         "mcp_servers.computer_fixture.required=true",
         "mcp_servers.computer_fixture.startup_timeout_sec=20",
         "mcp_servers.computer_fixture.tool_timeout_sec=30",
-        ...(mode === "default"
+        ...(mode !== "plan"
           ? ['mcp_servers.computer_fixture.tools.computer_act.approval_mode="approve"']
           : []),
       ],
@@ -299,7 +366,7 @@ for (const mode of ["default", "plan"] as const) {
     check(
       mode === "plan" ? "Plan mode does not expose act" : "Default mode exposes act",
       mode === "plan" ? !tools.includes("computer_act") : tools.includes("computer_act"),
-      tools,
+      { toolCount: tools.length },
     );
 
     const turn = z.object({ turn: z.object({ id: z.string() }) }).parse(
@@ -307,7 +374,7 @@ for (const mode of ["default", "plan"] as const) {
         threadId: started.thread.id,
         input: [{ type: "text", text: "Exercise the computer fixture.", text_elements: [] }],
         collaborationMode: {
-          mode,
+          mode: collaborationMode,
           settings: { model: "gpt-5.4", reasoning_effort: "low", developer_instructions: null },
         },
       }),
@@ -327,7 +394,7 @@ for (const mode of ["default", "plan"] as const) {
           threadId: started.thread.id,
           input: [{ type: "text", text: "Return the fixture image.", text_elements: [] }],
           collaborationMode: {
-            mode,
+            mode: collaborationMode,
             settings: { model: "gpt-5.4", reasoning_effort: "low", developer_instructions: null },
           },
         }),
@@ -344,32 +411,50 @@ for (const mode of ["default", "plan"] as const) {
     const audit = await readAudit(auditPath);
     const acts = audit.filter((entry) => entry.tool === "act");
     if (mode === "plan") {
-      check("Plan mode never called the executor for act", acts.length === 0, audit);
+      check("Plan mode never called the executor for act", acts.length === 0, { actCount: acts.length });
       check("Plan mode executed status and observe", audit.some((entry) => entry.tool === "status") && audit.some((entry) => entry.tool === "observe"));
+    } else if (mode === "no-screenshots") {
+      const observes = audit.filter((entry) => entry.tool === "observe");
+      const screenshotSupplied = observes[0]?.screenshot === true;
+      check(
+        "no-screenshots mode handed eligible fallback bytes to the module",
+        observes.length === 1 && screenshotSupplied,
+        { observes: observes.length, screenshotSupplied },
+      );
+      check("no-screenshots mode never called the executor for act", acts.length === 0, { actCount: acts.length });
     } else {
       const click = acts.find((entry) => entry.action === "click" && entry.ref === "e1" && entry.nativeCallId === "call_click");
       const type = acts.find((entry) => entry.action === "type" && entry.nativeCallId === "call_type");
-      check("act received the actual native call id",
-        click?.nativeCallId === "call_click" && type?.nativeCallId === "call_type", acts);
+      const clickMatches = click?.nativeCallId === "call_click";
+      const typeMatches = type?.nativeCallId === "call_type";
+      check("act received the actual native call id", clickMatches && typeMatches, { clickMatches, typeMatches });
+      const observationMatches = click?.observationId === observationId;
+      const targetFree = !acts.some((entry) => "target" in entry);
       check("act received the latest observation id without a model-supplied target",
-        click?.observationId === observationId && !acts.some((entry) => "target" in entry), acts);
-      check("UTF-8 text reached the executor exactly", type?.text === typedText, acts);
-      check("the rejected selector never reached the executor", !acts.some((entry) => entry.nativeCallId === "call_reject"), acts);
-      const outputText = captures.flatMap(toolOutputText).join("\n");
-      const effectPresent = outputText.includes('"effect":"done"');
-      const observationPresent = outputText.includes(observationId ?? "missing-observation");
-      check("observation and action effect were in the actual next model inputs",
-        effectPresent && observationPresent,
-        { observationId, effectPresent, observationPresent, captureCount: captures.length });
+        observationMatches && targetFree,
+        { observationMatches, targetFree });
+      check("UTF-8 text reached the executor exactly", type?.text === typedText,
+        { textMatches: type?.text === typedText });
+      const rejectedActs = acts.filter((entry) => entry.nativeCallId === "call_reject").length;
+      check("the rejected selector never reached the executor", rejectedActs === 0, { rejectedActs });
     }
-    check("all model fixture checks passed", checks.every((entry) => entry.passed), checks);
+    const expectedRequests = mode === "plan" ? 4 : mode === "default" ? 14 : 2;
+    check(
+      "synthetic scenario matrix ran to completion",
+      scenarioCompleted && step === expectedRequests,
+      { mode, completed: scenarioCompleted, modelRequests: step, expectedRequests },
+    );
     assert.deepEqual(checks.filter((entry) => !entry.passed), []);
     results.push({
       mode,
-      modelRequests: captures.length,
+      modelRequests: step,
       tools: tools.length,
       auditEntries: audit.length,
-      checks: checks.map((entry) => ({ name: entry.name, passed: entry.passed })),
+      checks: checks.map(({ name, passed, details }) => ({
+        name,
+        passed,
+        ...(details === undefined ? {} : { details }),
+      })),
     });
   } finally {
     await client?.close();
@@ -462,52 +547,63 @@ type ToolResult = {
   [key: string]: unknown;
 };
 
-function toolOutputText(body: Record<string, unknown>): string[] {
+type ToolOutputPart = {
+  type?: string;
+  text?: string;
+  image_url?: string;
+};
+
+type CallOutput = {
+  /** First parseable JSON tool result, if any. */
+  result: ToolResult | undefined;
+  /** Every text block from this exact call, for leakage checks. */
+  text: string;
+  /** Every input_image URL, including malformed ones, so counts stay honest. */
+  images: Array<string | undefined>;
+};
+
+/** The exact function_call_output for one call id; never a whole-request search. */
+function callOutput(body: Record<string, unknown>, callId: string): CallOutput | undefined {
   const inputs = Array.isArray(body.input) ? body.input : [];
-  return inputs.flatMap((candidate) => {
-    const item = candidate as {
-      type?: string;
-      output?: Array<{ type?: string; text?: string }>;
-    };
-    if (item.type !== "function_call_output") return [];
-    return (item.output ?? []).flatMap((part) =>
-      part.type === "input_text" && typeof part.text === "string" ? [part.text] : [],
-    );
-  });
+  const item = inputs.find((candidate) => {
+    const record = candidate as { type?: string; call_id?: string };
+    return record.type === "function_call_output" && record.call_id === callId;
+  }) as { output?: string | ToolOutputPart[] } | undefined;
+  if (!item) return undefined;
+  const parts: ToolOutputPart[] = typeof item.output === "string"
+    ? [{ type: "input_text", text: item.output }]
+    : Array.isArray(item.output) ? item.output : [];
+  const texts = parts.flatMap((part) =>
+    part.type === "input_text" && typeof part.text === "string" ? [part.text] : []);
+  let result: ToolResult | undefined;
+  for (const text of texts) {
+    // The pin wraps structuredContent as "Wall time: …\nOutput:\n<json>".
+    const wrapper = "\nOutput:\n";
+    const offset = text.indexOf(wrapper);
+    const json = text.startsWith("Wall time:") && offset >= 0
+      ? text.slice(offset + wrapper.length)
+      : text;
+    try {
+      result = JSON.parse(json) as ToolResult;
+      break;
+    } catch {
+      // A non-JSON wall-time block may precede the MCP content.
+    }
+  }
+  return {
+    result,
+    text: texts.join("\n"),
+    images: parts.filter((part) => part.type === "input_image").map((part) => part.image_url),
+  };
 }
 
 function output(body: Record<string, unknown>, callId: string): ToolResult | undefined {
-  const inputs = Array.isArray(body.input) ? body.input : [];
-  const item = inputs.find((candidate) => {
-    const record = candidate as { type?: string; call_id?: string };
-    return record.type === "function_call_output" && record.call_id === callId;
-  }) as { output?: Array<{ type?: string; text?: string }> } | undefined;
-  for (const part of item?.output ?? []) {
-    if (part.type !== "input_text" || typeof part.text !== "string") continue;
-    try {
-      return JSON.parse(part.text) as ToolResult;
-    } catch {
-      // Codex adds a "Wall time..." text part before the MCP content.
-    }
-  }
-  return undefined;
+  return callOutput(body, callId)?.result;
 }
 
-function outputImage(
-  body: Record<string, unknown>,
-  callId: string,
-): { mimeType: string; data: string } | undefined {
-  const inputs = Array.isArray(body.input) ? body.input : [];
-  const item = inputs.find((candidate) => {
-    const record = candidate as { type?: string; call_id?: string };
-    return record.type === "function_call_output" && record.call_id === callId;
-  }) as { output?: Array<{ type?: string; image_url?: string }> } | undefined;
-  for (const part of item?.output ?? []) {
-    if (part.type !== "input_image" || typeof part.image_url !== "string") continue;
-    const match = /^data:(image\/(?:png|jpeg));base64,(.+)$/u.exec(part.image_url);
-    if (match?.[1] && match[2]) return { mimeType: match[1], data: match[2] };
-  }
-  return undefined;
+function textSafe(call: CallOutput | undefined): boolean {
+  const text = call?.text;
+  return text !== undefined && !leakMarkers.some((marker) => text.includes(marker));
 }
 
 async function readAudit(path: string): Promise<Array<Record<string, unknown>>> {

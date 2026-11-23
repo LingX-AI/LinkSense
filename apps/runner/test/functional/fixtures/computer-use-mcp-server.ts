@@ -3,7 +3,7 @@
  * source module through the existing Core registry and a fake executor; it is
  * never part of production registration.
  *
- * argv: <audit-file> <default|plan>
+ * argv: <audit-file> <default|plan|no-screenshots>
  */
 import { appendFileSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -11,6 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -31,10 +32,18 @@ import {
 import { computerFixtureEnvironment } from "./fixture-environment.js";
 
 const [auditPath, requestedMode] = process.argv.slice(2);
-if (!auditPath || (requestedMode !== "default" && requestedMode !== "plan")) {
+if (
+  !auditPath ||
+  (requestedMode !== "default" &&
+    requestedMode !== "plan" &&
+    requestedMode !== "no-screenshots")
+) {
   throw new Error("computer fixture requires an audit path and mode");
 }
 const mode = requestedMode;
+// no-screenshots keeps the default collaboration tools and omits raster.
+const collaborationMode = mode === "plan" ? "plan" : "default";
+const screenshots = mode !== "no-screenshots";
 const audit = (entry: Record<string, unknown>) =>
   appendFileSync(auditPath, `${JSON.stringify(entry)}\n`);
 
@@ -43,8 +52,25 @@ const fallbackPng =
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII=";
 /** Signature, IHDR and dimensions survive; IDAT pixel data does not. */
 const truncatedPng = Buffer.from(fallbackPng, "base64").subarray(0, 50).toString("base64");
+const fallbackScreenshot: NonNullable<ComputerObservation["screenshot"]> = {
+  mime_type: "image/png",
+  data_base64: fallbackPng,
+  width: 2,
+  height: 3,
+};
 
 function observeScenario(count: number): ComputerObservation {
+  if (mode === "no-screenshots") {
+    // Same eligible PNG as the positive fallback; one node keeps the
+    // tree-only result observable.
+    return {
+      observation_id: "obs-noscreens",
+      tree_quality: "unusable",
+      truncated: false,
+      nodes: [{ ref: "e1", role: "button", name: "Continue" }],
+      screenshot: fallbackScreenshot,
+    };
+  }
   const goodNodes = [
     { ref: "e1", role: "button", name: "Continue" },
     { ref: "e2", role: "text_field", name: "Name" },
@@ -55,12 +81,7 @@ function observeScenario(count: number): ComputerObservation {
       tree_quality: "unusable",
       truncated: false,
       nodes: [],
-      screenshot: {
-        mime_type: "image/png",
-        data_base64: fallbackPng,
-        width: 2,
-        height: 3,
-      },
+      screenshot: fallbackScreenshot,
     };
   }
   if (count === 4) {
@@ -69,12 +90,7 @@ function observeScenario(count: number): ComputerObservation {
       tree_quality: "good",
       truncated: false,
       nodes: goodNodes,
-      screenshot: {
-        mime_type: "image/png",
-        data_base64: fallbackPng,
-        width: 2,
-        height: 3,
-      },
+      screenshot: fallbackScreenshot,
     };
   }
   if (count === 5) {
@@ -141,6 +157,7 @@ const executor: ComputerUseExecutor = {
       tree_quality: observation.tree_quality,
       truncated: observation.truncated,
       node_count: observation.nodes.length,
+      screenshot: observation.screenshot !== undefined,
     });
     return observation;
   },
@@ -195,10 +212,20 @@ const executor: ComputerUseExecutor = {
 
 const tinyJpeg =
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AN//Z";
+const structuredMarker = "FIXTURE_STRUCTURED_MARKER";
 const imageTool: Tool = {
   name: "fixture_image",
   description: "Return a synthetic tiny image through MCP content for the fixture only.",
-  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  inputSchema: {
+    type: "object",
+    properties: {
+      structured: {
+        type: "boolean",
+        description: "Fixture only: also return the known structuredContent marker.",
+      },
+    },
+    additionalProperties: false,
+  },
   annotations: {
     title: "Fixture image",
     readOnlyHint: true,
@@ -209,30 +236,34 @@ const imageTool: Tool = {
 };
 const imageModule: CoreMcpModuleDefinition = {
   key: "fixture_image",
-  modes: [mode],
+  modes: [collaborationMode],
   toolNames: [imageTool.name],
   create(): CoreMcpToolModule {
     return {
       key: "fixture_image",
       tools: [imageTool],
-      async callTool() {
-        return {
+      async callTool(call) {
+        const result: CallToolResult = {
           content: [
             { type: "text", text: "FIXTURE_IMAGE" },
             { type: "image", data: tinyJpeg, mimeType: "image/jpeg" },
           ],
           isError: false,
         };
+        const structured = (call.argumentsValue as { structured?: unknown } | undefined)?.structured;
+        return structured === true
+          ? { ...result, structuredContent: { marker: structuredMarker } }
+          : result;
       },
     };
   },
 };
 
 const registry = createCoreMcpRegistry({
-  mode,
-  environment: computerFixtureEnvironment(mode),
+  mode: collaborationMode,
+  environment: computerFixtureEnvironment(collaborationMode),
   extraModules: [
-    createComputerUseCoreMcpModule({ mode, executor, screenshots: true }),
+    createComputerUseCoreMcpModule({ mode: collaborationMode, executor, screenshots }),
     imageModule,
   ],
 });
