@@ -56,7 +56,7 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *   LINKSENSE_JOINED_RUNTIME=/path/to/read-only/runtime \
  *     pnpm --filter @linksense/api exec tsx test/integration/desktop-computer-product-chain.ts
  *
- * Four opt-in whitebox modes extend the same harness without replacing the
+ * Five opt-in whitebox modes extend the same harness without replacing the
  * default product-chain receipt:
  *   LINKSENSE_JOINED_SCENARIO=crash   SIGKILL only the owned Go gateway, prove
  *     the real socket-close GUI cleanup, then restart the same staged runtime,
@@ -76,7 +76,13 @@ import { startJoinedComputerApi } from "./computer-use-joined.js";
  *     approval is pending, then prove the durable native interrupted terminal,
  *     the exact Stop command audit and the released turn slot. This is
  *     Conversation Stop, not the computer-control Pause/Stop.
- * All four modes keep the synthetic platform/executor boundary: no TCC, signed
+ *   LINKSENSE_JOINED_SCENARIO=reply-loss  Run the one approved synthetic act,
+ *     then withhold only its result publication past the bounded command
+ *     deadline while the device socket stays live. The real API must keep the
+ *     result uncertain, audit no success, and never resend the act or claim a
+ *     second native call. This fixture does not drop the socket or claim that
+ *     the withheld result reached the API.
+ * All opt-in modes keep the synthetic platform/executor boundary: no TCC, signed
  * driver, OS input, real window, live provider or production service.
  */
 
@@ -85,8 +91,8 @@ const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const fixtureModel = "joined-computer-fixture";
 const scenarioInput = process.env.LINKSENSE_JOINED_SCENARIO?.trim() || "product-chain";
 if (scenarioInput !== "product-chain" && scenarioInput !== "crash" && scenarioInput !== "revoke" &&
-    scenarioInput !== "app-server-exit" && scenarioInput !== "stop") {
-  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash, revoke, app-server-exit or stop");
+    scenarioInput !== "app-server-exit" && scenarioInput !== "stop" && scenarioInput !== "reply-loss") {
+  console.error("JOINED_USAGE: LINKSENSE_JOINED_SCENARIO must be product-chain, crash, revoke, app-server-exit, stop or reply-loss");
   process.exit(2);
 }
 const scenario = scenarioInput;
@@ -453,6 +459,7 @@ try {
   const waitMetResult = gate<Record<string, unknown>>();
   const waitTimedOutResult = gate<Record<string, unknown>>();
   const stoppedActResult = gate<Record<string, unknown>>();
+  const replyLossResult = gate<Record<string, unknown>>();
   // The crash mode's fresh-turn refusal is created in every mode; only that
   // mode resolves it and the shared cleanup rejects it otherwise.
   const whiteboxFreshObserve = gate<Record<string, unknown>>();
@@ -481,7 +488,7 @@ try {
     reply.type("text/event-stream").send(responseStream(item));
   });
   /**
-   * The first verified running turn, shared by the default chain and all four
+   * The first verified running turn, shared by the default chain and all five
    * opt-in modes: one gated observe on the selected synthetic window, then one
    * real computer_act that becomes the pending native approval. Mode branching
    * only happens after those two stages and the caller's exact state proof.
@@ -639,6 +646,12 @@ try {
       // approval. The app-server exit must never produce another model call.
       throw new Error(`the app-server exit fixture must not accept another model request (phase ${current})`);
     }
+    if (scenario === "reply-loss" && current === 2) {
+      const result = toolResult(body, "whitebox-call-2");
+      assertFailure(result, "RUNNER_OPERATION_UNCERTAIN", "reply-loss act");
+      replyLossResult.resolve(result ?? {});
+      return message("JOINED_REPLY_LOSS_OK");
+    }
     if (scenario === "crash" && current === 2) {
       assert(JSON.stringify(body).includes(crashFreshInputMarker),
         "a prior turn requested the model again after the crash");
@@ -709,7 +722,7 @@ try {
 
   /**
    * One owned gateway and one bounded JSON line reader, shared by the default
-   * chain and all four opt-in modes. The fixture line carries only the loopback
+   * chain and all five opt-in modes. The fixture line carries only the loopback
    * origin, the native data root, the synthetic device credential and the two
    * marker paths; no argv, window name or private selection is ever sent.
    */
@@ -723,6 +736,7 @@ try {
         // The one-shot app-server SIGKILL fixture is enabled only on this
         // disposable gateway and only for the scenario that owns it.
         ...(scenario === "app-server-exit" ? { LINKSENSE_JOINED_APP_SERVER_EXIT: "1" } : {}),
+        ...(scenario === "reply-loss" ? { LINKSENSE_JOINED_ACT_REPLY_LOSS: "1" } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -965,9 +979,11 @@ try {
     executors: z.number().int().nonnegative(),
     stats: z.looseObject({
       observes: z.number().int().nonnegative(), acts: z.number().int().nonnegative(),
+      act_entries: z.number().int().nonnegative(),
       authorizations: z.number().int().nonnegative(), mutations: z.number().int().nonnegative(),
       // Go marshals a nil slice as null before the first act.
-      act_native_ids: z.array(z.string()).nullable(), closed: z.boolean(),
+      act_native_ids: z.array(z.string()).nullable(),
+      act_entry_native_ids: z.array(z.string()).nullable(), closed: z.boolean(),
     }),
     statsSelectionId: z.string(), selectionExpiresAt: z.string(),
     hostHolder: z.string(), hostHasHolder: z.boolean(), hostBindingMatches: z.boolean(),
@@ -1177,7 +1193,9 @@ try {
         ? await runRevokeScenario()
         : scenario === "app-server-exit"
           ? await runAppServerExitScenario()
-          : await runStopScenario();
+          : scenario === "reply-loss"
+            ? await runReplyLossScenario()
+            : await runStopScenario();
     succeeded = true;
     break joinedScenario;
   }
@@ -2617,6 +2635,138 @@ try {
       repeatNotActive: true,
       credentialRetained: true,
       driverTouched: false,
+      privateMarkerAbsent: true,
+      boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
+    };
+  }
+
+  /**
+   * Lost act reply after the synthetic executor has actually run. The executor
+   * barrier withholds only the result publication past the command deadline;
+   * the device socket stays live. The API observes uncertainty, and the
+   * executor entry counters remain the proof even when a duplicate invocation
+   * is rejected before it can mutate.
+   */
+  async function runReplyLossScenario(): Promise<Record<string, unknown>> {
+    if (!db || !api || !manifest) {
+      throw new Error("the reply-loss scenario requires the API and PostgreSQL");
+    }
+    const prisma = db;
+    const joined = api;
+    const runtimeManifest = manifest;
+    assert(running.codexThreadId !== null, "the reply-loss scenario requires the projected native thread id");
+    assert(running.codexTurnId !== null, "the reply-loss scenario requires the projected native turn id");
+    assert(binding, "the reply-loss scenario requires the current device connection");
+    assert.equal(await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id), true,
+      "the running turn must hold its exact slot before the lost act");
+
+    const approvalRequest = await approval();
+    await answer(approvalRequest, "Allow");
+    // The synthetic executor records its entry and mutation before waiting on
+    // the publication barrier. Polling stats is therefore proof of the actual
+    // invocation, not a frame count. Entry identity is captured before
+    // observation validation, so a rejected duplicate is still visible.
+    const executed = await waitFor("the joined synthetic act execution", async () => {
+      const current = nativeStats(await stats());
+      return current.stats.act_entries === 1 ? current : null;
+    }, 30_000);
+    assert.equal(executed.executors, 1, "the fixture must construct one synthetic executor");
+    assert.equal(executed.stats.acts, 1, "the first valid act must execute exactly once");
+    assert.equal(executed.stats.mutations, 1, "the synthetic act must mutate exactly once");
+    assert.deepEqual(executed.stats.act_entry_native_ids, ["whitebox-call-2"],
+      "the executor entry must carry the original native call identity");
+    assert.deepEqual(executed.stats.act_native_ids, ["whitebox-call-2"],
+      "the executor must receive the original native call identity");
+
+    // The executor holds only the result publication. The device link stays
+    // live, so the command's bounded deadline is the deterministic reply-loss
+    // boundary: the API must answer the waiting tool call with uncertainty
+    // instead of a success or a retry. The fixture does not later assert that
+    // its withheld result reached the API.
+    const uncertain = await withTimeout("the reply-loss act result", replyLossResult.promise, 95_000);
+    assertFailure(uncertain, "RUNNER_OPERATION_UNCERTAIN", "reply-loss act");
+    assert.equal(uncertain.effect, undefined,
+      "a lost act reply must not expose a success effect");
+    send({ action: "release_act" });
+    await waitEvent("act_released", () => true, 10_000);
+
+    // Causal completion barrier: the same native turn finishes and releases
+    // its exact slot before any audit or final counter is read. No sleep is
+    // used, and the late executor publication is not treated as an API input.
+    const completedTurn = await waitFor("the reply-loss native turn completion", async () =>
+      await prisma.conversationTurn.findFirst({
+        where: { id: turn.turn_id, conversationId, status: "completed" },
+        select: { codexThreadId: true, codexTurnId: true },
+      }), 60_000);
+    assert(completedTurn.codexThreadId === running.codexThreadId &&
+      completedTurn.codexTurnId === running.codexTurnId,
+    "the reply-loss completion must remain the exact original native turn");
+    await waitFor("the reply-loss turn slot release", async () =>
+      (await joined.redis.hasTurnSlot(conversationId, turn.turn_id, owner.id)) === false, 15_000);
+    const completedStats = nativeStats(await stats());
+    assert.equal(completedStats.connectionId, binding.connectionId,
+      "the reply-loss completion must keep the exact same device connection");
+    assert.equal(completedStats.connectionState, "online");
+    assert.equal(completedStats.connectionReady, true);
+    assert.equal(completedStats.connectionComputerReady, true);
+    assert.equal(completedStats.picks, 1);
+    assert.equal(completedStats.executors, 1, "the fixture must not construct another executor");
+
+    const lostAudit = await waitFor("the lost-reply act audit", async () => {
+      const rows = await prisma.auditLog.findMany({
+        where: { actorId: owner.id, action: "desktop_tool_requested", targetType: "local_computer" },
+        select: { result: true, metadataJson: true },
+      });
+      return rows.find(row => {
+        const metadata = (row.metadataJson ?? {}) as Record<string, unknown>;
+        return row.result === "failure" && metadata.conversation_id === conversationId &&
+          metadata.computer_request === "act";
+      }) ?? null;
+    }, 15_000);
+    const lostMetadata = (lostAudit.metadataJson ?? {}) as Record<string, unknown>;
+    assert.equal(lostMetadata.reason_code, "RUNNER_OPERATION_UNCERTAIN",
+      "the audit must name the uncertain reply loss");
+    const actAudits = (await prisma.auditLog.findMany({
+      where: { actorId: owner.id, action: "desktop_tool_requested", targetType: "local_computer" },
+      select: { result: true, metadataJson: true },
+    })).filter(row => {
+      const metadata = (row.metadataJson ?? {}) as Record<string, unknown>;
+      return metadata.conversation_id === conversationId && metadata.computer_request === "act";
+    });
+    const successAuditCount = actAudits.filter(row => row.result === "success").length;
+    assert.equal(successAuditCount, 0,
+      "a lost act reply must never produce a success audit");
+    assert.equal(actAudits.length, 1, "the lost act must be audited exactly once");
+
+    const finalStats = nativeStats(await stats());
+    assert.equal(finalStats.stats.act_entries, 1, "the lost act must not be invoked again");
+    assert.equal(finalStats.stats.acts, 1, "the lost act must not be reissued");
+    assert.equal(finalStats.stats.mutations, 1, "the lost act must not mutate twice");
+    assert.deepEqual(finalStats.stats.act_entry_native_ids, ["whitebox-call-2"],
+      "the original native call identity must be the only executor entry");
+    assert.deepEqual(finalStats.stats.act_native_ids, ["whitebox-call-2"],
+      "the original native call identity must be the only invocation");
+    assert.equal(finalStats.executors, 1, "the fixture must not construct another executor");
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1,
+      "the lost act reply must not create another local turn");
+    await assertNoPrivateLeak();
+
+    return {
+      status: "desktop computer product chain: reply-loss ok",
+      scenario,
+      codex: runtimeManifest.versions.codex,
+      modelRequests: captures.length,
+      turns: 1,
+      executorInvocations: finalStats.stats.act_entries,
+      executorMutations: finalStats.stats.mutations,
+      nativeCallId: finalStats.stats.act_entry_native_ids?.[0] ?? null,
+      uncertainResult: uncertain.error,
+      auditResult: lostAudit.result,
+      auditReason: lostMetadata.reason_code,
+      successAuditCount,
+      retryCount: Math.max(0, finalStats.stats.act_entries - 1),
+      driverTouched: false,
+      osInput: false,
       privateMarkerAbsent: true,
       boundary: "synthetic platform/executor; no TCC, signed app, OS input or live provider",
     };

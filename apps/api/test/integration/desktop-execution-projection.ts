@@ -892,6 +892,115 @@ export async function verifyDesktopExecutionProjection(input: {
     await recovery.process(release);
     assert.equal(await redis.hasTurnSlot(conversationId, turnId, ownerId), false);
 
+    // A local Stop with an uncertain transport result is the ambiguity the
+    // platform actually observes: the command may have crossed the transport,
+    // but no native interruption is proven. The running turn and its slot must
+    // survive, and the same native turn's later completed terminal must remain
+    // authoritative.
+    const uncertainStopThread = randomUUID();
+    const uncertainStopNativeTurn = randomUUID();
+    const uncertainStopTurnId = randomUUID();
+    const uncertainStopConversation = await prisma.conversation.create({ data: {
+      ownerId, title: "Uncertain Stop projection", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: `${ownerId}/home/workspaces/${randomUUID()}`, runtimeGeneration: randomUUID(),
+      executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: uncertainStopThread,
+    } });
+    await prisma.conversationTurnStartIntent.create({ data: {
+      projectionTurnId: uncertainStopTurnId, ownerId, conversationId: uncertainStopConversation.id,
+      runtimeGeneration: uncertainStopConversation.runtimeGeneration, capabilityGeneration,
+      inputText: "Uncertain local Stop", capabilitiesJson: [], attachmentsJson: [],
+      submitMode: "normal", runnerStatus: "prepared",
+    } });
+    const uncertainStopCredentials = await leases.issue(
+      { deviceId, connectionId: replacement.connectionId },
+      {
+        ownerId, conversationId: uncertainStopConversation.id, projectionTurnId: uncertainStopTurnId,
+        expectedRuntimeGeneration: uncertainStopConversation.runtimeGeneration,
+        model: "fixture-model",
+        modelProvider: { revision: 1, baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(), protocolMode: "native_responses" },
+      },
+    );
+    await prisma.$transaction([
+      prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId: uncertainStopTurnId } }),
+      prisma.conversationTurn.create({ data: {
+        id: uncertainStopTurnId, conversationId: uncertainStopConversation.id, submittedBy: ownerId,
+        codexThreadId: uncertainStopThread, codexTurnId: uncertainStopNativeTurn, sequenceNo: 1,
+        status: "running", submitMode: "normal", capabilityGeneration, capabilitiesJson: [], startedAt: new Date(),
+      } }),
+    ]);
+    assert.equal((await redis.acquireTurnSlot(uncertainStopConversation.id, uncertainStopTurnId, ownerId)).acquired, true);
+    const originalReleaseTurnSlot = redis.releaseTurnSlot;
+    let uncertainStopReleases = 0;
+    redis.releaseTurnSlot = async (...args: Parameters<typeof originalReleaseTurnSlot>) => {
+      const [releasedConversationId, releasedTurnId] = args;
+      if (releasedConversationId === uncertainStopConversation.id && releasedTurnId === uncertainStopTurnId) {
+        uncertainStopReleases += 1;
+      }
+      await originalReleaseTurnSlot.apply(redis, args);
+    };
+    try {
+      const nativeStop = readCommand(replacement.socket);
+      const stop = conversations.interrupt(ownerId, uncertainStopConversation.id, uncertainStopTurnId, {});
+      const stopCommand = await nativeStop;
+      assert.equal(stopCommand.operation, "turn.interrupt");
+      assert.equal(stopCommand.turn_id, uncertainStopTurnId);
+      assert.equal(stopCommand.conversation_id, uncertainStopConversation.id);
+      assert.equal(stopCommand.owner_id, ownerId);
+      assert.equal(stopCommand.runtime_generation, uncertainStopConversation.runtimeGeneration);
+      // The fixture returns the explicit transport uncertainty reply before
+      // any native Stop is proven. It does not discard the socket or simulate
+      // a response lost after crossing the transport. The platform observes
+      // only an ambiguous command, so it must not invent an interruption or a
+      // successful Stop audit.
+      send(replacement.socket, {
+        type: "command.result", id: stopCommand.id, operation: stopCommand.operation,
+        ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+      });
+      await assert.rejects(stop, { code: "RUNNER_OPERATION_UNCERTAIN" });
+      const heldTurn = await prisma.conversationTurn.findUniqueOrThrow({ where: { id: uncertainStopTurnId } });
+      assert.equal(heldTurn.status, "running");
+      assert.equal(heldTurn.interruptRequestedAt, null);
+      assert.equal(heldTurn.interruptedAt, null);
+      assert.equal(await redis.hasTurnSlot(uncertainStopConversation.id, uncertainStopTurnId, ownerId), true);
+      assert.equal(await prisma.auditLog.count({
+        where: { action: "conversation_turn_interrupt_requested", targetType: "conversation_turn", targetId: uncertainStopTurnId },
+      }), 0);
+      assert.equal(await prisma.conversationEvent.count({ where: { conversationId: uncertainStopConversation.id } }), 0);
+
+      const completed = {
+        deliveryId: randomUUID(),
+        event: {
+          method: "turn/completed", visibility: "user_visible",
+          params: { threadId: uncertainStopThread, turn: { id: uncertainStopNativeTurn, status: "completed" } },
+        },
+      } satisfies EventDelivery;
+      assertAccepted(await sendEvents(replacement.socket, {
+        type: "execution.callback", id: randomUUID(), operation: "events",
+        conversation_id: uncertainStopConversation.id, turn_id: uncertainStopTurnId,
+        runtime_generation: uncertainStopConversation.runtimeGeneration,
+        run_token: uncertainStopCredentials.run_token,
+        body: { conversationId: uncertainStopConversation.id, events: [completed] },
+      }), [completed.deliveryId]);
+      const settledTurn = await prisma.conversationTurn.findUniqueOrThrow({ where: { id: uncertainStopTurnId } });
+      assert.equal(settledTurn.status, "completed");
+      assert.equal(settledTurn.interruptRequestedAt, null);
+      assert.equal(settledTurn.interruptedAt, null);
+      assert.equal(await prisma.conversationEvent.count({
+        where: { conversationId: uncertainStopConversation.id, turnId: uncertainStopTurnId, eventType: "turn/completed" },
+      }), 1);
+      assert.equal(await prisma.auditLog.count({
+        where: { action: "conversation_turn_completed", targetType: "conversation_turn", targetId: uncertainStopTurnId, result: "success" },
+      }), 1);
+      assert.equal(await prisma.auditLog.count({
+        where: { action: "conversation_turn_interrupted", targetType: "conversation_turn", targetId: uncertainStopTurnId },
+      }), 0);
+      assert.equal(await prisma.conversationTurn.count({ where: { conversationId: uncertainStopConversation.id } }), 1);
+      assert.equal(await redis.hasTurnSlot(uncertainStopConversation.id, uncertainStopTurnId, ownerId), false);
+      assert.equal(uncertainStopReleases, 1, "the naturally completed turn must release its slot exactly once");
+    } finally {
+      redis.releaseTurnSlot = originalReleaseTurnSlot;
+    }
+
     const legacyProbe = await prisma.conversation.create({ data: {
       ownerId, title: "Legacy Mac knowledge compatibility", titleSource: "manual", archiveStatus: "active",
       workspaceRelPath: projectWorkspaceRelativePath(ownerId, null), runtimeGeneration: randomUUID(),

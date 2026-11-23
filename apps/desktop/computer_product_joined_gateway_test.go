@@ -66,6 +66,7 @@ const (
 	joinedProcessProbeEvent    = "process_probe"
 	joinedAppServerExitEvent   = "app_server_exit"
 	joinedAppServerExitEnv     = "LINKSENSE_JOINED_APP_SERVER_EXIT"
+	joinedActReplyLossEnv      = "LINKSENSE_JOINED_ACT_REPLY_LOSS"
 	joinedAppServerExecutable  = "codex"
 	joinedMaxProcessEntries    = 4096
 	joinedMaxProcessReplyBytes = 1 << 20
@@ -95,43 +96,64 @@ type joinedProcessProbeRequest struct {
 }
 
 type joinedExecutorStats struct {
-	Observes       int      `json:"observes"`
-	Acts           int      `json:"acts"`
-	Authorizations int      `json:"authorizations"`
-	Mutations      int      `json:"mutations"`
-	ActRefs        []string `json:"act_refs"`
-	ActNativeIDs   []string `json:"act_native_ids"`
-	Waits          int      `json:"waits"`
-	WaitMet        int      `json:"wait_met"`
-	WaitTimedOut   int      `json:"wait_timed_out"`
-	WaitFailed     int      `json:"wait_failed"`
-	WaitInFlight   int      `json:"wait_in_flight"`
-	WaitRefs       []string `json:"wait_refs"`
-	WaitObservIDs  []string `json:"wait_observation_ids"`
-	WaitTimeouts   []int    `json:"wait_timeouts"`
-	Closed         bool     `json:"closed"`
+	Observes int `json:"observes"`
+	Acts     int `json:"acts"`
+	// Acts/ActNativeIDs stay the validated successful-act counters. The entry
+	// counters below record every invocation before observation/ref validation.
+	ActEntries        int      `json:"act_entries"`
+	Authorizations    int      `json:"authorizations"`
+	Mutations         int      `json:"mutations"`
+	ActRefs           []string `json:"act_refs"`
+	ActNativeIDs      []string `json:"act_native_ids"`
+	ActEntryNativeIDs []string `json:"act_entry_native_ids"`
+	Waits             int      `json:"waits"`
+	WaitMet           int      `json:"wait_met"`
+	WaitTimedOut      int      `json:"wait_timed_out"`
+	WaitFailed        int      `json:"wait_failed"`
+	WaitInFlight      int      `json:"wait_in_flight"`
+	WaitRefs          []string `json:"wait_refs"`
+	WaitObservIDs     []string `json:"wait_observation_ids"`
+	WaitTimeouts      []int    `json:"wait_timeouts"`
+	Closed            bool     `json:"closed"`
+}
+
+type joinedActBarrier struct {
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+// releaseNow unblocks a withheld act result. It is nil-safe so shutdown and
+// test failure can always use the one owned cleanup path.
+func (barrier *joinedActBarrier) releaseNow() {
+	if barrier == nil {
+		return
+	}
+	barrier.releaseOnce.Do(func() { close(barrier.release) })
 }
 
 type joinedComputerExecutor struct {
-	mu             sync.Mutex
-	target         computerSelectedTarget
-	binding        m1bComputerSelection
-	observation    string
-	observes       int
-	acts           int
-	authorizations int
-	mutations      int
-	actRefs        []string
-	actNativeIDs   []string
-	waits          int
-	waitMet        int
-	waitTimedOut   int
-	waitFailed     int
-	waitInFlight   int
-	waitRefs       []string
-	waitObservIDs  []string
-	waitTimeouts   []int
-	closed         bool
+	mu                sync.Mutex
+	target            computerSelectedTarget
+	binding           m1bComputerSelection
+	observation       string
+	observes          int
+	acts              int
+	actEntries        int
+	authorizations    int
+	mutations         int
+	actRefs           []string
+	actNativeIDs      []string
+	actEntryNativeIDs []string
+	waits             int
+	waitMet           int
+	waitTimedOut      int
+	waitFailed        int
+	waitInFlight      int
+	waitRefs          []string
+	waitObservIDs     []string
+	waitTimeouts      []int
+	closed            bool
+	actBarrier        *joinedActBarrier
 }
 
 func (executor *joinedComputerExecutor) selection() m1bComputerSelection {
@@ -256,11 +278,17 @@ func (executor *joinedComputerExecutor) act(
 	_ context.Context, _ m1bComputerSelection, nativeCallID string, input m1bComputerAct,
 ) m1bComputerResult {
 	executor.mu.Lock()
-	defer executor.mu.Unlock()
+	// Count every entry that reaches the synthetic executor before validating
+	// its observation/ref. A rejected duplicate invocation is still an
+	// invocation and must never be hidden behind the success-only counters.
+	executor.actEntries++
+	executor.actEntryNativeIDs = append(executor.actEntryNativeIDs, nativeCallID)
 	if executor.observation == "" || input.ObservationID != executor.observation {
+		executor.mu.Unlock()
 		return m1bComputerActOutcome(m1bComputerActResult{OK: false, Error: "COMPUTER_STALE_OBSERVATION"})
 	}
 	if input.Ref != "@joined:e1" && input.Ref != "@joined:e2" {
+		executor.mu.Unlock()
 		return m1bComputerActOutcome(m1bComputerActResult{OK: false, Error: "COMPUTER_STALE_REF"})
 	}
 	executor.acts++
@@ -269,6 +297,17 @@ func (executor *joinedComputerExecutor) act(
 	executor.actNativeIDs = append(executor.actNativeIDs, nativeCallID)
 	// A fresh observation is required before any later action.
 	executor.observation = ""
+	barrier := executor.actBarrier
+	executor.mu.Unlock()
+	if barrier != nil {
+		// Synthetic reply-loss fixture: the effect and its counters are already
+		// durable, but the result stays unsent until the API's bounded command
+		// deadline proves the reply-loss ambiguity. Shutdown also releases this
+		// barrier so a failed proof cannot leave the connection waiting. No
+		// production path reads it, and a later release does not assert that the
+		// withheld result reached the API.
+		<-barrier.release
+	}
 	return m1bComputerActOutcome(m1bComputerActResult{OK: true, Effect: "done", WaitedMS: 1})
 }
 
@@ -289,11 +328,12 @@ func (executor *joinedComputerExecutor) stats() joinedExecutorStats {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	return joinedExecutorStats{
-		Observes: executor.observes, Acts: executor.acts,
+		Observes: executor.observes, Acts: executor.acts, ActEntries: executor.actEntries,
 		Authorizations: executor.authorizations, Mutations: executor.mutations,
-		ActRefs:      append([]string(nil), executor.actRefs...),
-		ActNativeIDs: append([]string(nil), executor.actNativeIDs...),
-		Waits:        executor.waits, WaitMet: executor.waitMet, WaitTimedOut: executor.waitTimedOut,
+		ActRefs:           append([]string(nil), executor.actRefs...),
+		ActNativeIDs:      append([]string(nil), executor.actNativeIDs...),
+		ActEntryNativeIDs: append([]string(nil), executor.actEntryNativeIDs...),
+		Waits:             executor.waits, WaitMet: executor.waitMet, WaitTimedOut: executor.waitTimedOut,
 		WaitFailed: executor.waitFailed, WaitInFlight: executor.waitInFlight,
 		WaitRefs:      append([]string(nil), executor.waitRefs...),
 		WaitObservIDs: append([]string(nil), executor.waitObservIDs...),
@@ -305,10 +345,11 @@ func (executor *joinedComputerExecutor) stats() joinedExecutorStats {
 type joinedComputerPlatform struct {
 	target computerSelectedTarget
 
-	mu        sync.Mutex
-	executor  *joinedComputerExecutor
-	picks     atomic.Int32
-	executors atomic.Int32
+	mu         sync.Mutex
+	executor   *joinedComputerExecutor
+	actBarrier *joinedActBarrier
+	picks      atomic.Int32
+	executors  atomic.Int32
 }
 
 func (platform *joinedComputerPlatform) driverEligible() bool { return true }
@@ -321,7 +362,7 @@ func (platform *joinedComputerPlatform) pickTarget(context.Context, *Desktop) (c
 func (platform *joinedComputerPlatform) newExecutor(
 	context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection,
 ) (computerProductExecutor, error) {
-	executor := &joinedComputerExecutor{target: platform.target}
+	executor := &joinedComputerExecutor{target: platform.target, actBarrier: platform.actBarrier}
 	platform.executors.Add(1)
 	platform.mu.Lock()
 	platform.executor = executor
@@ -401,13 +442,20 @@ func TestJoinedComputerGateway(t *testing.T) {
 	if marker == "" {
 		marker = "private-joined-marker"
 	}
+	var actBarrier *joinedActBarrier
+	if os.Getenv(joinedActReplyLossEnv) == "1" {
+		actBarrier = &joinedActBarrier{release: make(chan struct{})}
+	}
+	// Every return path, including an early fixture failure or scanner EOF,
+	// releases the withheld result before the owned connection cleanup waits.
+	defer actBarrier.releaseNow()
 	platform := &joinedComputerPlatform{target: computerSelectedTarget{
 		BundleID: "com.example.LinkSenseProductFixture",
 		// Window title/app name/PID/process instance never leave this host.
 		WindowID:        "window-" + marker,
 		PID:             424242,
 		ProcessInstance: "instance-" + marker,
-	}}
+	}, actBarrier: actBarrier}
 	desktop := &Desktop{server: origin, dataRoot: fixture.DataRoot}
 	control := newDesktopComputerControl(desktop).(*computerControl)
 	control.platform = platform
@@ -457,6 +505,8 @@ func TestJoinedComputerGateway(t *testing.T) {
 		}
 		switch command.Action {
 		case "shutdown":
+			// Unblock any withheld act result before the connection cleanup waits.
+			actBarrier.releaseNow()
 			cancelAsync()
 			emit(map[string]any{"event": "shutdown"})
 			return
@@ -530,6 +580,13 @@ func TestJoinedComputerGateway(t *testing.T) {
 				break
 			}
 			joinedAppServerExit()
+		case "release_act":
+			if actBarrier == nil {
+				emit(map[string]any{"event": "error", "error": "JOINED_ACT_BARRIER_DISABLED"})
+				break
+			}
+			actBarrier.releaseNow()
+			emit(map[string]any{"event": "act_released"})
 		case "select", "renew", "pause", "resume", "stop", "status":
 			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 			result, controlErr := control.control(ctx, desktop, command.ConversationID, command.TurnID, command.Action)
