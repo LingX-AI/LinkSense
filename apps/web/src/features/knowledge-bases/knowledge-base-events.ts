@@ -9,7 +9,13 @@ import {
 } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
-import { getAccessToken, setAccessToken } from "@/api/session"
+import {
+  getAccessToken,
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+  setAccessToken,
+  subscribeToLoginSession,
+} from "@/api/session"
 import {
   knowledgeBaseEventSchema,
   type KnowledgeBaseEvent,
@@ -37,7 +43,20 @@ export function connectKnowledgeBaseEvents(
   // UI samples have static processing states and never open a live SSE stream.
   if (import.meta.env.DEV && isKnowledgeUiDemoEnabled()) return () => undefined
   const controller = new AbortController()
+  // Each connector belongs to the login that started it. A replacement login
+  // must not inherit its refresh, reconnect decision, or token clear.
+  const loginSessionBoundary = getLoginSessionBoundary()
+  const isAbandonedLogin = () => !isLoginSessionCurrent(loginSessionBoundary)
   let reconnectDelay = 1_000
+  let unsubscribeLoginSession: (() => void) | null = null
+  const terminate = () => {
+    unsubscribeLoginSession?.()
+    unsubscribeLoginSession = null
+    controller.abort()
+  }
+  unsubscribeLoginSession = subscribeToLoginSession(() => {
+    if (isAbandonedLogin()) terminate()
+  })
 
   const connect = async () => {
     while (!controller.signal.aborted) {
@@ -57,13 +76,28 @@ export function connectKnowledgeBaseEvents(
           }
         )
 
+        // The response belongs to the login that sent the request. Checking
+        // first also prevents a stale response from triggering the global
+        // build/desktop-update side effects of validateResponseBuild.
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         validateResponseBuild(response.headers)
         if (response.status === 401) {
           try {
-            await refreshSession(token)
+            await refreshSession(token, loginSessionBoundary)
           } catch (error) {
+            if (isAbandonedLogin()) {
+              controller.abort()
+              return
+            }
             if (isDefinitiveAuthenticationError(error)) setAccessToken(null)
             throw error
+          }
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
           }
           const refreshedToken = getAccessToken()
           if (refreshedToken) {
@@ -78,6 +112,10 @@ export function connectKnowledgeBaseEvents(
               signal: controller.signal,
             }
           )
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
+          }
           validateResponseBuild(response.headers)
           if (response.status === 401) setAccessToken(null)
         }
@@ -94,6 +132,12 @@ export function connectKnowledgeBaseEvents(
 
         while (!controller.signal.aborted) {
           const chunk = await reader.read()
+          // A chunk (or EOF) that arrives after the login was replaced must
+          // not be handled or replayed for the new login.
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
+          }
           if (chunk.done) break
           buffer += decoder.decode(chunk.value, { stream: true })
           if (buffer.length > MAX_SSE_BUFFER_CHARACTERS) {
@@ -103,6 +147,10 @@ export function connectKnowledgeBaseEvents(
           const frames = buffer.split(/\r?\n\r?\n/u)
           buffer = frames.pop() ?? ""
           for (const rawFrame of frames) {
+            if (isAbandonedLogin()) {
+              controller.abort()
+              return
+            }
             const frame = parseSseFrame(rawFrame)
             if (!frame?.data) continue
             try {
@@ -124,6 +172,10 @@ export function connectKnowledgeBaseEvents(
           }
         }
       } catch (error) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         if (
           error instanceof ApiError &&
           ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
@@ -136,17 +188,29 @@ export function connectKnowledgeBaseEvents(
       }
 
       if (!controller.signal.aborted) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         const shouldReconnect = await Promise.resolve(
           handlers.shouldReconnect?.(controller.signal) ?? true
         ).catch(() => true)
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         if (controller.signal.aborted || !shouldReconnect) return
         handlers.onConnectionChange?.("reconnecting")
         await waitForSseReconnectDelay(reconnectDelay, controller.signal)
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
       }
     }
   }
 
-  void connect()
-  return () => controller.abort()
+  void connect().finally(terminate)
+  return terminate
 }

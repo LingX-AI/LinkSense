@@ -8,6 +8,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "@/api/client"
+import { beginLoginSession } from "@/api/session"
 import { knowledgeBaseQueryKeys } from "@/features/knowledge-bases/knowledge-base-api"
 import {
   knowledgeBaseEventSchema,
@@ -371,6 +372,55 @@ describe("knowledge base event lifecycle", () => {
     })
   })
 
+  it("discards a buffered replay and connected transition after login replacement", async () => {
+    const queryClient = createQueryClient()
+    const documentsKey = knowledgeBaseQueryKeys.documents(knowledgeBaseId)
+    queryClient.setQueryData(documentsKey, {
+      pages: [{ items: [documentFixture()], next_cursor: null }],
+      pageParams: [undefined],
+    })
+    let finishSnapshot: (() => void) | undefined
+    const snapshot = new Promise<void>((resolve) => {
+      finishSnapshot = resolve
+    })
+    const invalidateQueries = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockReturnValue(snapshot)
+    const rendered = renderHook(
+      () => useKnowledgeBaseEvents(knowledgeBaseId, true),
+      { wrapper: wrapper(queryClient) }
+    )
+    await waitFor(() => expect(handlers).toBeDefined())
+
+    act(() => handlers?.onConnectionChange?.("reconnecting"))
+    act(() => handlers?.onConnectionChange?.("connected"))
+    act(() => handlers?.onEvent(terminalEvent()))
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    act(() => {
+      queryClient.setQueryData(documentsKey, {
+        pages: [{ items: [documentFixture(10)], next_cursor: null }],
+        pageParams: [undefined],
+      })
+    })
+
+    beginLoginSession()
+    await act(async () => {
+      finishSnapshot?.()
+      await Promise.resolve()
+    })
+
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    expect(
+      queryClient.getQueryData<{
+        pages: Array<{
+          items: Array<{ status: string; processing: { revision: number } }>
+        }>
+      }>(documentsKey)?.pages[0]?.items[0]
+    ).toMatchObject({ status: "processing", processing: { revision: 10 } })
+    expect(rendered.result.current.connectionState).toBe("reconnecting")
+    expect(rendered.result.current.hasConnected).toBe(false)
+  })
+
   it("stops reconnecting and clears loaded content after access is revoked", async () => {
     const queryClient = createQueryClient()
     queryClient.setQueryData(
@@ -430,6 +480,71 @@ describe("knowledge base event lifecycle", () => {
     ]) {
       expect(queryClient.getQueryData(key)).toBeUndefined()
     }
+  })
+
+  it("does not clear content when a denied access snapshot resolves after its signal is aborted", async () => {
+    const queryClient = createQueryClient()
+    const current = baseFixture({ name: "current knowledge base" })
+    queryClient.setQueryData(
+      knowledgeBaseQueryKeys.detail(knowledgeBaseId),
+      current
+    )
+    queryClient.setQueryData(
+      knowledgeBaseQueryKeys.documents(knowledgeBaseId),
+      {
+        pages: [{ items: [documentFixture()], next_cursor: null }],
+        pageParams: [undefined],
+      }
+    )
+    queryClient.setQueryData(knowledgeBaseQueryKeys.grants(knowledgeBaseId), {
+      items: [],
+    })
+    const citationKey = knowledgeBaseQueryKeys.citation(
+      "00000000-0000-4000-8000-000000000099"
+    )
+    queryClient.setQueryData(citationKey, { parent_excerpt: "visible citation" })
+    let resolveSnapshot!: (snapshot: ReturnType<typeof baseFixture>) => void
+    const snapshot = new Promise<ReturnType<typeof baseFixture>>((resolve) => {
+      resolveSnapshot = resolve
+    })
+    getKnowledgeBase.mockReturnValue(snapshot)
+    const rendered = renderHook(
+      () => useKnowledgeBaseEvents(knowledgeBaseId, true),
+      { wrapper: wrapper(queryClient) }
+    )
+    await waitFor(() => expect(handlers?.shouldReconnect).toBeDefined())
+
+    const controller = new AbortController()
+    let reconnect: boolean | undefined
+    await act(async () => {
+      const decision = handlers?.shouldReconnect?.(controller.signal)
+      controller.abort()
+      resolveSnapshot(
+        baseFixture({
+          name: "stale denied snapshot",
+          permissions: {
+            ...current.permissions,
+            view_content: false,
+          },
+        })
+      )
+      reconnect = await decision
+    })
+
+    expect(reconnect).toBe(false)
+    expect(rendered.result.current.connectionState).toBe("connected")
+    expect(
+      queryClient.getQueryData(knowledgeBaseQueryKeys.detail(knowledgeBaseId))
+    ).toEqual(current)
+    expect(
+      queryClient.getQueryData(
+        knowledgeBaseQueryKeys.documents(knowledgeBaseId)
+      )
+    ).toBeDefined()
+    expect(
+      queryClient.getQueryData(knowledgeBaseQueryKeys.grants(knowledgeBaseId))
+    ).toBeDefined()
+    expect(queryClient.getQueryData(citationKey)).toBeDefined()
   })
 
   it("keeps an archived preview stream authorized so later access loss stays observable", async () => {

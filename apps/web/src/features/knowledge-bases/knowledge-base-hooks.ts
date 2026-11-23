@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query"
 
 import { ApiError } from "@/api/client"
+import { getLoginSessionBoundary, isLoginSessionCurrent } from "@/api/session"
 import {
   getKnowledgeBase,
   getKnowledgeBaseCreationCapability,
@@ -415,6 +416,7 @@ export function useKnowledgeBaseEvents(
       if (!knowledgeBaseId || signal.aborted) return false
       try {
         const knowledgeBase = await getKnowledgeBase(knowledgeBaseId, signal)
+        if (signal.aborted) return false
         if (
           (knowledgeBase.lifecycle_status === "active" ||
             knowledgeBase.lifecycle_status === "archived") &&
@@ -462,12 +464,19 @@ export function useKnowledgeBaseEvents(
 
   useEffect(() => {
     if (!knowledgeBaseId || !enabled) return
+    const loginSessionBoundary = getLoginSessionBoundary()
+    const isPinnedLoginCurrent = () =>
+      isLoginSessionCurrent(loginSessionBoundary)
     let disposed = false
     const bufferedEvents = bufferedEventsRef.current
     const disconnect = connectKnowledgeBaseEvents(knowledgeBaseId, {
-      onEvent: updateDocument,
+      onEvent: (event) => {
+        if (!isPinnedLoginCurrent()) return
+        updateDocument(event)
+      },
       shouldReconnect: stopForCurrentAccess,
       onConnectionChange: (nextState) => {
+        if (!isPinnedLoginCurrent()) return
         if (nextState === "connected") {
           const reconciliationGeneration =
             reconciliationGenerationRef.current + 1
@@ -478,6 +487,11 @@ export function useKnowledgeBaseEvents(
               disposed ||
               reconciliationGenerationRef.current !== reconciliationGeneration
             ) {
+              return
+            }
+            if (!isPinnedLoginCurrent()) {
+              reconcilingRef.current = false
+              bufferedEventsRef.current.clear()
               return
             }
             reconcilingRef.current = false
