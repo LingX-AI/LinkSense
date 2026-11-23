@@ -49,6 +49,10 @@ type fakeScenario struct {
 	Windows         json.RawMessage   `json:"windows,omitempty"`
 	WindowsCalls    []json.RawMessage `json:"windows_calls,omitempty"`
 	Snapshots       []json.RawMessage `json:"snapshots,omitempty"`
+	// InteractiveSnapshots optionally emulates v1.3.1's filtered projection
+	// for a fixture whose static labels must be absent with --interactive-only.
+	InteractiveSnapshots  []json.RawMessage `json:"interactive_snapshots,omitempty"`
+	OversizeFullSnapshots []int             `json:"oversize_full_snapshots,omitempty"`
 	// Refmaps overrides the saved refmap for one snapshot id; RefmapSkips
 	// suppresses it. Otherwise the fixture writes the exact saved evidence an
 	// unmodified v1.3.1 capture would write. Values are raw text, not
@@ -88,7 +92,7 @@ func runFakeAgentDesktop(base string) int {
 	if err := json.Unmarshal(scenarioBytes, &scenario); err != nil {
 		return 2
 	}
-	command, _ := fakeCommand(os.Args[1:])
+	command, args := fakeCommand(os.Args[1:])
 	stdin := ""
 	if command == "type" {
 		var input []byte
@@ -158,21 +162,30 @@ func runFakeAgentDesktop(base string) int {
 		}
 		return fakeWriteSuccess("list-windows", data)
 	case "snapshot":
-		if len(scenario.Snapshots) == 0 {
+		index := fakeCounter(base, fakeSnapshotCounter)
+		fakeAdvanceCounter(base, fakeSnapshotCounter)
+		interactiveOnly := slices.Contains(args, "--interactive-only")
+		if !interactiveOnly && slices.Contains(scenario.OversizeFullSnapshots, index) {
+			_, _ = os.Stdout.WriteString(strings.Repeat("x", computerMaxStdoutBytes+1))
+			return 0
+		}
+		snapshots := scenario.Snapshots
+		if len(scenario.InteractiveSnapshots) != 0 && interactiveOnly {
+			snapshots = scenario.InteractiveSnapshots
+		}
+		if len(snapshots) == 0 {
 			return fakeWriteError("snapshot", "INTERNAL")
 		}
-		index := fakeCounter(base, fakeSnapshotCounter)
-		if index >= len(scenario.Snapshots) {
-			index = len(scenario.Snapshots) - 1
+		if index >= len(snapshots) {
+			index = len(snapshots) - 1
 		}
-		fakeAdvanceCounter(base, fakeSnapshotCounter)
 		// v1.3.1 saves the session refmap before it emits the snapshot envelope
 		// (snapshot/mod.rs:28-33,174-186); the driver then proves the capture
 		// source from that exact file.
-		if !fakePersistRefmap(scenario, scenario.Snapshots[index]) {
+		if !fakePersistRefmap(scenario, snapshots[index]) {
 			return 2
 		}
-		return fakeWriteSuccess("snapshot", scenario.Snapshots[index])
+		return fakeWriteSuccess("snapshot", snapshots[index])
 	case "click", "type":
 		if raw, ok := scenario.ActionError[command]; ok {
 			return fakeWriteRawError(command, raw)
@@ -877,7 +890,7 @@ func TestComputerDriverObserveUsesExactPinnedArgsAndBoundsContent(t *testing.T) 
 	assertExactArgs(t, calls[0], driver.sessionID, "list-apps", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
 	assertExactArgs(t, calls[1], driver.sessionID, "list-windows", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
 	assertExactArgs(t, calls[2], driver.sessionID, "snapshot",
-		"--app="+fakeFixtureBundleID, "--window-id=w-4242", "--interactive-only", "--compact",
+		"--app="+fakeFixtureBundleID, "--window-id=w-4242", "--compact",
 		"--max-depth=10", "--timeout-ms=5000")
 	assertExactArgs(t, calls[3], driver.sessionID, "list-apps", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
 	assertExactArgs(t, calls[4], driver.sessionID, "list-windows", "--app="+fakeFixtureBundleID, "--timeout-ms=5000")
@@ -1264,6 +1277,145 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 		t.Fatalf("unverified type must not authorize reuse: %v", err)
 	}
 	assertNoForbiddenArgs(t, readFakeCalls(t, runtimeRoot))
+}
+
+func TestComputerDriverStaticReadbackPreservesActionableRefsAndPrivacy(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		prefix    int
+		unchanged bool
+		effect    string
+	}{
+		{name: "static feedback changes", effect: computerEffectSmallChange},
+		{name: "complete unchanged", unchanged: true, effect: computerEffectNoEffect},
+		{name: "static feedback precedes action beyond cap", prefix: 420, effect: computerEffectSmallChange},
+		{name: "partial unchanged", prefix: 420, unchanged: true, effect: computerEffectUnknown},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtimeRoot, stateRoot := newFakeRuntime(t)
+			driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+			const privateLabel = "private static result"
+			build := func(id, status string) json.RawMessage {
+				label := fakeNode("statictext", privateLabel+" "+status, "", "private label value")
+				label["description"] = "private label description"
+				children := []map[string]any{label}
+				for index := 0; index < test.prefix; index++ {
+					children = append(children, fakeNode("statictext", "dense fixture", "", nil))
+				}
+				children = append(children, fakeNode("button", "Apply", "@"+id+":e1", "private button value"))
+				return fakeSnapshotData(id, "w-4242", "Fixture", "Fixture App", fakeNode("window", "Fixture", "", nil, children...))
+			}
+			status := "applied"
+			if test.unchanged {
+				status = "waiting"
+			}
+			writeFakeScenario(t, runtimeRoot, fakeScenario{
+				Windows:   mustWindows(t, fixtureWindow()),
+				Snapshots: []json.RawMessage{build("sreadpre", "waiting"), build("sreadpost", status)},
+				InteractiveSnapshots: []json.RawMessage{
+					fakeSnapshotData("sreadpre", "w-4242", "Fixture", "Fixture App", basicTree("@sreadpre:e1")),
+					fakeSnapshotData("sreadpost", "w-4242", "Fixture", "Fixture App", basicTree("@sreadpost:e1")),
+				},
+			})
+			observation, err := driver.Observe(context.Background(), fixtureTarget())
+			if err != nil {
+				t.Fatal(err)
+			}
+			projected := computerExecutorObservation(observation)
+			if len(projected.Nodes) != 1 || projected.Nodes[0].Ref != "@sreadpre:e1" ||
+				projected.Nodes[0].Role != "button" || projected.Nodes[0].Name == nil || *projected.Nodes[0].Name != "Apply" {
+				t.Fatal("only the existing actionable button must reach the executor projection")
+			}
+			if strings.Contains(string(mustJSON(t, projected)), "private") {
+				t.Fatal("static feedback and AX values must stay out of the wire observation")
+			}
+			if len(observation.Elements) > computerMaxObservationElements {
+				t.Fatalf("observation exceeds the established element cap: %d", len(observation.Elements))
+			}
+			result, err := driver.Act(context.Background(), computerAction{
+				ObservationID: observation.ID, Kind: computerActionClick, Ref: projected.Nodes[0].Ref,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Accepted || result.Effect != test.effect || result.Retry != computerRetryUnsafe || driver.latest != nil {
+				t.Errorf("expected %s, unsafe retry and fresh refs after one click; got %+v", test.effect, result)
+			}
+			calls := readFakeCalls(t, runtimeRoot)
+			snapshots := callsFor(calls, "snapshot")
+			if len(snapshots) != 2 || len(callsFor(calls, "click")) != 1 {
+				t.Fatal("expected one observe, one click and one readback")
+			}
+			for _, call := range snapshots {
+				assertExactArgs(t, call, driver.sessionID, "snapshot",
+					"--app="+fakeFixtureBundleID, "--window-id=w-4242", "--compact", "--max-depth=10", "--timeout-ms=5000")
+			}
+			assertNoForbiddenArgs(t, calls)
+		})
+	}
+}
+
+func TestComputerDriverFullSnapshotOutputLimit(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		overflow    int
+		modes       []bool
+		effectError string
+	}{
+		{name: "observe keeps usable interactive refs", modes: []bool{false, true, true}},
+		{name: "readback never adds another capture", overflow: 1, modes: []bool{false, false}, effectError: computerErrorOutputLimit},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtimeRoot, parent := newFakeRuntime(t)
+			driver := newPreparedDriver(t, runtimeRoot, parent)
+			const preRef = "@spre1:e1"
+			pre := fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", basicTree(preRef))
+			post := fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", basicTree("@spost1:e1"))
+			writeFakeScenario(t, runtimeRoot, fakeScenario{
+				Windows:               mustWindows(t, fixtureWindow()),
+				Snapshots:             []json.RawMessage{pre, post},
+				InteractiveSnapshots:  []json.RawMessage{pre, pre, post},
+				OversizeFullSnapshots: []int{test.overflow},
+			})
+			observation, err := driver.Observe(context.Background(), fixtureTarget())
+			if err != nil {
+				t.Fatalf("observe must preserve the previous usable projection: %v", err)
+			}
+			wire := computerExecutorObservation(observation)
+			fellBack := test.overflow == 0
+			wantQuality := computerTreeQualityGood
+			if fellBack {
+				wantQuality = computerTreeQualityPartial
+			}
+			if wire.TreeQuality != wantQuality || wire.Truncated != fellBack || len(wire.Nodes) != 1 || wire.Nodes[0].Ref != preRef {
+				t.Fatal("expected proven actionable ref and accurate capture quality")
+			}
+			result, err := driver.Act(context.Background(), computerAction{
+				ObservationID: observation.ID, Kind: computerActionClick, Ref: preRef,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Accepted || result.Effect != computerEffectUnknown || result.EffectError != test.effectError ||
+				result.Retry != computerRetryUnsafe || driver.latest != nil {
+				t.Fatalf("incomplete comparison must not claim no_effect or authorize replay: %+v", result)
+			}
+			calls := readFakeCalls(t, runtimeRoot)
+			snapshots := callsFor(calls, "snapshot")
+			if len(snapshots) != len(test.modes) || len(callsFor(calls, "click")) != 1 {
+				t.Fatal("expected one input and at most one post-input readback")
+			}
+			for index, interactiveOnly := range test.modes {
+				args := []string{"--app=" + fakeFixtureBundleID, "--window-id=w-4242"}
+				if interactiveOnly {
+					args = append(args, "--interactive-only")
+				}
+				args = append(args, "--compact", "--max-depth=10", "--timeout-ms=5000")
+				assertExactArgs(t, snapshots[index], driver.sessionID, "snapshot", args...)
+			}
+			assertNoForbiddenArgs(t, calls)
+		})
+	}
 }
 
 func TestComputerDriverRejectsChangedTargetAndStaleInputs(t *testing.T) {
@@ -1860,20 +2012,136 @@ func TestComputerDriverTypedTextAlreadyPresentIsNotDone(t *testing.T) {
 }
 
 func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
-	t.Run("identical twins", func(t *testing.T) {
+	// A consumed observation must never authorize a replay and the one
+	// comparison readback must not hand back reusable post refs.
+	assertConsumed := func(t *testing.T, driver *computerDriver, runtimeRoot string, observation computerObservation, ref string) {
+		t.Helper()
+		if driver.latest != nil {
+			t.Fatal("post readback must not leave actable refs")
+		}
+		if count := len(callsFor(readFakeCalls(t, runtimeRoot), "type")); count != 1 {
+			t.Fatalf("exactly one type must be sent, got %d", count)
+		}
+		_, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionType, Ref: ref, Text: "typed",
+		})
+		var driverErr *computerDriverError
+		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
+			t.Fatalf("consumed observation must not authorize a replay: %v", err)
+		}
+	}
+
+	for _, test := range []struct {
+		name     string
+		twinRef  string
+		padding  int
+		postTwin bool
+	}{
+		{name: "identical twins", twinRef: "@spre1:e2"},
+		{name: "a ref-free twin is still ambiguous"},
+		{name: "a ref-free post twin is still ambiguous", postTwin: true},
+		{name: "clipped context may hide a ref-free twin", padding: computerMaxObservationElements},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtimeRoot, parent := newFakeRuntime(t)
+			driver := newPreparedDriver(t, runtimeRoot, parent)
+			text := "typed"
+			preChildren := []map[string]any{fakeNode("textfield", "Input", "@spre1:e1", "")}
+			postChildren := []map[string]any{fakeNode("textfield", "Input", "@spost1:e1", text)}
+			if test.postTwin {
+				postChildren = append(postChildren, fakeNode("textfield", "Input", "", ""))
+			} else {
+				for index := 0; index < test.padding; index++ {
+					preChildren = append(preChildren, fakeNode("statictext", "inert", "", nil))
+				}
+				preChildren = append(preChildren, fakeNode("textfield", "Input", test.twinRef, ""))
+			}
+			preTree := fakeNode("window", "Fixture", "", nil, fakeNode("group", "", "", nil, preChildren...))
+			postTree := fakeNode("window", "Fixture", "", nil, fakeNode("group", "", "", nil, postChildren...))
+			writeFakeScenario(t, runtimeRoot, fakeScenario{
+				Windows: mustWindows(t, fixtureWindow()),
+				Snapshots: []json.RawMessage{
+					fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", preTree),
+					fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", postTree),
+				},
+			})
+			observation, err := driver.Observe(context.Background(), fixtureTarget())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := driver.Act(context.Background(), computerAction{
+				ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Effect != computerEffectSmallChange {
+				t.Fatalf("twin evidence must degrade conservatively: %+v", result)
+			}
+			assertConsumed(t, driver, runtimeRoot, observation, "@spre1:e1")
+		})
+	}
+
+	t.Run("clipped identity may hide a ref-free twin", func(t *testing.T) {
 		runtimeRoot, parent := newFakeRuntime(t)
 		driver := newPreparedDriver(t, runtimeRoot, parent)
 		text := "typed"
-		preTree := fakeNode("window", "Fixture", "", nil,
-			fakeNode("group", "", "", nil,
-				fakeNode("textfield", "Input", "@spre1:e1", ""),
-				fakeNode("textfield", "Input", "@spre1:e2", "")))
+		children := []map[string]any{fakeNode("textfield", "Input", "@spre1:e1", "")}
+		// 130 labels of 600 bytes exhaust the shared 64 KiB text budget, so the
+		// trailing ref-free textfield keeps only a clipped/empty identity.
+		for index := 0; index < 130; index++ {
+			children = append(children, fakeNode("statictext", strings.Repeat("x", 600), "", nil))
+		}
+		children = append(children, fakeNode("textfield", "Input", "", ""))
+		preTree := fakeNode("window", "Fixture", "", nil, fakeNode("group", "", "", nil, children...))
 		postTree := fakeNode("window", "Fixture", "", nil,
-			fakeNode("group", "", "", nil,
-				fakeNode("textfield", "Input", "@spost1:e1", text)))
+			fakeNode("group", "", "", nil, fakeNode("textfield", "Input", "@spost1:e1", text)))
 		writeFakeScenario(t, runtimeRoot, fakeScenario{
-			PermissionsData: fakePermissions("granted"),
-			Windows:         mustWindows(t, fixtureWindow()),
+			Windows: mustWindows(t, fixtureWindow()),
+			Snapshots: []json.RawMessage{
+				fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", preTree),
+				fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", postTree),
+			},
+		})
+		observation, err := driver.Observe(context.Background(), fixtureTarget())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !observation.Truncated || observation.actionableIncomplete {
+			t.Fatalf("fixture must clip ref-free text without losing actionable evidence: truncated=%t incomplete=%t",
+				observation.Truncated, observation.actionableIncomplete)
+		}
+		result, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Effect != computerEffectSmallChange {
+			t.Fatalf("a clipped ref-free identity must withhold done: %+v", result)
+		}
+		assertConsumed(t, driver, runtimeRoot, observation, "@spre1:e1")
+	})
+
+	t.Run("children below an omitted ref-free parent still count", func(t *testing.T) {
+		runtimeRoot, parent := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, parent)
+		text := "typed"
+		padding := make([]map[string]any, 0, computerMaxObservationElements-3)
+		for index := 0; index < computerMaxObservationElements-3; index++ {
+			padding = append(padding, fakeNode("statictext", "inert", "", nil))
+		}
+		// The window, both earlier groups and 397 labels fill the 400-element
+		// budget, so the candidate group is omitted; its decoded child must still
+		// be inspected and mark the target's role/depth key.
+		preTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil, fakeNode("textfield", "Input", "@spre1:e1", "")),
+			fakeNode("group", "", "", nil, padding...),
+			fakeNode("group", "", "", nil, fakeNode("textfield", "Input", "", "")))
+		postTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil, fakeNode("textfield", "Input", "@spost1:e1", text)))
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			Windows: mustWindows(t, fixtureWindow()),
 			Snapshots: []json.RawMessage{
 				fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", preTree),
 				fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", postTree),
@@ -1889,12 +2157,94 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Effect == computerEffectDone {
-			t.Fatalf("twin identity must not claim done: %+v", result)
+		if result.Effect != computerEffectSmallChange {
+			t.Fatalf("a twin below an omitted ref-free parent must withhold done: %+v", result)
 		}
-		if result.Effect != computerEffectSmallChange || driver.latest != nil {
-			t.Fatalf("twin evidence must degrade conservatively: %+v latest=%v", result, driver.latest)
+		assertConsumed(t, driver, runtimeRoot, observation, "@spre1:e1")
+	})
+
+	t.Run("missing post candidate ref is not done", func(t *testing.T) {
+		runtimeRoot, parent := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, parent)
+		text := "typed"
+		preTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				fakeNode("textfield", "Input", "@spre1:e1", ""),
+				fakeNode("button", "Apply", "@spre1:e2", nil)))
+		// The field that carries the typed text has no allocated ref, so it sits
+		// in the ref-free suffix even though it is the only identity match.
+		postTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				fakeNode("button", "Apply", "@spost1:e1", nil),
+				fakeNode("textfield", "Input", "", text)))
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			Windows: mustWindows(t, fixtureWindow()),
+			Snapshots: []json.RawMessage{
+				fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", preTree),
+				fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", postTree),
+			},
+		})
+		observation, err := driver.Observe(context.Background(), fixtureTarget())
+		if err != nil {
+			t.Fatal(err)
 		}
+		result, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Effect != computerEffectSmallChange {
+			t.Fatalf("a ref-free post candidate must not prove done: %+v", result)
+		}
+		assertConsumed(t, driver, runtimeRoot, observation, "@spre1:e1")
+	})
+
+	t.Run("dense inert context still proves done", func(t *testing.T) {
+		runtimeRoot, parent := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, parent)
+		text := "typed"
+		labels := make([]map[string]any, 0, 420)
+		for index := 0; index < 420; index++ {
+			labels = append(labels, fakeNode("statictext", "inert label", "", nil))
+		}
+		preTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				append([]map[string]any{fakeNode("textfield", "Input", "@sdensepre:e1", "")}, labels...)...))
+		postTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				append([]map[string]any{fakeNode("textfield", "Input", "@sdensepost:e1", text)}, labels...)...))
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			Windows: mustWindows(t, fixtureWindow()),
+			Snapshots: []json.RawMessage{
+				fakeSnapshotData("sdensepre", "w-4242", "Fixture", "Fixture App", preTree),
+				fakeSnapshotData("sdensepost", "w-4242", "Fixture", "Fixture App", postTree),
+			},
+		})
+		observation, err := driver.Observe(context.Background(), fixtureTarget())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !observation.Truncated || observation.actionableIncomplete {
+			t.Fatalf("fixture must omit only inert context: truncated=%t incomplete=%t",
+				observation.Truncated, observation.actionableIncomplete)
+		}
+		if len(driver.latest.ambiguousRefKeys) != 0 {
+			t.Fatal("omitted inert labels must not look like possible twins")
+		}
+		result, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@sdensepre:e1", Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Accepted || result.Effect != computerEffectDone {
+			t.Fatalf("complete actionable evidence must still prove done: %+v", result)
+		}
+		if count := len(callsFor(readFakeCalls(t, runtimeRoot), "snapshot")); count != 2 {
+			t.Fatalf("expected one observe and one readback, snapshots=%d", count)
+		}
+		assertConsumed(t, driver, runtimeRoot, observation, "@sdensepre:e1")
 	})
 
 	t.Run("truncated readback", func(t *testing.T) {
@@ -1931,6 +2281,47 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 		if result.Effect != computerEffectSmallChange || driver.latest != nil {
 			t.Fatalf("truncated evidence must degrade conservatively: %+v latest=%v", result, driver.latest)
 		}
+	})
+
+	t.Run("native unknown subtree is not done", func(t *testing.T) {
+		runtimeRoot, parent := newFakeRuntime(t)
+		driver := newPreparedDriver(t, runtimeRoot, parent)
+		text := "typed"
+		hidden := fakeNode("statictext", "hidden", "", nil)
+		hidden["subtree_truncated"] = true
+		preTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				fakeNode("textfield", "Input", "@spre1:e1", "")))
+		// The native capture truncated a subtree that could hide another
+		// ref-able identity even though the visible refs are complete.
+		postTree := fakeNode("window", "Fixture", "", nil,
+			fakeNode("group", "", "", nil,
+				fakeNode("textfield", "Input", "@spost1:e1", text),
+				hidden))
+		writeFakeScenario(t, runtimeRoot, fakeScenario{
+			Windows: mustWindows(t, fixtureWindow()),
+			Snapshots: []json.RawMessage{
+				fakeSnapshotData("spre1", "w-4242", "Fixture", "Fixture App", preTree),
+				fakeSnapshotData("spost1", "w-4242", "Fixture", "Fixture App", postTree),
+			},
+		})
+		observation, err := driver.Observe(context.Background(), fixtureTarget())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observation.actionableIncomplete {
+			t.Fatal("pre-action capture must be complete for this regression")
+		}
+		result, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Effect != computerEffectSmallChange {
+			t.Fatalf("an unknown native subtree must withhold done: %+v", result)
+		}
+		assertConsumed(t, driver, runtimeRoot, observation, "@spre1:e1")
 	})
 }
 

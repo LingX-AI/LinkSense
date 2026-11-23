@@ -287,6 +287,13 @@ type computerElement struct {
 	Ref         string
 }
 
+// elementIdentityKey is the coarse (role, depth) pair that bounds where a
+// sameElement match can occur. It never carries observed text.
+type elementIdentityKey struct {
+	Role  string
+	Depth int
+}
+
 type computerObservation struct {
 	ID          string
 	Target      computerTarget
@@ -302,12 +309,26 @@ type computerObservation struct {
 	// refs is the exact set of actionable refs from this observation. It is
 	// never exposed; Act checks the caller's ref against this set.
 	refs map[string]struct{}
+
+	// Actionable elements occupy the prefix, even in a comparison-only
+	// readback whose ref tokens have been cleared.
+	actionableCount int
+	// Ref-free context may fill the remaining budget even when all refs
+	// in the native capture were projected intact.
+	actionableIncomplete bool
+	// ambiguousRefKeys records the (role, depth) keys of retained ref nodes
+	// that an omitted or clipped ref-free candidate could also match. Such a
+	// key cannot be proven unique by the retained projection alone.
+	ambiguousRefKeys map[elementIdentityKey]struct{}
+	// A comparison readback must use the same projection as its observation.
+	interactiveOnly bool
 }
 
 func (o *computerObservation) public() computerObservation {
 	copy := *o
 	copy.Elements = append([]computerElement(nil), o.Elements...)
 	copy.refs = nil
+	copy.ambiguousRefKeys = nil
 	return copy
 }
 
@@ -362,9 +383,10 @@ type computerWaitResult struct {
 }
 
 type computerCommandResult struct {
-	stdout   []byte
-	exitCode int
-	started  bool
+	stdout             []byte
+	exitCode           int
+	started            bool
+	stdoutOnlyOverflow bool
 }
 
 type cliEnvelope struct {
@@ -982,22 +1004,22 @@ func (d *computerDriver) Observe(ctx context.Context, target computerTarget) (co
 	}
 	// A failed refresh must not leave older refs actable.
 	d.latest = nil
-	observation, err := d.observeLocked(ctx, target, nil, true)
+	observation, err := d.observeLocked(ctx, target, nil)
 	if err != nil {
 		return computerObservation{}, err
 	}
 	return observation.public(), nil
 }
 
-func (d *computerDriver) observeLocked(ctx context.Context, target computerTarget, expected *computerWindow, store bool) (*computerObservation, error) {
+func (d *computerDriver) observeLocked(ctx context.Context, target computerTarget, prior *computerObservation) (*computerObservation, error) {
 	before, err := d.resolveWindow(ctx, target)
 	if err != nil {
 		return nil, err
 	}
-	if expected != nil && !sameWindow(*expected, before) {
+	if prior != nil && !sameWindow(prior.Window, before) {
 		return nil, targetChanged()
 	}
-	snapshot, err := d.snapshotWindow(ctx, target)
+	snapshot, err := d.snapshotWindow(ctx, target, prior != nil && prior.interactiveOnly, prior == nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1005,8 +1027,7 @@ func (d *computerDriver) observeLocked(ctx context.Context, target computerTarge
 	if err != nil {
 		return nil, err
 	}
-	if !sameWindow(before, after) || after.ID != target.WindowID ||
-		(expected != nil && !sameWindow(*expected, after)) {
+	if !sameWindow(before, after) || after.ID != target.WindowID {
 		return nil, targetChanged()
 	}
 	observationID, err := randomIdentifier("", 16)
@@ -1044,7 +1065,11 @@ func (d *computerDriver) observeLocked(ctx context.Context, target computerTarge
 		observation.Window.Title = ""
 		return observation, nil
 	}
-	if !store {
+	observation.actionableCount = len(snapshot.refs)
+	observation.actionableIncomplete = snapshot.actionableIncomplete
+	observation.ambiguousRefKeys = snapshot.ambiguousRefKeys
+	observation.interactiveOnly = snapshot.interactiveOnly
+	if prior != nil {
 		// A transient post-action readback is comparison evidence only. It is
 		// never stored and carries no refs; future input needs a new Observe.
 		observation.Actable = false
@@ -1182,7 +1207,7 @@ func (d *computerDriver) Act(ctx context.Context, action computerAction) (comput
 	// no executable refs. The original disposition and retry stay unchanged.
 	// Errors and non-delivery get no readback. Future input needs a new Observe.
 	if postActionReadback(result) && ctx.Err() == nil {
-		post, postErr := d.observeLocked(ctx, observation.Target, &observation.Window, false)
+		post, postErr := d.observeLocked(ctx, observation.Target, observation)
 		if postErr == nil {
 			if post.TreeQuality != computerTreeQualityUnusable {
 				result.Effect = classifyEffect(observation, post, action)
@@ -1439,6 +1464,7 @@ func (d *computerDriver) run(ctx context.Context, timeout time.Duration, stdin [
 		result.exitCode = command.ProcessState.ExitCode()
 	}
 	if stdout.overflow || stderr.overflow {
+		result.stdoutOnlyOverflow = stdout.overflow && !stderr.overflow
 		return result, driverError(computerErrorOutputLimit)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1652,23 +1678,37 @@ func (d *computerDriver) resolveWindow(ctx context.Context, target computerTarge
 }
 
 type parsedSnapshot struct {
-	snapshotID       string
-	elements         []computerElement
-	refs             map[string]struct{}
-	truncated        bool
-	identityUnproven bool
-	quality          string
+	snapshotID           string
+	elements             []computerElement
+	refs                 map[string]struct{}
+	truncated            bool
+	actionableIncomplete bool
+	ambiguousRefKeys     map[elementIdentityKey]struct{}
+	identityUnproven     bool
+	quality              string
+	interactiveOnly      bool
 }
 
-func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarget) (parsedSnapshot, error) {
-	command, err := d.run(ctx, computerSnapshotProcessTimeout, nil,
-		d.baseArgs("snapshot",
-			"--app="+target.BundleID,
-			"--window-id="+target.WindowID,
-			"--interactive-only",
-			"--compact",
-			"--max-depth="+strconv.Itoa(computerMaxObservationDepth),
-			"--timeout-ms="+strconv.Itoa(computerSnapshotTimeoutMS))...)
+func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarget, interactiveOnly, allowFallback bool) (parsedSnapshot, error) {
+	captureCtx, cancel := context.WithTimeout(ctx, computerSnapshotProcessTimeout)
+	defer cancel()
+	runCapture := func(interactive bool) (computerCommandResult, error) {
+		args := d.baseArgs("snapshot", "--app="+target.BundleID, "--window-id="+target.WindowID)
+		if interactive {
+			args = append(args, "--interactive-only")
+		}
+		args = append(args, "--compact", "--max-depth="+strconv.Itoa(computerMaxObservationDepth),
+			"--timeout-ms="+strconv.Itoa(computerSnapshotTimeoutMS))
+		return d.run(captureCtx, computerSnapshotProcessTimeout, nil, args...)
+	}
+	// The interactive-only projection drops static feedback needed for effect comparison.
+	command, err := runCapture(interactiveOnly)
+	if allowFallback && !interactiveOnly && command.stdoutOnlyOverflow && captureCtx.Err() == nil {
+		// A large static branch must not make previously usable refs disappear.
+		// Reuse the old projection within this capture deadline, on Observe only.
+		interactiveOnly = true
+		command, err = runCapture(true)
+	}
 	if err != nil {
 		return parsedSnapshot{}, err
 	}
@@ -1701,28 +1741,26 @@ func (d *computerDriver) snapshotWindow(ctx context.Context, target computerTarg
 		// capture refmap below is the proof.
 		return parsedSnapshot{}, protocolError()
 	}
-	elements, refs, textTruncated, err := flattenSnapshot(data.Tree, data.SnapshotID)
+	snapshot, err := flattenSnapshot(data.Tree, data.SnapshotID)
 	if err != nil {
 		return parsedSnapshot{}, err
 	}
-	identityUnproven, err := d.verifyCapturedRefIdentity(target, data.SnapshotID, data.RefCount, refs)
+	identityUnproven, err := d.verifyCapturedRefIdentity(target, data.SnapshotID, data.RefCount, snapshot.refs)
 	if err != nil {
 		return parsedSnapshot{}, err
 	}
-	identityUnproven = identityUnproven || data.IdentityUnproven
-	truncated := data.Truncated || textTruncated || !*data.Complete
-	quality := computerTreeQualityGood
-	if !*data.Complete || truncated || identityUnproven {
-		quality = computerTreeQualityPartial
+	snapshot.identityUnproven = identityUnproven || data.IdentityUnproven
+	if data.Truncated || !*data.Complete || len(snapshot.refs) < data.RefCount {
+		snapshot.truncated = true
+		snapshot.actionableIncomplete = true
 	}
-	return parsedSnapshot{
-		snapshotID:       data.SnapshotID,
-		elements:         elements,
-		refs:             refs,
-		truncated:        truncated,
-		identityUnproven: identityUnproven,
-		quality:          quality,
-	}, nil
+	snapshot.interactiveOnly = interactiveOnly
+	snapshot.truncated = snapshot.truncated || interactiveOnly
+	snapshot.quality = computerTreeQualityGood
+	if snapshot.truncated || snapshot.identityUnproven {
+		snapshot.quality = computerTreeQualityPartial
+	}
+	return snapshot, nil
 }
 
 // verifyCapturedRefIdentity proves that the tree and refs returned by one
@@ -1799,64 +1837,116 @@ func validCapturedRefKey(key string) bool {
 	return true
 }
 
-func flattenSnapshot(root *cliNode, snapshotID string) ([]computerElement, map[string]struct{}, bool, error) {
+func flattenSnapshot(root *cliNode, snapshotID string) (parsedSnapshot, error) {
 	if root == nil || strings.TrimSpace(root.Role) == "" {
-		return nil, nil, false, protocolError()
+		return parsedSnapshot{}, protocolError()
 	}
-	elements := make([]computerElement, 0, 64)
-	refs := make(map[string]struct{})
-	truncated := false
+	projection := parsedSnapshot{
+		snapshotID:       snapshotID,
+		elements:         make([]computerElement, 0, 64),
+		refs:             make(map[string]struct{}),
+		ambiguousRefKeys: make(map[elementIdentityKey]struct{}),
+	}
 	textBudget := computerMaxObservationTextBytes
-
-	var walk func(node *cliNode, depth int) error
-	walk = func(node *cliNode, depth int) error {
-		if node == nil {
-			return protocolError()
+	// Only a (role, depth) key already owned by a retained ref node can be the
+	// identity of a typing target, so omission evidence stays bounded by those
+	// keys. The key holds a sanitized role and a depth, never observed text.
+	var refKeys map[elementIdentityKey]struct{}
+	noteOmittedCandidate := func(rawRole string, depth int) {
+		if refKeys == nil {
+			return
 		}
-		if depth > computerMaxObservationDepth || len(elements) >= computerMaxObservationElements {
-			truncated = true
-			return nil
-		}
-		role := sanitizeText(node.Role, computerMaxRoleBytes, &textBudget, &truncated)
+		role := boundedText(rawRole, computerMaxRoleBytes)
 		if role == "" {
 			role = "unknown"
-			truncated = true
 		}
-		ref := ""
-		if node.RefID != "" {
-			if !computerRefPattern.MatchString(node.RefID) || !strings.HasPrefix(node.RefID, "@"+snapshotID+":") {
-				return protocolError()
+		key := elementIdentityKey{Role: role, Depth: depth}
+		if _, ok := refKeys[key]; ok {
+			projection.ambiguousRefKeys[key] = struct{}{}
+		}
+	}
+
+	var walk func(node *cliNode, depth int, actionable bool, incomplete *bool) error
+	walk = func(node *cliNode, depth int, actionable bool, incomplete *bool) error {
+		if depth > computerMaxObservationDepth || node.SubtreeTruncated || node.ChildrenCount > len(node.Children) {
+			// An omitted subtree may still contain refs, regardless of its root.
+			*incomplete = true
+		}
+		if depth > computerMaxObservationDepth {
+			return nil
+		}
+		if (node.RefID != "") == actionable {
+			if len(projection.elements) == computerMaxObservationElements {
+				*incomplete = true
+				if !actionable {
+					// The decoded children of an omitted ref-free parent may still
+					// hold a comparable candidate, so keep walking them.
+					noteOmittedCandidate(node.Role, depth)
+				} else {
+					return nil
+				}
+			} else {
+				clipped := false
+				role := sanitizeText(node.Role, computerMaxRoleBytes, &textBudget, &clipped)
+				if role == "" {
+					role = "unknown"
+					clipped = true
+				}
+				if actionable {
+					if !computerRefPattern.MatchString(node.RefID) || !strings.HasPrefix(node.RefID, "@"+snapshotID+":") {
+						return protocolError()
+					}
+					if _, exists := projection.refs[node.RefID]; exists {
+						return protocolError()
+					}
+					projection.refs[node.RefID] = struct{}{}
+				}
+				name := sanitizeText(node.Name, computerMaxNameBytes, &textBudget, &clipped)
+				value, _ := scalarValue(node.Value)
+				valueClipped := false
+				value = sanitizeText(value, computerMaxValueBytes, &textBudget, &valueClipped)
+				description := sanitizeText(node.Description, computerMaxDescriptionBytes, &textBudget, &clipped)
+				if clipped || valueClipped {
+					*incomplete = true
+					if !actionable && clipped {
+						// A clipped identity can equal the target only in its
+						// projected form, so mark the key it could have owned.
+						noteOmittedCandidate(node.Role, depth)
+					}
+				}
+				projection.elements = append(projection.elements, computerElement{
+					Depth:       depth,
+					Role:        role,
+					Name:        name,
+					Value:       value,
+					Description: description,
+					Ref:         node.RefID,
+				})
 			}
-			if _, exists := refs[node.RefID]; exists {
-				return protocolError()
-			}
-			refs[node.RefID] = struct{}{}
-			ref = node.RefID
 		}
-		value, _ := scalarValue(node.Value)
-		element := computerElement{
-			Depth:       depth,
-			Role:        role,
-			Name:        sanitizeText(node.Name, computerMaxNameBytes, &textBudget, &truncated),
-			Value:       sanitizeText(value, computerMaxValueBytes, &textBudget, &truncated),
-			Description: sanitizeText(node.Description, computerMaxDescriptionBytes, &textBudget, &truncated),
-			Ref:         ref,
-		}
-		if node.SubtreeTruncated || node.ChildrenCount > len(node.Children) {
-			truncated = true
-		}
-		elements = append(elements, element)
 		for index := range node.Children {
-			if err := walk(&node.Children[index], depth+1); err != nil {
+			if err := walk(&node.Children[index], depth+1, actionable, incomplete); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(root, 0); err != nil {
-		return nil, nil, false, err
+	// Keep the engine's ref order and give refs first use of the same element
+	// and text budgets so preceding inert labels cannot displace a control.
+	if err := walk(root, 0, true, &projection.actionableIncomplete); err != nil {
+		return parsedSnapshot{}, err
 	}
-	return elements, refs, truncated, nil
+	// Every element retained by the actionable pass carries a validated ref and
+	// occupies the prefix, so these are exactly the ref-bearing identities.
+	refKeys = make(map[elementIdentityKey]struct{}, len(projection.refs))
+	for _, element := range projection.elements[:len(projection.refs)] {
+		refKeys[elementIdentityKey{Role: element.Role, Depth: element.Depth}] = struct{}{}
+	}
+	if err := walk(root, 0, false, &projection.truncated); err != nil {
+		return parsedSnapshot{}, err
+	}
+	projection.truncated = projection.truncated || projection.actionableIncomplete
+	return projection, nil
 }
 
 func decodeEnvelope(result computerCommandResult, expectedCommand string) (*cliEnvelope, error) {
@@ -2195,12 +2285,12 @@ func classifyEffect(before, after *computerObservation, action computerAction) s
 	return computerEffectNoEffect
 }
 
-// typedTextChanged requires the action's own element to change and the new
-// value to contain the typed text. Text already present in that or another
-// field does not count, and an ambiguous post match is not "done".
+// typedTextChanged requires the action's own ref-bearing field to change and
+// the new value to contain the typed text. Only loss of ref-bearing or native
+// capture evidence makes that proof incomplete, not omitted inert context.
 func typedTextChanged(before, after *computerObservation, ref, text string) bool {
 	if before == nil || after == nil || ref == "" || text == "" ||
-		before.Truncated || after.Truncated {
+		before.actionableIncomplete || after.actionableIncomplete {
 		return false
 	}
 	pre, ok := elementByRef(before, ref)
@@ -2209,20 +2299,40 @@ func typedTextChanged(before, after *computerObservation, ref, text string) bool
 	}
 	// This bounded tree carries no proven unique element id (native_id is
 	// optional and not retained here), so the same field must be the only
-	// role/name/description/depth match in both complete observations. Twins or
-	// truncation cannot claim an exact input effect.
-	if countElementsMatching(before.Elements, pre) != 1 {
+	// role/name/description/depth match among ALL retained elements of each
+	// observation. A ref-free candidate that an omission or a local clip could
+	// hide may still be a twin, so its role/depth key withholds done as well.
+	if countElementsMatching(before.Elements, pre) != 1 ||
+		ambiguousRefIdentity(before, pre) || ambiguousRefIdentity(after, pre) {
 		return false
 	}
+	// The post match must sit in the ref-bearing prefix: v1.3.1 can retain a
+	// ref-able element with no allocated ref, and such a node cannot prove that
+	// the typed field itself kept its own validated ref before tokens cleared.
 	var match computerElement
-	matches := 0
-	for _, element := range after.Elements {
+	matches, matchIndex := 0, -1
+	for index, element := range after.Elements {
 		if sameElement(element, pre) {
 			match = element
 			matches++
+			matchIndex = index
 		}
 	}
-	return matches == 1 && match.Value != pre.Value && strings.Contains(match.Value, text)
+	if matches != 1 || matchIndex < 0 || matchIndex >= after.actionableCount {
+		return false
+	}
+	return match.Value != pre.Value && strings.Contains(match.Value, text)
+}
+
+// ambiguousRefIdentity reports whether ref-free context that was omitted or
+// clipped in this observation could also have the given element's role and
+// depth, and therefore could be a hidden sameElement twin.
+func ambiguousRefIdentity(observation *computerObservation, element computerElement) bool {
+	if observation == nil || len(observation.ambiguousRefKeys) == 0 {
+		return false
+	}
+	_, ambiguous := observation.ambiguousRefKeys[elementIdentityKey{Role: element.Role, Depth: element.Depth}]
+	return ambiguous
 }
 
 func countElementsMatching(elements []computerElement, target computerElement) int {
