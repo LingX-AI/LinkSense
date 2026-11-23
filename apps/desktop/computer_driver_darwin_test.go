@@ -405,6 +405,17 @@ func preparedProof() computerRuntimeProof {
 
 func newPreparedDriver(t *testing.T, runtimeRoot, stateParent string) *computerDriver {
 	t.Helper()
+	driver := newPreparedDriverWithProductionEnvironment(t, runtimeRoot, stateParent)
+	// Under -race the copied fake is the race-instrumented test binary. Disable
+	// only its per-process atexit sleep; production never sets this.
+	driver.environment = append(driver.environment, "GORACE=atexit_sleep_ms=0")
+	return driver
+}
+
+// newPreparedDriverWithProductionEnvironment leaves the child environment
+// exactly as production builds it, for the exact allowlist assertion.
+func newPreparedDriverWithProductionEnvironment(t *testing.T, runtimeRoot, stateParent string) *computerDriver {
+	t.Helper()
 	driver, err := newComputerDriverDarwin(context.Background(), runtimeRoot, stateParent, preparedProof())
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +789,7 @@ func fakeIncompleteSnapshotData(snapshotID, windowID, title, app string, tree ma
 
 func TestComputerDriverStatusPinsRuntimeAndReportsPermissions(t *testing.T) {
 	runtimeRoot, _ := newFakeRuntime(t)
-	driver := newPreparedDriver(t, runtimeRoot, t.TempDir())
+	driver := newPreparedDriverWithProductionEnvironment(t, runtimeRoot, t.TempDir())
 	scenario := fakeScenario{StatusData: fakeStatusData(driver.sessionID, driver.stateRoot, "granted")}
 	writeFakeScenario(t, runtimeRoot, scenario)
 
