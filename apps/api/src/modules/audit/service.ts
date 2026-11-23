@@ -17,8 +17,9 @@ export type AuditEntry = AuditContext & {
 const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
   // computer_action is the bounded computerActInputSchema action ("click" | "type")
   // emitted only for act requests, and duration_ms is a finite non-negative
-  // elapsed-millisecond count. Neither carries GUI content, refs, window titles,
-  // URLs, screenshots, typed text, or raw errors.
+  // elapsed-millisecond count. computer_risk/computer_outward are the closed
+  // request-derived P1-23 classification. None carries GUI content, refs,
+  // window titles, URLs, screenshots, typed text, or raw errors.
   desktop_tool_requested: [
     "operation",
     "conversation_id",
@@ -27,6 +28,8 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "browser_action",
     "computer_action",
     "computer_request",
+    "computer_risk",
+    "computer_outward",
     "delivery",
     "duration_ms",
     "reason_code",
@@ -406,14 +409,51 @@ export class AuditService {
   }
 }
 
+export type ComputerAuditClassification = Readonly<{
+  computer_risk: "unknown" | "read";
+  computer_outward: boolean;
+}>;
+
+/**
+ * The single conservative P1-23 classification for a trusted computer request
+ * kind. Only act and the status/observe/wait reads are explicitly recognized;
+ * an unrecognized kind (including one added later to the strict union) yields
+ * undefined instead of being mislabeled read. Never derived from hints,
+ * driver output, AX content, or results.
+ */
+export function classifyComputerAuditRequest(kind: unknown): ComputerAuditClassification | undefined {
+  switch (kind) {
+    case "act":
+      return { computer_risk: "unknown", computer_outward: true };
+    case "status":
+    case "observe":
+    case "wait":
+      return { computer_risk: "read", computer_outward: false };
+    default:
+      return undefined;
+  }
+}
+
 export function sanitizeAuditMetadata(
   action: string,
   metadata: Record<string, unknown>,
 ): Record<string, string | number | boolean | null> {
   const allowedKeys = new Set(AUDIT_METADATA_KEYS[action] ?? []);
+  // The P1-23 computer classification is retained only for a recognized
+  // computer row whose stored request kind agrees with the same closed pair the
+  // trusted emitter used. This boundary is also used by audit read/export: a
+  // legacy row stays without the keys, and invalid, private, or non-computer
+  // values are dropped rather than synthesized or inferred from other fields.
+  const computerClassification = action === "desktop_tool_requested" &&
+      metadata.operation === "computer.execute"
+    ? classifyComputerAuditRequest(metadata.computer_request) : undefined;
   return Object.fromEntries(
     Object.entries(metadata).flatMap(([key, value]) => {
       if (!allowedKeys.has(key)) return [];
+      if (key === "computer_risk" || key === "computer_outward") {
+        const expected = computerClassification?.[key];
+        return expected !== undefined && value === expected ? [[key, expected]] : [];
+      }
       if (
         value === null ||
         ["string", "number", "boolean"].includes(typeof value)

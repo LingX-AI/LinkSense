@@ -99,13 +99,16 @@ let receipt: Record<string, unknown> | undefined;
 const cleanupFailures: string[] = [];
 const computerAuditMetadataKeys: ReadonlySet<string> = new Set([
   "operation", "conversation_id", "turn_id", "device_id", "computer_request", "delivery",
-  "computer_action", "duration_ms", "reason_code",
+  "computer_action", "computer_risk", "computer_outward", "duration_ms", "reason_code",
 ]);
-// computer_request is the bounded request kind; both read attempts carry the
-// existing delivery vocabulary (`unconfirmed`) instead of computer_action and
-// never carry a timeout, an element ref or an observation id.
+// computer_request is the bounded request kind; computer_risk/computer_outward
+// are the conservative request-derived classification (status/observe/wait are
+// reads, act is unknown and outward). Both read attempts carry the existing
+// delivery vocabulary (`unconfirmed`) instead of computer_action and never
+// carry a timeout, an element ref or an observation id.
 const observeAuditKeys = [
-  "computer_request", "conversation_id", "device_id", "delivery", "duration_ms", "operation", "turn_id",
+  "computer_request", "computer_risk", "computer_outward", "conversation_id", "device_id",
+  "delivery", "duration_ms", "operation", "turn_id",
 ].sort();
 const waitAuditKeys = observeAuditKeys;
 const actAuditKeys = [...observeAuditKeys.filter(key => key !== "delivery"), "computer_action"].sort();
@@ -117,6 +120,8 @@ const computerAuditMetadataSchema = z.strictObject({
   device_id: z.uuid(),
   computer_request: z.enum(["status", "observe", "act", "wait"]),
   computer_action: z.enum(["click", "type"]).optional(),
+  computer_risk: z.enum(["read", "unknown"]),
+  computer_outward: z.boolean(),
   delivery: z.literal("unconfirmed").optional(),
   duration_ms: z.number().int().min(0).max(240_000),
   reason_code: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u).optional(),
@@ -1563,6 +1568,10 @@ try {
       "every computer audit must name the exact joined turn");
     assert.equal(metadata.device_id, device.id,
       "every computer audit must name the exact joined device");
+    assert.equal(metadata.computer_risk, metadata.computer_request === "act" ? "unknown" : "read",
+      "every computer audit must carry the conservative request-derived risk");
+    assert.equal(metadata.computer_outward, metadata.computer_request === "act",
+      "only an act may be audited as outward");
     if (row.result === "success") {
       assert.equal(metadata.reason_code, undefined,
         "a successful computer audit must not carry a reason code");

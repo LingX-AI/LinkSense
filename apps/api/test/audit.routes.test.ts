@@ -843,6 +843,111 @@ describe("AuditService metadata boundary", () => {
       }),
     })
   })
+
+  it("persists only the closed request-derived computer classification", async () => {
+    const create = vi.fn(async () => ({}))
+    const service = new AuditService({ auditLog: { create } } as never)
+
+    await service.write({
+      actorId: OWNER_ID,
+      action: "desktop_tool_requested",
+      result: "success",
+      metadata: {
+        operation: "computer.execute",
+        conversation_id: CONVERSATION_ID,
+        computer_request: "act",
+        computer_risk: "unknown",
+        computer_outward: true,
+        window_title: "PRIVATE WINDOW",
+        typed_text: "secret text",
+      },
+    })
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadataJson: {
+          operation: "computer.execute",
+          conversation_id: CONVERSATION_ID,
+          computer_request: "act",
+          computer_risk: "unknown",
+          computer_outward: true,
+        },
+      }),
+    })
+  })
+
+  it("retains the read classification, never synthesizes it, and leaves a legacy non-computer row unchanged", () => {
+    const legacy = {
+      operation: "computer.execute",
+      conversation_id: CONVERSATION_ID,
+      computer_request: "observe",
+      delivery: "unconfirmed",
+      duration_ms: 3,
+    }
+    expect(sanitizeAuditMetadata("desktop_tool_requested", legacy)).toEqual(legacy)
+    expect(
+      sanitizeAuditMetadata("desktop_tool_requested", {
+        ...legacy,
+        computer_risk: "read",
+        computer_outward: false,
+      }),
+    ).toEqual({ ...legacy, computer_risk: "read", computer_outward: false })
+    const legacyBrowser = {
+      operation: "browser.execute",
+      conversation_id: CONVERSATION_ID,
+      browser_action: "click",
+    }
+    expect(sanitizeAuditMetadata("desktop_tool_requested", legacyBrowser)).toEqual(legacyBrowser)
+  })
+
+  it.each<
+    {
+      name: string
+      metadata: Record<string, unknown>
+      expected: Record<string, unknown>
+    }
+  >([
+    {
+      name: "an act that self-claims read risk",
+      metadata: { operation: "computer.execute", computer_request: "act", computer_risk: "read", computer_outward: false },
+      expected: { operation: "computer.execute", computer_request: "act" },
+    },
+    {
+      name: "a read that claims unknown risk",
+      metadata: { operation: "computer.execute", computer_request: "observe", computer_risk: "unknown", computer_outward: true },
+      expected: { operation: "computer.execute", computer_request: "observe" },
+    },
+    {
+      name: "an invalid risk value and a non-boolean outward flag",
+      metadata: { operation: "computer.execute", computer_request: "wait", computer_risk: "low", computer_outward: "true" },
+      expected: { operation: "computer.execute", computer_request: "wait" },
+    },
+    {
+      name: "private GUI text and a nested value",
+      metadata: {
+        operation: "computer.execute", computer_request: "act",
+        computer_risk: "PRIVATE AX TEXT", computer_outward: { private: true },
+      },
+      expected: { operation: "computer.execute", computer_request: "act" },
+    },
+    {
+      name: "classification attached to a non-computer operation",
+      metadata: { operation: "browser.execute", computer_request: "act", computer_risk: "unknown", computer_outward: true },
+      expected: { operation: "browser.execute", computer_request: "act" },
+    },
+    {
+      name: "classification without the intended request kind",
+      metadata: { operation: "computer.execute", computer_risk: "read", computer_outward: false },
+      expected: { operation: "computer.execute" },
+    },
+    {
+      name: "classification attached to an unrecognized request kind",
+      metadata: { operation: "computer.execute", computer_request: "hover", computer_risk: "read", computer_outward: false },
+      expected: { operation: "computer.execute", computer_request: "hover" },
+    },
+  ])("drops $name at the audit boundary", ({ metadata, expected }) => {
+    expect(sanitizeAuditMetadata("desktop_tool_requested", metadata)).toEqual(expected)
+  })
 })
 
 class CsvTestWritable extends EventEmitter {

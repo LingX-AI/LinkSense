@@ -7,7 +7,7 @@ import {
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
-import type { AuditService } from "../audit/service.js";
+import { classifyComputerAuditRequest, type AuditService } from "../audit/service.js";
 import { projectDesktopWorkspaceData } from "../connections/desktop-workspace-data.js";
 import type { ConnectionService } from "../connections/service.js";
 import type { DesktopComputerReadPublication } from "./computer-admission.js";
@@ -67,6 +67,14 @@ export async function executeDesktopTool(
   const readKind = frame.operation === "computer.execute" &&
     (frame.body.kind === "observe" || frame.body.kind === "wait") ? frame.body.kind : undefined;
   const statusRequest = frame.operation === "computer.execute" && frame.body.kind === "status";
+  // Conservative P1-23 classification from the trusted request kind through
+  // the one audit helper: status/observe/wait only read the GUI, while every
+  // act is unknown and outward even when rejected, ineffective, timed out, or
+  // uncertain. An unrecognized future kind classifies as nothing rather than
+  // read. Model hints, driver output, AX labels, content, and results never
+  // participate.
+  const computerClassification = frame.operation === "computer.execute"
+    ? classifyComputerAuditRequest(frame.body.kind) : undefined;
   const wait = readKind === "wait";
   const readFailure = (error: ComputerFailureCode): DesktopToolResult => ({
     type: "tool.result", id: frame.id, operation: "computer.execute", ok: true,
@@ -191,6 +199,7 @@ export async function executeDesktopTool(
           ? {
             duration_ms: Math.max(0, Date.now() - startedAt),
             computer_request: frame.body.kind,
+            ...(computerClassification ?? {}),
             // Every read attempt is the single mandatory attempt record, written
             // before authority/queue/publication. `unconfirmed` is the existing
             // delivery vocabulary: a late final denial, an absent proof, or a

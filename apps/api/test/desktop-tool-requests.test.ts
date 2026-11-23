@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import {
   desktopConnectionTextPageBytes, desktopToolRequestSchema,
-  type ComputerObservation, type DesktopToolRequest,
+  type ComputerExecuteResult, type ComputerObservation, type DesktopToolRequest,
 } from "@linksense/shared";
 import { AppError } from "../src/lib/errors.js";
 import type { DesktopComputerReadPublication } from "../src/modules/desktop-devices/computer-admission.js";
@@ -281,7 +281,127 @@ function computerActFrame() {
   } } };
 }
 
+function computerWaitFrame() {
+  const { scope, raw } = computerObserveFrame();
+  return { scope, raw: { ...raw, body: {
+    kind: "wait", input: { observation_id: "obs-1", ref: "@obs-1:e1" },
+  } } };
+}
+
+function computerTypeActFrame() {
+  const { scope, raw } = computerActFrame();
+  return { scope, raw: { ...raw, body: { ...raw.body,
+    native_call_id: "native-call-2",
+    input: { action: "type", observation_id: "obs-1", ref: "e1", text: "sample text" },
+  } } };
+}
+
 const privateStatus = { available: true, permissions: { accessibility: "granted" as const }, active_grant: true };
+
+type ComputerClassificationCase = {
+  name: string;
+  requestKind: "status" | "observe" | "wait" | "act";
+  request: () => ReturnType<typeof computerObserveFrame>;
+  result: ComputerExecuteResult;
+  risk: "read" | "unknown";
+  outward: boolean;
+};
+
+it.each<ComputerClassificationCase>([
+  { name: "status", requestKind: "status", request: computerStatusFrame, risk: "read", outward: false,
+    result: { kind: "status", result: privateStatus } },
+  { name: "observe", requestKind: "observe", request: computerObserveFrame, risk: "read", outward: false,
+    result: { kind: "observe", result: privateObservation } },
+  { name: "wait", requestKind: "wait", request: computerWaitFrame, risk: "read", outward: false,
+    result: { kind: "wait", result: { result: "met", waited_ms: 4 } } },
+  { name: "click", requestKind: "act", request: computerActFrame, risk: "unknown", outward: true,
+    result: { kind: "act", result: { ok: true, effect: "done", waited_ms: 4 } } },
+  { name: "type", requestKind: "act", request: computerTypeActFrame, risk: "unknown", outward: true,
+    result: { kind: "act", result: { ok: true, effect: "done", waited_ms: 4 } } },
+])("classifies a $name request as $risk and writes exactly one scoped audit", async ({ requestKind, request, result: data, risk, outward }) => {
+  const { scope, raw } = request();
+  const frame = desktopToolRequestSchema.parse(raw);
+  const write = vi.fn(async () => {});
+  await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write }, webSearchSettings: { search: vi.fn() },
+    allowUnprotectedComputerRead: true, computerWait: true, computerStatus: true,
+    computerExecute: async () => data,
+  }, scope, frame, new AbortController().signal);
+  expect(write).toHaveBeenCalledOnce();
+  expect(write).toHaveBeenCalledWith(expect.objectContaining({
+    actorId: scope.ownerId, action: "desktop_tool_requested", targetId: frame.id, targetType: "local_computer",
+    metadata: expect.objectContaining({
+      operation: "computer.execute", conversation_id: scope.conversationId, turn_id: scope.turnId,
+      device_id: scope.deviceId, computer_request: requestKind,
+      computer_risk: risk, computer_outward: outward,
+    }),
+  }));
+});
+
+it("rejects an act that carries a risk hint in its strict body or click input", () => {
+  const { raw } = computerActFrame();
+  expect(desktopToolRequestSchema.safeParse({
+    ...raw, body: { ...raw.body, computer_risk: "read" },
+  }).success).toBe(false);
+  expect(desktopToolRequestSchema.safeParse({
+    ...raw, body: { ...raw.body, input: { ...raw.body.input, computer_risk: "read" } },
+  }).success).toBe(false);
+});
+
+type ActOutcomeCase = {
+  name: string;
+  result: ComputerExecuteResult;
+  auditResult: "success" | "failed";
+  reasonCode?: string;
+};
+
+it.each<ActOutcomeCase>([
+  { name: "succeeded with a change", auditResult: "success",
+    result: { kind: "act", result: { ok: true, effect: "done", waited_ms: 4 } } },
+  { name: "succeeded without an effect", auditResult: "success",
+    result: { kind: "act", result: { ok: true, effect: "no_effect", waited_ms: 4 } } },
+  { name: "was rejected", auditResult: "failed", reasonCode: "COMPUTER_ACTION_FAILED",
+    result: { kind: "act", result: { ok: false, error: "COMPUTER_ACTION_FAILED", waited_ms: 4 } } },
+  { name: "timed out", auditResult: "failed", reasonCode: "COMPUTER_TIMEOUT",
+    result: { kind: "failure", error: "COMPUTER_TIMEOUT" } },
+  { name: "went stale", auditResult: "failed", reasonCode: "COMPUTER_STALE_OBSERVATION",
+    result: { kind: "failure", error: "COMPUTER_STALE_OBSERVATION" } },
+  { name: "stayed uncertain", auditResult: "failed", reasonCode: "RUNNER_OPERATION_UNCERTAIN",
+    result: { kind: "failure", error: "RUNNER_OPERATION_UNCERTAIN" } },
+])("returns the act that $name and audits its exact outcome once at unknown risk", async ({ result: data, auditResult, reasonCode }) => {
+  const { scope, raw } = computerActFrame();
+  const frame = desktopToolRequestSchema.parse(raw);
+  const write = vi.fn(async () => {});
+  const result = await executeDesktopTool({
+    checkPublication: vi.fn(),
+    leases: { claimToolRequest: async () => true, verifyRunBinding: async () => {} },
+    knowledgeSearch: null, audit: { write }, webSearchSettings: { search: vi.fn() },
+    computerExecute: async () => data,
+  }, scope, frame, new AbortController().signal);
+  expect(result).toEqual({ type: "tool.result", id: frame.id, operation: "computer.execute", ok: true, data });
+  expect(write).toHaveBeenCalledOnce();
+  expect(write).toHaveBeenCalledWith({
+    actorId: scope.ownerId,
+    action: "desktop_tool_requested",
+    targetId: frame.id,
+    targetType: "local_computer",
+    result: auditResult,
+    metadata: {
+      operation: "computer.execute",
+      conversation_id: scope.conversationId,
+      turn_id: scope.turnId,
+      device_id: scope.deviceId,
+      computer_action: "click",
+      computer_request: "act",
+      computer_risk: "unknown",
+      computer_outward: true,
+      duration_ms: expect.any(Number),
+      ...(reasonCode === undefined ? {} : { reason_code: reasonCode }),
+    },
+  });
+});
 
 it("refuses a product observe success without request-local proof and never sends its AX text", async () => {
   const { scope, raw } = computerObserveFrame();
