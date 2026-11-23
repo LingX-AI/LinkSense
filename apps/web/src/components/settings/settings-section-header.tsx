@@ -10,6 +10,7 @@ export function SettingsSectionHeader({
   action,
   titleAction,
   actionAlignment = "start",
+  focusable = false,
 }: {
   id: string
   title: string
@@ -19,6 +20,7 @@ export function SettingsSectionHeader({
   action?: ReactNode
   titleAction?: ReactNode
   actionAlignment?: "start" | "center"
+  focusable?: boolean
 }) {
   return (
     <div
@@ -41,7 +43,12 @@ export function SettingsSectionHeader({
           >
             <h2
               id={id}
-              className="text-sm leading-5 font-semibold text-pretty text-foreground"
+              tabIndex={focusable ? -1 : undefined}
+              className={cn(
+                "text-sm leading-5 font-semibold text-pretty text-foreground",
+                focusable &&
+                  "scroll-mt-6 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+              )}
             >
               {title}
             </h2>

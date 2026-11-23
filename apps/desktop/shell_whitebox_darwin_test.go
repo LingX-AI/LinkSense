@@ -125,6 +125,13 @@ func TestNativeMenuDoesNotInterruptBrowserSignIn(t *testing.T) {
 }
 
 func TestNativeConversationDeepLinkHonorsUnsavedSettingsOnce(t *testing.T) {
+	const target = "71000000-0000-4000-8000-000000000901"
+	link := "linksense-desktop://conversation/" + target
+	nativeDeepLinkHonorsUnsavedSettingsOnce(t, link, `location.pathname === "/conversations/`+target+`"`, link+"?token=fixture")
+}
+
+func nativeDeepLinkHonorsUnsavedSettingsOnce(t *testing.T, link, arrived, invalidLink string) {
+	t.Helper()
 	nativeWhiteboxSession(t, true)
 	d := nativeWhitebox.desktop
 	d.openMainWindow()
@@ -147,8 +154,6 @@ func TestNativeConversationDeepLinkHonorsUnsavedSettingsOnce(t *testing.T) {
 	}
 	whiteboxWait(t, p, `document.querySelector("#custom-instructions")?.form.querySelector("button[type=submit]").disabled === false`)
 
-	const target = "71000000-0000-4000-8000-000000000901"
-	link := "linksense-desktop://conversation/" + target
 	d.handleOpenURL(link)
 	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && !!document.querySelector("[role=alertdialog]")`)
 	if _, err := p.Eval(`(() => {
@@ -176,17 +181,17 @@ func TestNativeConversationDeepLinkHonorsUnsavedSettingsOnce(t *testing.T) {
 	})()`); err != nil {
 		t.Fatal(err)
 	}
-	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "retained"`)
+	whiteboxWait(t, p, `(`+arrived+`) && window.__conversationDeepLinkSentinel === "retained"`)
 
 	// The same current target is a no-op, and an invalid link cannot reload or
 	// replace the document either.
 	d.handleOpenURL(link)
 	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
-		location.pathname === "/conversations/`+target+`" &&
+		(`+arrived+`) &&
 		window.__conversationDeepLinkSentinel === "retained"), 200))`)
-	d.handleOpenURL(link + "?token=fixture")
+	d.handleOpenURL(invalidLink)
 	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
-		location.pathname === "/conversations/`+target+`" &&
+		(`+arrived+`) &&
 		window.__conversationDeepLinkSentinel === "retained"), 200))`)
 }
 
@@ -282,6 +287,12 @@ func TestNativeSignedInConversationDeepLinkReplacesPublicPasswordPage(t *testing
 }
 
 func TestNativeConversationDeepLinkSurvivesCancelledSignIn(t *testing.T) {
+	const target = "71000000-0000-4000-8000-000000000915"
+	nativeDeepLinkSurvivesCancelledSignIn(t, "linksense-desktop://conversation/"+target, `location.pathname === "/conversations/`+target+`"`)
+}
+
+func nativeDeepLinkSurvivesCancelledSignIn(t *testing.T, link, arrived string) {
+	t.Helper()
 	nativeWhiteboxSession(t, false)
 	d := nativeWhitebox.desktop
 	requests := make(chan string, 4)
@@ -301,11 +312,15 @@ func TestNativeConversationDeepLinkSurvivesCancelledSignIn(t *testing.T) {
 	p := w.Page()
 	whiteboxWait(t, p, `location.pathname === "/login" && !!document.querySelector("[data-desktop-sign-in]")`)
 
-	const target = "71000000-0000-4000-8000-000000000915"
-	link := "linksense-desktop://conversation/" + target
 	d.handleOpenURL(link)
+	mygo.RunOnMain(func() {})
 	if _, err := p.Eval(`window.__conversationDeepLinkSentinel = "login"`); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-requests:
+		t.Fatal("the deep link opened a browser without a sign-in action")
+	default:
 	}
 	startSignIn := func() *url.URL {
 		if _, err := p.Eval(`(() => {
@@ -346,7 +361,7 @@ func TestNativeConversationDeepLinkSurvivesCancelledSignIn(t *testing.T) {
 	d.handleOpenURL(desktopLoginRedirectURI + "?" + url.Values{
 		"state": {authorization.Query().Get("state")}, "code": {strings.Repeat("c", 43)},
 	}.Encode())
-	whiteboxWait(t, p, `location.pathname === "/conversations/`+target+`" && window.__conversationDeepLinkSentinel === "login"`)
+	whiteboxWait(t, p, `(`+arrived+`) && window.__conversationDeepLinkSentinel === "login"`)
 }
 
 func TestNativeAuthenticatedConversationDeepLinkSurvivesIndexRedirect(t *testing.T) {

@@ -2,6 +2,8 @@ import { fetch as nativeFetch } from "@mygo-plugins/fetch"
 import { isMyGo } from "mygo-runtime"
 import { z } from "zod"
 
+import { desktopDeviceSettingsHref } from "@/features/desktop-execution/desktop-execution-target"
+
 import {
   Desktop,
   events,
@@ -293,22 +295,26 @@ export function subscribeDesktopArtifactSaved(
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null
 let desktopNotificationsSupported = false
 let notificationClickBridgeInstalled = false
-let notificationClickListener:
-  ((target: DesktopNotificationClick) => void) | null = null
-let pendingNotificationClick: DesktopNotificationClick | null = null
+let protectedNotificationScope: { ownerId: string; pathname: string } | null =
+  null
+let pendingNotificationClick:
+  | (DesktopNotificationClick & { afterConversation?: DesktopConversationPath })
+  | null = null
 let navigationBridgeInstalled = false
 let menuNavigationListener: ((path: DesktopMenuPath) => void) | null = null
-let conversationNavigationListener:
-  ((path: DesktopConversationPath) => void) | null = null
-let conversationContext: DesktopConversationContext = {
+let launchNavigationListener: ((path: DesktopLaunchPath) => void) | null = null
+let launchContext: DesktopLaunchContext = {
   authenticated: false,
   ownerId: null,
   ready: false,
+  pathname: "",
+  hash: "",
 }
-let pendingConversationNavigation: {
-  path: DesktopConversationPath
-  ownerId: string | null
-} | null = null
+let pendingConversationNavigation: PendingLaunch<DesktopConversationPath> | null =
+  null
+let pendingPairingNavigation: PendingLaunch<
+  typeof desktopDeviceSettingsHref
+> | null = null
 let updateRequired = false
 const updateListeners = new Set<() => void>()
 
@@ -384,34 +390,52 @@ export function installDesktopNotificationClickBridge(): void {
   events.desktopNotificationClick.on((value) => {
     const target = desktopNotificationClickSchema.safeParse(value)
     if (!target.success) return
-    if (notificationClickListener) notificationClickListener(target.data)
-    else pendingNotificationClick = target.data
+    // A new click can replace the waiting notification only for its owner.
+    if (
+      pendingNotificationClick?.afterConversation &&
+      target.data.userId !== pendingNotificationClick.userId
+    )
+      return
+    pendingNotificationClick = target.data
+    flushPendingDesktopLaunch()
   })
 }
 
-export function subscribeDesktopNotificationClick(
-  listener: (target: DesktopNotificationClick) => void
+// Staying on an unsaved draft also discards the click waiting behind the
+// declined conversation link.
+export function cancelDeferredDesktopNotification(pathname: string): void {
+  if (pendingNotificationClick?.afterConversation === pathname)
+    pendingNotificationClick = null
+}
+
+// Published during the protected route's commit, before BootstrapGate drains
+// launch intents. A signed-in public page still cannot open a notification.
+export function scopeDesktopNotificationNavigation(
+  ownerId: string,
+  pathname: string
 ) {
   if (!isDesktopHost()) return
   installDesktopNotificationClickBridge()
-  notificationClickListener = listener
+  const scope = { ownerId, pathname }
+  protectedNotificationScope = scope
   if (pendingNotificationClick) {
-    const target = pendingNotificationClick
-    pendingNotificationClick = null
-    listener(target)
+    // Suspense can reveal a protected route again without rerunning the
+    // BootstrapGate effect. Recheck after the guards have committed.
+    queueMicrotask(() => {
+      if (
+        protectedNotificationScope === scope &&
+        launchContext.ownerId === ownerId &&
+        launchContext.pathname === pathname
+      ) {
+        flushPendingDesktopLaunch()
+      }
+    })
   }
   return () => {
-    if (notificationClickListener === listener) notificationClickListener = null
+    if (protectedNotificationScope === scope) {
+      protectedNotificationScope = null
+    }
   }
-}
-
-export function desktopNotificationRouteForUser(
-  target: DesktopNotificationClick,
-  userId: string
-): string | null {
-  return target.userId === userId
-    ? `/conversations/${target.conversationId}`
-    : null
 }
 
 const desktopMenuPathSchema = z.enum([
@@ -424,53 +448,49 @@ const desktopConversationPathSchema = z.templateLiteral([
   "/conversations/",
   z.guid(),
 ])
-const desktopNavigationPathSchema = z.union([
-  desktopMenuPathSchema,
-  desktopConversationPathSchema,
-])
 
-export type DesktopMenuPath = z.infer<typeof desktopMenuPathSchema>
-export type DesktopConversationPath = z.infer<
-  typeof desktopConversationPathSchema
->
-export type DesktopNavigationPath = z.infer<typeof desktopNavigationPathSchema>
+type DesktopMenuPath = z.infer<typeof desktopMenuPathSchema>
+type DesktopConversationPath = z.infer<typeof desktopConversationPathSchema>
+type DesktopLaunchPath =
+  DesktopConversationPath | typeof desktopDeviceSettingsHref
 
-export type DesktopConversationContext = {
+type DesktopLaunchContext = {
   authenticated: boolean
   ownerId: string | null
   ready: boolean
+  pathname: string
+  hash: string
 }
 
-// A launch link can arrive before React mounts, just like a notification
-// click. Conversation paths are held as the latest validated intent; menu
-// actions stay live-only.
+type PendingLaunch<Path extends DesktopLaunchPath> = {
+  path: Path
+  ownerId: string | null
+}
+
+// Launch links can arrive before React mounts. Buffer the validated path and
+// owner until the protected destination is usable; menu actions stay live-only.
 export function installDesktopNavigationBridge(): void {
   if (navigationBridgeInstalled || !isDesktopHost()) return
   navigationBridgeInstalled = true
   events.desktopNavigate.on((value) => {
-    const navigation = desktopNavigationPathSchema.safeParse(value)
-    if (!navigation.success) return
-    const menuPath = desktopMenuPathSchema.safeParse(navigation.data)
+    const menuPath = desktopMenuPathSchema.safeParse(value)
     if (menuPath.success) {
       menuNavigationListener?.(menuPath.data)
       return
     }
-    const conversationPath = desktopConversationPathSchema.safeParse(
-      navigation.data
-    )
-    if (!conversationPath.success) return
-    if (
-      conversationNavigationListener &&
-      conversationContext.authenticated &&
-      conversationContext.ready
-    ) {
-      conversationNavigationListener(conversationPath.data)
-      return
+    if (value === desktopDeviceSettingsHref) {
+      // Null means the bridge is installed but Desktop.info has not resolved.
+      if (getDesktopPlatform() === "windows") return
+      pendingPairingNavigation = { path: value, ownerId: launchContext.ownerId }
+    } else {
+      const conversationPath = desktopConversationPathSchema.safeParse(value)
+      if (!conversationPath.success) return
+      pendingConversationNavigation = {
+        path: conversationPath.data,
+        ownerId: launchContext.ownerId,
+      }
     }
-    pendingConversationNavigation = {
-      path: conversationPath.data,
-      ownerId: conversationContext.ownerId,
-    }
+    flushPendingDesktopLaunch()
   })
 }
 
@@ -486,50 +506,102 @@ export function subscribeDesktopNavigation(
   }
 }
 
-export function subscribeDesktopConversationNavigation(
-  navigate: (path: DesktopConversationPath) => void
+export function subscribeDesktopLaunchNavigation(
+  navigate: (path: DesktopLaunchPath) => void
 ) {
   if (!isDesktopHost()) return
-  conversationNavigationListener = navigate
+  launchNavigationListener = navigate
   installDesktopNavigationBridge()
-  flushPendingConversationNavigation()
+  flushPendingDesktopLaunch()
   return () => {
-    if (conversationNavigationListener === navigate) {
-      conversationNavigationListener = null
-    }
+    if (launchNavigationListener === navigate) launchNavigationListener = null
   }
 }
 
 // The auth/bootstrap gate publishes whether the current surface may open a
-// protected conversation and which signed-in owner (if any) captured it.
+// protected destination and which signed-in owner (if any) captured it.
 // An ownerless intent is adopted by the first authenticated owner even while
 // that owner cannot route (for example under maintenance), so a later owner
 // mismatch fences it. A link received before the first sign-in still survives
 // an anonymous cancel/restart because no owner is ever published.
-export function updateDesktopConversationContext(
-  context: DesktopConversationContext
+export function updateDesktopLaunchContext(
+  context: DesktopLaunchContext
 ): void {
-  conversationContext = context
-  const pending = pendingConversationNavigation
-  if (pending && pending.ownerId === null && context.ownerId !== null) {
-    pending.ownerId = context.ownerId
-  }
+  const waiting = pendingNotificationClick
   if (
-    pending &&
-    pending.ownerId !== null &&
-    pending.ownerId !== context.ownerId
+    waiting?.afterConversation &&
+    (context.pathname !== launchContext.pathname ||
+      context.ownerId !== launchContext.ownerId)
   ) {
-    pendingConversationNavigation = null
+    if (
+      context.pathname === waiting.afterConversation &&
+      context.ownerId === waiting.userId
+    ) {
+      delete waiting.afterConversation
+    } else {
+      pendingNotificationClick = null
+    }
   }
-  flushPendingConversationNavigation()
+  launchContext = context
+  pendingConversationNavigation = launchForOwner(
+    pendingConversationNavigation,
+    context.ownerId
+  )
+  pendingPairingNavigation = launchForOwner(
+    pendingPairingNavigation,
+    context.ownerId
+  )
+  flushPendingDesktopLaunch()
 }
 
-function flushPendingConversationNavigation(): void {
-  const pending = pendingConversationNavigation
-  if (!pending || !conversationNavigationListener) return
-  if (!conversationContext.authenticated || !conversationContext.ready) return
+function launchForOwner<Path extends DesktopLaunchPath>(
+  pending: PendingLaunch<Path> | null,
+  ownerId: string | null
+): PendingLaunch<Path> | null {
+  if (!pending || pending.ownerId === ownerId) return pending
+  return pending.ownerId === null ? { ...pending, ownerId } : null
+}
+
+function flushPendingDesktopLaunch(): void {
+  const { authenticated, ownerId, ready, pathname, hash } = launchContext
+  if (!launchNavigationListener || !authenticated || !ready || !ownerId) return
+
+  const notification =
+    protectedNotificationScope?.ownerId === ownerId &&
+    protectedNotificationScope.pathname === pathname
+      ? pendingNotificationClick
+      : null
+  const notificationPath =
+    notification?.userId === ownerId
+      ? (`/conversations/${notification.conversationId}` as const)
+      : null
+  if (notification && !notificationPath) pendingNotificationClick = null
+
+  const conversation = pendingConversationNavigation?.path
   pendingConversationNavigation = null
-  conversationNavigationListener(pending.path)
+  if (conversation) {
+    pendingPairingNavigation = null
+    if (conversation !== pathname) {
+      if (notificationPath === conversation) pendingNotificationClick = null
+      // Keep a different notification until this route commits so it cannot
+      // replace the unsaved-draft prompt.
+      else if (notification && notificationPath)
+        notification.afterConversation = conversation
+      launchNavigationListener(conversation)
+      return
+    }
+  }
+  if (pendingNotificationClick?.afterConversation) return
+  if (notificationPath) {
+    pendingNotificationClick = null
+    pendingPairingNavigation = null
+    if (notificationPath !== pathname)
+      launchNavigationListener(notificationPath)
+  } else if (pendingPairingNavigation && isMacDesktopHost()) {
+    const { path } = pendingPairingNavigation
+    pendingPairingNavigation = null
+    if (path !== `${pathname}${hash}`) launchNavigationListener(path)
+  }
 }
 
 export async function initializeDesktopHost(): Promise<null> {
@@ -544,6 +616,7 @@ export async function initializeDesktopHost(): Promise<null> {
   installDesktopNotificationClickBridge()
   hostInfo = hostInfoSchema.parse(await Desktop.info())
   document.documentElement.dataset.desktopPlatform = hostInfo.platform
+  if (hostInfo.platform === "windows") pendingPairingNavigation = null
   desktopNotificationsSupported = false
   if (hostInfo.platform === "darwin") {
     try {
@@ -553,6 +626,7 @@ export async function initializeDesktopHost(): Promise<null> {
       desktopNotificationsSupported = false
     }
   }
+  flushPendingDesktopLaunch()
   return null
 }
 

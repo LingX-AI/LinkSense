@@ -56,6 +56,14 @@ Refresh restores subsequent app launches without opening the browser again.
 Deploy the matching API and Web authorization routes before distributing this
 client. Existing Web sessions and refresh-token records need no migration.
 
+On macOS, `linksense-desktop://pair?server=https%3A%2F%2Flinksense.example.com`
+opens **Settings → General → This Mac** when `server` is the packaged origin
+and the user is signed in. The link only opens Settings; pairing still requires
+submitting the form there. Older links that carry a pairing code are not
+accepted. Open LinkSense directly, sign in if needed, and use **Settings →
+General → This Mac** to pair. Already paired devices do not need to be paired
+again.
+
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
 enable **Keep Running in the Menu Bar When the Window Closes** there. The

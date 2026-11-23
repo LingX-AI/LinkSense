@@ -1,15 +1,14 @@
 import { CloudOffIcon } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
 import {
-  desktopNotificationRouteForUser,
   isMacDesktopHost,
-  subscribeDesktopConversationNavigation,
+  scopeDesktopNotificationNavigation,
+  subscribeDesktopLaunchNavigation,
   subscribeDesktopNavigation,
-  subscribeDesktopNotificationClick,
-  updateDesktopConversationContext,
+  updateDesktopLaunchContext,
 } from "@/adapters/desktop/desktop-adapter"
 import { type User, type BootstrapStatus } from "@/api/contracts"
 import { useAuth, type AuthContextValue } from "@/app/auth-state"
@@ -41,7 +40,7 @@ const maintenanceAdminAuthPaths = new Set([
 // These locations may redirect as soon as auth/bootstrap settles. Let their
 // own navigation commit before consuming a launch link so it cannot be
 // overwritten, while stable signed-in public pages remain eligible.
-const conversationRedirectPaths = new Set([
+const desktopLaunchRedirectPaths = new Set([
   "/",
   "/initialize",
   "/login",
@@ -52,47 +51,46 @@ const conversationRedirectPaths = new Set([
   "/auth/social/callback",
 ])
 
-// A launch link must stay pending while the app cannot show a protected
-// conversation. The stable subscription lives above ProtectedRoute so it also
-// covers maintenance, setup, and signed-in public pages such as the password
-// setup page reached from Settings.
-function useDesktopConversationNavigation({
+// Deep links can originate on public pages, but their protected destination
+// must wait for auth, bootstrap and redirects. ProtectedRoute separately
+// scopes notification clicks.
+function useDesktopLaunchNavigation({
   status,
   user,
   bootstrap,
   pathname,
+  hash,
 }: {
   status: AuthContextValue["status"]
   user: User | null
   bootstrap: BootstrapStatus | undefined
   pathname: string
+  hash: string
 }): void {
   const navigate = useNavigate()
-  const currentPathname = useRef(pathname)
-  useLayoutEffect(() => {
-    currentPathname.current = pathname
-  }, [pathname])
-
   const ownerId = user?.id ?? null
   const ready =
     status === "authenticated" &&
     user !== null &&
     bootstrap?.initialized === true &&
     !(bootstrap.maintenance?.active && user.role !== "admin") &&
-    !conversationRedirectPaths.has(pathname)
+    !desktopLaunchRedirectPaths.has(pathname)
 
   useEffect(() => {
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: status === "authenticated",
       ownerId,
       ready,
+      pathname,
+      hash,
     })
-  }, [ownerId, ready, status])
+    // A notification buffered on a public page can first route after the
+    // destination commits under ProtectedRoute, even if auth did not change.
+  }, [ownerId, ready, status, pathname, hash])
 
   useEffect(
     () =>
-      subscribeDesktopConversationNavigation((path) => {
-        if (path === currentPathname.current) return
+      subscribeDesktopLaunchNavigation((path) => {
         void Promise.resolve(navigate(path)).catch(() => {
           console.error("DESKTOP_NAVIGATION_UNAVAILABLE")
         })
@@ -107,11 +105,12 @@ export function BootstrapGate() {
   const { bootstrap, isLoading, error, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
-  useDesktopConversationNavigation({
+  useDesktopLaunchNavigation({
     status,
     user,
     bootstrap,
     pathname: location.pathname,
+    hash: location.hash,
   })
   const content = (
     <>
@@ -165,7 +164,7 @@ export function ProtectedRoute() {
   useEffect(() => {
     if (status !== "authenticated") return
     // Menu actions stay live-only: they are delivered only while their
-    // protected route owns the listener. Conversation links use the stable
+    // protected route owns the listener. Deep links use the stable
     // BootstrapGate subscription so signed-in public pages can consume them.
     return subscribeDesktopNavigation((path) => {
       if (path === location.pathname) return
@@ -174,17 +173,11 @@ export function ProtectedRoute() {
       })
     })
   }, [status, navigate, location.pathname])
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Let the index redirect settle before consuming an app-launch click.
     if (status !== "authenticated" || !user || location.pathname === "/") return
-    return subscribeDesktopNotificationClick((target) => {
-      const path = desktopNotificationRouteForUser(target, user.id)
-      if (!path || path === location.pathname) return
-      void Promise.resolve(navigate(path)).catch(() => {
-        console.error("DESKTOP_NOTIFICATION_NAVIGATION_UNAVAILABLE")
-      })
-    })
-  }, [status, user, navigate, location.pathname])
+    return scopeDesktopNotificationNavigation(user.id, location.pathname)
+  }, [status, user, location.pathname])
   const [destinationUserId, setDestinationUserId] = useState(user?.id)
   if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
     setDestinationUserId(user.id)

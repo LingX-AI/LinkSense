@@ -7,8 +7,24 @@ import {
   waitFor,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { StrictMode, createElement } from "react"
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
+import {
+  StrictMode,
+  Suspense,
+  createElement,
+  lazy,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react"
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Navigate,
+  Route,
+  RouterProvider,
+  Routes,
+  useLocation,
+} from "react-router-dom"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import {
@@ -26,7 +42,10 @@ import {
   ProtectedRoute,
   PublicAuthRoute,
 } from "@/app/route-guards"
+import { desktopDeviceSettingsHref } from "@/features/desktop-execution/desktop-execution-target"
+import { personalizationQueryKey } from "@/features/personalization/use-personalization"
 import i18n from "@/i18n"
+import { SettingsPersonalizationPage } from "@/pages/settings-pages"
 
 const native = vi.hoisted(() => ({
   isDesktop: false,
@@ -96,7 +115,6 @@ import {
   cancelDesktopArtifactDownload,
   checkDesktopUpdate,
   cleanupDesktopWorkspaces,
-  desktopNotificationRouteForUser,
   getDesktopPlatform,
   getDesktopServerUrl,
   getDesktopUpdateState,
@@ -114,12 +132,11 @@ import {
   showDesktopCompletionNotification,
   showDesktopTestNotification,
   subscribeDesktopArtifactSaved,
-  subscribeDesktopConversationNavigation,
+  subscribeDesktopLaunchNavigation,
   subscribeDesktopNavigation,
-  subscribeDesktopNotificationClick,
   subscribeDesktopUpdateChanged,
   supportsNativeDesktopNotifications,
-  updateDesktopConversationContext,
+  updateDesktopLaunchContext,
 } from "./desktop-adapter"
 
 let emitNotificationClick: (value: unknown) => void = () => undefined
@@ -151,6 +168,24 @@ const activeBootstrap = bootstrapSchema.parse({
   initialized: true,
   system_name: "LinkSense",
 })
+const pairingOwner = "10000000-0000-4000-8000-0000000000f1"
+const pairingConversation = "71000000-0000-4000-8000-000000000921"
+const pairingSession: TestSession = {
+  status: "authenticated",
+  userId: pairingOwner,
+  role: "user",
+}
+
+function initializePairingTestHost(platform: "darwin" | "windows" = "darwin") {
+  native.isDesktop = true
+  native.info.mockResolvedValueOnce({
+    bridgeVersion: 1,
+    serverUrl: "https://example.test",
+    platform,
+    version: "0.1.0",
+  })
+  return initializeDesktopHost()
+}
 
 type TestSession = {
   status: AuthContextValue["status"]
@@ -172,13 +207,17 @@ function testSessionUser(session: TestSession) {
   })
 }
 
-function LocationProbe() {
+function LocationProbe({
+  onLocation,
+}: {
+  onLocation?: (path: string) => void
+}) {
   const location = useLocation()
-  return createElement(
-    "output",
-    { "data-testid": "current-path" },
-    location.pathname
-  )
+  const path = `${location.pathname}${location.hash}`
+  useLayoutEffect(() => {
+    onLocation?.(path)
+  }, [location.key, onLocation, path])
+  return createElement("output", { "data-testid": "current-path" }, path)
 }
 
 const JSDOM_NAVIGATION_ERROR = "Not implemented: navigation to another Document"
@@ -203,14 +242,18 @@ function watchJsdomNavigationErrors(): string[] {
 // the public password page that a signed-in Settings flow opens.
 function renderDeepLinkHarness({
   bootstrap,
+  conversationPage = createElement("p", null, "Conversation task"),
   session,
   pathname,
   retryRestore,
+  onLocation,
 }: {
   bootstrap: BootstrapStatus
+  conversationPage?: ReactNode
   session: TestSession
   pathname: string
   retryRestore?: () => void
+  onLocation?: (path: string) => void
 }) {
   const tree = (nextSession: TestSession, nextBootstrap: BootstrapStatus) =>
     createElement(
@@ -238,36 +281,51 @@ function renderDeepLinkHarness({
         createElement(
           MemoryRouter,
           { initialEntries: [pathname] },
-          createElement(LocationProbe),
+          createElement(LocationProbe, { onLocation }),
           createElement(
-            Routes,
-            null,
+            Suspense,
+            { fallback: createElement("p", null, "Loading destination") },
             createElement(
-              Route,
-              { element: createElement(BootstrapGate) },
-              createElement(Route, {
-                path: "/forgot-password",
-                element: createElement("p", null, "Forgot password"),
-              }),
+              Routes,
+              null,
               createElement(
                 Route,
-                { element: createElement(PublicAuthRoute) },
+                { element: createElement(BootstrapGate) },
                 createElement(Route, {
-                  path: "/login",
-                  element: createElement("p", null, "Sign in"),
-                })
-              ),
-              createElement(
-                Route,
-                { element: createElement(ProtectedRoute) },
-                createElement(Route, {
-                  path: "/conversations/new",
-                  element: createElement("p", null, "New task"),
+                  path: "/forgot-password",
+                  element: createElement("p", null, "Forgot password"),
                 }),
-                createElement(Route, {
-                  path: "/conversations/:conversationId",
-                  element: createElement("p", null, "Conversation task"),
-                })
+                createElement(
+                  Route,
+                  { element: createElement(PublicAuthRoute) },
+                  createElement(Route, {
+                    path: "/login",
+                    element: createElement("p", null, "Sign in"),
+                  })
+                ),
+                createElement(
+                  Route,
+                  { element: createElement(ProtectedRoute) },
+                  createElement(Route, {
+                    index: true,
+                    element: createElement(Navigate, {
+                      to: "/conversations/new",
+                      replace: true,
+                    }),
+                  }),
+                  createElement(Route, {
+                    path: "/conversations/new",
+                    element: createElement("p", null, "New task"),
+                  }),
+                  createElement(Route, {
+                    path: "/conversations/:conversationId",
+                    element: conversationPage,
+                  }),
+                  createElement(Route, {
+                    path: "/settings/general",
+                    element: createElement("p", null, "General settings"),
+                  })
+                )
               )
             )
           )
@@ -293,11 +351,517 @@ describe("desktop host boundary", () => {
     vi.clearAllMocks()
     vi.unstubAllGlobals()
     delete document.documentElement.dataset.desktopPlatform
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: false,
       ownerId: null,
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
+  })
+
+  it("holds a pairing link that arrives before the Mac platform and index route are ready", async () => {
+    native.isDesktop = true
+    installDesktopNavigationBridge()
+    expect(getDesktopPlatform()).toBeNull()
+    emitDesktopNavigation(desktopDeviceSettingsHref)
+    await initializePairingTestHost()
+
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: pairingSession,
+      pathname: "/",
+    })
+
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      desktopDeviceSettingsHref
+    )
+  })
+
+  it("requires the exact pairing settings anchor and deduplicates by pathname and hash", async () => {
+    await initializePairingTestHost()
+    installDesktopNavigationBridge()
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: pairingSession,
+      pathname: "/settings/general",
+      onLocation,
+    })
+    act(() =>
+      emitDesktopNavigation(`${desktopDeviceSettingsHref}?code=fixture`)
+    )
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      /^\/settings\/general$/u
+    )
+
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      desktopDeviceSettingsHref
+    )
+    onLocation.mockClear()
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    expect(onLocation).not.toHaveBeenCalled()
+  })
+
+  it.each(["conversation link", "notification"] as const)(
+    "preserves the current conversation anchor on a duplicate %s",
+    async (source) => {
+      await initializePairingTestHost()
+      const conversation = `/conversations/${pairingConversation}`
+      const anchoredConversation = `${conversation}#message-fixture`
+      const onLocation = vi.fn()
+      renderDeepLinkHarness({
+        bootstrap: activeBootstrap,
+        session: pairingSession,
+        pathname: anchoredConversation,
+        onLocation,
+      })
+      onLocation.mockClear()
+
+      act(() => {
+        if (source === "conversation link") {
+          emitDesktopNavigation(conversation)
+        } else {
+          emitNotificationClick({
+            userId: pairingOwner,
+            conversationId: pairingConversation,
+          })
+        }
+      })
+
+      expect(screen.getByTestId("current-path")).toHaveTextContent(
+        anchoredConversation
+      )
+      expect(onLocation).not.toHaveBeenCalled()
+    }
+  )
+
+  it("does not open a pairing link on Windows", async () => {
+    await initializePairingTestHost("windows")
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: pairingSession,
+      pathname: "/conversations/new",
+    })
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    expect(screen.getByText("New task")).toBeVisible()
+    expect(screen.queryByText("General settings")).toBeNull()
+  })
+
+  it("opens pairing only after an anonymous sign-in has been cancelled and retried", async () => {
+    await initializePairingTestHost()
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { status: "anonymous" },
+      pathname: "/login",
+    })
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    update({ status: "loading" })
+    update({ status: "anonymous" })
+    expect(screen.getByText("Sign in")).toBeVisible()
+    expect(native.openExternal).not.toHaveBeenCalled()
+
+    update(pairingSession)
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      desktopDeviceSettingsHref
+    )
+  })
+
+  it("does not pass an owner-bound waiting pairing link to a replacement account", async () => {
+    await initializePairingTestHost()
+    const onLocation = vi.fn()
+    const update = renderDeepLinkHarness({
+      bootstrap: maintenanceBootstrap,
+      session: pairingSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    update({ status: "loading", userId: pairingOwner })
+    update({ status: "anonymous" })
+    update(
+      { ...pairingSession, userId: "10000000-0000-4000-8000-0000000000f2" },
+      activeBootstrap
+    )
+    expect(screen.getByText("New task")).toBeVisible()
+    expect(onLocation).not.toHaveBeenCalledWith(desktopDeviceSettingsHref)
+  })
+
+  it.each(["conversation link", "notification"] as const)(
+    "stages both distinct conversation destinations despite pairing (%s first)",
+    async (first) => {
+      await initializePairingTestHost()
+      const conversation = `/conversations/${pairingConversation}`
+      const notificationConversation = "71000000-0000-4000-8000-000000000922"
+      const notification = `/conversations/${notificationConversation}`
+      const onLocation = vi.fn()
+      const update = renderDeepLinkHarness({
+        bootstrap: activeBootstrap,
+        session: { status: "loading" },
+        pathname: "/conversations/new",
+        onLocation,
+      })
+      const emitConversation = () => emitDesktopNavigation(conversation)
+      const emitNotification = () =>
+        emitNotificationClick({
+          userId: pairingOwner,
+          conversationId: notificationConversation,
+        })
+
+      act(() => {
+        if (first === "conversation link") emitConversation()
+        else emitNotification()
+        emitDesktopNavigation(desktopDeviceSettingsHref)
+        if (first === "conversation link") emitNotification()
+        else emitConversation()
+      })
+      onLocation.mockClear()
+
+      update(pairingSession)
+      await waitFor(() =>
+        expect(onLocation.mock.calls).toEqual([[conversation], [notification]])
+      )
+      expect(screen.getByTestId("current-path")).toHaveTextContent(notification)
+    }
+  )
+
+  it.each([
+    { first: "conversation link", next: "fresh notification", owner: "f1" },
+    { first: "notification", next: "fresh notification", owner: "f2" },
+    { first: "conversation link", next: "unrelated navigation", owner: "f3" },
+    { first: "notification", next: "wrong-owner notification", owner: "f4" },
+    {
+      first: "conversation link",
+      next: "link to pending notification",
+      owner: "f5",
+    },
+    {
+      first: "notification",
+      next: "replacement conversation link",
+      owner: "f6",
+    },
+  ] as const)(
+    "guards an unsaved draft with $first buffered first and $next afterward",
+    async ({ first, next, owner }) => {
+      await initializePairingTestHost()
+      const pathname = "/settings/personalization"
+      const linked = `/conversations/${pairingConversation}`
+      const buffered = "71000000-0000-4000-8000-000000000924"
+      const fresh = "71000000-0000-4000-8000-000000000925"
+      const userId = `10000000-0000-4000-8000-0000000000${owner}`
+      const unrelated = "/settings/general"
+      const queryClient = new QueryClient()
+      queryClient.setQueryData(personalizationQueryKey, {
+        custom_instructions: "",
+        memories_enabled: false,
+        show_reasoning: false,
+        task_auto_naming: "first_message",
+      })
+      const router = createMemoryRouter(
+        [
+          {
+            element: createElement(BootstrapGate),
+            children: [
+              {
+                element: createElement(ProtectedRoute),
+                children: [
+                  {
+                    path: pathname,
+                    element: createElement(SettingsPersonalizationPage),
+                  },
+                  {
+                    path: "/conversations/:conversationId",
+                    element: createElement(LocationProbe),
+                  },
+                  { path: unrelated, element: createElement(LocationProbe) },
+                ],
+              },
+            ],
+          },
+        ],
+        { initialEntries: [pathname] }
+      )
+      render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            BootstrapContext.Provider,
+            {
+              value: {
+                bootstrap: activeBootstrap,
+                isLoading: false,
+                error: null,
+                refetch: vi.fn(),
+              },
+            },
+            createElement(
+              AuthContext.Provider,
+              {
+                value: {
+                  status: "authenticated",
+                  user: testSessionUser({ ...pairingSession, userId }),
+                  acceptSession: vi.fn(),
+                  refreshUser: vi.fn(),
+                  signOut: vi.fn(),
+                },
+              },
+              createElement(RouterProvider, { router })
+            )
+          )
+        )
+      )
+      const draft = screen.getByRole("textbox", { name: "Custom instructions" })
+      act(() => draft.focus())
+      fireEvent.change(draft, { target: { value: "Unsaved instructions" } })
+      const updateReadiness = (ready: boolean) =>
+        updateDesktopLaunchContext({
+          authenticated: true,
+          ownerId: userId,
+          ready,
+          pathname,
+          hash: "",
+        })
+      const click = (conversationId: string, ownerId = userId) =>
+        emitNotificationClick({ userId: ownerId, conversationId })
+      act(() => {
+        // Exercise both arrival orders before the launch gate can route.
+        updateReadiness(false)
+        if (first === "conversation link") emitDesktopNavigation(linked)
+        click(buffered)
+        if (first === "notification") emitDesktopNavigation(linked)
+        updateReadiness(true)
+      })
+      const title = "Discard Unsaved Changes?"
+      expect(
+        await screen.findByRole("alertdialog", { name: title })
+      ).toBeVisible()
+      expect(router.state.location.pathname).toBe(pathname)
+      expect([...router.state.blockers.values()][0]?.location?.pathname).toBe(
+        linked
+      )
+
+      if (next === "wrong-owner notification") {
+        act(() => click(fresh, "10000000-0000-4000-8000-0000000000f9"))
+        expect([...router.state.blockers.values()][0]?.location?.pathname).toBe(
+          linked
+        )
+        fireEvent.click(screen.getByRole("button", { name: "Discard Changes" }))
+        await waitFor(() =>
+          expect(screen.getByTestId("current-path")).toHaveTextContent(
+            `/conversations/${buffered}`
+          )
+        )
+        return
+      }
+
+      if (
+        next === "link to pending notification" ||
+        next === "replacement conversation link"
+      ) {
+        const replacement = `/conversations/${next === "link to pending notification" ? buffered : fresh}`
+        act(() => emitDesktopNavigation(replacement))
+        expect([...router.state.blockers.values()][0]?.location?.pathname).toBe(
+          replacement
+        )
+      }
+
+      fireEvent.click(screen.getByRole("button", { name: "Stay on Page" }))
+      await waitFor(() => {
+        expect(screen.queryByRole("alertdialog", { name: title })).toBeNull()
+        expect(draft).toHaveFocus()
+      })
+      expect(draft).toHaveValue("Unsaved instructions")
+      expect(router.state.location.pathname).toBe(pathname)
+
+      const destination =
+        next === "unrelated navigation" ? unrelated : `/conversations/${fresh}`
+      if (next === "unrelated navigation") {
+        await act(async () => router.navigate(unrelated))
+      } else if (next === "replacement conversation link") {
+        // Re-opening the first declined target must not revive the old click.
+        act(() => emitDesktopNavigation(linked))
+      } else {
+        act(() => click(fresh))
+      }
+      expect(
+        await screen.findByRole("alertdialog", { name: title })
+      ).toBeVisible()
+      expect(draft).toHaveValue("Unsaved instructions")
+
+      fireEvent.click(screen.getByRole("button", { name: "Discard Changes" }))
+      const expected =
+        next === "replacement conversation link" ? linked : destination
+      expect(await screen.findByTestId("current-path")).toHaveTextContent(
+        expected
+      )
+      expect(router.state.location.pathname).toBe(expected)
+    }
+  )
+
+  it("keeps a notification pending when the protected destination is lazy", async () => {
+    await initializePairingTestHost()
+    const conversation = `/conversations/${pairingConversation}`
+    const notificationConversation = "71000000-0000-4000-8000-000000000923"
+    const notification = `/conversations/${notificationConversation}`
+    let reveal: () => void = () => undefined
+    const loading = new Promise<void>((resolve) => {
+      reveal = resolve
+    })
+    const LazyDetails = lazy(async () => {
+      await loading
+      return {
+        default: () => createElement("p", null, "Conversation task"),
+      }
+    })
+    function ConversationFixture() {
+      const [showDetails, setShowDetails] = useState(false)
+      return showDetails
+        ? createElement(LazyDetails)
+        : createElement(
+            "button",
+            { onClick: () => setShowDetails(true) },
+            "Load details"
+          )
+    }
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: pairingSession,
+      pathname: conversation,
+      conversationPage: createElement(ConversationFixture),
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    fireEvent.click(screen.getByRole("button", { name: "Load details" }))
+    expect(screen.getByText("Loading destination")).toBeVisible()
+    act(() => {
+      emitNotificationClick({
+        userId: pairingOwner,
+        conversationId: notificationConversation,
+      })
+    })
+    expect(onLocation).not.toHaveBeenCalled()
+
+    // The original location and owner never changed; only the protected
+    // guard's layout effect resumes when the lazy details become available.
+    await act(async () => reveal())
+    expect(onLocation.mock.calls).toEqual([[notification]])
+    expect(screen.getByText("Conversation task")).toBeVisible()
+  })
+
+  it.each([
+    {
+      surface: "/conversations/new",
+      sibling: "conversation",
+      pairingFirst: true,
+    },
+    {
+      surface: "/conversations/new",
+      sibling: "conversation",
+      pairingFirst: false,
+    },
+    {
+      surface: "/forgot-password",
+      sibling: "conversation",
+      pairingFirst: true,
+    },
+    {
+      surface: "/forgot-password",
+      sibling: "conversation",
+      pairingFirst: false,
+    },
+    {
+      surface: "/conversations/new",
+      sibling: "notification",
+      pairingFirst: true,
+    },
+    {
+      surface: "/conversations/new",
+      sibling: "notification",
+      pairingFirst: false,
+    },
+    {
+      surface: "/forgot-password",
+      sibling: "notification",
+      pairingFirst: true,
+    },
+    {
+      surface: "/forgot-password",
+      sibling: "notification",
+      pairingFirst: false,
+    },
+  ])(
+    "handles $sibling and pairing (pairing first: $pairingFirst) from $surface",
+    async ({ surface, sibling, pairingFirst }) => {
+      await initializePairingTestHost()
+      const onLocation = vi.fn()
+      const update = renderDeepLinkHarness({
+        bootstrap: activeBootstrap,
+        session: { status: "loading" },
+        pathname: surface,
+        onLocation,
+      })
+      const conversation = `/conversations/${pairingConversation}`
+      const emitSibling = () =>
+        sibling === "conversation"
+          ? emitDesktopNavigation(conversation)
+          : emitNotificationClick({
+              userId: pairingOwner,
+              conversationId: pairingConversation,
+            })
+      act(() => {
+        if (pairingFirst) emitDesktopNavigation(desktopDeviceSettingsHref)
+        emitSibling()
+        if (!pairingFirst) emitDesktopNavigation(desktopDeviceSettingsHref)
+      })
+      expect(screen.getByTestId("current-path")).toHaveTextContent(surface)
+      onLocation.mockClear()
+
+      update(pairingSession)
+      expect(screen.getByTestId("current-path")).toHaveTextContent(conversation)
+      if (surface === "/forgot-password" && sibling === "notification") {
+        // A notification cannot navigate from a public route; it first becomes
+        // eligible once the pairing link reaches Settings under ProtectedRoute.
+        expect(onLocation.mock.calls).toEqual([
+          [desktopDeviceSettingsHref],
+          [conversation],
+        ])
+      } else {
+        expect(onLocation.mock.calls).toEqual([[conversation]])
+      }
+    }
+  )
+
+  it("runs a buffered public-page conversation before its distinct notification and discards pairing", async () => {
+    await initializePairingTestHost()
+    const first = `/conversations/${pairingConversation}`
+    const notification = "71000000-0000-4000-8000-000000000926"
+    const onLocation = vi.fn()
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { ...pairingSession, status: "loading" },
+      pathname: "/forgot-password",
+      onLocation,
+    })
+    act(() => {
+      emitNotificationClick({
+        userId: pairingOwner,
+        conversationId: notification,
+      })
+      emitDesktopNavigation(desktopDeviceSettingsHref)
+      emitDesktopNavigation(first)
+    })
+    onLocation.mockClear()
+    update(pairingSession)
+    await waitFor(() =>
+      expect(onLocation.mock.calls).toEqual([
+        [first],
+        [`/conversations/${notification}`],
+      ])
+    )
   })
 
   it("keeps the existing browser transport and does not call native services", async () => {
@@ -439,10 +1003,12 @@ describe("desktop host boundary", () => {
   it("holds only the latest valid conversation path until the guarded router subscribes", () => {
     native.isDesktop = true
     installDesktopNavigationBridge()
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-a",
       ready: true,
+      pathname: "/conversations/new",
+      hash: "",
     })
     const first = "/conversations/71000000-0000-4000-8000-000000000901"
     // Go validates the 8-4-4-4-12 hex shape; z.guid mirrors that native parsing.
@@ -458,7 +1024,7 @@ describe("desktop host boundary", () => {
     emitDesktopNavigation(latest)
 
     const navigate = vi.fn()
-    const stop = subscribeDesktopConversationNavigation(navigate)
+    const stop = subscribeDesktopLaunchNavigation(navigate)
     expect(navigate).toHaveBeenCalledOnce()
     expect(navigate).toHaveBeenCalledWith(latest)
     stop?.()
@@ -474,7 +1040,7 @@ describe("desktop host boundary", () => {
     expect(next).not.toHaveBeenCalled()
 
     const final = vi.fn()
-    const stopFinal = subscribeDesktopConversationNavigation(final)
+    const stopFinal = subscribeDesktopLaunchNavigation(final)
     expect(final).toHaveBeenCalledOnce()
     expect(final).toHaveBeenCalledWith(after)
     stopFinal?.()
@@ -484,19 +1050,23 @@ describe("desktop host boundary", () => {
     native.isDesktop = true
     installDesktopNavigationBridge()
     const navigate = vi.fn()
-    const stop = subscribeDesktopConversationNavigation(navigate)
-    updateDesktopConversationContext({
+    const stop = subscribeDesktopLaunchNavigation(navigate)
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-a",
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
     const target = "/conversations/71000000-0000-4000-8000-000000000905"
     emitDesktopNavigation(target)
     expect(navigate).not.toHaveBeenCalled()
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-a",
       ready: true,
+      pathname: "/conversations/new",
+      hash: "",
     })
     expect(navigate).toHaveBeenCalledOnce()
     expect(navigate).toHaveBeenCalledWith(target)
@@ -507,30 +1077,38 @@ describe("desktop host boundary", () => {
     native.isDesktop = true
     installDesktopNavigationBridge()
     const navigate = vi.fn()
-    const stop = subscribeDesktopConversationNavigation(navigate)
+    const stop = subscribeDesktopLaunchNavigation(navigate)
     const target = "/conversations/71000000-0000-4000-8000-000000000906"
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-a",
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
     emitDesktopNavigation(target)
     expect(navigate).not.toHaveBeenCalled()
 
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: false,
       ownerId: null,
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: false,
       ownerId: null,
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-b",
       ready: true,
+      pathname: "/conversations/new",
+      hash: "",
     })
     expect(navigate).not.toHaveBeenCalled()
     stop?.()
@@ -540,24 +1118,30 @@ describe("desktop host boundary", () => {
     native.isDesktop = true
     installDesktopNavigationBridge()
     const navigate = vi.fn()
-    const stop = subscribeDesktopConversationNavigation(navigate)
+    const stop = subscribeDesktopLaunchNavigation(navigate)
     const target = "/conversations/71000000-0000-4000-8000-000000000907"
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: false,
       ownerId: null,
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
     emitDesktopNavigation(target)
     // DesktopSignInPage Cancel signs out even though the browser is anonymous.
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: false,
       ownerId: null,
       ready: false,
+      pathname: "/conversations/new",
+      hash: "",
     })
-    updateDesktopConversationContext({
+    updateDesktopLaunchContext({
       authenticated: true,
       ownerId: "owner-a",
       ready: true,
+      pathname: "/conversations/new",
+      hash: "",
     })
     expect(navigate).toHaveBeenCalledOnce()
     expect(navigate).toHaveBeenCalledWith(target)
@@ -995,41 +1579,33 @@ describe("desktop host boundary", () => {
     expect(native.showCompletionNotification.with).toHaveBeenCalledTimes(4)
   })
 
-  it("accepts only UUID notification clicks and holds a launch click", () => {
-    native.isDesktop = true
+  it("opens only valid notification clicks for the current protected account", async () => {
+    await initializePairingTestHost()
     const target = {
-      userId: "10000000-0000-4000-8000-000000000001",
-      conversationId: "20000000-0000-4000-8000-000000000001",
+      userId: pairingOwner,
+      conversationId: pairingConversation,
     }
-    emitNotificationClick("https://outside.example.test")
-    emitNotificationClick({ ...target, conversationId: "../../etc/passwd" })
+    const otherOwner = "10000000-0000-4000-8000-000000000002"
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { status: "loading" },
+      pathname: "/conversations/new",
+    })
+    act(() => {
+      emitNotificationClick(target)
+      emitNotificationClick("https://outside.example.test")
+      emitNotificationClick({ ...target, conversationId: "../../etc/passwd" })
+    })
+    update({ ...pairingSession, userId: otherOwner })
+    expect(screen.getByText("New task")).toBeVisible()
+    expect(screen.queryByText("Conversation task")).toBeNull()
 
-    const listener = vi.fn()
-    const unsubscribe = subscribeDesktopNotificationClick(listener)
-    expect(listener).not.toHaveBeenCalled()
-
-    emitNotificationClick(target)
-    expect(listener).toHaveBeenCalledWith(target)
-    expect(desktopNotificationRouteForUser(target, target.userId)).toBe(
+    update(pairingSession)
+    expect(screen.getByText("New task")).toBeVisible()
+    act(() => emitNotificationClick(target))
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
       `/conversations/${target.conversationId}`
     )
-    expect(
-      desktopNotificationRouteForUser(
-        target,
-        "10000000-0000-4000-8000-000000000002"
-      )
-    ).toBeNull()
-
-    const pendingTarget = {
-      ...target,
-      conversationId: "20000000-0000-4000-8000-000000000002",
-    }
-    unsubscribe?.()
-    emitNotificationClick(pendingTarget)
-    expect(listener).toHaveBeenCalledTimes(1)
-    const nextListener = vi.fn()
-    subscribeDesktopNotificationClick(nextListener)
-    expect(nextListener).toHaveBeenCalledWith(pendingTarget)
   })
 
   it("validates the read-only conversation workspace notice", async () => {

@@ -51,8 +51,9 @@ export function desktopExecutionTargetPolicy(
 
 // The device-settings lane owns the section behind this anchor; only Mac
 // clients render it, and local execution is unavailable anywhere else.
+export const desktopDeviceSettingsHeadingId = "desktop-devices-heading"
 export const desktopDeviceSettingsHref =
-  "/settings/general#desktop-devices-heading"
+  `/settings/general#${desktopDeviceSettingsHeadingId}` as const
 
 export function desktopExecutionDeviceAvailability(
   status: DesktopDeviceStatus | undefined

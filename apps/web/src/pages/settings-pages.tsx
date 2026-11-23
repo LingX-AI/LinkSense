@@ -26,6 +26,7 @@ import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
 import {
+  cancelDeferredDesktopNotification,
   isDesktopHost,
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
@@ -33,6 +34,7 @@ import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-c
 import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
 import { desktopExecutionDefaultTargetKey } from "@/features/desktop-execution/desktop-execution-default-target"
 import { DesktopExecutionDefaultTargetSettings } from "@/features/desktop-execution/desktop-execution-default-target-settings"
+import { desktopDeviceSettingsHeadingId } from "@/features/desktop-execution/desktop-execution-target"
 import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
 import {
   personalizationSettingsSchema,
@@ -127,12 +129,18 @@ export function SettingsGeneralPage() {
   const location = useLocation()
   const { user, refreshUser } = useAuth()
   const defaultTargetKey = desktopExecutionDefaultTargetKey(user?.id)
+  const showThisMac = isMacDesktopHost() && user !== null
   useEffect(() => {
-    if (location.hash !== "#browser-extension") return
-    const target = document.getElementById("browser-extension")
+    const anchor = location.hash.slice(1)
+    if (
+      anchor !== "browser-extension" &&
+      !(showThisMac && anchor === desktopDeviceSettingsHeadingId)
+    )
+      return
+    const target = document.getElementById(anchor)
     target?.scrollIntoView({ block: "start", behavior: "instant" })
     target?.focus({ preventScroll: true })
-  }, [location.key, location.hash])
+  }, [location.key, location.hash, showThisMac])
   const {
     language,
     pending: languagePending,
@@ -294,11 +302,12 @@ export function SettingsGeneralPage() {
             <LocalWorkspaceSettings key={user.id} />
           </SettingsCard>
         )}
-        {isMacDesktopHost() && user && (
+        {showThisMac && (
           <SettingsCard
             header={
               <SettingsSectionHeader
-                id="desktop-devices-heading"
+                id={desktopDeviceSettingsHeadingId}
+                focusable
                 title={t("desktopDevices.title")}
                 description={t("desktopDevices.description")}
               />
@@ -845,7 +854,11 @@ export function SettingsPersonalizationPage() {
       <AlertDialog
         open={blocker.state === "blocked"}
         onOpenChange={(open) => {
-          if (!open && blocker.state === "blocked") blocker.reset()
+          if (!open && blocker.state === "blocked") {
+            if (isMacDesktopHost())
+              cancelDeferredDesktopNotification(blocker.location.pathname)
+            blocker.reset()
+          }
         }}
       >
         <AlertDialogContent>
