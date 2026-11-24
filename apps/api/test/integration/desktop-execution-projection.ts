@@ -47,7 +47,7 @@ import { RunnerClient, type RunnerStartInput } from "../../src/adapters/runner.j
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import { sha256 } from "../../src/lib/crypto.js";
 import { sendAppError } from "../../src/lib/http.js";
-import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
+import { projectWorkspaceRelativePath, runtimePlacementForWorkspace } from "../../src/lib/user-runtime-paths.js";
 import { AuditService } from "../../src/modules/audit/service.js";
 import { ConversationService } from "../../src/modules/conversations/service.js";
 import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
@@ -56,7 +56,7 @@ import { desktopNoticeChannel, type DesktopNotice } from "../../src/modules/desk
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { DesktopBrowserUse } from "../../src/modules/desktop-devices/browser-use.js";
 import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
-import { DesktopRunLeases } from "../../src/modules/desktop-credentials/run-leases.js";
+import { DesktopRunLeases, desktopRunLeaseKey } from "../../src/modules/desktop-credentials/run-leases.js";
 import { registerBrowserUseRoutes } from "../../src/modules/browser-use/routes.js";
 import { BrowserUseService } from "../../src/modules/browser-use/service.js";
 import { RedisBrowserStore } from "../../src/modules/browser-use/store.js";
@@ -311,6 +311,89 @@ export async function verifyDesktopExecutionProjection(input: {
     const initial = await connect(true, true, true);
     await initial.recoveryJob?.remove();
     await events.recoverRunningTurns();
+
+    // P2-01: with a live Mac attached to the owner, the upgraded cloud
+    // conversation still uses only the HTTP runner. A server-internal stale
+    // connection hint must fail closed in the production desktop binding before
+    // any device command or run lease.
+    const cloudConversation = await prisma.conversation.findUniqueOrThrow({ where: { id: input.cloudConversationId } });
+    assert.equal(cloudConversation.ownerId, ownerId);
+    assert.equal(cloudConversation.archiveStatus, "active");
+    assert.equal(cloudConversation.executionTarget, "cloud");
+    assert.equal(cloudConversation.desktopDeviceId, null);
+    assert(cloudConversation.codexThreadId, "the upgraded cloud conversation must retain its native thread");
+    const cloudThreadId = cloudConversation.codexThreadId;
+    const cloudTurnId = randomUUID();
+    const cloudPlacement = runtimePlacementForWorkspace(ownerId, cloudConversation.workspaceRelPath);
+    assert.equal(cloudPlacement.workspacePath, "workspace");
+    const cloudInput = {
+      ownerId, conversationId: cloudConversation.id, projectionTurnId: cloudTurnId,
+      expectedRuntimeGeneration: cloudConversation.runtimeGeneration,
+      appServerProcessLimit: 1, capabilityGeneration, mcpGeneration: capabilityGeneration,
+      codexThreadId: cloudThreadId, collaborationMode: "default" as const, mcpServers: [], capabilities: [], environment: {},
+      context: { userInput: "Run this task in the cloud", attachments: [], priorityPlugins: [], prioritySkills: [] },
+      model: "fixture-model", reasoningEffort: "low" as const,
+      modelProvider: {
+        revision: 1, baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(),
+        protocolMode: "native_responses" as const,
+      },
+    } satisfies RunnerStartInput;
+    const originalSend = execution.send;
+    let deviceCommands = 0;
+    execution.send = async (...args) => {
+      deviceCommands += 1;
+      return await originalSend.apply(execution, args);
+    };
+    const originalFetch = globalThis.fetch;
+    let cloudStarts = 0;
+    const cloudReceipt = {
+      conversationId: cloudConversation.id, projectionTurnId: cloudTurnId, status: "starting" as const,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    globalThis.fetch = async (request, init) => {
+      cloudStarts += 1;
+      const url = new URL(String(request));
+      assert.equal(url.pathname, `/conversations/${cloudConversation.id}/turns/start`);
+      assert.equal(init?.method, "POST");
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("x-linksense-owner-id"), ownerId);
+      assert.equal(headers.get("x-linksense-workspace"), cloudPlacement.workspacePath);
+      return new Response(JSON.stringify(cloudReceipt), { status: 202, headers: { "content-type": "application/json" } });
+    };
+    try {
+      // The stale hint must use the live connection so only the persisted
+      // cloud target can reject it.
+      assert.equal((await execution.connection(deviceId))?.connectionId, initial.connectionId);
+      const cloudStart = await runner.acceptStartTurn(cloudInput, cloudPlacement);
+      assert.deepEqual(cloudStart, cloudReceipt);
+      assert.equal(cloudStarts, 1);
+      assert.equal(deviceCommands, 0, "cloud start must not send a Mac command");
+      assert.equal(await redis.client.get(desktopRunLeaseKey(cloudTurnId)), null,
+        "cloud start must not issue a desktop run lease");
+      const staleTurnId = randomUUID();
+      await prisma.conversation.update({
+        where: { id: cloudConversation.id }, data: { desktopDeviceId: deviceId },
+      });
+      try {
+        await assert.rejects(runner.acceptStartTurn({
+          ...cloudInput, projectionTurnId: staleTurnId,
+        }, cloudPlacement, initial.connectionId), { code: "RUNNER_UNAVAILABLE" });
+      } finally {
+        await prisma.conversation.update({
+          where: { id: cloudConversation.id }, data: { desktopDeviceId: null },
+        });
+      }
+      assert.equal((await prisma.conversation.findUniqueOrThrow({
+        where: { id: cloudConversation.id }, select: { desktopDeviceId: true },
+      })).desktopDeviceId, null);
+      assert.equal(cloudStarts, 1, "the stale desktop hint must not fall back to HTTP");
+      assert.equal(deviceCommands, 0, "the cloud conversation must reject the desktop hint before a command");
+      assert.equal(await redis.client.get(desktopRunLeaseKey(staleTurnId)), null,
+        "the stale desktop hint must not issue a run lease");
+    } finally {
+      globalThis.fetch = originalFetch;
+      execution.send = originalSend;
+    }
 
     const threadId = randomUUID(), nativeTurnId = randomUUID(), turnId = randomUUID();
     const conversation = await prisma.conversation.create({ data: {

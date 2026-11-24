@@ -79,6 +79,29 @@ describe("RunnerClient start operation", () => {
     beforeAll(async () => { redis = await createRedisFixture(); });
     afterAll(async () => { await redis?.close(); });
 
+    it("sends a cloud task for an account with a live Mac only to the HTTP runner with no device command or lease", async () => {
+      const { client, findConversation, lease, fetchMock, send } = desktopRunnerFixture(
+        redis.client, undefined, { executionTarget: "cloud" },
+      );
+      const targetTurnId = randomUUID();
+      const placement = { workspacePath: `projects/${projectionTurnId}` } as const;
+      fetchMock.mockResolvedValueOnce(jsonResponse({ ...startingOperation(), projectionTurnId: targetTurnId }, 202));
+
+      await expect(client.acceptStartTurn({ ...startInput(), projectionTurnId: targetTurnId }, placement))
+        .resolves.toMatchObject({ status: "starting", projectionTurnId: targetTurnId });
+
+      expect(send).not.toHaveBeenCalled();
+      expect(findConversation).not.toHaveBeenCalled();
+      expect(await lease(targetTurnId)).toBeNull();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, options] = fetchMock.mock.calls[0] ?? [];
+      expect(new URL(String(url)).pathname).toBe(`/conversations/${conversationId}/turns/start`);
+      expect(options?.method).toBe("POST");
+      const headers = new Headers(options?.headers);
+      expect(headers.get("x-linksense-owner-id")).toBe(ownerId);
+      expect(headers.get("x-linksense-workspace")).toBe(placement.workspacePath);
+    });
+
     it("queues exact-turn lease expiry recovery before a Mac start can be delivered", async () => {
       const { client, binding, lease, scheduleExpiry, send } = desktopRunnerFixture(redis.client);
       const input = { ...startInput(), projectionTurnId: randomUUID() };
@@ -1682,10 +1705,13 @@ function startInput(): RunnerStartInput {
 function desktopRunnerFixture(
   redis: Awaited<ReturnType<typeof createRedisFixture>>["client"],
   pauseArtifactPublication?: ConstructorParameters<typeof DesktopRunner>[5],
+  options: { executionTarget?: "local" | "cloud" } = {},
 ) {
   const deviceId = randomUUID();
   const binding = { deviceId, connectionId: randomUUID(), gatewayId: randomUUID() };
-  const findConversation = async () => ({ desktopDeviceId: deviceId, runtimeGeneration });
+  // Keep the live device binding and a stale adapter hint for both targets so
+  // a cloud start that falls back to the desktop transport is observable.
+  const findConversation = vi.fn(async () => ({ desktopDeviceId: deviceId, runtimeGeneration }));
   const send = vi.fn<DesktopDeviceTransport["send"]>();
   const scheduleExpiry = vi.fn(async () => undefined);
   const supportsAttachments = vi.fn(async () => false);
@@ -1695,11 +1721,13 @@ function desktopRunnerFixture(
     connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
     supportsConversationReference,
   }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest }, pauseArtifactPublication);
-  const client = new RunnerClient(testConfig(), async () => "local");
+  const client = new RunnerClient(testConfig(), async () => options.executionTarget === "cloud"
+    ? { workspacePath: `projects/${projectionTurnId}` }
+    : "local");
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
-  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, manifest, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
+  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, manifest, findConversation, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {

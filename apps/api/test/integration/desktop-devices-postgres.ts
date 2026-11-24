@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createPrismaClient } from "../../src/db.js";
 import { sha256 } from "../../src/lib/crypto.js";
+import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
 import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
 import type { DesktopRunAuthorizationPhase } from "../../src/modules/desktop-credentials/run-leases.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
@@ -82,7 +83,7 @@ try {
   await db.$executeRaw`INSERT INTO conversations
     (id, owner_id, title, title_source, archive_status, workspace_rel_path, codex_thread_id, runtime_generation, updated_at)
     VALUES (${conversation}::uuid, ${owner}::uuid, 'Existing task', 'manual', 'active',
-      ${`${owner}/home/workspaces/${conversation}`}, ${thread}, ${randomUUID()}::uuid, now())`;
+      ${projectWorkspaceRelativePath(owner, null)}, ${thread}, ${randomUUID()}::uuid, now())`;
   const before = await db.$queryRaw<Array<{ row: Record<string, unknown> }>>`
     SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${conversation}::uuid`;
   const checksums = await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations ORDER BY migration_name`;
