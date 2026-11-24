@@ -183,6 +183,8 @@ describe("computer_use production relay registration", () => {
       environment: environment({ LINKSENSE_COMPUTER_SCREENSHOTS_ENABLED: "1" }),
       fetch: observe,
     })
+    const textOnlyObserve = textOnly.tools.find(tool => tool.name === "computer_observe")
+    expect(textOnlyObserve?.description).not.toMatch(/screenshot|image|raster|visual/iu)
     const textResult = await textOnly.callTool({
       toolName: "computer_observe", argumentsValue: {}, signal: new AbortController().signal,
     })
@@ -195,6 +197,10 @@ describe("computer_use production relay registration", () => {
       executor: createComputerUseRelayExecutor({ endpoint, token, fetch: observe }),
       screenshots: true,
     }).create({ environment: {}, workspaceRoot: "/tmp" })
+    const syntheticObserve = synthetic.tools.find(tool => tool.name === "computer_observe")
+    expect(syntheticObserve?.description).toMatch(/tree_quality is partial or unusable/u)
+    expect(syntheticObserve?.description).toMatch(/bounded screenshot of that same host-selected window/u)
+    expect(syntheticObserve?.description).toMatch(/only to understand what is visible/u)
     const imageResult = await synthetic.callTool({
       toolName: "computer_observe", argumentsValue: {}, signal: new AbortController().signal,
     })

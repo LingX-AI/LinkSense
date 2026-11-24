@@ -102,8 +102,8 @@ export function createComputerUseCoreMcpModule(input: {
     create(): CoreMcpToolModule {
       return {
         key: "computer_use",
-        tools: plan ? [statusTool, observeTool]
-          : [statusTool, observeTool, actTool, ...(wait ? [waitTool] : [])],
+        tools: plan ? [statusTool, observeTool(screenshots)]
+          : [statusTool, observeTool(screenshots), actTool, ...(wait ? [waitTool] : [])],
         async callTool(call) {
           if (call.toolName === computerStatusToolName) {
             return status(input.executor, call);
@@ -518,10 +518,14 @@ const statusTool = {
   },
 } satisfies Tool;
 
-const observeTool = {
+const observeTool = (screenshots: boolean) => ({
   name: computerObserveToolName,
   description:
-    "Read a bounded accessibility tree for the single local application chosen by the host for this task. Returns an opaque observation_id and opaque element refs. When tree_quality is partial or unusable, a bounded screenshot of that same host-selected window may also be returned as visual evidence; use it only to understand what is visible. Act only on refs from the latest observation, and re-observe after an action before acting again. Do not guess selectors, coordinates, windows, processes, paths or commands. Read-only.",
+    "Read a bounded accessibility tree for the single local application chosen by the host for this task. Returns an opaque observation_id and opaque element refs." +
+    (screenshots
+      ? " When tree_quality is partial or unusable, a bounded screenshot of that same host-selected window may also be returned as visual evidence; use it only to understand what is visible."
+      : "") +
+    " Act only on refs from the latest observation, and re-observe after an action before acting again. Do not guess selectors, coordinates, windows, processes, paths or commands. Read-only.",
   inputSchema: observeInputJsonSchema as Tool["inputSchema"],
   annotations: {
     title: "Observe local computer",
@@ -530,7 +534,7 @@ const observeTool = {
     idempotentHint: false,
     openWorldHint: false,
   },
-} satisfies Tool;
+}) satisfies Tool;
 
 // MCP requires a root "type: object" schema; the discriminated union projects to oneOf.
 const actTool = {
