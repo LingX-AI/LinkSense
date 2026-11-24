@@ -22,6 +22,7 @@ import {
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
   workspacePermissionPolicy,
+  WORKER_HTTP_REQUEST_TIMEOUT_MS,
   type CodexModelReasoningCatalog,
 } from "@linksense/shared"
 
@@ -64,6 +65,7 @@ import {
   safeChildPath,
   workerName,
 } from "./worker-provider-utils.js"
+import { measureWorkerStage, type WorkerRequestTrace } from "./worker-lifecycle.js"
 
 const STARTUP_PROBE_OWNER_ID = "00000000-0000-7000-8000-000000000000"
 // Docker Desktop may keep nested bind mounts busy for several seconds after
@@ -254,6 +256,7 @@ export class WorkerManager {
     timeoutMs?: number,
     workspacePath?: string,
     serviceSessionId?: string,
+    trace?: WorkerRequestTrace,
   ): Promise<WorkerHttpResponse> {
     const storageRequest = method === "PUT"
       ? /^\/conversations\/([^/?]+)\/runtime$/u.exec(requestPath)
@@ -265,7 +268,7 @@ export class WorkerManager {
       )
       if (prepared) return prepared
     }
-    const worker = await this.ensureWorker(ownerId, serviceSessionId)
+    const worker = await this.ensureWorker(ownerId, serviceSessionId, trace)
     try {
       return await this.transport.request(
         worker.endpoint,
@@ -290,7 +293,7 @@ export class WorkerManager {
 
   async requestPublicKnowledge(
     applicationId: string, requestPath: string, method: string,
-    body?: Buffer, timeoutMs?: number,
+    body?: Buffer, timeoutMs?: number, trace?: WorkerRequestTrace,
   ): Promise<WorkerHttpResponse> {
     ownerIdSchema.parse(applicationId)
     if (!requestPath.startsWith("/public-knowledge/")) throw new Error("invalid public runtime route")
@@ -302,7 +305,7 @@ export class WorkerManager {
       // empty, protected mount so the ordinary worker isolation probes still run.
       await this.prepareEmptyManagedProjection(applicationId, applicationId)
     })
-    return this.request(applicationId, requestPath, method, body, timeoutMs, "workspace", applicationId)
+    return this.request(applicationId, requestPath, method, body, timeoutMs, "workspace", applicationId, trace)
   }
 
   private async prepareInactiveRuntime(
@@ -495,8 +498,8 @@ export class WorkerManager {
     }
   }
 
-  async prewarm(ownerId: string): Promise<void> {
-    const worker = await this.ensureWorker(ownerId)
+  async prewarm(ownerId: string, trace?: WorkerRequestTrace): Promise<void> {
+    const worker = await this.ensureWorker(ownerId, undefined, trace)
     await this.releaseWorkerRequest(worker)
   }
 
@@ -759,7 +762,11 @@ export class WorkerManager {
     await this.provider.initialize()
   }
 
-  private async ensureWorker(ownerId: string, serviceSessionId?: string): Promise<ManagedWorker> {
+  private async ensureWorker(
+    ownerId: string,
+    serviceSessionId?: string,
+    trace?: WorkerRequestTrace,
+  ): Promise<ManagedWorker> {
     ownerIdSchema.parse(ownerId)
     if (serviceSessionId) ownerIdSchema.parse(serviceSessionId)
     const storageKey = ownerStorageKey(
@@ -794,6 +801,7 @@ export class WorkerManager {
         storageKey,
         name,
         probe: false,
+        ...(trace ? { trace } : {}),
       })
       const worker: ManagedWorker = {
         ...acquired,
@@ -806,7 +814,7 @@ export class WorkerManager {
         // directories before the first request can be routed. The controller's
         // startup probe still performs the full Codex initialize handshake,
         // while the real turn startup remains the final fail-closed check.
-        await this.waitUntilStateReady(worker)
+        await this.waitUntilStateReady(worker, trace)
         this.workers.set(storageKey, worker)
         return worker
       } catch (error) {
@@ -1109,40 +1117,47 @@ export class WorkerManager {
     return this.waitForHealthPath(worker, "/health/ready")
   }
 
-  private async waitUntilStateReady(worker: ManagedWorker): Promise<WorkerHealth> {
-    return this.waitForHealthPath(worker, "/health/state")
+  private async waitUntilStateReady(worker: ManagedWorker, trace?: WorkerRequestTrace): Promise<WorkerHealth> {
+    return this.waitForHealthPath(worker, "/health/state", trace)
   }
 
   private async waitForHealthPath(
     worker: ManagedWorker,
     healthPath: "/health/ready" | "/health/state",
+    trace?: WorkerRequestTrace,
   ): Promise<WorkerHealth> {
-    const deadline =
-      Date.now() + this.config.LINKSENSE_WORKER_READY_TIMEOUT_SECONDS * 1000
-    while (Date.now() < deadline) {
-      try {
-        const response = await this.transport.request(
-          worker.endpoint,
-          healthPath,
-          "GET",
-          {
-            authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, worker.serviceSessionId)}`,
-          },
-        )
-        if (response.statusCode === 200) {
-          return parseWorkerState(response)
+    return measureWorkerStage(this.logger, worker.name, trace, "ready", async () => {
+      const deadline = performance.now() + this.config.LINKSENSE_WORKER_READY_TIMEOUT_SECONDS * 1_000
+      let remainingMs = Math.ceil(deadline - performance.now())
+      while (remainingMs > 0) {
+        try {
+          const response = await this.transport.request(
+            worker.endpoint,
+            healthPath,
+            "GET",
+            {
+              authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, worker.serviceSessionId)}`,
+            },
+            undefined,
+            Math.min(WORKER_HTTP_REQUEST_TIMEOUT_MS, remainingMs),
+          )
+          if (response.statusCode === 200) return parseWorkerState(response)
+        } catch (error) {
+          if (error instanceof WorkerContractVersionMismatchError) throw error
+          // Provider networking and app startup become available asynchronously.
         }
-      } catch (error) {
-        if (error instanceof WorkerContractVersionMismatchError) throw error
-        // Provider networking and app startup become available asynchronously.
+        remainingMs = Math.ceil(deadline - performance.now())
+        if (remainingMs <= 0) break
+        const state = await this.provider.inspect(worker, AbortSignal.timeout(remainingMs)).catch(() => "running" as const)
+        if (state !== "running") throw new WorkerExitedBeforeReadinessError()
+        remainingMs = Math.ceil(deadline - performance.now())
+        if (remainingMs > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(100, remainingMs)))
+        }
+        remainingMs = Math.ceil(deadline - performance.now())
       }
-      const state = await this.provider.inspect(worker).catch(() => "running" as const)
-      if (state !== "running") {
-        throw new WorkerExitedBeforeReadinessError()
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    throw new Error("worker readiness timed out")
+      throw new WorkerReadinessTimeoutError()
+    })
   }
 
   private withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -1244,6 +1259,13 @@ export class WorkerExitedBeforeReadinessError extends Error {
   constructor() {
     super("worker exited before readiness")
     this.name = "WorkerExitedBeforeReadinessError"
+  }
+}
+
+class WorkerReadinessTimeoutError extends Error {
+  constructor() {
+    super("worker readiness timed out")
+    this.name = "WorkerReadinessTimeoutError"
   }
 }
 

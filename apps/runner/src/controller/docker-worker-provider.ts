@@ -1,6 +1,7 @@
 import { runtimeEnvironmentPath } from "@linksense/shared"
 import { chmod, chown, lstat, mkdir, realpath, rm } from "node:fs/promises"
 import path from "node:path"
+import { isDeepStrictEqual } from "node:util"
 import { DiskUsageMonitor } from "../docker/disk-usage-monitor.js"
 
 import type { Logger } from "pino"
@@ -9,12 +10,14 @@ import { z } from "zod"
 import {
   linksenseRuntimeIdentity,
   RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
+  WORKER_CREATE_RECOVERY_WINDOW_MS,
 } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import {
   DockerEngineError,
   type DockerContainerCreate,
+  type DockerContainerInspection,
   type DockerContainerResourceStats,
   type DockerContainerSummary,
   type DockerEngine,
@@ -37,6 +40,7 @@ import {
   safeChildPath,
   workerName,
 } from "./worker-provider-utils.js"
+import { measureWorkerStage } from "./worker-lifecycle.js"
 
 const MANAGED_LABEL = "com.linksense.runner.managed"
 const STORAGE_KEY_LABEL = "com.linksense.runner.storage-key"
@@ -45,6 +49,11 @@ const OWNER_ID_LABEL = "com.linksense.runner.owner-id"
 const CONTRACT_LABEL = "com.linksense.runner.contract"
 const INSTANCE_LABEL = "com.linksense.runner.instance"
 const PROBE_LABEL = "com.linksense.runner.probe"
+const WORKER_IDENTITY_LABELS = [
+  MANAGED_LABEL, INSTANCE_LABEL, STORAGE_KEY_LABEL, OWNER_ID_LABEL,
+  SERVICE_SESSION_LABEL, CONTRACT_LABEL, PROBE_LABEL,
+] as const
+const RECOVERY_LOOKUP_DELAYS_MS = [0, 250, 1_000, 2_000, 4_000]
 const COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 const COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 const DOCKER_RESOURCE_USAGE_CACHE_TTL_MS = 60_000
@@ -248,33 +257,102 @@ export class DockerWorkerProvider implements WorkerProvider {
   }
 
   async acquire(input: WorkerAcquireInput): Promise<WorkerInstance> {
-    const containerId = await this.docker.createContainer(
+    const spec = buildWorkerContainerSpec(
+      this.config,
+      input.ownerId,
+      input.storageKey,
       input.name,
-      buildWorkerContainerSpec(
-        this.config,
-        input.ownerId,
-        input.storageKey,
-        input.name,
-        process.env,
-        input.probe,
-        input.serviceSessionId,
-      ),
+      process.env,
+      input.probe,
+      input.serviceSessionId,
     )
+    let containerId: string
+    let needsStart: boolean
     try {
-      await this.docker.startContainer(containerId)
-      return {
-        id: containerId,
-        name: input.name,
-        endpoint: `http://${input.name}:${this.config.LINKSENSE_WORKER_PORT}`,
-        storageKey: input.storageKey,
-        ownerId: input.ownerId,
-        ...(input.serviceSessionId ? { serviceSessionId: input.serviceSessionId } : {}),
-        state: "running",
-      }
+      const created = await measureWorkerStage(
+        this.logger,
+        input.name,
+        input.trace,
+        "create",
+        () => this.docker.createContainer(input.name, spec),
+        ({ statusCode }) => ({ dockerStatusCode: statusCode }),
+      )
+      containerId = created.id
+      needsStart = true
     } catch (error) {
-      await this.docker.removeContainer(containerId).catch(() => undefined)
-      throw error
+      if (!canRecoverContainerCreation(error)) throw error
+      const recovered = await measureWorkerStage(
+        this.logger,
+        input.name,
+        input.trace,
+        "recover",
+        () => this.recoverContainer(input.name, spec),
+        (container) => ({ dockerStatusCode: 200, containerState: container.State.Status }),
+      )
+      containerId = recovered.Id
+      needsStart = recovered.State.Status === "created"
     }
+    if (needsStart) {
+      try {
+        await measureWorkerStage(
+          this.logger,
+          input.name,
+          input.trace,
+          "start",
+          () => this.docker.startContainer(containerId),
+          (dockerStatusCode) => ({ dockerStatusCode }),
+        )
+      } catch (error) {
+        await this.docker.removeContainer(containerId).catch(() => undefined)
+        throw error
+      }
+    }
+    return {
+      id: containerId,
+      name: input.name,
+      endpoint: `http://${input.name}:${this.config.LINKSENSE_WORKER_PORT}`,
+      storageKey: input.storageKey,
+      ownerId: input.ownerId,
+      ...(input.serviceSessionId ? { serviceSessionId: input.serviceSessionId } : {}),
+      state: "running",
+    }
+  }
+
+  private async recoverContainer(name: string, spec: DockerContainerCreate): Promise<DockerContainerInspection> {
+    // WorkerManager keeps the storage-key lock until the adopted worker is ready.
+    // Docker reserves the name atomically, so later requests can recover via 409
+    // even if the first create completed after this lookup window.
+    const deadline = performance.now() + WORKER_CREATE_RECOVERY_WINDOW_MS
+    let lookupError: DockerEngineError | undefined
+    for (const delayMs of RECOVERY_LOOKUP_DELAYS_MS) {
+      if (performance.now() + delayMs >= deadline) break
+      if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+      const remainingMs = Math.ceil(deadline - performance.now())
+      if (remainingMs <= 0) break
+      const container = await this.docker.inspectContainerByName(name, AbortSignal.timeout(remainingMs)).catch((error: unknown) => {
+        if (!(error instanceof DockerEngineError) || error.kind !== "connection") throw error
+        lookupError = error
+        return null
+      })
+      if (!container) continue
+      const config = container.Config
+      if (
+        !config ||
+        container.Name !== `/${name}` ||
+        config.Image !== spec.Image ||
+        config.User !== spec.User ||
+        !spec.Env.every((entry) => config.Env.includes(entry)) ||
+        !isDeepStrictEqual(container.HostConfig, { ...spec.HostConfig, Privileged: false }) ||
+        !WORKER_IDENTITY_LABELS.every((label) => config.Labels?.[label] === spec.Labels[label])
+      ) {
+        throw new DockerEngineError("Docker worker name is held by a container with a different identity or contract", 409, "name_conflict")
+      }
+      if (container.State.Status !== "created" && container.State.Status !== "running") {
+        throw new DockerEngineError("Docker worker is in an unsupported recovery state", 409, "state_conflict")
+      }
+      return container
+    }
+    throw lookupError ?? new DockerEngineError("Docker worker is not registered by name", 404)
   }
 
   async resume(worker: WorkerInstance): Promise<WorkerInstance> {
@@ -282,8 +360,8 @@ export class DockerWorkerProvider implements WorkerProvider {
     return { ...worker, state: "running" }
   }
 
-  async inspect(worker: WorkerInstance) {
-    return (await this.docker.inspectContainerRunning(worker.id))
+  async inspect(worker: WorkerInstance, signal?: AbortSignal) {
+    return (await this.docker.inspectContainerRunning(worker.id, signal))
       ? ("running" as const)
       : ("stopped" as const)
   }
@@ -441,6 +519,15 @@ export class DockerWorkerProvider implements WorkerProvider {
       group.failedStatsCount += 1
     }
   }
+}
+
+function canRecoverContainerCreation(error: unknown): boolean {
+  return error instanceof DockerEngineError && (
+    error.statusCode === 409 ||
+    error.kind === "timeout" ||
+    error.kind === "connection" ||
+    error.kind === "invalid_response"
+  )
 }
 
 async function releaseDockerContainer(

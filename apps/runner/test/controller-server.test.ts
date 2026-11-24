@@ -69,7 +69,7 @@ describe("published service routing", () => {
       expect((await server.inject({ url })).statusCode).toBe(401);
       expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(403);
       expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId } })).statusCode).toBe(200);
-      expect(requestPublicKnowledge).toHaveBeenCalledExactlyOnceWith(ownerId, url, "GET", undefined, 210_000);
+      expect(requestPublicKnowledge).toHaveBeenCalledExactlyOnceWith(ownerId, url, "GET", undefined, 210_000, { requestId: expect.any(String) });
       expect(request).not.toHaveBeenCalled();
     } finally { await server.close(); }
   });
@@ -135,9 +135,9 @@ describe("published service routing", () => {
     const session = "01900000-0000-7000-8000-000000000011"
     const headers = { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session, "x-linksense-workspace": "workspace" }
     expect((await server.inject({ method: "PUT", url: `/conversations/${session}/runtime`, headers, payload: {} })).statusCode).toBe(200)
-    expect(request).toHaveBeenCalledWith(ownerId, `/conversations/${session}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect(request).toHaveBeenCalledWith(ownerId, `/conversations/${session}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session, { requestId: expect.any(String) })
     expect((await server.inject({ method: "PUT", url: `/conversations/${otherOwnerId}/runtime`, headers, payload: {} })).statusCode).toBe(200)
-    expect(request).toHaveBeenLastCalledWith(ownerId, `/conversations/${otherOwnerId}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect(request).toHaveBeenLastCalledWith(ownerId, `/conversations/${otherOwnerId}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session, { requestId: expect.any(String) })
     expect(request).toHaveBeenCalledTimes(2)
     await server.close()
   })
@@ -296,10 +296,11 @@ describe("controller authentication and routing", () => {
       headers: {
         authorization: `Bearer ${secret}`,
         "x-linksense-owner-id": ownerId,
+        "x-linksense-request-id": "req-api-test",
       },
     })
     expect(accepted.statusCode).toBe(204)
-    expect(prewarm).toHaveBeenCalledWith(ownerId)
+    expect(prewarm).toHaveBeenCalledWith(ownerId, { requestId: expect.any(String), apiRequestId: "req-api-test" })
     await server.close()
   })
 
@@ -414,6 +415,9 @@ describe("controller authentication and routing", () => {
       "POST",
       Buffer.from(JSON.stringify(payload)),
       15_000,
+      undefined,
+      undefined,
+      { requestId: expect.any(String) },
     )
     await server.close()
   })

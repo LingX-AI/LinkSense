@@ -1,9 +1,9 @@
 import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
 import { timingSafeEqual } from "node:crypto"
 
-import Fastify, { type FastifyReply } from "fastify"
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
 import { z } from "zod"
-import { runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
+import { runnerRequestIdHeader, runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import { deriveKnowledgeSearchTimeouts } from "../knowledge-search-timeout.js"
@@ -19,8 +19,15 @@ import {
   type WorkerManager,
 } from "./worker-manager.js"
 import { RuntimeCleanupError } from "../runtime-cleanup.js"
+import type { WorkerRequestTrace } from "./worker-lifecycle.js"
 
 const uuid = z.uuid()
+const apiRequestIdSchema = z.string().max(128).regex(/^[\w.-]+$/u)
+
+function workerRequestTrace(request: FastifyRequest): WorkerRequestTrace {
+  const apiRequestId = apiRequestIdSchema.safeParse(request.headers[runnerRequestIdHeader])
+  return { requestId: request.id, ...(apiRequestId.success ? { apiRequestId: apiRequestId.data } : {}) }
+}
 
 export function buildControllerServer(
   config: RunnerConfig,
@@ -116,7 +123,7 @@ export function buildControllerServer(
     if (!applicationId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
     try {
       return sendWorkerResponse(reply, await workers.requestPublicKnowledge(applicationId, request.url, request.method,
-        request.body === undefined ? undefined : Buffer.from(JSON.stringify(request.body)), 210_000));
+        request.body === undefined ? undefined : Buffer.from(JSON.stringify(request.body)), 210_000, workerRequestTrace(request)));
     } catch (error) { return sendWorkerTransportFailure(reply, error); }
   } });
 
@@ -126,7 +133,7 @@ export function buildControllerServer(
       return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
     }
     try {
-      await workers.prewarm(ownerId)
+      await workers.prewarm(ownerId, workerRequestTrace(request))
       return reply.code(204).send()
     } catch (error) {
       return sendWorkerTransportFailure(reply, error)
@@ -146,6 +153,9 @@ export function buildControllerServer(
         request.method,
         Buffer.from(JSON.stringify(body.data)),
         Math.min(body.data.timeoutMs + 10_000, 130_000),
+        undefined,
+        undefined,
+        workerRequestTrace(request),
       )
       return sendWorkerResponse(reply, response)
     } catch (error) {
@@ -249,6 +259,9 @@ export function buildControllerServer(
             request.method,
             serialized,
             route.path.endsWith("/reset") ? 30_000 : undefined,
+            undefined,
+            undefined,
+            workerRequestTrace(request),
           )
           return sendWorkerResponse(reply, response)
         } catch (error) {
@@ -381,6 +394,7 @@ export function buildControllerServer(
         request.url.endsWith("/reconcile") ? 110_000 : undefined,
         workspace.data,
         uuid.optional().parse(request.headers[runtimeServiceSessionHeader]),
+        workerRequestTrace(request),
       )
       return sendWorkerResponse(reply, response)
     } catch (error) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import pino from "pino"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseRunnerConfig } from "../src/config.js"
 import {
@@ -30,6 +30,7 @@ import {
 import {
   DockerEngineError,
   type DockerContainerCreate,
+  type DockerContainerInspection,
   type DockerContainerResourceStats,
   type DockerContainerSummary,
   type DockerEngine,
@@ -273,6 +274,149 @@ describe("controller task-owned directory preparation", () => {
       0o770,
     )
   })
+})
+
+describe("Docker worker creation recovery", () => {
+  const runtimePath = "/conversations/01900000-0000-7000-8000-000000000021/runtime"
+  const serviceSessionId = "01900000-0000-7000-8000-000000000011"
+
+  afterEach(() => vi.useRealTimers())
+
+  it("forwards the original request after 110 seconds of creation plus startup and readiness", async () => {
+    vi.useFakeTimers()
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    docker.createContainer.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 110_000))
+      return { id: "slow-container", statusCode: 201 }
+    })
+    docker.startContainer.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 14_000))
+      return 204
+    })
+    transport.nextStateRequestGate = new Promise<void>((resolve) => setTimeout(resolve, 150_000))
+    const result = manager.request(ownerId, runtimePath, "GET")
+
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(transport.calls).toEqual([])
+    await vi.advanceTimersByTimeAsync(30_000)
+    await expect(result).resolves.toMatchObject({ statusCode: 200 })
+    expect(docker.startContainer).toHaveBeenCalledWith("slow-container")
+    expect(transport.calls.map(({ path }) => path)).toEqual(["/health/state", runtimePath])
+  })
+
+  it("starts the late Created container by ID once when requests retry concurrently", async () => {
+    vi.useFakeTimers()
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    let lateContainer: DockerContainerInspection | null = null
+    docker.createContainer.mockImplementationOnce(async (name, spec) => {
+      setTimeout(() => {
+        lateContainer = workerInspection(name, spec, "created")
+      }, 131_000)
+      await new Promise<void>((resolve) => setTimeout(resolve, 120_000))
+      throw new DockerEngineError("Docker Engine request timed out", undefined, "timeout")
+    }).mockRejectedValue(new DockerEngineError("name is in use", 409))
+    docker.inspectContainerByName.mockImplementation(async () => lateContainer)
+
+    const request = () => manager.request(ownerId, runtimePath, "GET", undefined, undefined, "workspace", serviceSessionId)
+    const first = expect(request()).rejects.toBeInstanceOf(DockerEngineError)
+    await vi.advanceTimersByTimeAsync(130_000)
+    await first
+    expect(docker.inspectContainerByName.mock.calls.length).toBeGreaterThan(1)
+    expect(docker.startContainer).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const responses = await Promise.all(Array.from({ length: 8 }, request))
+    expect(responses.every(({ statusCode }) => statusCode === 200)).toBe(true)
+    expect(docker.createContainer).toHaveBeenCalledTimes(2)
+    expect(docker.startContainer).toHaveBeenCalledExactlyOnceWith("recovered-container")
+    expect(transport.calls.filter(({ path }) => path === "/health/state")).toHaveLength(1)
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+  })
+
+  it("reuses a Running worker after a disconnected create and an initial 404", async () => {
+    vi.useFakeTimers()
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    docker.createContainer.mockImplementationOnce(async (name, spec) => {
+      docker.inspectContainerByName
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(workerInspection(name, spec, "running"))
+      throw new DockerEngineError("Docker Engine connection failed", undefined, "connection")
+    })
+
+    const result = manager.request(ownerId, runtimePath, "GET")
+    void result.catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(result).resolves.toMatchObject({ statusCode: 200 })
+    const name = docker.createContainer.mock.calls[0]?.[0]
+    expect(docker.inspectContainerByName).toHaveBeenCalledTimes(2)
+    expect(docker.inspectContainerByName).toHaveBeenCalledWith(name, expect.any(AbortSignal))
+    expect(docker.startContainer).not.toHaveBeenCalled()
+    expect(transport.calls.map(({ path }) => path)).toEqual(["/health/state", runtimePath])
+  })
+
+  it("correlates create, recovery, start and readiness logs for an adopted worker", async () => {
+    const docker = new FakeDocker()
+    const write = vi.fn<(line: string) => void>()
+    const logger = pino({ level: "info" }, { write })
+    const manager = createManager(docker, new FakeTransport(), {}, logger)
+    docker.createContainer.mockImplementationOnce(async (name, spec) => {
+      docker.inspectContainerByName.mockResolvedValueOnce(workerInspection(name, spec, "created"))
+      throw new DockerEngineError("private Docker daemon error", 409)
+    })
+    const trace = { requestId: "req-runner-test", apiRequestId: "req-api-test" }
+
+    await expect(manager.request(ownerId, runtimePath, "GET", undefined, undefined, "workspace", serviceSessionId, trace))
+      .resolves.toMatchObject({ statusCode: 200 })
+    const lines = write.mock.calls.map(([line]) => line)
+    const stages = lines.map((line) => JSON.parse(line))
+    expect(stages).toEqual([
+      expect.objectContaining({ ...trace, stage: "create", durationMs: expect.any(Number), dockerStatusCode: 409, errorType: "DockerEngineError" }),
+      expect.objectContaining({ ...trace, stage: "recover", durationMs: expect.any(Number), dockerStatusCode: 200, containerState: "created" }),
+      expect.objectContaining({ ...trace, stage: "start", durationMs: expect.any(Number), dockerStatusCode: 204 }),
+      expect.objectContaining({ ...trace, stage: "ready", durationMs: expect.any(Number), outcome: "ok" }),
+    ])
+    expect(lines.join("")).not.toContain("private Docker daemon error")
+  })
+
+  it.each(["instance", "owner-id", "service-session", "contract", "image", "mounts"])(
+    "leaves a same-name container with a mismatched %s untouched",
+    async (mismatch) => {
+      const docker = new FakeDocker()
+      const transport = new FakeTransport()
+      const manager = createManager(docker, transport)
+      docker.createContainer.mockImplementationOnce(async (name, spec) => {
+        const inspected = workerInspection(name, spec, "created")
+        if (mismatch === "image") inspected.Config.Image = "foreign-worker:latest"
+        else if (mismatch === "mounts") inspected.HostConfig.Mounts = []
+        else inspected.Config.Labels = { ...spec.Labels, [`com.linksense.runner.${mismatch}`]: "foreign" }
+        docker.inspectContainerByName.mockResolvedValueOnce(inspected)
+        throw new DockerEngineError("name is in use", 409)
+      })
+
+      await expect(manager.request(ownerId, runtimePath, "GET", undefined, undefined, "workspace", serviceSessionId))
+        .rejects.toMatchObject({ kind: "name_conflict", statusCode: 409 })
+      expect(docker.startContainer).not.toHaveBeenCalled()
+      expect(docker.stopContainer).not.toHaveBeenCalled()
+      expect(docker.removeContainer).not.toHaveBeenCalled()
+      expect(transport.calls).toEqual([])
+    },
+  )
+
+  function workerInspection(name: string, spec: DockerContainerCreate, state: string) {
+    return {
+      Id: "recovered-container",
+      Name: `/${name}`,
+      Config: { Image: spec.Image, User: spec.User, Env: spec.Env, Labels: spec.Labels },
+      HostConfig: { ...spec.HostConfig, Privileged: false },
+      State: { Status: state },
+    }
+  }
 })
 
 describe("controller worker lifecycle", () => {
@@ -1939,6 +2083,7 @@ class FakeDocker implements DockerEngine {
       : [],
   )
   readonly inspectContainerRunning = vi.fn(async () => this.containerRunning)
+  readonly inspectContainerByName = vi.fn<DockerEngine["inspectContainerByName"]>().mockResolvedValue(null)
   readonly inspectContainerResourceStats = vi.fn(async (id: string) => {
     const stats = this.resourceStats.get(id)
     if (!stats) throw new Error("missing resource stats")
@@ -1948,10 +2093,10 @@ class FakeDocker implements DockerEngine {
     async (name: string, body: DockerContainerCreate) => {
       void name
       void body
-      return `container-${this.createContainer.mock.calls.length}`
+      return { id: `container-${this.createContainer.mock.calls.length}`, statusCode: 201 }
     },
   )
-  readonly startContainer = vi.fn(async () => undefined)
+  readonly startContainer = vi.fn(async () => 204)
   readonly stopContainer = vi.fn(async () => undefined)
   readonly removeContainer = vi.fn(async () => undefined)
   containerRunning = true
@@ -2034,12 +2179,13 @@ function createManager(
     removeUserDirectories?: (ownerId: string) => Promise<void>
     probeWorkerRuntime?: () => Promise<void>
   } = {},
+  logger = pino({ level: "silent" }),
 ) {
   return createDockerWorkerManager(
     createConfig(),
     docker,
     transport,
-    pino({ level: "silent" }),
+    logger,
     {
       assertUserDataRoot: async () => undefined,
       prepareUserDirectories: async () => undefined,
