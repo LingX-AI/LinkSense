@@ -78,6 +78,11 @@ type deviceJourneyCreateCall struct {
 	body map[string]any
 }
 
+type deviceJourneyTurnCall struct {
+	conversationID string
+	inputText      string
+}
+
 type deviceJourneyHello struct {
 	token     string
 	execution string
@@ -92,6 +97,7 @@ type deviceJourneyFixture struct {
 	pairs     []deviceJourneyPairCall
 	creates   []deviceJourneyCreateCall
 	prewarms  []map[string]any
+	turns     []deviceJourneyTurnCall
 	hellos    []deviceJourneyHello
 	conversa  map[string]map[string]any
 	pairState struct {
@@ -103,6 +109,8 @@ type deviceJourneyFixture struct {
 	execution atomic.Bool
 	reject    atomic.Bool
 	revoked   atomic.Bool
+
+	cloudEntryClosed atomic.Bool
 }
 
 func newDeviceJourneyFixture() *deviceJourneyFixture {
@@ -115,6 +123,15 @@ func newDeviceJourneyFixture() *deviceJourneyFixture {
 
 func (f *deviceJourneyFixture) serve(w http.ResponseWriter, r *http.Request) bool {
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/bootstrap" && f.cloudEntryClosed.Load():
+		w.Header().Set("Cache-Control", "no-store")
+		f.writeData(w, r, map[string]any{
+			"initialized":               true,
+			"organization_display_name": "LinkSense",
+			"default_locale":            "en-US",
+			"desktop":                   map[string]bool{"local_computer": true, "cloud_target": false},
+		})
+		return true
 	case r.URL.Path == "/api/v1/desktop/devices/socket":
 		f.serveSocket(w, r)
 		return true
@@ -355,7 +372,16 @@ func (f *deviceJourneyFixture) serveConversations(w http.ResponseWriter, r *http
 		return
 	}
 	if len(parts) == 2 && parts[1] == "turns" && r.Method == http.MethodPost {
-		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 64<<10))
+		var body struct {
+			InputText string `json:"input_text"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+			f.writeError(w, r, http.StatusBadRequest, "VALIDATION_ERROR")
+			return
+		}
+		f.mu.Lock()
+		f.turns = append(f.turns, deviceJourneyTurnCall{conversationID: parts[0], inputText: body.InputText})
+		f.mu.Unlock()
 		f.writeData(w, r, map[string]any{
 			"turn_id":  deviceJourneyTurnID,
 			"accepted": true,
@@ -587,6 +613,18 @@ func (f *deviceJourneyFixture) prewarmCount() int {
 	return len(f.prewarms)
 }
 
+func (f *deviceJourneyFixture) taskWrites() (creates, prewarms, turns int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.creates), len(f.prewarms), len(f.turns)
+}
+
+func (f *deviceJourneyFixture) turnAt(index int) deviceJourneyTurnCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.turns[index]
+}
+
 func (f *deviceJourneyFixture) helloAt(index int) deviceJourneyHello {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -815,6 +853,79 @@ func deviceJourneySubmit(t *testing.T, page *mygo.Page) {
 	}
 }
 
+func deviceJourneyVerifyCloudEntryClosed(t *testing.T, page *mygo.Page, fixture *deviceJourneyFixture, deviceID string) (expectedCreates, expectedTurns int) {
+	t.Helper()
+	createsBefore, prewarmsBefore, turnsBefore := fixture.taskWrites()
+	assertWrites := func(stage string, createDelta, turnDelta int) {
+		t.Helper()
+		creates, prewarms, turns := fixture.taskWrites()
+		if creates != createsBefore+createDelta || prewarms != prewarmsBefore || turns != turnsBefore+turnDelta {
+			t.Fatalf("%s wrote to the API: create=%d prewarm=%d turn=%d; want %d, 0, %d",
+				stage, creates-createsBefore, prewarms-prewarmsBefore, turns-turnsBefore, createDelta, turnDelta)
+		}
+	}
+
+	fixture.cloudEntryClosed.Store(true)
+	defer fixture.cloudEntryClosed.Store(false)
+	if err := page.LoadURL("/conversations/new"); err != nil {
+		t.Fatal(err)
+	}
+	const notice = "Cloud computers aren’t available right now, so new cloud tasks can’t be started"
+	cloudUnavailable := `document.querySelector('[aria-label="Run location: Cloud computer"]')?.getAttribute("aria-description") === ` +
+		deviceJourneyJSString(notice+".")
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && `+cloudUnavailable)
+	deviceJourneyForeground(t, page)
+	deviceJourneyOpenTargetPicker(t, page)
+	whiteboxWait(t, page, `(() => {
+		const radio = (`+deviceJourneyTargetPopoverJS+`)?.querySelector('[role="radio"][aria-checked="true"]');
+		return radio?.closest('[data-slot="radio-group-option"]')?.innerText.includes("Cloud computer") === true &&
+			(radio.disabled === true || radio.getAttribute("aria-disabled") === "true");
+	})()`)
+	deviceJourneyCloseTargetPicker(t, page)
+
+	const draft = "Keep this draft when the cloud entry is closed"
+	deviceJourneySetPrompt(t, page, draft)
+	cloudToast := `Array.from(document.querySelectorAll('[data-sonner-toast]:not([data-removed="true"])'))
+		.find(toast => toast.querySelector('[data-title]')?.textContent.trim() === ` + deviceJourneyJSString(notice) + `)`
+	if absent, err := page.Eval(`(` + cloudToast + `) === undefined`); err != nil || absent != true {
+		t.Fatalf("cloud entry notification was not absent before Send: absent=%v err=%v", absent, err)
+	}
+	assertWrites("disabled cloud draft before submit", 0, 0)
+	deviceJourneySubmit(t, page)
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && `+cloudUnavailable+` &&
+		(`+cloudToast+`)?.matches('[data-type="error"][data-mounted="true"][data-visible="true"]') === true`)
+	if deviceJourneyPrompt(t, page) != draft {
+		t.Fatal("blocked cloud submission changed the draft")
+	}
+	assertWrites("blocked cloud submit", 0, 0)
+
+	deviceJourneySelectLocal(t, page)
+	assertWrites("selecting local", 0, 0)
+	deviceJourneySubmit(t, page)
+	deviceJourneyWaitFor(t, 15*time.Second, "turn after explicitly switching to This Mac", func() bool {
+		creates, _, turns := fixture.taskWrites()
+		return creates > createsBefore && turns > turnsBefore
+	})
+	local := fixture.createAt(createsBefore)
+	if local.body["execution_target"] != "local" || local.body["desktop_device_id"] != deviceID {
+		t.Fatal("explicit local create did not use the paired Mac")
+	}
+	if _, ok := local.body["prewarmed_conversation_id"]; ok {
+		t.Fatal("explicit local create used a cloud prewarm")
+	}
+	if fixture.turnAt(turnsBefore) != (deviceJourneyTurnCall{conversationID: local.id, inputText: draft}) {
+		t.Fatal("the preserved draft did not reach the new local task")
+	}
+	whiteboxWait(t, page, `location.pathname === "/conversations/`+local.id+`"`)
+	assertWrites("explicit local submit", 1, 1)
+	if err := page.LoadURL("/settings/general"); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `location.pathname === "/settings/general" && document.body.innerText.includes("Local tasks are ready on this Mac.")`)
+	assertWrites("leaving the rollout task", 1, 1)
+	return createsBefore + 1, turnsBefore + 1
+}
+
 func deviceJourneyCancelConnection(t *testing.T, desktop *Desktop) {
 	t.Helper()
 	desktop.mu.RLock()
@@ -995,6 +1106,10 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 		t.Fatalf("cloud create used an unexpected prewarm id: %q", value)
 	}
 	whiteboxWait(t, page, `location.pathname === "/conversations/`+cloud.id+`"`)
+	deviceJourneyWaitFor(t, 15*time.Second, "legacy cloud task turn", func() bool {
+		_, _, turns := fixture.taskWrites()
+		return turns >= 1 && fixture.turnAt(0).conversationID == cloud.id
+	})
 
 	// A local create carries the exact current device id and never the cloud
 	// prewarm reservation.
@@ -1032,6 +1147,20 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 	whiteboxWait(t, page, `location.pathname === "/conversations/`+local.id+`"`)
 	whiteboxWait(t, page, `document.querySelector('[aria-label="Run location: This Mac"]') !== null`)
 
+	deviceJourneyWaitFor(t, 15*time.Second, "legacy local task turn", func() bool {
+		_, _, turns := fixture.taskWrites()
+		return turns >= 2 && fixture.turnAt(1).conversationID == local.id
+	})
+	expectedCreates, expectedTurns := deviceJourneyVerifyCloudEntryClosed(t, page, fixture, credential.DeviceID)
+	assertTaskCountsUnchanged := func(stage string) {
+		t.Helper()
+		creates, _, turns := fixture.taskWrites()
+		if creates != expectedCreates || turns != expectedTurns {
+			t.Fatalf("%s changed task writes: create=%d turn=%d; want %d, %d",
+				stage, creates, turns, expectedCreates, expectedTurns)
+		}
+	}
+
 	// Losing the socket must stop local creation without switching to cloud and
 	// without dropping the composed prompt or the selected target.
 	if err := page.LoadURL("/conversations/new"); err != nil {
@@ -1042,7 +1171,6 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 	deviceJourneySelectLocal(t, page)
 	const blockedPrompt = "Blocked local fixture task"
 	deviceJourneySetPrompt(t, page, blockedPrompt)
-	_, _, createsBefore, _, _ := fixture.counts()
 	fixture.reject.Store(true)
 	fixture.disconnect(websocket.StatusCode(4500))
 	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then(status => status.executionReady !== true)`)
@@ -1054,9 +1182,7 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 	deviceJourneyCloseTargetPicker(t, page)
 	deviceJourneySubmit(t, page)
 	whiteboxWait(t, page, `document.body.innerText.includes("run local tasks")`)
-	if _, _, createsAfterLoss, _, _ := fixture.counts(); createsAfterLoss != createsBefore {
-		t.Fatalf("a lost connection created another conversation: before=%d after=%d", createsBefore, createsAfterLoss)
-	}
+	assertTaskCountsUnchanged("submit after the Mac disconnected")
 	if prompt := deviceJourneyPrompt(t, page); prompt != blockedPrompt {
 		t.Fatalf("the draft was lost after a blocked submit: %q", prompt)
 	}
@@ -1080,9 +1206,7 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 	deviceJourneyCloseTargetPicker(t, page)
 	deviceJourneySubmit(t, page)
 	time.Sleep(750 * time.Millisecond)
-	if _, _, createsAfterRevocation, _, _ := fixture.counts(); createsAfterRevocation != createsBefore {
-		t.Fatalf("a revoked device created another conversation: before=%d after=%d", createsBefore, createsAfterRevocation)
-	}
+	assertTaskCountsUnchanged("submit after the device was revoked")
 	if prompt := deviceJourneyPrompt(t, page); prompt != blockedPrompt {
 		t.Fatalf("the draft was lost after revocation: %q", prompt)
 	}
