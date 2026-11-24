@@ -69,7 +69,7 @@ func TestPackagedUpdateAdmissionGate(t *testing.T) {
 		turnID         = "60000000-0000-4000-8000-000000000011"
 		startID        = "80000000-0000-4000-8000-000000000011"
 	)
-	link, err := runtime.attach(linkID, ownerID, nil, nil, nil, nil)
+	link, err := runtime.attach(linkID, ownerID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("attaching the private link: %v", err)
 	}

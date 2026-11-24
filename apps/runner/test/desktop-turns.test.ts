@@ -4,7 +4,7 @@ import path from "node:path"
 import { randomBytes, randomUUID } from "node:crypto"
 import pino from "pino"
 import { expect, it, vi } from "vitest"
-import { desktopExecutionAckSchema, desktopExecutionCommandSchema } from "@linksense/shared"
+import { desktopExecutionAckSchema, desktopExecutionCommandSchema, type DesktopExecutionCommand } from "@linksense/shared"
 
 import { DesktopWorkerProvider } from "../src/controller/desktop-worker-provider.js"
 import { DesktopLink } from "../src/desktop/link.js"
@@ -480,6 +480,60 @@ it("admits Stop when ordinary attachment-capable commands fill their slots", asy
   }
 })
 
+it("fails a structured quote closed unless this exact link negotiated it", async () => {
+  const owner = randomUUID()
+  const provider = new DesktopWorkerProvider({
+    dataRoot: tmpdir(), runtimeRoot: tmpdir(), controlToken: randomBytes(32).toString("hex"),
+  }, logger)
+  const turns = new DesktopTurns(provider, tmpdir(), "https://server.example.test", vi.fn(), logger)
+  const execute = vi.spyOn(turns, "execute")
+  const write = vi.fn<(output: unknown) => Promise<void>>(async () => {})
+  const command = quoteCommand(owner)
+  const legacy = new DesktopLink(randomUUID(), owner, turns, write, vi.fn(), [], true, false)
+  const negotiated = new DesktopLink(randomUUID(), owner, turns, write, vi.fn(), [], true, true)
+  try {
+    legacy.receive(command)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
+    expect(execute).not.toHaveBeenCalled()
+    expect(write.mock.calls[0]?.[0]).toMatchObject({
+      frame: { type: "command.result", operation: "turn.start", ok: false, error_code: "RUNNER_UNAVAILABLE" },
+    })
+    negotiated.receive(command)
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+    execute.mockClear()
+    const chat = desktopExecutionCommandSchema.parse({
+      ...command, id: randomUUID(),
+      body: { ...command.body, credentials: {
+        ...command.body.credentials,
+        primary: { ...command.body.credentials.primary, protocol_mode: "chat_completions_bridge" },
+      } },
+    })
+    negotiated.receive(chat)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(3))
+    expect(execute).not.toHaveBeenCalled()
+  } finally {
+    await legacy.close()
+    await negotiated.close()
+    await provider.shutdown()
+  }
+})
+
+it("serializes the bounded quote into the existing untrusted office additional context", () => {
+  const provider = new DesktopWorkerProvider({
+    dataRoot: tmpdir(), runtimeRoot: tmpdir(), controlToken: randomBytes(32).toString("hex"),
+  }, logger)
+  const turns = new DesktopTurns(provider, tmpdir(), "https://server.example.test", vi.fn(), logger)
+  const command = quoteCommand(randomUUID())
+  const startBody = (turns as unknown as {
+    startBody: (input: Extract<DesktopExecutionCommand, { operation: "turn.start" }>, capabilityGeneration: string) => {
+      context: { userInput: string; officeSelectionContext?: string }
+    }
+  }).startBody(command, "0".repeat(64))
+  expect(startBody.context.userInput).toBe("Explain this claim")
+  expect(startBody.context.officeSelectionContext).toContain('"selection_text":"quoted 😀 claim"')
+  expect(startBody.context.officeSelectionContext).not.toContain("[LinkSense office annotation]")
+})
+
 it("keeps lifecycle callbacks available when the search lane is full", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-tools-"))
   const origin = "https://server.example.test"
@@ -547,3 +601,23 @@ it("never treats the fixture computer.execute command as a turn interrupt", asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+function quoteCommand(owner: string): Extract<DesktopExecutionCommand, { operation: "turn.start" }> {
+  const expires_at = new Date(Date.now() + 10_000).toISOString()
+  const turn_id = randomUUID()
+  return desktopExecutionCommandSchema.parse({
+    type: "command", id: randomUUID(), operation: "turn.start", owner_id: owner,
+    conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id, expires_at,
+    body: {
+      native_thread_id: null, input: "Explain this claim", reasoning_effort: "low",
+      conversation_reference_context: {
+        selection_text: "quoted 😀 claim",
+        recent_messages: [{ role: "assistant", text: "recent context" }],
+      },
+      credentials: {
+        turn_id, expires_at, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  }) as Extract<DesktopExecutionCommand, { operation: "turn.start" }>
+}

@@ -219,14 +219,15 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serv
 }
 
 type runtimePipeMessage struct {
-	Type              string          `json:"type"`
-	LinkID            string          `json:"link_id,omitempty"`
-	OwnerID           string          `json:"owner_id,omitempty"`
-	RequestID         string          `json:"request_id,omitempty"`
-	Frame             json.RawMessage `json:"frame,omitempty"`
-	ToolsVersion      *int            `json:"tools_version,omitempty"`
-	ToolOperations    []string        `json:"tool_operations,omitempty"`
-	AttachmentVersion *int            `json:"attachment_version,omitempty"`
+	Type                         string          `json:"type"`
+	LinkID                       string          `json:"link_id,omitempty"`
+	OwnerID                      string          `json:"owner_id,omitempty"`
+	RequestID                    string          `json:"request_id,omitempty"`
+	Frame                        json.RawMessage `json:"frame,omitempty"`
+	ToolsVersion                 *int            `json:"tools_version,omitempty"`
+	ToolOperations               []string        `json:"tool_operations,omitempty"`
+	AttachmentVersion            *int            `json:"attachment_version,omitempty"`
+	ConversationReferenceVersion *int            `json:"conversation_reference_version,omitempty"`
 }
 
 type runtimePipe struct {
@@ -266,9 +267,10 @@ func runtimePipeClosed(pipe *runtimePipe) bool {
 	}
 }
 
-func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOperations []string, attachmentVersion *int, admit func(write func() error) error) (*runtimeLink, error) {
+func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOperations []string, attachmentVersion *int, conversationReferenceVersion *int, admit func(write func() error) error) (*runtimeLink, error) {
 	pipe := s.pipe.Load()
-	if pipe == nil || !validUUID(id) || !validUUID(owner) {
+	if pipe == nil || !validUUID(id) || !validUUID(owner) ||
+		(conversationReferenceVersion != nil && *conversationReferenceVersion != desktopConversationReferenceVersion) {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 	}
 	link := &runtimeLink{
@@ -284,7 +286,7 @@ func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOper
 		if !link.current() || runtimePipeClosed(pipe) {
 			return errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 		}
-		return pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion, ToolOperations: toolOperations, AttachmentVersion: attachmentVersion})
+		return pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion, ToolOperations: toolOperations, AttachmentVersion: attachmentVersion, ConversationReferenceVersion: conversationReferenceVersion})
 	}
 	if admit != nil {
 		if err := admit(write); err != nil {
@@ -359,6 +361,7 @@ func (pipe *runtimePipe) deliver(raw string) bool {
 	if decoder.Decode(&message) != nil || message.Type != "link.frame" ||
 		!validUUID(message.LinkID) || message.OwnerID != "" || message.RequestID != "" ||
 		message.ToolsVersion != nil || len(message.ToolOperations) > 0 || message.AttachmentVersion != nil ||
+		message.ConversationReferenceVersion != nil ||
 		len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
 		return false
 	}

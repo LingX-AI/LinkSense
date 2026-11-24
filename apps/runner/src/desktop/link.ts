@@ -38,6 +38,7 @@ export class DesktopLink {
     private readonly fail: () => void,
     private readonly toolOperations: readonly DesktopNegotiatedOperation[] = [],
     private readonly attachments = false,
+    private readonly conversationReferences = false,
   ) {}
 
   /** Aborted when this device link closes; local transfers must not outlive it. */
@@ -86,6 +87,15 @@ export class DesktopLink {
     this.recentCommands.set(command.id, expiry)
     if (command.owner_id !== this.ownerId) {
       this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("FORBIDDEN") }))
+      return
+    }
+    if (command.operation === "turn.start" && command.body.conversation_reference_context &&
+        (!this.conversationReferences ||
+          command.body.credentials.primary.protocol_mode === "chat_completions_bridge")) {
+      // The host must have offered and the ready frame echoed the exact quote
+      // capability before any worker or journal exists. Chat cannot preserve
+      // the native untrusted parts, so it is refused even for a direct frame.
+      this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("RUNNER_UNAVAILABLE") }))
       return
     }
     if (this.commands.size >= desktopCommandCapacity(command.operation, this.attachments)) {

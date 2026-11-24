@@ -1,5 +1,8 @@
+import { conversationReferenceDisplaySchema } from "@linksense/shared";
+import { v5 as uuidv5 } from "uuid";
 import { describe, expect, it, vi } from "vitest";
 import type { Prisma, PrismaClient } from "../src/generated/prisma/client.js";
+import { RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE } from "../src/modules/conversations/recovered-local-quote-draft.js";
 import { settleDeploymentTasks } from "../src/operations/deployment-task-stop.js";
 
 vi.mock("../src/modules/events/sequence.js", () => ({
@@ -7,6 +10,10 @@ vi.mock("../src/modules/events/sequence.js", () => ({
 }));
 
 const now = new Date("2026-09-09T00:00:00Z");
+const stringify = (value: unknown) =>
+  JSON.stringify(value, (_key, entry) =>
+    typeof entry === "bigint" ? entry.toString() : entry,
+  );
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const conversationId = "20000000-0000-4000-8000-000000000001";
 const projectionTurnId = "30000000-0000-4000-8000-000000000001";
@@ -25,6 +32,70 @@ const intent = {
   attachmentsJson: [{ id: attachmentId }],
   idempotencyKey: "request-key",
 };
+
+const referenceId = "50000000-0000-4000-8000-000000000001";
+const sourceConversationId = "50000000-0000-4000-8000-000000000002";
+const sourceMessageId = "50000000-0000-4000-8000-000000000003";
+const existingPendingId = "60000000-0000-4000-8000-000000000001";
+
+// A literal question can itself begin with a well-formed annotation prompt.
+const annotationShapedRequest = [
+  "[LinkSense office annotation]",
+  "Display metadata:",
+  JSON.stringify({
+    kind: "presentation_annotation",
+    file_id: "50000000-0000-4000-8000-000000000004",
+    file_name: "Quarterly review.pptx",
+    annotations: [
+      { request: "Improve this slide", slide_number: 3, selection_count: 2 },
+    ],
+    annotation_count: 1,
+  }),
+  "",
+  "Annotation fingerprint:",
+  "c".repeat(64),
+  "",
+  "User request:",
+  "Improve this slide",
+  "",
+  "Apply the user request to the selected elements.",
+].join("\n");
+
+function quoteDisplay(request: string) {
+  return conversationReferenceDisplaySchema.parse({
+    kind: "conversation_reference",
+    reference_id: referenceId,
+    request,
+    source_conversation_id: sourceConversationId,
+    source_message_id: sourceMessageId,
+    source_title: "Source task",
+    selection_text: "quoted selection",
+    recent_message_count: 0,
+  });
+}
+
+function annotationPrompt(request: string) {
+  return [
+    "[LinkSense office annotation]",
+    "Display metadata:",
+    JSON.stringify(quoteDisplay(request)),
+    "",
+    "Annotation fingerprint:",
+    "a".repeat(64),
+    "",
+    "User request:",
+    request,
+  ].join("\n");
+}
+
+function markerEvents(f: ReturnType<typeof fixture>) {
+  return f.tx.conversationEvent.create.mock.calls
+    .map(([call]) => call.data as Record<string, unknown>)
+    .filter(
+      (data) =>
+        data.eventType === RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE,
+    );
+}
 
 function fixture() {
   const tx = {
@@ -52,7 +123,10 @@ function fixture() {
       updateMany: vi.fn(),
     },
     conversationPlanReview: { updateMany: vi.fn() },
-    conversation: { update: vi.fn() },
+    conversation: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn(),
+    },
     conversationEvent: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     automationRun: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn() },
@@ -271,5 +345,133 @@ describe("offline deployment settlement", () => {
       },
       data: { lastRunStatus: "failed", lastErrorCode: "DEPLOYMENT_STOPPED" },
     });
+  });
+
+  it("recovers an annotation-shaped local quote request exactly and marks it internally", async () => {
+    const f = fixture();
+    const display = quoteDisplay(annotationShapedRequest);
+    const storedInput = annotationPrompt(annotationShapedRequest);
+    expect(storedInput).not.toBe(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      { ...intent, inputText: storedInput, messageDisplayJson: display },
+    ]);
+    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
+
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.conversation.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: conversationId,
+        ownerId,
+        executionTarget: "local",
+      },
+      select: { id: true },
+    });
+    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: projectionTurnId,
+        inputText: annotationShapedRequest,
+        status: "blocked_preflight",
+        blockCode: "deployment_stopped",
+      }),
+    });
+    const stored = f.tx.pendingRequest.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(stored.inputText).toBe(annotationShapedRequest);
+    expect(stringify(stored)).not.toContain("quoted selection");
+    expect(stringify(stored)).not.toContain("source task");
+
+    const markers = markerEvents(f);
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({
+      // The marker closes the exact turn id the Mac admission guard checks.
+      id: uuidv5("desktop-start-stop", projectionTurnId),
+      conversationId,
+      turnId: null,
+      visibility: "internal_sanitized",
+    });
+    expect(markers[0]!.payloadJson).toEqual({
+      schema_version: 1,
+      pending_request_id: projectionTurnId,
+    });
+    expect(markers[0]!.eventType).not.toBe(
+      "conversation.references.pending",
+    );
+    expect(stringify(markers[0])).not.toContain("LinkSense");
+    expect(stringify(markers[0])).not.toContain("quoted selection");
+  });
+
+  it("keeps the stored prompt for a cloud quote intent", async () => {
+    const f = fixture();
+    const display = quoteDisplay(annotationShapedRequest);
+    const storedInput = annotationPrompt(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      { ...intent, inputText: storedInput, messageDisplayJson: display },
+    ]);
+
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: storedInput,
+        status: "blocked_preflight",
+        blockCode: "deployment_stopped",
+      }),
+    });
+    expect(markerEvents(f)).toHaveLength(0);
+  });
+
+  it("keeps the stored prompt for a malformed local quote display", async () => {
+    const f = fixture();
+    const storedInput = annotationPrompt(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      {
+        ...intent,
+        inputText: storedInput,
+        messageDisplayJson: { kind: "conversation_reference" },
+      },
+    ]);
+    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
+
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: storedInput,
+        blockCode: "deployment_stopped",
+      }),
+    });
+    expect(markerEvents(f)).toHaveLength(0);
+  });
+
+  it("does not rewrite or mark an existing pending draft reused by settlement", async () => {
+    const f = fixture();
+    const display = quoteDisplay(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      {
+        ...intent,
+        pendingRequestId: existingPendingId,
+        inputText: annotationPrompt(annotationShapedRequest),
+        messageDisplayJson: display,
+      },
+    ]);
+    f.tx.pendingRequest.findUnique.mockResolvedValue({
+      id: existingPendingId,
+      conversationId,
+      submittedBy: ownerId,
+    });
+    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
+
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).not.toHaveBeenCalled();
+    expect(f.tx.pendingRequest.update).toHaveBeenCalledWith({
+      where: { id: existingPendingId },
+      data: expect.objectContaining({
+        status: "blocked_preflight",
+        blockCode: "deployment_stopped",
+        steerOperationId: null,
+      }),
+    });
+    expect(markerEvents(f)).toHaveLength(0);
   });
 });

@@ -7,7 +7,7 @@ import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
-import { buildSideChatReference, prepareConversationReference, projectSideChat } from "./side-chat.js";
+import { buildSideChatReference, conversationReferenceContextFromPersistedPrompt, prepareConversationReference, projectSideChat } from "./side-chat.js";
 import { type SideChat, type SideChatReference, type SideChatSelection } from "@linksense/shared";
 import { prepareApplicationAnnotation, assertApplicationAnnotationBinding, validateApplicationAnnotationSnapshot } from "./application-annotation.js";
 import { lockDevelopmentPreview, reuseUnusedDevelopmentPreview, assertCurrentDevelopmentPreview, assertNotDevelopmentPreview, type DevelopmentPreviewCreation } from "../applications/development-preview-lifecycle.js";
@@ -15,6 +15,7 @@ import { lockDetachedDevelopment, type DevelopmentConversationCreation } from ".
 import { readApplicationDistributionAccess } from "../applications/distribution-repository.js";
 import { deleteConversationWithinTransaction } from "./deletion.js";
 import { projectDesktopApproval, respondToDesktopApproval } from "./desktop-approvals.js";
+import { desktopStartStopEventId, recoveredLocalQuoteCandidateIds, recoveredLocalQuoteDraftIds } from "./recovered-local-quote-draft.js";
 import { readConversationDevelopmentRoles, ordinaryConversationFilter } from "./application-development-role.js";
 import { requireApplicationDistributionVersion } from "../applications/distribution-policy.js";
 import { applicationDistributionChannelSchema, type ApplicationDistributionChannel } from "@linksense/shared";
@@ -912,6 +913,20 @@ export class ConversationService {
       userId,
       await this.withObservedAutoCompaction(userId, conversationId, runtime),
     );
+  }
+
+  private async hasPersistedConversationReference(
+    conversationId: string,
+  ): Promise<boolean> {
+    const event = await this.prisma.conversationEvent.findFirst({
+      where: {
+        conversationId,
+        eventType: USER_MESSAGE_DISPLAY_EVENT_TYPE,
+        payloadJson: { path: ["display", "kind"], equals: "conversation_reference" },
+      },
+      select: { id: true },
+    });
+    return event !== null;
   }
 
   private async modelRuntimeForIntent(
@@ -2871,7 +2886,9 @@ export class ConversationService {
       turn_id: start.projectionTurnId,
       task_kind: start.taskKind,
       idempotency_key: start.idempotencyKey,
-      input_text: start.inputText,
+      input_text: start.messageDisplayJson?.kind === "conversation_reference"
+        ? officeAnnotationRequestText(start.messageDisplayJson)
+        : start.inputText,
       created_at: start.createdAt.toISOString(),
       message_display: start.messageDisplayJson,
       attachments: start.attachmentsJson.map((file) => ({
@@ -2902,6 +2919,11 @@ export class ConversationService {
         );
     const projectedEvents = detailEvents.map(projectStoredEvent);
     const desktopFileChanges = resolveDesktopArtifactFileChanges(ownerId, conversationId, projectedEvents, files);
+    const recoveredLocalQuoteDrafts = await recoveredLocalQuoteDraftIds(
+      this.prisma,
+      conversationId,
+      recoveredLocalQuoteCandidateIds(pending),
+    );
     return {
       conversation: {
         ...projectConversation(
@@ -2941,7 +2963,9 @@ export class ConversationService {
       ),
       turns: projectedTurns.map(projectTurn),
       starting_turn: startingTurn,
-      pending_requests: pending.map(projectPending),
+      pending_requests: pending.map((pending) =>
+        projectPending(pending, recoveredLocalQuoteDrafts.has(pending.id)),
+      ),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       ...(desktopApprovals.length > 0 && { desktop_approval_requests: desktopApprovals.map(projectDesktopApproval) }),
       plan_reviews: planReviews.map(projectPlanReview),
@@ -3786,8 +3810,14 @@ export class ConversationService {
     input: PendingTurnSubmission,
     context: AuditContext,
   ) {
-    await this.assertOwner(ownerId, conversationId);
+    const conversation = await this.assertOwner(ownerId, conversationId);
     const officeAnnotation = submissionOfficeAnnotation(input);
+    // The Mac lane has no queued structured-quote mutation. Reject before the
+    // pending row, attachment rebind, event, or audit write; ordinary local
+    // pending attachment behavior remains unchanged.
+    if (conversation.executionTarget === "local" && officeAnnotation?.kind === "conversation_reference") {
+      throw new AppError("RUNNER_UNAVAILABLE");
+    }
     const preparedAnnotation = officeAnnotation
       ? await this.prepareOfficeAnnotation(conversationId, officeAnnotation)
       : null;
@@ -3931,7 +3961,7 @@ export class ConversationService {
           projectStoredEvent(result.event),
         )
         .catch(() => undefined);
-      return projectPending(result.pending);
+      return projectPending(result.pending, false);
     } finally {
       await this.redis
         .releaseConversationLock(conversationId, lock)
@@ -3956,6 +3986,11 @@ export class ConversationService {
           where: { conversationId },
           orderBy: { queueNo: "asc" },
         });
+        const recoveredLocalQuoteDrafts = await recoveredLocalQuoteDraftIds(
+          tx,
+          conversationId,
+          recoveredLocalQuoteCandidateIds(current),
+        );
         const currentIds = current.map((pending) => pending.id);
         const exactPendingSet =
           currentIds.length === pendingIds.length &&
@@ -3967,7 +4002,9 @@ export class ConversationService {
         const unchanged = currentIds.every(
           (id, index) => id === pendingIds[index],
         );
-        if (unchanged) return { items: current, event: null };
+        if (unchanged) {
+          return { items: current, event: null, recoveredLocalQuoteDrafts };
+        }
 
         const protectedByStartIntent =
           await tx.conversationTurnStartIntent.findFirst({
@@ -4026,10 +4063,19 @@ export class ConversationService {
             sseEventId: `${conversationId}:${sequenceNo}`,
           },
         });
-        return { items, event };
+        return { items, event, recoveredLocalQuoteDrafts };
       });
 
-      if (!result.event) return { items: result.items.map(projectPending) };
+      if (!result.event) {
+        return {
+          items: result.items.map((pending) =>
+            projectPending(
+              pending,
+              result.recoveredLocalQuoteDrafts.has(pending.id),
+            ),
+          ),
+        };
+      }
       await this.audit.write({
         ...context,
         actorId: ownerId,
@@ -4048,7 +4094,14 @@ export class ConversationService {
           projectStoredEvent(result.event),
         )
         .catch(() => undefined);
-      return { items: result.items.map(projectPending) };
+      return {
+        items: result.items.map((pending) =>
+          projectPending(
+            pending,
+            result.recoveredLocalQuoteDrafts.has(pending.id),
+          ),
+        ),
+      };
     } finally {
       await this.redis
         .releaseConversationLock(conversationId, lock)
@@ -4173,8 +4226,21 @@ export class ConversationService {
         });
         if (!pending) throw new AppError("NOT_FOUND");
         if (pending.status === "steering") throw new AppError("CONFLICT");
-        // A plain composer cannot safely restore the original structured selection.
-        if (inspectOfficeAnnotationPrompt(pending.inputText).suspected) throw new AppError("CONFLICT");
+        // A recovered local quote draft is marked in durable state and its text
+        // is already the exact plain question, so it restores verbatim.
+        const recoveredLocalQuoteDraft = (
+          await recoveredLocalQuoteDraftIds(
+            tx,
+            conversationId,
+            recoveredLocalQuoteCandidateIds([pending]),
+          )
+        ).has(pendingId);
+        const pendingAnnotation = recoveredLocalQuoteDraft
+          ? null
+          : inspectOfficeAnnotationPrompt(pending.inputText);
+        if (pendingAnnotation?.suspected) {
+          throw new AppError("CONFLICT");
+        }
         const protectedByStartIntent =
           await tx.conversationTurnStartIntent.findFirst({
             where: {
@@ -4524,6 +4590,7 @@ export class ConversationService {
             throw new AppError("CONVERSATION_NOT_FOUND");
           }
           if (
+            conversation.executionTarget === "local" ||
             !latestTurn ||
             !TERMINAL_TURN_STATUSES.includes(
               latestTurn.status as (typeof TERMINAL_TURN_STATUSES)[number],
@@ -5148,7 +5215,10 @@ export class ConversationService {
     returnWhenAccepted: boolean,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
-      await this.assertOwner(ownerId, conversationId);
+      const conversation = await this.assertOwner(ownerId, conversationId);
+      if (conversation.executionTarget === "local" && conversation.sideChatParentId) {
+        throw new AppError("RUNNER_UNAVAILABLE");
+      }
       const inputText = input.inputText.trim();
       if (inputText.length === 0) throw new AppError("VALIDATION_ERROR");
       const scopedIdempotencyKey = regenerationIdempotencyKey(messageId, input.idempotencyKey);
@@ -5286,13 +5356,18 @@ export class ConversationService {
     context: AuditContext,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
-      await this.assertOwner(ownerId, conversationId);
+      const conversation = await this.assertOwner(ownerId, conversationId);
       const lock = await this.acquireConversationLock(conversationId);
       try {
         const turn = await this.prisma.conversationTurn.findFirst({
           where: { id: localTurnId, conversationId },
         });
-        if (!turn) throw new AppError("TURN_STEER_REQUEST_FAILED");
+        if (!turn) {
+          if (conversation.executionTarget === "local") {
+            throw new AppError("RUNNER_UNAVAILABLE");
+          }
+          throw new AppError("TURN_STEER_REQUEST_FAILED");
+        }
 
         const messageId = deterministicUuid(
           turn.id,
@@ -5320,6 +5395,9 @@ export class ConversationService {
             throw new AppError("CONFLICT");
           }
           return { turn_id: localTurnId, accepted: true };
+        }
+        if (conversation.executionTarget === "local") {
+          throw new AppError("RUNNER_UNAVAILABLE");
         }
 
         const accepted = await this.runner.steer({
@@ -5444,7 +5522,7 @@ export class ConversationService {
     pendingId: string,
     context: AuditContext,
   ) {
-    await this.assertOwner(ownerId, conversationId);
+    const conversation = await this.assertOwner(ownerId, conversationId);
     const messageId = deterministicUuid(pendingId, "pending-steer-message");
     const existingMessage = await this.prisma.conversationMessage.findUnique({
       where: { id: messageId },
@@ -5458,6 +5536,9 @@ export class ConversationService {
         throw new AppError("CONFLICT");
       }
       return { turn_id: existingMessage.turnId, accepted: true };
+    }
+    if (conversation.executionTarget === "local") {
+      throw new AppError("RUNNER_UNAVAILABLE");
     }
 
     const lock = await this.acquireConversationLock(conversationId);
@@ -7903,6 +7984,8 @@ export class ConversationService {
     expectedCodexThreadId: string | null;
     prepared: PreparedTurnSubmission;
     preservesStagedAttachments: boolean;
+    /** Local structured quote whose persisted reference must be re-admitted. */
+    localConversationReference: boolean;
     pendingRequestId: string | null;
     regeneration: RegenerationSource | null;
     attachments: TurnStartIntentAttachment[];
@@ -7970,6 +8053,28 @@ export class ConversationService {
           ownerId: input.ownerId, conversationId: input.conversationId, deviceId,
           runtimeGeneration: input.expectedRuntimeGeneration,
         });
+      }
+      if (input.localConversationReference) {
+        const display = input.prepared.messageDisplay;
+        if (display?.kind !== "conversation_reference") throw new AppError("CONFLICT");
+        const annotation = {
+          kind: "conversation_reference" as const,
+          reference_id: display.reference_id,
+          request: display.request,
+        };
+        // openSideChat replaces the reference and deleting the parent detaches
+        // this child. Re-read both under the child row lock and compare the
+        // freshly prepared server prompt/display with the admitted bytes.
+        const current = await prepareConversationReference(
+          tx,
+          input.conversationId,
+          annotation,
+          officeAnnotationFingerprint(annotation),
+        );
+        if (current.inputText !== input.prepared.inputText ||
+            JSON.stringify(current.display) !== JSON.stringify(display)) {
+          throw new AppError("CONFLICT");
+        }
       }
       if (input.planReviewAction) {
         await tx.$queryRaw<Array<{ id: string }>>`
@@ -9533,11 +9638,29 @@ export class ConversationService {
       existingLock ?? (await this.acquireConversationLock(conversationId));
     const unlock = () => this.redis.releaseConversationLock(conversationId, lock).catch(() => undefined);
     let handedOff = false;
+    // Local starts resolve the transition source before any durable reservation
+    // so the exact checked runtime is the one Runner compacts and forks with.
+    let checkedModelTransitionSource: ResolvedModelTransitionRuntime | null | undefined;
     try {
       const conversation = await this.assertOwner(ownerId, conversationId);
       const desktop = conversation.executionTarget === "local";
+      const submittedAnnotation = submissionOfficeAnnotation(submission);
+      // A direct default-mode turn is the only supported local
+      // conversation_reference. Queueing, redo, plan, goals, attachments-only
+      // paths, and every other office annotation stay closed before a write.
+      const localConversationReference = desktop &&
+        submittedAnnotation?.kind === "conversation_reference" &&
+        Boolean(conversation.sideChatParentId) &&
+        !conversation.applicationId &&
+        !submission.goal &&
+        !regeneration &&
+        !planReviewAction &&
+        !pendingId &&
+        !submission.expectedCodexThreadId &&
+        (submission.collaborationMode ?? conversation.collaborationMode) === "default";
       if (desktop && (conversation.applicationId || submission.goal || regeneration || planReviewAction ||
-          submissionOfficeAnnotation(submission) || submission.expectedCodexThreadId || pendingId)) {
+          (submittedAnnotation && !localConversationReference) ||
+          submission.expectedCodexThreadId || pendingId)) {
         throw new AppError("RUNNER_UNAVAILABLE");
       }
       if (
@@ -9570,7 +9693,7 @@ export class ConversationService {
       if (attachmentIds?.length) {
         await this.assertInteractiveFileAccess(ownerId, conversationId);
       }
-      const officeAnnotation = submissionOfficeAnnotation(submission);
+      const officeAnnotation = submittedAnnotation;
       const preservesStagedAttachments =
         Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference" && officeAnnotation.kind !== "task_references") ||
         (submission.preserveStagedAttachments === true &&
@@ -9874,18 +9997,47 @@ export class ConversationService {
       let modelRuntime: ResolvedModelRuntime;
       try {
         if (desktop) {
-          if (input.collaborationMode !== "default" || input.priorityCapabilityIds.length || input.messageDisplay) {
+          if (input.collaborationMode !== "default" || input.priorityCapabilityIds.length ||
+              (input.messageDisplay && !localConversationReference)) {
             throw new AppError("RUNNER_UNAVAILABLE");
           }
           if (files.some(file => !file.workspaceRelativePath || !file.workspaceRootRelPath)) {
             throw new AppError("ATTACHMENT_UPLOAD_INVALID");
           }
-          await this.runner.assertDesktopAvailable(ownerId, conversationId, files.length > 0);
+          await this.runner.assertDesktopAvailable(ownerId, conversationId, files.length > 0, localConversationReference);
           runtime = conversation;
           modelRuntime = submission.modelPreference
             ? await this.modelRuntimeForSelection(ownerId, conversationId, submission.modelPreference.modelId, submission.modelPreference.reasoningEffort)
             : await this.modelRuntimeForUser(ownerId, conversationId);
           if (modelRuntime.provider.privacyMasking) throw new AppError("FORBIDDEN");
+          const persistedConversationReference =
+            await this.hasPersistedConversationReference(conversationId);
+          if (localConversationReference) {
+            const display = input.messageDisplay;
+            if (display?.kind !== "conversation_reference" ||
+                !conversationReferenceContextFromPersistedPrompt(input.inputText, display)) {
+              throw new AppError("RUNNER_UNAVAILABLE");
+            }
+          }
+          if ((localConversationReference || persistedConversationReference) &&
+              modelRuntime.provider.protocolMode === "chat_completions_bridge") {
+            // Native quote parts cannot be replayed through the Chat bridge,
+            // including after the parent was deleted and this child detached.
+            throw new AppError("MODEL_SELECTION_INVALID");
+          }
+          // The source thread is compacted with this runtime before forking.
+          // Check the exact source now, before intent, files, slot, or lease.
+          checkedModelTransitionSource =
+            await this.modelTransitionSourceForConversation(
+              conversationId,
+              modelRuntime.model,
+              conversation.codexThreadId,
+              regeneration?.turnSequenceNo,
+            );
+          if (persistedConversationReference &&
+              checkedModelTransitionSource?.provider.protocolMode === "chat_completions_bridge") {
+            throw new AppError("MODEL_SELECTION_INVALID");
+          }
         } else {
         const authorizationPromise = this.preflight.resolve({
           userId: ownerId,
@@ -10009,6 +10161,7 @@ export class ConversationService {
             expectedCodexThreadId: conversation.codexThreadId,
             prepared: input,
             preservesStagedAttachments,
+            localConversationReference,
             pendingRequestId: pendingId ?? null,
             regeneration: regeneration ?? null,
             attachments: files.map(snapshotTurnStartAttachment),
@@ -10141,11 +10294,15 @@ export class ConversationService {
       }
 
       let runnerTurn: StartedRunnerTurn | undefined;
-      const modelTransitionSource = await this.modelTransitionSourceForIntent(
-        startIntent,
-        modelRuntime.model,
-        conversation.codexThreadId,
-      );
+      if (checkedModelTransitionSource === undefined) {
+        checkedModelTransitionSource =
+          await this.modelTransitionSourceForIntent(
+            startIntent,
+            modelRuntime.model,
+            conversation.codexThreadId,
+          );
+      }
+      const modelTransitionSource = checkedModelTransitionSource;
       try {
         const runnerStartInput = buildRunnerStartInputFromIntent(
           startIntent,
@@ -10632,30 +10789,39 @@ export function projectTaskTitle(
   return title;
 }
 
-function projectPending(row: {
-  id: string;
-  conversationId: string;
-  queueNo: bigint;
-  submittedBy: string;
-  inputText: string;
-  priorityCapabilityIdsJson: unknown;
-  knowledgeBaseIdsJson: unknown;
-  collaborationMode: string;
-  status: string;
-  blockCode: string | null;
-  idempotencyKey: string | null;
-  lastStartCheckedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
-  const inspected = inspectOfficeAnnotationPrompt(row.inputText);
+function projectPending(
+  row: {
+    id: string;
+    conversationId: string;
+    queueNo: bigint;
+    submittedBy: string;
+    inputText: string;
+    priorityCapabilityIdsJson: unknown;
+    knowledgeBaseIdsJson: unknown;
+    collaborationMode: string;
+    status: string;
+    blockCode: string | null;
+    idempotencyKey: string | null;
+    lastStartCheckedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  recoveredLocalQuoteDraft = false,
+) {
+  // A recovered local quote draft is marked by a durable internal event, so its
+  // text is the exact sidecar request even when it looks like an annotation
+  // prompt. Historical structured rows still use the text inspection below.
+  const inspected = recoveredLocalQuoteDraft
+    ? null
+    : inspectOfficeAnnotationPrompt(row.inputText);
+  const structuredAnnotation = inspected?.suspected ? inspected : null;
   return {
     id: row.id,
     conversation_id: row.conversationId,
     queue_no: Number(row.queueNo),
     submitted_by: row.submittedBy,
-    input_text: inspected.suspected ? (inspected.request ?? "") : row.inputText,
-    ...(inspected.display ? { display: inspected.display } : {}),
+    input_text: structuredAnnotation ? (structuredAnnotation.request ?? "") : row.inputText,
+    ...(structuredAnnotation?.display ? { display: structuredAnnotation.display } : {}),
     priority_capability_ids: jsonStringArray(row.priorityCapabilityIdsJson),
     knowledge_base_ids: jsonStringArray(row.knowledgeBaseIdsJson),
     collaboration_mode: conversationCollaborationModeSchema.parse(
@@ -11652,8 +11818,13 @@ function buildRunnerStartInputFromIntent(
   const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
   const isCompact = intent.taskKind === "compact";
   const instructions = turnInstructionsForIntent(intent);
+  const conversationReferenceContext = !isCompact &&
+    intent.messageDisplayJson?.kind === "conversation_reference"
+    ? conversationReferenceContextFromPersistedPrompt(intent.inputText, intent.messageDisplayJson)
+    : null;
   return {
     conversationId: intent.conversationId,
+    ...(conversationReferenceContext ? { conversationReferenceContext } : {}),
     appServerProcessLimit:
       executionConcurrency.runner_app_server_process_limit,
     collaborationMode: intent.collaborationMode,
@@ -12187,10 +12358,6 @@ function mapPreflightBlockCode(code: string): string | null {
     return "execution_environment_invalid";
   }
   return null;
-}
-
-function desktopStartStopEventId(turnId: string): string {
-  return deterministicUuid(turnId, "desktop-start-stop");
 }
 
 async function recordUnstartedTurnFailure(

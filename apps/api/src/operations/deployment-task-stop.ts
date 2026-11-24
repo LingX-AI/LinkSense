@@ -4,6 +4,10 @@ import { z } from "zod";
 import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
 import type { LinkSenseRedis } from "../adapters/redis.js";
 import { nextConversationEventSequence } from "../modules/events/sequence.js";
+import {
+  recordRecoveredLocalQuoteDraft,
+  recoveredLocalQuoteRequest,
+} from "../modules/conversations/recovered-local-quote-draft.js";
 
 export const DEPLOYMENT_STOPPED = "DEPLOYMENT_STOPPED";
 const deploymentBlockCode = "deployment_stopped";
@@ -180,13 +184,28 @@ export async function settleDeploymentTasks(
               orderBy: { queueNo: "desc" },
               select: { queueNo: true },
             });
+            // Only an owned local conversation stores the validated quote
+            // request verbatim; every other intent keeps its stored prompt.
+            const localConversation = intent.messageDisplayJson != null
+              ? await tx.conversation.findFirst({
+                  where: {
+                    id: intent.conversationId,
+                    ownerId: intent.ownerId,
+                    executionTarget: "local",
+                  },
+                  select: { id: true },
+                })
+              : null;
+            const recoveredRequest = localConversation
+              ? recoveredLocalQuoteRequest(intent.messageDisplayJson)
+              : null;
             pending = await tx.pendingRequest.create({
               data: {
                 id: intent.projectionTurnId,
                 conversationId: intent.conversationId,
                 queueNo: (latest?.queueNo ?? 0n) + 1n,
                 submittedBy: intent.ownerId,
-                inputText: intent.inputText,
+                inputText: recoveredRequest ?? intent.inputText,
                 collaborationMode: intent.collaborationMode,
                 priorityCapabilityIdsJson: z
                   .array(z.string())
@@ -200,6 +219,13 @@ export async function settleDeploymentTasks(
                 lastStartCheckedAt: now,
               },
             });
+            if (recoveredRequest !== null) {
+              await recordRecoveredLocalQuoteDraft(
+                tx,
+                intent.conversationId,
+                pending.id,
+              );
+            }
           }
           const attachments = z
             .array(z.object({ id: z.uuid() }))

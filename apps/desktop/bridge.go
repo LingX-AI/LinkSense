@@ -105,10 +105,12 @@ const (
 	// read-only wait kind inside computer.execute. It is not a second wire
 	// operation: an old server ignores the unknown offered string and an old
 	// Mac never offers it.
-	desktopComputerWaitOperation = "computer.wait"
-	desktopAttachmentHeader      = "X-LinkSense-Desktop-Attachments"
-	desktopAttachmentVersion     = 1
-	desktopAppVersionHeader      = "X-LinkSense-Desktop-App-Version"
+	desktopComputerWaitOperation        = "computer.wait"
+	desktopAttachmentHeader             = "X-LinkSense-Desktop-Attachments"
+	desktopAttachmentVersion            = 1
+	desktopConversationReferenceHeader  = "X-LinkSense-Desktop-Conversation-Reference"
+	desktopConversationReferenceVersion = 1
+	desktopAppVersionHeader             = "X-LinkSense-Desktop-App-Version"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
@@ -315,10 +317,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	offerComputerStatus := offerExecution && connection.computer != nil
+	offerConversationReference := offerExecution && runtime.GOOS == "darwin"
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
 		if runtime.GOOS == "darwin" {
 			headers.Set(desktopAttachmentHeader, strconv.Itoa(desktopAttachmentVersion))
+			headers.Set(desktopConversationReferenceHeader, strconv.Itoa(desktopConversationReferenceVersion))
 		}
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
 		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
@@ -377,6 +381,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		!hasM1BComputerOperation(ready.ToolOperations)) {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
+	// The quote echo is accepted only for the exact opt-in this socket offered.
+	// An old server omits it, so plain execution remains available without the
+	// structured local quote capability.
+	if ready.ConversationReferenceVersion != nil && !offerConversationReference {
+		return true, "DESKTOP_PROTOCOL_ERROR"
+	}
 	if !connection.authorized() {
 		return true, "AUTH_REQUIRED"
 	}
@@ -385,7 +395,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		// attach reuses the supervisor's own checks: only a published pipe owned
 		// by a ready runtime with no other link is accepted. Its admission runs
 		// under pipe.mu and holds the account lease across link.open.
-		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations, ready.AttachmentVersion, connection.runtimeWriteAdmission(connection.ctx))
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations, ready.AttachmentVersion, ready.ConversationReferenceVersion, connection.runtimeWriteAdmission(connection.ctx))
 		if err != nil {
 			if errors.Is(err, errAccountRequired) {
 				return true, "AUTH_REQUIRED"
@@ -575,16 +585,17 @@ func isDesktopExecutionInput(data []byte) bool {
 }
 
 type deviceReady struct {
-	Type                  string   `json:"type"`
-	DeviceID              string   `json:"device_id"`
-	ConnectionID          string   `json:"connection_id"`
-	ProtocolVersion       int      `json:"protocol_version"`
-	HeartbeatIntervalMS   int      `json:"heartbeat_interval_ms"`
-	ExecutionVersion      *int     `json:"execution_protocol_version,omitempty"`
-	AttachmentVersion     *int     `json:"attachment_protocol_version,omitempty"`
-	ToolVersion           *int     `json:"tool_protocol_version,omitempty"`
-	ToolOperations        []string `json:"tool_operations,omitempty"`
-	ComputerStatusVersion *int     `json:"computer_status_version,omitempty"`
+	Type                         string   `json:"type"`
+	DeviceID                     string   `json:"device_id"`
+	ConnectionID                 string   `json:"connection_id"`
+	ProtocolVersion              int      `json:"protocol_version"`
+	HeartbeatIntervalMS          int      `json:"heartbeat_interval_ms"`
+	ExecutionVersion             *int     `json:"execution_protocol_version,omitempty"`
+	AttachmentVersion            *int     `json:"attachment_protocol_version,omitempty"`
+	ConversationReferenceVersion *int     `json:"conversation_reference_protocol_version,omitempty"`
+	ToolVersion                  *int     `json:"tool_protocol_version,omitempty"`
+	ToolOperations               []string `json:"tool_operations,omitempty"`
+	ComputerStatusVersion        *int     `json:"computer_status_version,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -599,6 +610,8 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 ||
 		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) ||
 		(ready.AttachmentVersion != nil && (ready.ExecutionVersion == nil || *ready.AttachmentVersion != desktopAttachmentVersion)) ||
+		(ready.ConversationReferenceVersion != nil && (ready.ExecutionVersion == nil ||
+			*ready.ConversationReferenceVersion != desktopConversationReferenceVersion)) ||
 		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) ||
 		(ready.ComputerStatusVersion != nil && (*ready.ComputerStatusVersion != desktopComputerStatusVersion ||
 			ready.ExecutionVersion == nil || ready.ToolVersion == nil)) ||

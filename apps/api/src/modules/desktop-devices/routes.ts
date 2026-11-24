@@ -9,6 +9,7 @@ import {
   DESKTOP_APP_VERSION_HEADER,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER,
   DESKTOP_COMPUTER_STATUS_HEADER,
+  DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
@@ -22,6 +23,7 @@ import {
   desktopComputerControlResultSchema,
   desktopComputerControlSchema,
   desktopComputerStatusProtocolVersion,
+  desktopConversationReferenceProtocolVersion,
   desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
@@ -196,6 +198,8 @@ export async function registerDesktopDeviceRoutes(
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
     const supportsAttachments = supportsExecution &&
       request.headers[DESKTOP_ATTACHMENT_PROTOCOL_HEADER] === String(desktopAttachmentProtocolVersion);
+    const supportsConversationReference = supportsExecution &&
+      request.headers[DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER] === String(desktopConversationReferenceProtocolVersion);
     const supportsTools = supportsExecution &&
       request.headers[DESKTOP_TOOL_PROTOCOL_HEADER] === String(desktopToolProtocolVersion);
     const toolOffer = request.headers[DESKTOP_TOOL_OPERATIONS_HEADER];
@@ -437,6 +441,7 @@ export async function registerDesktopDeviceRoutes(
             const detach = await execution.attach({
               ownerId: device.ownerId, deviceId: device.id, connectionId,
               attachments: supportsAttachments,
+              conversationReferences: supportsConversationReference,
               computerStatus: supportsComputerStatus,
               toolOperations: state.tools,
               verifyCredential: () => service.hasCurrentCredential(device),
@@ -458,6 +463,7 @@ export async function registerDesktopDeviceRoutes(
           socket.send(JSON.stringify(state.execution ? desktopExecutionDeviceReadySchema.parse({
             ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
             ...(supportsAttachments ? { attachment_protocol_version: desktopAttachmentProtocolVersion } : {}),
+            ...(supportsConversationReference ? { conversation_reference_protocol_version: desktopConversationReferenceProtocolVersion } : {}),
             ...(state.tools.length ? {
               tool_protocol_version: desktopToolProtocolVersion,
               ...(offered ? { tool_operations: state.tools } : {}),

@@ -332,6 +332,51 @@ func TestDeviceFramesRejectUnknownFieldsAndTrailingDocuments(t *testing.T) {
 	}
 }
 
+func TestDeviceReadyRequiresExecutionForConversationReference(t *testing.T) {
+	credential := deviceFixtureCredential()
+	execution, quote := desktopExecutionVersion, desktopConversationReferenceVersion
+	ready := deviceReady{
+		Type: "ready", DeviceID: credential.DeviceID,
+		ConnectionID: "30000000-0000-4000-8000-000000000001", ProtocolVersion: 1, HeartbeatIntervalMS: 15_000,
+		ExecutionVersion: &execution, ConversationReferenceVersion: &quote,
+	}
+	encoded, _ := json.Marshal(ready)
+	if parsed, err := decodeDeviceReady(encoded); err != nil || parsed.ConversationReferenceVersion == nil {
+		t.Fatal("rejected the matching quote negotiation echo")
+	}
+	withoutExecution := ready
+	withoutExecution.ExecutionVersion = nil
+	encoded, _ = json.Marshal(withoutExecution)
+	if _, err := decodeDeviceReady(encoded); err == nil {
+		t.Fatal("accepted a quote echo without execution negotiation")
+	}
+	wrong := desktopConversationReferenceVersion + 1
+	mismatched := ready
+	mismatched.ConversationReferenceVersion = &wrong
+	encoded, _ = json.Marshal(mismatched)
+	if _, err := decodeDeviceReady(encoded); err == nil {
+		t.Fatal("accepted a mismatched quote protocol version")
+	}
+}
+
+func TestRuntimeLinkOpenCarriesOnlyTheMatchingQuoteVersion(t *testing.T) {
+	runtime, _, messages := newFixtureRuntime(t)
+	quote := desktopConversationReferenceVersion
+	link, err := runtime.attach("70000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000001", nil, nil, nil, &quote, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := <-messages
+	if opened.Type != "link.open" || opened.ConversationReferenceVersion == nil || *opened.ConversationReferenceVersion != quote {
+		t.Fatal("the private supervisor did not carry the exact quote negotiation")
+	}
+	link.close()
+	wrong := quote + 1
+	if _, err := runtime.attach("70000000-0000-4000-8000-000000000002", "10000000-0000-4000-8000-000000000001", nil, nil, nil, &wrong, nil); err == nil {
+		t.Fatal("the private supervisor accepted an unknown quote protocol version")
+	}
+}
+
 func TestDeviceBridgeReportsPackagedAppVersionOnReconnect(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the desktop app version header is macOS-only")
@@ -478,6 +523,58 @@ func TestDeviceBridgeReportsExecutionReadyOnlyForANegotiatedRuntimeLink(t *testi
 	if status.State != DeviceOffline || status.ExecutionReady {
 		t.Fatalf("a stopped execution connection reported readiness: %+v", status)
 	}
+}
+
+func TestDeviceBridgeOffersAndEchoesConversationReferenceOnTheExactSocket(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the local quote lane is macOS-only")
+	}
+	credential := deviceFixtureCredential()
+	runtime, _, messages := newFixtureRuntime(t)
+	offer := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		offer <- r.Header.Get(desktopConversationReferenceHeader)
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		if _, _, err := socket.Read(ctx); err != nil {
+			return
+		}
+		execution, quote := desktopExecutionVersion, desktopConversationReferenceVersion
+		data, _ := json.Marshal(deviceReady{
+			Type: "ready", DeviceID: credential.DeviceID, ConnectionID: "30000000-0000-4000-8000-000000000005",
+			ProtocolVersion: 1, HeartbeatIntervalMS: 15_000,
+			ExecutionVersion: &execution, ConversationReferenceVersion: &quote,
+		})
+		if socket.Write(ctx, websocket.MessageText, data) != nil {
+			return
+		}
+		<-ctx.Done()
+	}))
+	defer server.Close()
+	origin, _ := url.Parse(server.URL)
+	connection := newFixtureDeviceConnection(t, origin, credential)
+	connection.runtime = runtime
+	go connection.run()
+	defer connection.cancel()
+	if got := <-offer; got != strconv.Itoa(desktopConversationReferenceVersion) {
+		t.Fatalf("conversation-reference offer header = %q", got)
+	}
+	select {
+	case opened := <-messages:
+		if opened.ConversationReferenceVersion == nil || *opened.ConversationReferenceVersion != desktopConversationReferenceVersion {
+			t.Fatalf("the exact quote echo was not carried to the private runner: %+v", opened)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the quote negotiation did not open a runtime link")
+	}
+	waitDeviceStatus(t, connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ExecutionReady
+	})
 }
 
 func TestDeviceBridgeExecutionReadyFailsClosedWhenTheRuntimeStops(t *testing.T) {
@@ -1138,7 +1235,7 @@ func TestRuntimeLinkAdmissionFencesAccountLossAtOpen(t *testing.T) {
 			results := make(chan attachResult, 1)
 			go func() {
 				close(started)
-				link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil,
+				link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil, nil,
 					connection.runtimeWriteAdmission(connection.ctx))
 				results <- attachResult{link, err}
 			}()
@@ -1185,7 +1282,7 @@ func TestRuntimeLinkAdmissionFencesAccountLossAtSend(t *testing.T) {
 			connection := newDeviceConnection(nil, credential, account, lease)
 			connection.signOut = signOut
 			runtime, pipe, messages := newFixtureRuntime(t)
-			link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil,
+			link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil, nil,
 				connection.runtimeWriteAdmission(connection.ctx))
 			if err != nil {
 				t.Fatal(err)
@@ -1240,7 +1337,7 @@ func TestRuntimeLinkAdmissionRejectsAStaleRuntimeGeneration(t *testing.T) {
 			account, lease := deviceFixtureAccount(credential)
 			connection := newDeviceConnection(nil, credential, account, lease)
 			runtime, pipe, messages := newFixtureRuntime(t)
-			link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil,
+			link, err := runtime.attach(linkID, credential.OwnerID, nil, nil, nil, nil,
 				connection.runtimeWriteAdmission(connection.ctx))
 			if err != nil {
 				t.Fatal(err)

@@ -7,6 +7,7 @@ import { loadInterruptedAssistantOutputs, persistInterruptedAssistantOutputs } f
 import type { KnowledgeCitationProjection } from "../events/knowledge-citations.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
 import { cancelDesktopApprovals } from "../conversations/desktop-approvals.js";
+import { recordRecoveredLocalQuoteDraft, recoveredLocalQuoteRequest } from "../conversations/recovered-local-quote-draft.js";
 
 type RevokedConversation = { ownerId: string; deviceId: string; conversationId: string; runtimeGeneration: string };
 export type RevokedMacTurn = RevokedConversation & { projectionTurnId: string };
@@ -14,6 +15,8 @@ type RevokedWork = RevokedConversation & { turnIds: string[] };
 type RecoverySlot = RevokedMacTurn | { deviceId: null; conversationId: string; projectionTurnId: string };
 const errorCode = "DESKTOP_DEVICE_REVOKED";
 const messageKey = errorCatalog[errorCode].message_key;
+/** Public block code for a Mac draft blocked by device revocation. */
+export const REVOKED_MAC_PENDING_BLOCK_CODE = "desktop_device_revoked";
 const attachmentIds = z.array(z.object({ id: z.uuid() }));
 const priorityCapabilityIds = z.array(capabilitySelectionIdSchema);
 const knowledgeBaseIds = z.array(z.uuid());
@@ -98,7 +101,7 @@ export async function settleRevokedMacTurn(
         where: { projectionTurnId: turnId, conversationId, ownerId, runtimeGeneration },
       });
       if (intent) {
-        const blocked = { status: "blocked_preflight", blockCode: "desktop_device_revoked", lastStartCheckedAt: now } as const;
+        const blocked = { status: "blocked_preflight", blockCode: REVOKED_MAC_PENDING_BLOCK_CODE, lastStartCheckedAt: now } as const;
         let [draft] = intent.pendingRequestId
           ? await tx.pendingRequest.updateManyAndReturn({
             where: { id: intent.pendingRequestId, conversationId, submittedBy: ownerId }, data: blocked,
@@ -109,15 +112,22 @@ export async function settleRevokedMacTurn(
           const tail = await tx.pendingRequest.findFirst({
             where: { conversationId }, orderBy: { queueNo: "desc" }, select: { queueNo: true },
           });
+          // Only a validated sidecar supplies the exact plain request; it stays
+          // authoritative even when the literal looks like an annotation prompt.
+          const recoveredRequest = recoveredLocalQuoteRequest(intent.messageDisplayJson);
           draft = await tx.pendingRequest.create({
             data: {
               id: turnId, conversationId, submittedBy: ownerId, queueNo: (tail?.queueNo ?? 0n) + 1n,
-              inputText: intent.inputText, collaborationMode: intent.collaborationMode, idempotencyKey: intent.idempotencyKey,
+              inputText: recoveredRequest ?? intent.inputText,
+              collaborationMode: intent.collaborationMode, idempotencyKey: intent.idempotencyKey,
               priorityCapabilityIdsJson: priorityCapabilityIds.parse(intent.priorityCapabilityIdsJson),
               knowledgeBaseIdsJson: knowledgeBaseIds.parse(intent.knowledgeBaseIdsJson), ...blocked,
             },
             select: { id: true, queueNo: true },
           });
+          if (recoveredRequest !== null) {
+            await recordRecoveredLocalQuoteDraft(tx, conversationId, draft.id);
+          }
         }
         await tx.conversationFile.updateMany({
           where: {

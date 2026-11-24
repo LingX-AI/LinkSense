@@ -5,8 +5,8 @@ import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DESKTOP_APP_VERSION_HEADER,
-  DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, DESKTOP_TOOL_OPERATIONS_HEADER,
-  DESKTOP_TOOL_PROTOCOL_HEADER, desktopAttachmentProtocolVersion,
+  DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, DESKTOP_TOOL_OPERATIONS_HEADER,
+  DESKTOP_TOOL_PROTOCOL_HEADER, desktopAttachmentProtocolVersion, desktopConversationReferenceProtocolVersion,
   desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, desktopToolProtocolVersion, type DesktopExecutionAck,
   type DesktopExecutionCallback, type DesktopExecutionCommand,
@@ -109,13 +109,14 @@ async function socketUrl(app: ReturnType<typeof Fastify>) {
 
 async function connect(
   app: ReturnType<typeof Fastify>, token: string, executionVersion?: number, attachments = false, toolOffer?: string,
-  appVersion?: string | string[],
+  appVersion?: string | string[], conversationReferences = false,
 ) {
   const socket = new WebSocket(await socketUrl(app), {
     headers: {
       ...(appVersion === undefined ? {} : { [DESKTOP_APP_VERSION_HEADER]: appVersion }),
       ...(executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) }),
       ...(attachments ? { [DESKTOP_ATTACHMENT_PROTOCOL_HEADER]: String(desktopAttachmentProtocolVersion) } : {}),
+      ...(conversationReferences ? { [DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER]: String(desktopConversationReferenceProtocolVersion) } : {}),
       ...(toolOffer === undefined ? {} : {
         [DESKTOP_TOOL_PROTOCOL_HEADER]: String(desktopToolProtocolVersion),
         [DESKTOP_TOOL_OPERATIONS_HEADER]: toolOffer,
@@ -138,6 +139,24 @@ function inspection(overrides: Partial<Extract<DesktopExecutionCommand, { operat
     conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID(),
     expires_at: new Date(Date.now() + 4_000).toISOString(), ...overrides,
   };
+}
+
+function quoteStart(): Extract<DesktopExecutionCommand, { operation: "turn.start" }> {
+  const base = inspection();
+  return desktopExecutionCommandSchema.parse({
+    ...base, operation: "turn.start",
+    body: {
+      native_thread_id: null, input: "Explain this claim", reasoning_effort: "low",
+      conversation_reference_context: {
+        selection_text: "quoted 😀 claim",
+        recent_messages: [{ role: "assistant", text: "recent context" }],
+      },
+      credentials: {
+        turn_id: base.turn_id, expires_at: base.expires_at, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", model: "sample", revision: 1, protocol_mode: "native_responses", token: `lsdm_${"b".repeat(43)}` },
+      },
+    },
+  }) as Extract<DesktopExecutionCommand, { operation: "turn.start" }>;
 }
 
 function acknowledgeInspection(socket: WebSocket, command: DesktopExecutionCommand) {
@@ -352,6 +371,51 @@ describe("desktop execution transport", () => {
       socket.terminate();
       await Promise.allSettled(pending);
     }
+  });
+
+  it.each([
+    { peer: "quote-capable", conversationReferences: true },
+    { peer: "legacy", conversationReferences: false },
+  ])("echoes local quote negotiation only on an exact opt-in $peer socket", async ({ conversationReferences }) => {
+    const { app, execution } = await fixture();
+    const { device, token } = await paired(app);
+    const { socket, ready } = await connect(
+      app, token, desktopExecutionProtocolVersion, true, undefined, undefined, conversationReferences,
+    );
+    expect(desktopExecutionDeviceReadySchema.parse(ready).conversation_reference_protocol_version)
+      .toBe(conversationReferences ? desktopConversationReferenceProtocolVersion : undefined);
+    const binding = await execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    expect(await execution.supportsConversationReference(binding)).toBe(conversationReferences);
+    const command = quoteStart();
+    if (!conversationReferences) {
+      await expect(execution.send(binding, command)).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+      return;
+    }
+    const frame = readFrame(socket);
+    const result = execution.send(binding, command);
+    expect(await frame).toEqual(command);
+    socket.send(JSON.stringify({
+      type: "command.result", id: command.id, operation: command.operation, ok: true,
+      result: {
+        conversationId: command.conversation_id, projectionTurnId: command.turn_id, status: "starting",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      },
+    }));
+    await expect(result).resolves.toMatchObject({ ok: true, operation: "turn.start" });
+  });
+
+  it("does not deliver a quote command to a replacement socket that did not opt in", async () => {
+    const { app, execution } = await fixture();
+    const { device, token } = await paired(app);
+    const first = await connect(app, token, desktopExecutionProtocolVersion, true, undefined, undefined, true);
+    const firstBinding = await execution.connection(device.id);
+    if (!firstBinding) throw new Error("Mac did not negotiate execution");
+    first.socket.terminate();
+    const replacement = await connect(app, token, desktopExecutionProtocolVersion, true);
+    expect(desktopExecutionDeviceReadySchema.parse(replacement.ready).conversation_reference_protocol_version).toBeUndefined();
+    await expect(execution.send(firstBinding, quoteStart())).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    await expect(once(replacement.socket, "message", { signal: AbortSignal.timeout(100) })).rejects.toThrow();
   });
 
   it("sends a command to the current negotiated Mac across API replicas and correlates its receipt", async () => {

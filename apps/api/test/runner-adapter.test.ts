@@ -120,6 +120,82 @@ describe("RunnerClient start operation", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it("makes one Mac start request with the structured quote separate from native input", async () => {
+      const { client, send, supportsConversationReference, lease, fetchMock } = desktopRunnerFixture(redis.client);
+      supportsConversationReference.mockResolvedValue(true);
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        context: {
+          ...startInput().context,
+          userInput: "Explain this claim",
+          officeSelectionContext: "raw office prompt is ignored for the device quote",
+        },
+        conversationReferenceContext: {
+          selection_text: "quoted 😀 claim",
+          recent_messages: [{ role: "assistant" as const, text: "recent context" }],
+        },
+      };
+      send.mockImplementationOnce(async (_binding, command) => {
+        if (command.operation !== "turn.start") throw new Error("expected start");
+        expect(command.body.input).toBe("Explain this claim");
+        expect(command.body.input).not.toContain(input.conversationReferenceContext.selection_text);
+        expect(command.body.conversation_reference_context).toEqual(input.conversationReferenceContext);
+        return {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...startingOperation(), status: "starting", projectionTurnId: input.projectionTurnId },
+        };
+      });
+
+      await expect(client.acceptStartTurn(input)).resolves.toMatchObject({ status: "starting" });
+      expect(send).toHaveBeenCalledOnce();
+      expect(supportsConversationReference).toHaveBeenCalledOnce();
+      expect(await lease(input.projectionTurnId)).not.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects an older Mac before a quote lease or command", async () => {
+      const { client, send, supportsConversationReference, lease } = desktopRunnerFixture(redis.client);
+      supportsConversationReference.mockResolvedValue(false);
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        conversationReferenceContext: { selection_text: "quote", recent_messages: [] },
+      };
+      await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "DESKTOP_UPDATE_REQUIRED" });
+      expect(send).not.toHaveBeenCalled();
+      expect(await lease(input.projectionTurnId)).toBeNull();
+    });
+
+    it("rejects a Chat model before a quote lease or command", async () => {
+      const { client, send, supportsConversationReference, lease } = desktopRunnerFixture(redis.client);
+      supportsConversationReference.mockResolvedValue(true);
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        modelProvider: { ...startInput().modelProvider, protocolMode: "chat_completions_bridge" as const },
+        conversationReferenceContext: { selection_text: "quote", recent_messages: [] },
+      };
+      await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+      expect(send).not.toHaveBeenCalled();
+      expect(supportsConversationReference).not.toHaveBeenCalled();
+      expect(await lease(input.projectionTurnId)).toBeNull();
+    });
+
+    it("keeps an uncertain quote start lease without replaying the command", async () => {
+      const { client, send, supportsConversationReference, lease } = desktopRunnerFixture(redis.client);
+      supportsConversationReference.mockResolvedValue(true);
+      send.mockRejectedValueOnce(new DesktopCommandUncertainError());
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        conversationReferenceContext: { selection_text: "quote", recent_messages: [] },
+      };
+      await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+      expect(send).toHaveBeenCalledOnce();
+      expect(await lease(input.projectionTurnId)).not.toBeNull();
+    });
+
     it("reports an unconfirmed Mac interrupt without pretending the device was unavailable", async () => {
       const { client, fetchMock, send } = desktopRunnerFixture(redis.client);
       send.mockRejectedValueOnce(new DesktopCommandUncertainError());
@@ -1613,15 +1689,17 @@ function desktopRunnerFixture(
   const send = vi.fn<DesktopDeviceTransport["send"]>();
   const scheduleExpiry = vi.fn(async () => undefined);
   const supportsAttachments = vi.fn(async () => false);
+  const supportsConversationReference = vi.fn(async () => false);
   const manifest = vi.fn();
   const runner = new DesktopRunner(findConversation, {
     connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
+    supportsConversationReference,
   }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest }, pauseArtifactPublication);
   const client = new RunnerClient(testConfig(), async () => "local");
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
-  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, manifest, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
+  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, manifest, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {

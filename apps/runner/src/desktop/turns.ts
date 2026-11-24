@@ -9,6 +9,7 @@ import {
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE, RUNNER_TURN_INTERRUPT_REQUESTED,
   RUNNER_EVENT_BATCH_MAX_COUNT, RUNNER_EVENT_BATCH_TARGET_BYTES,
   supportsDesktopUserInput,
+  serializeConversationReferenceContext,
   type DesktopExecutionAck, type DesktopExecutionCommand, type DesktopExecutionRecovery, type DesktopExecutionResult, type DesktopNegotiatedOperation,
 } from "@linksense/shared"
 import { z } from "zod"
@@ -495,6 +496,9 @@ export class DesktopTurns {
       collaborationMode: "default", capabilities: [], environment: {},
       context: {
         userInput: command.body.input, attachments, priorityPlugins: [], prioritySkills: [],
+        ...(command.body.conversation_reference_context ? {
+          officeSelectionContext: serializeConversationReferenceContext(command.body.conversation_reference_context),
+        } : {}),
         ...(command.body.selected_knowledge_bases ? { selectedKnowledgeBases: command.body.selected_knowledge_bases } : {}),
       },
       reasoningEffort: command.body.reasoning_effort,

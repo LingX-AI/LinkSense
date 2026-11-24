@@ -70,6 +70,7 @@ export class DesktopSupervisor {
               message.link_id, message.owner_id, turns,
               frame => this.options.write(desktopRuntimeOutputSchema.parse(frame)),
               this.options.fail, operations, message.attachment_version !== undefined,
+              message.conversation_reference_version !== undefined,
             ),
           }
         } else if (this.current?.link.id === message.link_id) {

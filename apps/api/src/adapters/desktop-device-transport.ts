@@ -70,6 +70,7 @@ type DeviceSocket = {
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
   attachments: boolean;
+  conversationReferences: boolean;
   computerStatus: boolean;
   toolOperations: readonly DesktopNegotiatedOperation[];
   tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
@@ -160,14 +161,15 @@ export class DesktopDeviceTransport {
   }
 
   async attach(
-    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime" | "computerStatus"> &
-      Partial<Pick<DeviceSocket, "computerStatus">> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
+    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime" | "computerStatus" | "conversationReferences"> &
+      Partial<Pick<DeviceSocket, "computerStatus" | "conversationReferences">> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
     const { ownerId, deviceId, connectionId, verifyCredential, send, close, toolOperations, attachments } = socket;
+    const conversationReferences = socket.conversationReferences === true;
     const binding = { deviceId, connectionId, gatewayId: this.id };
     const connection: DeviceSocket = {
-      ownerId, binding, verifyCredential, send, close, toolOperations, attachments,
+      ownerId, binding, verifyCredential, send, close, toolOperations, attachments, conversationReferences,
       computerStatus: socket.computerStatus === true,
       pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
     };
@@ -181,7 +183,7 @@ export class DesktopDeviceTransport {
       }
     };
     try {
-      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments) &&
+      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments, conversationReferences) &&
         this.sockets.get(connectionId) === connection) return detach;
       detach();
       return null;
@@ -201,6 +203,10 @@ export class DesktopDeviceTransport {
 
   supportsAttachments(binding: DesktopExecutionBinding): Promise<boolean> {
     return this.coordinator.supportsAttachments(binding);
+  }
+
+  supportsConversationReference(binding: DesktopExecutionBinding): Promise<boolean> {
+    return this.coordinator.supportsConversationReference(binding);
   }
 
   async send(
@@ -523,7 +529,8 @@ export class DesktopDeviceTransport {
     }
     if (frame.operation === "turn.start" && (
       (frame.body.selected_knowledge_bases?.length && !knowledgeTools.every(op => socket.toolOperations.includes(op))) ||
-      (frame.body.attachments?.length && !socket.attachments)
+      (frame.body.attachments?.length && !socket.attachments) ||
+      (frame.body.conversation_reference_context && !socket.conversationReferences)
     )) {
       await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
@@ -598,7 +605,10 @@ export class DesktopDeviceTransport {
       this.finish(socket, delivery, failure(frame, authorized ? "RUNNER_UNAVAILABLE" : "FORBIDDEN"));
       return;
     }
-    const current = authorized && await this.coordinator.mayDispatch(socket.binding, frame.id);
+    const current = authorized &&
+      (!(frame.operation === "turn.start" && frame.body.conversation_reference_context) ||
+        await this.coordinator.supportsConversationReference(socket.binding)) &&
+      await this.coordinator.mayDispatch(socket.binding, frame.id);
     if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
     if (current && frame.operation === "turn.interrupt") {
       const start = [...socket.pending.values()].find(({ command }) => command.operation === "turn.start" &&

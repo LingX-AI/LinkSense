@@ -18,6 +18,7 @@ import {
 } from "./knowledge.js";
 import { WEB_SEARCH_MAX_TIMEOUT_MS, webSearchFailureCodeSchema, webSearchRequestSchema, webSearchSuccessSchema } from "./web-search.js";
 import { desktopConnectionRequestBodySchema, desktopConnectionResultSchema } from "./workspace-connections.js";
+import { conversationReferenceContextSchema } from "./conversation-side-chat.js";
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
@@ -35,6 +36,13 @@ export const DESKTOP_COMPUTER_STATUS_HEADER = "x-linksense-desktop-computer-stat
 export const desktopComputerStatusProtocolVersion = 1;
 export const DESKTOP_ATTACHMENT_PROTOCOL_HEADER = "x-linksense-desktop-attachments";
 export const desktopAttachmentProtocolVersion = 1;
+/**
+ * Additive opt-in for the structured local side-chat quote context. It rides
+ * the same exact socket and dispatch authority as attachments; old hosts omit
+ * it and old servers ignore the unknown header.
+ */
+export const DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER = "x-linksense-desktop-conversation-reference";
+export const desktopConversationReferenceProtocolVersion = 1;
 export const desktopAttachmentDownloadPath = "/api/v1/desktop/attachments";
 export const DESKTOP_ATTACHMENT_GRANT_HEADER = "x-linksense-desktop-attachment-grant";
 export const desktopToolRequestLifetimeMs = WEB_SEARCH_MAX_TIMEOUT_MS + 2_000;
@@ -131,6 +139,7 @@ const toolOperations = z.array(desktopNegotiatedOperationSchema).max(desktopNego
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
   attachment_protocol_version: z.literal(desktopAttachmentProtocolVersion).optional(),
+  conversation_reference_protocol_version: z.literal(desktopConversationReferenceProtocolVersion).optional(),
   tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
   tool_operations: toolOperations.optional(),
   computer_status_version: z.literal(desktopComputerStatusProtocolVersion).optional(),
@@ -225,6 +234,7 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
     body: z.strictObject({
       native_thread_id: uuidSchema.nullable(),
       input: z.string().trim().max(128_000),
+      conversation_reference_context: conversationReferenceContextSchema.optional(),
       attachments: desktopAttachmentManifestSchema.optional(),
       selected_knowledge_bases: runnerKnowledgeBaseSelectionSchema.optional(),
       reasoning_effort: reasoningEffortSchema,
@@ -442,6 +452,7 @@ export const desktopRuntimeInputSchema = z.union([
     type: z.literal("link.open"), owner_id: uuidSchema, tools_version: z.literal(desktopToolProtocolVersion).optional(),
     tool_operations: toolOperations.optional(),
     attachment_version: z.literal(desktopAttachmentProtocolVersion).optional(),
+    conversation_reference_version: z.literal(desktopConversationReferenceProtocolVersion).optional(),
   }),
   link.extend({ type: z.literal("link.close") }),
   link.extend({

@@ -554,6 +554,23 @@ existing task's target, including cross-target continuation, is not wired.
 This UI adds no database migration or dependency and does not change the
 execution switch above.
 
+On Mac, users can submit structured quotes directly in their own local side
+chats in default mode using native Responses or Responses tool compatibility,
+without cloud fallback. The Chat Completions bridge cannot start a quote or
+continue a history containing one, even after the parent chat is deleted.
+Older execution-capable clients still run ordinary local turns, and supported
+existing history remains readable without backfill. An otherwise ready Mac
+without negotiated quote support gets `DESKTOP_UPDATE_REQUIRED` before the API
+records a start intent, reserves a turn slot, or dispatches the turn. Quotes
+require no migration and do not change the execution switch above. Before
+submitting quotes in development/test, upgrade all API and gateway replicas,
+the maintenance and deployment task settlement tooling, and the Mac app with
+its matching bundled runner, then reconnect the Mac. After quotes are written,
+recover by deploying a compatible version forward; do not run older API or
+settlement tooling or edit stored rows. If a deployment stop or device
+revocation settles a quoted turn before it starts, you can restore the exact
+question without the quote. Quoting again requires a fresh submission.
+
 Mac artifact registration is separately disabled by default. To
 enable it in development/test, upgrade all serving API replicas and
 `linksense-maintenance` consumers first, then set

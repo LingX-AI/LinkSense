@@ -28,7 +28,7 @@ type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<UserInputCom
 export class DesktopRunner {
   constructor(
     private readonly findConversation: (scope: ConversationScope) => Promise<{ desktopDeviceId: string | null; runtimeGeneration: string } | null>,
-    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments">,
+    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments" | "supportsConversationReference">,
     private readonly leases: Pick<DesktopRunLeases, "issue" | "discardUndelivered">,
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
     private readonly attachments: Pick<DesktopAttachments, "manifest">,
@@ -42,8 +42,9 @@ export class DesktopRunner {
     }) => Promise<void>,
   ) {}
 
-  async assertAvailable(scope: ConversationScope, needsAttachments = false): Promise<void> {
+  async assertAvailable(scope: ConversationScope, needsAttachments = false, needsConversationReference = false): Promise<void> {
     const { binding } = await this.resolve(scope);
+    if (needsConversationReference) await this.assertConversationReferenceSupport(binding);
     if (needsAttachments) await this.assertAttachmentSupport(binding);
   }
 
@@ -55,12 +56,19 @@ export class DesktopRunner {
         input.mcpServers.length || Object.keys(input.environment).length || input.modelProvider.privacyMasking ||
         input.modelTransitionSource?.provider.privacyMasking || context.applicationInstructions ||
         context.approvedPlanImplementation || context.automationExecution || context.requireFinalResponse ||
-        context.officeSelectionContext || context.priorityPlugins.length || context.prioritySkills.length) {
+        (context.officeSelectionContext && !input.conversationReferenceContext) ||
+        context.priorityPlugins.length || context.prioritySkills.length) {
       throw new AppError("RUNNER_UNAVAILABLE");
     }
     const scope = { ownerId: input.ownerId, conversationId: input.conversationId, turnId: input.projectionTurnId, runtimeGeneration: input.expectedRuntimeGeneration };
     const target = await this.resolve({ ...scope, ...(connectionId ? { connectionId } : {}) });
     const binding = target.binding;
+    if (input.conversationReferenceContext) {
+      // A native quote cannot be represented by the Chat bridge; fail before
+      // the run lease or any device dispatch.
+      if (input.modelProvider.protocolMode === "chat_completions_bridge") throw new AppError("MODEL_SELECTION_INVALID");
+      await this.assertConversationReferenceSupport(binding);
+    }
     if (context.selectedKnowledgeBases?.length && !await this.transport.supportsKnowledge(binding)) {
       throw new DesktopCommandUndeliveredError();
     }
@@ -83,6 +91,7 @@ export class DesktopRunner {
       operation: "turn.start",
       body: {
         native_thread_id: input.codexThreadId ?? null, input: context.userInput, reasoning_effort: input.reasoningEffort, credentials,
+        ...(input.conversationReferenceContext ? { conversation_reference_context: input.conversationReferenceContext } : {}),
         ...(context.selectedKnowledgeBases?.length ? { selected_knowledge_bases: context.selectedKnowledgeBases } : {}),
         ...(attachments ? { attachments } : {}),
       },
@@ -101,6 +110,10 @@ export class DesktopRunner {
 
   private async assertAttachmentSupport(binding: DesktopExecutionBinding): Promise<void> {
     if (!await this.transport.supportsAttachments(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
+  }
+
+  private async assertConversationReferenceSupport(binding: DesktopExecutionBinding): Promise<void> {
+    if (!await this.transport.supportsConversationReference(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
   }
 
   async inspect(scope: TurnScope): Promise<RunnerStartOperation | null> {

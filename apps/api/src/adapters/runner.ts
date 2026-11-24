@@ -31,6 +31,7 @@ import {
   type RuntimeMcpServer,
   type RunnerCodexGoal,
   type RunnerKnowledgeBaseSelection,
+  type ConversationReferenceContext,
 } from "@linksense/shared";
 import { z } from "zod";
 import pRetry from "p-retry";
@@ -236,6 +237,8 @@ export type RunnerStartInput = {
   conversationId: string;
   projectionTurnId: string;
   appServerProcessLimit: number;
+  /** Server-derived bounded quote context; never accepted from a device or raw prompt. */
+  conversationReferenceContext?: ConversationReferenceContext;
   operationKind?: "turn" | "compact";
   eventProjectionTurnId?: string;
   ownerId: string;
@@ -408,8 +411,8 @@ export class RunnerClient {
     return await this.resolveWorkspace?.(ownerId, conversationId) === "local";
   }
 
-  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false): Promise<void> {
-    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments);
+  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false): Promise<void> {
+    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference);
   }
 
   drainDesktopTurn(scope: Parameters<DesktopRunner["drain"]>[0]): ReturnType<DesktopRunner["drain"]> {
@@ -470,6 +473,9 @@ export class RunnerClient {
     assertCapabilityGeneration(input.capabilityGeneration);
     assertCapabilityGeneration(input.mcpGeneration);
     const { conversationId, ...startBody } = input;
+    // The local quote context is a server-derived device field, never a cloud
+    // runner start-body field.
+    delete startBody.conversationReferenceContext;
     const startPath = `/conversations/${conversationId}/turns/start`;
     const operationPath = `${startPath}/${input.projectionTurnId}`;
     let operation: RunnerStartOperation;

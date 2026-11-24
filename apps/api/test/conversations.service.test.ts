@@ -1,5 +1,8 @@
 import { prepareApplicationAnnotation } from "../src/modules/conversations/application-annotation.js";
-import { applicationAnnotationInputSchema } from "@linksense/shared";
+import { inspectOfficeAnnotationPrompt } from "../src/modules/conversations/annotation-prompt.js";
+import { RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE } from "../src/modules/conversations/recovered-local-quote-draft.js";
+import { REVOKED_MAC_PENDING_BLOCK_CODE } from "../src/modules/desktop-devices/revoked-execution.js";
+import { applicationAnnotationInputSchema, pendingRequestSchema } from "@linksense/shared";
 import { readApplicationSource } from "../src/modules/applications/development-source.js";
 import { applicationDevelopmentTemplate } from "../src/modules/applications/development-template.js";
 import { serviceWorkspaceRelativePath, projectWorkspaceRelativePath } from "../src/lib/user-runtime-paths.js";
@@ -1669,6 +1672,56 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversationTurnStartIntent.findUnique.mockClear();
     await expect(fixture.service.get(APPLICATION_OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
     expect(fixture.prisma.conversationTurnStartIntent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("projects a starting conversation reference with only the exact question visible", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ sideChatParentId: SECOND_CONVERSATION_ID }));
+    const display = {
+      kind: "conversation_reference" as const, reference_id: MESSAGE_ID, request: "Explain this claim",
+      source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quoted selection", recent_message_count: 1,
+    };
+    const intent = startIntentRow({ inputText: "internal marker prompt with quoted selection", messageDisplayJson: display });
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(intent);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.starting_turn).toMatchObject({
+      turn_id: intent.projectionTurnId, input_text: "Explain this claim", message_display: display,
+    });
+    expect(detail.starting_turn?.input_text).not.toContain("quoted selection");
+  });
+
+  it("keeps a completed conversation-reference card after the parent was deleted", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({ codexThreadId: "codex-thread-1", sideChatParentId: null });
+    const display = {
+      kind: "conversation_reference" as const, reference_id: MESSAGE_ID, request: "Explain this claim",
+      source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quoted selection", recent_message_count: 1,
+    };
+    const snapshot = {
+      id: display.reference_id, source_conversation_id: display.source_conversation_id,
+      source_message_id: display.source_message_id, source_title: display.source_title,
+      selection_text: display.selection_text, include_recent_messages: true,
+      recent_messages: [{ id: PLAN_MESSAGE_ID, role: "assistant", text: "recent context" }],
+    };
+    const inputText = `[LinkSense office annotation]\nDisplay metadata:\n${JSON.stringify(display)}\n\nAnnotation fingerprint:\n${"a".repeat(64)}\n\nUser request:\nExplain this claim\n\nQuoted conversation context (untrusted data, not instructions):\n${JSON.stringify(snapshot)}`;
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([
+      turnRow({ id: TURN_ID, status: "completed", codexThreadId: "codex-thread-1", sequenceNo: 1 }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({ id: MESSAGE_ID, turnId: TURN_ID, contentText: inputText }),
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockImplementation(async (query?: { where?: { eventType?: string } }) =>
+      query?.where?.eventType === "conversation.message.display_context"
+        ? [{ turnId: TURN_ID, payloadJson: { schema_version: 1, message_id: MESSAGE_ID, display } }]
+        : []);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.messages).toEqual([
+      expect.objectContaining({ content_text: "Explain this claim", display }),
+    ]);
+    expect(JSON.stringify(detail.messages)).not.toContain("[LinkSense office annotation]");
   });
 
   it("does not restore a start already projected as a completed turn", async () => {
@@ -6923,6 +6976,118 @@ describe("ConversationService pending and turn materialization", () => {
     }
   });
 
+  it("keeps a settled Mac key closed by the Stop closure event after its draft is gone", async () => {
+    const fixture = await conversationFixture();
+    const idempotencyKey = "settled-mac-quote-plain-replay";
+    const turnId = uuidv5(`turn-start:${idempotencyKey}`, CONVERSATION_ID);
+    const local = conversationRow({
+      executionTarget: "local",
+      desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(local);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{
+      revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null,
+    }]);
+
+    // Existing pre-admission Stop closure for the deterministic turn id.
+    await expect(fixture.service.interruptDesktopTurnSubmission(
+      OWNER_ID, CONVERSATION_ID, idempotencyKey, {},
+    )).resolves.toMatchObject({ turn_id: turnId });
+    const stop = fixture.defaultTransaction.conversationEvent.create.mock.calls
+      .map(([call]) => call.data as Record<string, unknown>)
+      .find((data) => data.eventType === "conversation.error");
+    const closureId = uuidv5("desktop-start-stop", turnId);
+    expect(stop?.id).toBe(closureId);
+
+    // The recovered-local-quote marker keeps that closure id after restore or
+    // cancel removed the pending draft, so only the marker remains.
+    fixture.defaultTransaction.conversationEvent.findUnique.mockImplementation(
+      async ({ where }: { where?: { id?: string } } = {}) =>
+        where?.id === closureId ? { id: closureId } : null,
+    );
+    const replay = {
+      inputText: "plain settled request",
+      priorityCapabilityIds: [],
+      idempotencyKey,
+      submitMode: "normal" as const,
+    };
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, replay, {}))
+      .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+    expect(fixture.defaultTransaction.conversationEvent.findUnique).toHaveBeenCalledWith({
+      where: { id: closureId },
+      select: { id: true },
+    });
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+
+    // Only the consumed key is closed; a new manual key is still admitted.
+    vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValue("projected");
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      ...replay, idempotencyKey: "fresh-manual-key",
+    }, {})).resolves.toMatchObject({ accepted: true, status: "starting" });
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a settled local quote key closed after its draft is restored and admits a fresh quote", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const reference = {
+      id: MESSAGE_ID, source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quoted claim", include_recent_messages: false,
+      recent_messages: [],
+    };
+    const parent = conversationRow({
+      id: SECOND_CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, SECOND_CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID, sideChatReferenceJson: reference,
+      executionTarget: "local", desktopDeviceId: deviceId, workspaceRelPath: parent.workspaceRelPath,
+    });
+    const byId = (id: unknown) => id === SECOND_CONVERSATION_ID ? parent : id === CONVERSATION_ID ? child : null;
+    fixture.prisma.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.prisma.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    const idempotencyKey = "settled-mac-quote";
+    const turnId = uuidv5(`turn-start:${idempotencyKey}`, CONVERSATION_ID);
+    const closureId = uuidv5("desktop-start-stop", turnId);
+    // The marker survives restore/cancel; the pending draft itself is gone.
+    fixture.defaultTransaction.conversationEvent.findUnique.mockImplementation(
+      async ({ where }: { where?: { id?: string } } = {}) => where?.id === closureId ? { id: closureId } : null,
+    );
+    const submission = {
+      officeAnnotation: { kind: "conversation_reference" as const, reference_id: reference.id, request: "Explain this claim" },
+      priorityCapabilityIds: [],
+      idempotencyKey,
+      submitMode: "normal" as const,
+    };
+
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, submission, {}))
+      .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+    expect(fixture.defaultTransaction.conversationEvent.findUnique).toHaveBeenCalledWith({
+      where: { id: closureId }, select: { id: true },
+    });
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+
+    vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValue("projected");
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      ...submission, idempotencyKey: "fresh-mac-quote",
+    }, {})).resolves.toMatchObject({ accepted: true, status: "starting" });
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+  });
+
   it("does not persist an inspected Mac start after its delivering connection changes", async () => {
     const fixture = await conversationFixture();
     const connectionId = "10000000-0000-4000-8000-000000000009";
@@ -10152,6 +10317,325 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("restores a marked bare-marker local quote draft verbatim", async () => {
+    const inputText = "[LinkSense office annotation] why is this text here?";
+    expect(inspectOfficeAnnotationPrompt(inputText)).toMatchObject({
+      suspected: true,
+      request: null,
+      display: null,
+      fingerprint: null,
+    });
+    const marker = {
+      payloadJson: { schema_version: 1, pending_request_id: PENDING_ID },
+    };
+
+    const fixture = await conversationFixture();
+    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({
+        inputText,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockImplementation(
+      async (input?: { where?: { eventType?: unknown } }) =>
+        input?.where?.eventType === RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE
+          ? [marker]
+          : [],
+    );
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.pending_requests[0]).toMatchObject({
+      input_text: inputText,
+      status: "blocked_preflight",
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+    expect(detail.pending_requests[0]).not.toHaveProperty("display");
+
+    const restore = await conversationFixture();
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    transaction.pendingRequest.findFirst.mockResolvedValueOnce(pendingRow({
+      inputText,
+      status: "blocked_preflight",
+      blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+    }));
+    transaction.conversationEvent.findMany.mockResolvedValueOnce([marker]);
+    restore.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+    );
+
+    await expect(restore.service.restorePendingToInput(
+      OWNER_ID,
+      CONVERSATION_ID,
+      PENDING_ID,
+      {},
+    )).resolves.toMatchObject({ pending_request_id: PENDING_ID, input_text: inputText });
+    expect(transaction.pendingRequest.delete).toHaveBeenCalledWith({ where: { id: PENDING_ID } });
+    expect(restore.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unmarked bare-marker revoked draft hidden and refuses restore", async () => {
+    const inputText = "[LinkSense office annotation] why is this text here?";
+
+    const fixture = await conversationFixture();
+    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({
+        inputText,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.pending_requests[0]).toMatchObject({
+      input_text: "",
+      status: "blocked_preflight",
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+    expect(detail.pending_requests[0]).not.toHaveProperty("display");
+    expect(pendingRequestSchema.safeParse(detail.pending_requests[0]).success).toBe(
+      true,
+    );
+
+    const restore = await conversationFixture();
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    transaction.pendingRequest.findFirst.mockResolvedValueOnce(pendingRow({
+      inputText,
+      status: "blocked_preflight",
+      blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+    }));
+    restore.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+    );
+
+    await expect(
+      restore.service.restorePendingToInput(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(transaction.pendingRequest.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unmarked malformed annotation-suspected revoked draft hidden and refuses restore", async () => {
+    const inputText =
+      "[LinkSense office annotation]\nDisplay metadata:\n{truncated locator data";
+    expect(inspectOfficeAnnotationPrompt(inputText)).toMatchObject({
+      suspected: true,
+      request: null,
+      display: null,
+      fingerprint: null,
+    });
+
+    const fixture = await conversationFixture();
+    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({
+        inputText,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.pending_requests[0]).toMatchObject({
+      input_text: "",
+      status: "blocked_preflight",
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+    expect(detail.pending_requests[0]).not.toHaveProperty("display");
+    expect(JSON.stringify(detail.pending_requests[0])).not.toContain(
+      "truncated locator data",
+    );
+    expect(pendingRequestSchema.safeParse(detail.pending_requests[0]).success).toBe(
+      true,
+    );
+
+    const restore = await conversationFixture();
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    transaction.pendingRequest.findFirst.mockResolvedValueOnce(pendingRow({
+      inputText,
+      status: "blocked_preflight",
+      blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+    }));
+    restore.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+    );
+
+    await expect(
+      restore.service.restorePendingToInput(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(transaction.pendingRequest.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps an annotation-shaped literal local quote draft plain for reads, reorder, and restore", async () => {
+    const literalQuestion = annotationShapedLiteralQuestion();
+    expect(inspectOfficeAnnotationPrompt(literalQuestion)).toMatchObject({
+      suspected: true,
+      request: "Improve this slide",
+      display: expect.objectContaining({ kind: "presentation_annotation" }),
+    });
+    const marker = {
+      payloadJson: {
+        schema_version: 1,
+        pending_request_id: PENDING_ID,
+      },
+    };
+
+    const fixture = await conversationFixture();
+    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({
+        inputText: literalQuestion,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockImplementation(
+      async (input?: { where?: { eventType?: unknown } }) =>
+        input?.where?.eventType === RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE
+          ? [marker]
+          : [],
+    );
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.pending_requests).toHaveLength(1);
+    expect(detail.pending_requests[0]).toMatchObject({
+      input_text: literalQuestion,
+      status: "blocked_preflight",
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+    expect(detail.pending_requests[0]).not.toHaveProperty("display");
+    expect(pendingRequestSchema.safeParse(detail.pending_requests[0]).success).toBe(
+      true,
+    );
+    const detailEventTypes: string[] = detail.events.map(
+      (event) => event.event_type,
+    );
+    expect(detailEventTypes).not.toContain(
+      RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE,
+    );
+
+    const reorder = await conversationFixture();
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    transaction.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({ id: SECOND_PENDING_ID, queueNo: 1n }),
+      pendingRow({
+        id: PENDING_ID,
+        queueNo: 2n,
+        inputText: literalQuestion,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+    transaction.conversationEvent.findMany.mockImplementation(
+      async (input?: { where?: { eventType?: unknown } }) =>
+        input?.where?.eventType === RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE
+          ? [marker]
+          : [],
+    );
+    transaction.conversationEvent.create.mockResolvedValueOnce(eventRow());
+    reorder.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    );
+    const reordered = await reorder.service.reorderPending(
+      OWNER_ID,
+      CONVERSATION_ID,
+      [PENDING_ID, SECOND_PENDING_ID],
+      {},
+    );
+    expect(reordered.items[0]).toMatchObject({
+      id: PENDING_ID,
+      input_text: literalQuestion,
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+    expect(reordered.items[0]).not.toHaveProperty("display");
+    expect(
+      transaction.conversationEvent.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          eventType: RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE,
+          visibility: "internal_sanitized",
+          OR: [
+            {
+              payloadJson: {
+                path: ["pending_request_id"],
+                equals: PENDING_ID,
+              },
+            },
+          ],
+        }),
+      }),
+    );
+    expect(
+      transaction.conversationEvent.create.mock.calls[0]![0].data.payloadJson,
+    ).toMatchObject({
+      pending_request_id: PENDING_ID,
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+    });
+
+    const restore = await conversationFixture();
+    const restoreTransaction = transactionFixture();
+    restoreTransaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    restoreTransaction.pendingRequest.findFirst.mockResolvedValueOnce(
+      pendingRow({
+        inputText: literalQuestion,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    );
+    restoreTransaction.conversationEvent.findMany.mockResolvedValueOnce([marker]);
+    restore.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof restoreTransaction) => Promise<unknown>) =>
+        action(restoreTransaction),
+    );
+    await expect(
+      restore.service.restorePendingToInput(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).resolves.toMatchObject({
+      pending_request_id: PENDING_ID,
+      input_text: literalQuestion,
+    });
+    expect(restoreTransaction.pendingRequest.delete).toHaveBeenCalledWith({
+      where: { id: PENDING_ID },
+    });
+    expect(restore.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps a historical structured revoked draft as a reference display", async () => {
+    const fixture = await conversationFixture();
+    const structuredQuestion = annotationShapedLiteralQuestion();
+    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([
+      pendingRow({
+        inputText: structuredQuestion,
+        status: "blocked_preflight",
+        blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+      }),
+    ]);
+
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.pending_requests[0]).toMatchObject({
+      input_text: "Improve this slide",
+      status: "blocked_preflight",
+      block_code: REVOKED_MAC_PENDING_BLOCK_CODE,
+      display: expect.objectContaining({ kind: "presentation_annotation" }),
+    });
+    expect(JSON.stringify(detail.pending_requests[0])).not.toContain("Display metadata");
+
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    transaction.pendingRequest.findFirst.mockResolvedValueOnce(pendingRow({
+      inputText: structuredQuestion,
+      status: "blocked_preflight",
+      blockCode: REVOKED_MAC_PENDING_BLOCK_CODE,
+    }));
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+    );
+
+    await expect(
+      fixture.service.restorePendingToInput(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(transaction.pendingRequest.delete).not.toHaveBeenCalled();
+  });
+
   it("keeps a queued reference intact when its original context cannot be restored", async () => {
     const fixture = await conversationFixture();
     const transaction = transactionFixture();
@@ -12621,6 +13105,444 @@ describe("conversation side chats", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("starts one local side-chat quote turn with the question separate from a bounded snapshot", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const reference = {
+      id: MESSAGE_ID,
+      source_conversation_id: SECOND_CONVERSATION_ID,
+      source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task",
+      selection_text: "quoted claim \u{1F600}",
+      include_recent_messages: true,
+      recent_messages: [{ id: PLAN_MESSAGE_ID, role: "assistant", text: "recent context" }],
+    };
+    const parent = conversationRow({
+      id: SECOND_CONVERSATION_ID, codexThreadId: "local-parent-thread", executionTarget: "local",
+      desktopDeviceId: deviceId, workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, SECOND_CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID, sideChatReferenceJson: reference,
+      executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: parent.workspaceRelPath,
+    });
+    const byId = (id: unknown) => id === SECOND_CONVERSATION_ID ? parent : id === CONVERSATION_ID ? child : null;
+    fixture.prisma.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.prisma.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    const transaction = transactionFixture();
+    transaction.conversationTurn.create.mockImplementationOnce(
+      async ({ data }) => turnRow({
+        ...data, submitMode: "normal", codexThreadId: "codex-thread-1", codexTurnId: "codex-turn-1",
+      }),
+    );
+    transaction.conversationMessage.create.mockResolvedValueOnce({ id: MESSAGE_ID });
+    useStartProjectionTransaction(fixture, transaction);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: reference.id, request: "Explain this claim" },
+      priorityCapabilityIds: [], idempotencyKey: "local-side-chat-quote", submitMode: "normal",
+    }, {})).resolves.toMatchObject({ status: "running" });
+
+    expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
+    const startInput = fixture.runner.startTurn.mock.calls[0]?.[0] as RunnerStartInput & {
+      conversationReferenceContext?: unknown;
+    };
+    expect(startInput.context.userInput).toContain("Explain this claim");
+    expect(startInput.context.userInput).not.toContain(reference.selection_text);
+    expect(startInput.conversationReferenceContext).toEqual({
+      selection_text: reference.selection_text,
+      recent_messages: [{ role: "assistant", text: "recent context" }],
+    });
+    expect(fixture.runner.assertDesktopAvailable).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, false, true);
+    expect(fixture.prisma.conversationTurnStartIntent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: expect.stringContaining("Explain this claim"),
+        messageDisplayJson: expect.objectContaining({ kind: "conversation_reference", reference_id: reference.id }),
+      }),
+    });
+  });
+
+  it("rejects a local quote when the persisted side reference changed before admission", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const reference = {
+      id: MESSAGE_ID, source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "old quote", include_recent_messages: false,
+      recent_messages: [],
+    };
+    const replaced = { ...reference, selection_text: "new quote" };
+    const parent = conversationRow({
+      id: SECOND_CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, SECOND_CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID, sideChatReferenceJson: reference,
+      executionTarget: "local", desktopDeviceId: deviceId, workspaceRelPath: parent.workspaceRelPath,
+    });
+    const byId = (id: unknown) => id === SECOND_CONVERSATION_ID ? parent : id === CONVERSATION_ID ? child : null;
+    fixture.prisma.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.prisma.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) =>
+      where?.id === CONVERSATION_ID ? { ...child, sideChatReferenceJson: replaced } : byId(where?.id));
+    fixture.defaultTransaction.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: reference.id, request: "Explain" },
+      priorityCapabilityIds: [], idempotencyKey: "local-quote-replaced", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a quote on an unsupported Chat model before any durable write", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const reference = {
+      id: MESSAGE_ID, source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quote", include_recent_messages: false,
+      recent_messages: [],
+    };
+    const parent = conversationRow({
+      id: SECOND_CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, SECOND_CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID, sideChatReferenceJson: reference,
+      executionTarget: "local", desktopDeviceId: deviceId, workspaceRelPath: parent.workspaceRelPath,
+    });
+    const byId = (id: unknown) => id === SECOND_CONVERSATION_ID ? parent : id === CONVERSATION_ID ? child : null;
+    fixture.prisma.conversation.findFirst.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.prisma.conversation.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => byId(where?.id));
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveRuntime: vi.fn(async () => ({
+        ...TEST_MODEL_RUNTIME,
+        provider: { ...TEST_MODEL_RUNTIME.provider, protocolMode: "chat_completions_bridge" },
+      })),
+    });
+
+    await expect(service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: reference.id, request: "Explain" },
+      priorityCapabilityIds: [], idempotencyKey: "local-quote-chat", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+    expect(fixture.runner.assertDesktopAvailable).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, false, true);
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps a later local side-chat turn off Chat after a native quote was persisted", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID,
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({ sseEventId: MESSAGE_ID });
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveRuntime: vi.fn(async () => ({
+        ...TEST_MODEL_RUNTIME,
+        provider: { ...TEST_MODEL_RUNTIME.provider, protocolMode: "chat_completions_bridge" },
+      })),
+    });
+
+    await expect(service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "continue", priorityCapabilityIds: [], idempotencyKey: "local-quote-later-chat", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+    expect(fixture.prisma.conversationEvent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ conversationId: CONVERSATION_ID, eventType: "conversation.message.display_context" }),
+    }));
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps detached local quote history off Chat after the parent was deleted", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-detached",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({ sseEventId: MESSAGE_ID });
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveRuntime: vi.fn(async () => ({
+        ...TEST_MODEL_RUNTIME,
+        provider: { ...TEST_MODEL_RUNTIME.provider, protocolMode: "chat_completions_bridge" },
+      })),
+    });
+
+    await expect(service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "continue after parent deletion", priorityCapabilityIds: [],
+      idempotencyKey: "detached-quote-chat", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+    expect(fixture.prisma.conversationEvent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ conversationId: CONVERSATION_ID, eventType: "conversation.message.display_context" }),
+    }));
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a local quote source that would compact through Chat before reserving work", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-detached",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({ sseEventId: MESSAGE_ID });
+    fixture.prisma.conversationTurn.findFirst.mockImplementation(
+      async ({ where }: { where?: Record<string, unknown> } = {}) =>
+        where?.model ? { model: "source-chat-model" } : null,
+    );
+    const resolveModelTransitionRuntime = vi.fn(async (model: string) => ({
+      model,
+      provider: { ...TEST_MODEL_RUNTIME.provider, protocolMode: "chat_completions_bridge" },
+    }));
+    const service = createService(fixture, fixture.root, undefined, { resolveModelTransitionRuntime });
+
+    await expect(service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "continue on responses B", priorityCapabilityIds: [],
+      idempotencyKey: "detached-quote-source-chat", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+    expect(resolveModelTransitionRuntime).toHaveBeenCalledWith("source-chat-model");
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("continues detached quote history on Responses without resending the quote", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-detached",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({ sseEventId: MESSAGE_ID });
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    const transaction = transactionFixture();
+    transaction.conversationTurn.create.mockImplementationOnce(
+      async ({ data }) => turnRow({
+        ...data, submitMode: "normal", codexThreadId: "codex-thread-detached", codexTurnId: "codex-turn-2",
+      }),
+    );
+    transaction.conversationMessage.create.mockResolvedValueOnce({ id: MESSAGE_ID });
+    useStartProjectionTransaction(fixture, transaction);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "continue from the quote", priorityCapabilityIds: [],
+      idempotencyKey: "detached-quote-responses", submitMode: "normal",
+    }, {})).resolves.toMatchObject({ status: "running" });
+
+    expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
+    const startInput = fixture.runner.startTurn.mock.calls[0]?.[0] as RunnerStartInput & {
+      conversationReferenceContext?: unknown;
+    };
+    expect(startInput.context.userInput).toBe("continue from the quote");
+    expect(startInput.conversationReferenceContext).toBeUndefined();
+  });
+
+  it("keeps ordinary local Chat turns available without quote history", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-plain",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveRuntime: vi.fn(async () => ({
+        ...TEST_MODEL_RUNTIME,
+        provider: { ...TEST_MODEL_RUNTIME.provider, protocolMode: "chat_completions_bridge" },
+      })),
+    });
+    const transaction = transactionFixture();
+    transaction.conversationTurn.create.mockImplementationOnce(
+      async ({ data }) => turnRow({
+        ...data, submitMode: "normal", codexThreadId: "codex-thread-plain", codexTurnId: "codex-turn-plain",
+      }),
+    );
+    transaction.conversationMessage.create.mockResolvedValueOnce({ id: MESSAGE_ID });
+    useStartProjectionTransaction(fixture, transaction);
+
+    await expect(service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "ordinary local chat", priorityCapabilityIds: [],
+      idempotencyKey: "plain-local-chat", submitMode: "normal",
+    }, {})).resolves.toMatchObject({ status: "running" });
+    expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
+  });
+
+  it("rejects new local steer and pending steer after parent deletion without writing", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-detached",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(
+      turnRow({ id: TURN_ID, conversationId: CONVERSATION_ID, submittedBy: OWNER_ID, codexTurnId: "codex-turn-1" }),
+    );
+    fixture.prisma.conversationMessage.findUnique.mockResolvedValue(null);
+
+    await expect(fixture.service.steer(OWNER_ID, CONVERSATION_ID, TURN_ID, "steer", "operation", {}))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationMessage.create).not.toHaveBeenCalled();
+
+    await expect(fixture.service.steerPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.pendingRequest.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.pendingRequest.updateMany).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("returns matching local steer receipts before rejecting new local steering", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: null, codexThreadId: "codex-thread-detached",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(
+      turnRow({ id: TURN_ID, conversationId: CONVERSATION_ID, submittedBy: OWNER_ID, codexTurnId: "codex-turn-1" }),
+    );
+    fixture.prisma.conversationMessage.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => ({
+      id: where?.id, conversationId: CONVERSATION_ID, turnId: TURN_ID, role: "user", contentText: "steer",
+    }));
+
+    await expect(fixture.service.steer(OWNER_ID, CONVERSATION_ID, TURN_ID, "steer", "operation", {}))
+      .resolves.toEqual({ turn_id: TURN_ID, accepted: true });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+
+    fixture.prisma.conversationMessage.findUnique.mockImplementation(async ({ where }: { where?: { id?: string } } = {}) => ({
+      id: where?.id, conversationId: CONVERSATION_ID, turnId: TURN_ID, role: "user", contentText: "pending steer",
+    }));
+    await expect(fixture.service.steerPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}))
+      .resolves.toEqual({ turn_id: TURN_ID, accepted: true });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.pendingRequest.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a new local compaction before preparing a cloud runtime or changing the generation", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, codexThreadId: "codex-thread-compact",
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversation);
+    fixture.defaultTransaction.conversationTurn.findFirst.mockResolvedValueOnce(
+      turnRow({ id: TURN_ID, status: "completed", taskKind: "turn", codexThreadId: "codex-thread-compact" }),
+    );
+
+    await expect(fixture.service.acceptCompaction(OWNER_ID, CONVERSATION_ID, "local-compact", {}))
+      .rejects.toMatchObject({ code: "CONVERSATION_COMPACTION_UNAVAILABLE" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a local quote for a conversation the caller does not own before any write", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: MESSAGE_ID, request: "Explain" },
+      priorityCapabilityIds: [], idempotencyKey: "local-quote-other-owner", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses to queue a local structured quote before writing a pending request", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, sideChatParentId: SECOND_CONVERSATION_ID,
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    await expect(fixture.service.createPending(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: MESSAGE_ID, request: "Explain" },
+      priorityCapabilityIds: [],
+    }, {})).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.defaultTransaction.pendingRequest.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationFile.updateMany).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationEvent.create).not.toHaveBeenCalled();
+    expect(fixture.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("refuses local side-chat steer and redo before their first write", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({
+      id: CONVERSATION_ID, codexThreadId: "codex-thread-1", sideChatParentId: SECOND_CONVERSATION_ID,
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+
+    await expect(fixture.service.steer(OWNER_ID, CONVERSATION_ID, TURN_ID, "steer", "operation", {}))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationMessage.create).not.toHaveBeenCalled();
+
+    await expect(fixture.service.steerPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.pendingRequest.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.pendingRequest.updateMany).not.toHaveBeenCalled();
+
+    await expect(fixture.service.regenerate(OWNER_ID, CONVERSATION_ID, MESSAGE_ID, {
+      inputText: "redo", idempotencyKey: "redo-operation",
+    }, {})).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationMessage.create).not.toHaveBeenCalled();
+  });
+
   it("queues side-chat questions with their staged attachments and frozen reference", async () => {
     const fixture = await conversationFixture();
     const reference = {
@@ -13824,6 +14746,28 @@ function pendingRow(overrides: Record<string, unknown> = {}) {
     updatedAt: NOW,
     ...overrides,
   };
+}
+
+function annotationShapedLiteralQuestion() {
+  return [
+    "[LinkSense office annotation]",
+    "Display metadata:",
+    JSON.stringify({
+      kind: "presentation_annotation",
+      file_id: "30000000-0000-4000-8000-0000000000ab",
+      file_name: "Quarterly review.pptx",
+      annotations: [{ request: "Improve this slide", slide_number: 3, selection_count: 2 }],
+      annotation_count: 1,
+    }),
+    "",
+    "Annotation fingerprint:",
+    "c".repeat(64),
+    "",
+    "User request:",
+    "Improve this slide",
+    "",
+    "Apply the user request to the selected elements.",
+  ].join("\n");
 }
 
 function turnRow(overrides: Record<string, unknown> = {}) {

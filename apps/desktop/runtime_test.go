@@ -243,12 +243,12 @@ func TestUpdateAdmissionSurvivesRuntimeDeathAndReleaseRestarts(t *testing.T) {
 		t.Fatal("the acknowledged update admission was not held")
 	}
 	// A device reconnect replaces the socket link, not the gate.
-	first, err := supervisor.attach(updateLinkFixture, updateOwnerFixture, nil, nil, nil, nil)
+	first, err := supervisor.attach(updateLinkFixture, updateOwnerFixture, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first.close()
-	second, err := supervisor.attach(updateLinkReplaced, updateOwnerFixture, nil, nil, nil, nil)
+	second, err := supervisor.attach(updateLinkReplaced, updateOwnerFixture, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal("update admission blocked an ordinary link reconnect")
 	}
@@ -267,7 +267,7 @@ func TestUpdateAdmissionSurvivesRuntimeDeathAndReleaseRestarts(t *testing.T) {
 	if pid := runtimeFixturePID(t, filepath.Join(data, "pid")); pid != oldPID {
 		t.Fatal("a replacement runtime started while the update guard was held")
 	}
-	if _, err := supervisor.attach(updateLinkReplaced, updateOwnerFixture, nil, nil, nil, nil); err == nil {
+	if _, err := supervisor.attach(updateLinkReplaced, updateOwnerFixture, nil, nil, nil, nil, nil); err == nil {
 		t.Fatal("a replacement runtime generation accepted a link during the update hold")
 	}
 	guard.release()
