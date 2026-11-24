@@ -24,6 +24,11 @@ import (
 	"github.com/egoist/mygo/plugins/fetch"
 )
 
+// nativeWhiteboxAPI is the optional test-only API hook. It is deliberately
+// platform-neutral so a desktop_whitebox build that excludes a fixture's
+// platform-specific _test.go file still compiles this generic file.
+type nativeWhiteboxAPI func(http.ResponseWriter, *http.Request) bool
+
 var nativeWhitebox struct {
 	desktop       *Desktop
 	store         *memoryCredentialStore
@@ -36,6 +41,7 @@ var nativeWhitebox struct {
 	browser       atomic.Pointer[browserUseWhitebox]
 	annotation    atomic.Pointer[annotationWhitebox]
 	deviceSignOut atomic.Pointer[nativeDeviceSignOutRequests]
+	api           atomic.Pointer[nativeWhiteboxAPI]
 	completion    atomic.Bool
 	bootstrapFail atomic.Bool
 }
@@ -197,6 +203,11 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 			deviceSignOut.accepted.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]bool{"revoked": true}})
 		}
+		return
+	}
+	// A test may install optional synthetic rows that share this authentic
+	// protocol/build gate and its response headers.
+	if api := nativeWhitebox.api.Load(); api != nil && (*api)(w, r) {
 		return
 	}
 	// Annotation API responses must pass the same desktop protocol/build gate
