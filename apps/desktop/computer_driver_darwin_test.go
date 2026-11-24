@@ -2886,23 +2886,58 @@ func TestComputerDriverWaitClassifiesNativeOutcomes(t *testing.T) {
 		}
 	})
 
+	t.Run("success keeps nonzero elapsed and ignores unrelated fields", func(t *testing.T) {
+		data := mustJSON(t, map[string]any{
+			"found": true, "ref": "@spre1:e1", "predicate": "actionable",
+			"observed": map[string]any{
+				"actionable": true,
+				"synthetic":  "ignored",
+			},
+			"elapsed_ms": 7,
+			"debug":      map[string]any{"synthetic": "ignored"},
+		})
+		driver, _, observation := setup(t, data, nil)
+		result, err := driver.Wait(context.Background(), computerWaitRequest{
+			ObservationID: observation.ID, Ref: "@spre1:e1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Result != computerWaitMet || result.WaitedMS != 7 {
+			t.Fatalf("unexpected success result: %+v", result)
+		}
+	})
+
 	t.Run("malformed success is a protocol error", func(t *testing.T) {
 		cases := []struct {
 			name string
 			data map[string]any
 		}{
-			{"not found", map[string]any{"found": false, "ref": "@spre1:e1", "predicate": "actionable", "elapsed_ms": 0}},
-			{"wrong ref", map[string]any{"found": true, "ref": "@spre1:e2", "predicate": "actionable", "elapsed_ms": 0}},
-			{"wrong predicate", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "enabled", "elapsed_ms": 0}},
-			{"elapsed beyond the bound", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "elapsed_ms": 8001}},
+			{"not found", map[string]any{"found": false, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": 0}},
+			{"wrong ref", map[string]any{"found": true, "ref": "@spre1:e2", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": 0}},
+			{"wrong predicate", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "enabled", "observed": map[string]any{"actionable": true}, "elapsed_ms": 0}},
+			{"elapsed beyond the bound", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": 8001}},
+			{"elapsed omitted", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}}},
+			{"elapsed null", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": nil}},
+			{"elapsed wrong type", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": "0"}},
+			{"elapsed negative", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": true}, "elapsed_ms": -1}},
+			{"observed omitted", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "elapsed_ms": 0}},
+			{"observed null", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": nil, "elapsed_ms": 0}},
+			{"actionable omitted", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{}, "elapsed_ms": 0}},
+			{"actionable null", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": nil}, "elapsed_ms": 0}},
+			{"actionable wrong type", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": "true"}, "elapsed_ms": 0}},
+			{"actionable false", map[string]any{"found": true, "ref": "@spre1:e1", "predicate": "actionable", "observed": map[string]any{"actionable": false}, "elapsed_ms": 0}},
 		}
 		for _, item := range cases {
 			t.Run(item.name, func(t *testing.T) {
 				driver, _, observation := setup(t, mustJSON(t, item.data), nil)
-				_, err := driver.Wait(context.Background(), computerWaitRequest{
+				result, err := driver.Wait(context.Background(), computerWaitRequest{
 					ObservationID: observation.ID, Ref: "@spre1:e1",
 				})
 				assertDriverCode(t, err, computerErrorProtocol)
+				if result.Result != "" || result.WaitedMS != 0 {
+					t.Fatalf("malformed success published a result: %+v", result)
+				}
 			})
 		}
 	})

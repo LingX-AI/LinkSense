@@ -491,14 +491,20 @@ type cliCapturedRefMap struct {
 }
 
 // cliWaitData is the identity-only slice of the v1.3.1 element wait success
-// envelope (commands/wait_element.rs:64-72). The predicate-specific observed
-// object is deliberately not decoded, so no captured AX text can enter the
-// driver, and nothing here carries window or process identity.
+// envelope (commands/wait_element.rs:64-72). Only the bounded predicate result
+// is decoded from observed: its other fields can carry captured AX text.
+// Pointers distinguish absent or null evidence from a valid zero elapsed or
+// false actionable value. Nothing here carries window or process identity.
 type cliWaitData struct {
-	Found     bool   `json:"found"`
-	Ref       string `json:"ref"`
-	Predicate string `json:"predicate"`
-	ElapsedMS int64  `json:"elapsed_ms"`
+	Found     bool             `json:"found"`
+	Ref       string           `json:"ref"`
+	Predicate string           `json:"predicate"`
+	Observed  *cliWaitObserved `json:"observed"`
+	ElapsedMS *int64           `json:"elapsed_ms"`
+}
+
+type cliWaitObserved struct {
+	Actionable *bool `json:"actionable"`
 }
 
 type cliNode struct {
@@ -1314,10 +1320,11 @@ func (d *computerDriver) Wait(ctx context.Context, request computerWaitRequest) 
 		var data cliWaitData
 		if json.Unmarshal(envelope.Data, &data) != nil || !data.Found ||
 			data.Ref != request.Ref || data.Predicate != computerWaitPredicateActionable ||
-			data.ElapsedMS < 0 || data.ElapsedMS > int64(timeoutMS) {
+			data.Observed == nil || data.Observed.Actionable == nil || !*data.Observed.Actionable ||
+			data.ElapsedMS == nil || *data.ElapsedMS < 0 || *data.ElapsedMS > int64(timeoutMS) {
 			return computerWaitResult{}, protocolError()
 		}
-		result = computerWaitResult{Result: computerWaitMet, WaitedMS: int(data.ElapsedMS)}
+		result = computerWaitResult{Result: computerWaitMet, WaitedMS: int(*data.ElapsedMS)}
 	} else {
 		code := envelope.Error.Code
 		agentCode, agentKind := stableCLICode(envelope.Error), cliErrorKind(envelope.Error)
