@@ -278,7 +278,7 @@ flowchart TB
 | `computer_observe` | `snapshot --app <app> -i --compact`、`list-windows`、`screenshot` | 返回 `@ref` 树/窗口/截图；限制深度与元素数 |
 | `computer_act` click | `click @ref` | 只能点快照中的 ref；`click_at` 仅用于无 ref 的 canvas |
 | `computer_act` type | `type @ref --text ...` 或 `set-value @ref --value ...` | 优先 `set-value`；文本长度上限 |
-| `computer_act` key | `press <combo>` | 仅允许白名单键 |
+| `computer_act` key | 暂不映射（`key` 尚未暴露） | `press <combo>` 可能发送全局键盘事件；即使带 `--window-id`，v1.3.1 也只在派发前校验一次焦点，随后走 Mac 应用级派发，可能读取应用当前焦点元素并按 PID 发送；两步之间若兄弟窗口取得焦点，不会再次校验，交付后也只复核进程身份。已批准的 `key` 白名单能力不变，但集成前必须证明授权窗口在真实交付全程保持绑定；v1.3.1 不能证明，故当前不接入。见 [`press_key_for_window`](https://github.com/vercel-labs/agent-desktop/blob/v1.3.1/crates/core/src/adapter/system.rs#L268-L315)、[`press_for_app`](https://github.com/vercel-labs/agent-desktop/blob/v1.3.1/crates/macos/src/system/key_dispatch.rs#L41-L80)。 |
 | `computer_act` scroll | `scroll @ref --direction ... --amount ...` | 有界 |
 | `computer_act` drag | `drag @from @to` / `--headed` | 需要图形会话与用户授权 |
 | `computer_act` launch | `launch --app <name>` | 应用白名单；不启动任意路径 |
