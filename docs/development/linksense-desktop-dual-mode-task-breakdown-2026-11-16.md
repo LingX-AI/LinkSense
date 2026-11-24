@@ -179,7 +179,7 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 | --- | --- | --- | --- | --- | --- |
 | P2-01 | 云目标路由回归 | API + Web/桌面 UI | P1-02/10/27 | 回归 M1 已提供的双目标与确认切换；cloud 走现有 `RunnerClient`、本地设备不参与；默认 cloud | 1.5 |
 | P2-02 | 桌面端云模式对齐 | `apps/desktop` + `apps/web` | P2-01 | 会话/SSE/工件/浏览器面板与 Web 一致；断线重连；worker 回收 | 2 |
-| P2-03 | 云模式回归 | 测试 + 部署 | P2-02 | Docker runner 现有测试全绿；`pnpm test` 受影响包；无 Windows 依赖 | 2 |
+| P2-03 | 云模式回归 | 测试（用户部署后） | P2-02 | `e14f12c2` 的 103 项定向 Runner 单测已通过（含 Docker provider）；P2-02 的 Mac 夹具回归见下方记录。真实 Docker 验收待做：到此阶段时提醒用户将最新适用的 LinkSense 服务部署到 `linksense-dev-server` 并确认所部署的版本；确认后用现有 Docker runner 验证 Shell 实际执行并返回输出、Browser Use 操作云端浏览器、重开同一任务后仍可读取已保存的输出和工件、停止运行中的回合并观察 worker 按现有空闲策略回收。受影响包仍需跑 `pnpm test`；无 Windows 依赖 | 2 |
 | P2-04 | 功能开关/灰度 | API + UI | P2-03 | `desktop.localComputer`、`desktop.cloudTarget` 开关；不可用提示；遥测 | 1.5 |
 | P2-05 | 内置浏览器窗口（Go） | `apps/desktop/browser.go`：原生窗口 + webview、工具条/标签/下载/页内查找、`NewSession` 隔离 | P0-08 | 多标签/前进后退/刷新/下载确认/查找；独立 cookie；外部协议交系统；macOS/Windows | 4 |
 | P2-06 | 内置浏览器 Agent 适配 | `assets/browser-agent.js`（DOM 快照/ref/点击/输入/等待）+ loopback RPC + `browserTarget` 路由 | P1-06/23、P2-05 | navigate/read/click/type/scroll/screenshot/wait；稳定 ref；JS 失败回落坐标点击；不支持项稳定错误码 | 5 |
