@@ -35,7 +35,7 @@ import {
   type DesktopToolRequest,
 } from "@linksense/shared";
 import { Queue } from "bullmq";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import JSZip from "jszip";
 import { WebSocket } from "ws";
 import { z } from "zod";
@@ -134,9 +134,11 @@ export async function verifyDesktopExecutionProjection(input: {
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   const sockets: WebSocket[] = [];
   const relayUploads = new Set<string>();
+  let observeModelRequest: ((request: FastifyRequest) => Promise<void>) | undefined;
   app.addHook("onRequest", async request => {
     if (request.method === "PUT" && request.url.startsWith(`${desktopArtifactPath}/`)) relayUploads.add(request.url);
   });
+  app.addHook("preHandler", async request => { await observeModelRequest?.(request); });
   let minio: Awaited<ReturnType<typeof createDesktopMinioFixture>> = null;
   try {
     const redis = new LinkSenseRedis(config, fixture.client);
@@ -1177,6 +1179,7 @@ export async function verifyDesktopExecutionProjection(input: {
       const websiteStore = new WebSiteRepository(prisma);
       const artifact = await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
+        observeModelRequests: observer => { observeModelRequest = observer; },
         events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
         websites: new WebSiteService(websiteStore, storage),
         htmlPreviews: new HtmlPreviewService(new WebArtifactResources(websiteStore, storage),
@@ -1268,13 +1271,19 @@ export async function verifyDesktopExecutionProjection(input: {
           outputTokens: true, reasoningOutputTokens: true, usedCreditMicros: true,
         },
       });
-      const ownerTotalTokens = ownerTokenUsage._sum.totalTokens ?? 0n;
+      const ownerMemoryUsage = await prisma.modelUsageRecord.aggregate({
+        where: { ownerId, workload: "memory_generation" },
+        _sum: { totalTokens: true, inputTokens: true, outputTokens: true, usedCreditMicros: true },
+      });
+      const assistantTokens = ownerTokenUsage._sum.totalTokens ?? 0n;
+      const memoryTokens = ownerMemoryUsage._sum.totalTokens ?? 0n;
+      const ownerTotalTokens = assistantTokens + memoryTokens;
       const profile = await usageAnalytics.personalProfile(ownerId, { time_zone: "UTC" });
       assert.equal(profile.metrics.token_usage.total_tokens, ownerTotalTokens.toString());
       assert.equal(profile.metrics.token_usage.input_tokens,
-        (ownerTokenUsage._sum.inputTokens ?? 0n).toString());
+        ((ownerTokenUsage._sum.inputTokens ?? 0n) + (ownerMemoryUsage._sum.inputTokens ?? 0n)).toString());
       assert.equal(profile.metrics.token_usage.output_tokens,
-        (ownerTokenUsage._sum.outputTokens ?? 0n).toString());
+        ((ownerTokenUsage._sum.outputTokens ?? 0n) + (ownerMemoryUsage._sum.outputTokens ?? 0n)).toString());
       assert.equal(profile.metrics.turn_count, await prisma.usageActivityRecord.count({
         where: { ownerId, activityType: "turn_started" },
       }), "provider usage must not invent a turn");
@@ -1289,8 +1298,11 @@ export async function verifyDesktopExecutionProjection(input: {
       const assistantWorkload = report.workloads.find(
         workload => workload.workload === "assistant_response",
       );
-      assert.equal(assistantWorkload?.token_usage.total_tokens, ownerTotalTokens.toString());
+      assert.equal(assistantWorkload?.token_usage.total_tokens, assistantTokens.toString());
       assert.deepEqual(assistantWorkload?.measurement_methods, ["provider"]);
+      const memoryWorkload = report.workloads.find(workload => workload.workload === "memory_generation");
+      assert.equal(memoryWorkload?.token_usage.total_tokens, memoryTokens.toString());
+      assert.deepEqual(memoryWorkload?.measurement_methods, ["provider"]);
       assert.equal(report.models.find(model => model.model_id === artifact.model)
         ?.token_usage.total_tokens, profileModel.token_usage.total_tokens);
       const quota = await usageAnalytics.personalQuota(ownerId, { range: "7d", time_zone: "UTC" });
@@ -1302,7 +1314,7 @@ export async function verifyDesktopExecutionProjection(input: {
       assert.equal(readTask.credits, "0.057");
       const creditOverview = await creditLimits.personalOverview(ownerId);
       assert.equal(creditOverview.used,
-        creditMicrosToDecimal(ownerTokenUsage._sum.usedCreditMicros ?? 0n));
+        creditMicrosToDecimal((ownerTokenUsage._sum.usedCreditMicros ?? 0n) + (ownerMemoryUsage._sum.usedCreditMicros ?? 0n)));
       const websiteCleanup = await maintenance.getJob(`desktop-website-${artifact.websiteArtifactId}`);
       assert(websiteCleanup?.data.type === "desktop-website-cleanup");
       assert.deepEqual([...websiteCleanup.data.paths].sort(), [...artifact.websiteAssets].sort());

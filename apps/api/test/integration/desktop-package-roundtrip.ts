@@ -14,25 +14,33 @@ import {
   browserUseApprovalSchema,
   browserUseFailure,
   browserUseResultSchema,
+  codexTurnMetadataFromClientMetadata,
   connectionResultSchema,
   conversationStartFailurePayloadSchema,
   conversationUserInputQuestionSchema,
+  DESKTOP_MODEL_PROXY_PATH,
+  DESKTOP_MODEL_PURPOSE_HEADER,
   desktopApprovalDetailsSchema,
   desktopArtifactReceiptSchema,
   desktopAttachmentDownloadPath,
+  desktopModelPurposeSchema,
+  desktopModelTokenSchema,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
   RUNNER_TURN_INTERRUPT_REQUESTED,
   type BrowserUseRequest,
   type DesktopArtifactReceipt,
+  type DesktopModelPurpose,
 } from "@linksense/shared";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import type { LinkSenseRedis } from "../../src/adapters/redis.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import type { ConversationService } from "../../src/modules/conversations/service.js";
+import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
+import { desktopRunLeaseKey, desktopRunScopeSchema } from "../../src/modules/desktop-credentials/run-leases.js";
 import type { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
 import type { ConversationEventService } from "../../src/modules/events/service.js";
 import type { FileService } from "../../src/modules/files/service.js";
@@ -65,6 +73,10 @@ const joinedBrowserPrompt = "Click the button on the shared Chromium fixture";
 const approvalShell = "printf 'approved\\n' > approved.txt";
 const stoppedAttachmentPrompt = "Never run this attachment transfer";
 const answer = "The packaged Mac read the workspace.";
+const memoryFixtureModel = "desktop-memory-fixture";
+const memoryExtractionModel = "desktop-memory-extractor";
+const memorySeedPrompt = "Remember this fixture preference: write short answers.";
+const memoryForegroundPrompt = "Start a fresh Mac memory fixture turn.";
 
 export async function verifyPackagedDesktopGateway(input: {
   runtimeRoot: string;
@@ -74,6 +86,7 @@ export async function verifyPackagedDesktopGateway(input: {
   prisma: PrismaClient;
   redis: LinkSenseRedis;
   coordinator: RedisDesktopDeviceCoordinator;
+  observeModelRequests: (observer: ((request: FastifyRequest) => Promise<void>) | undefined) => void;
   conversations: ConversationService;
   events: ConversationEventService;
   files: Pick<FileService, "uploadAttachment" | "readArtifactDownload" | "listTaskArtifacts">;
@@ -105,7 +118,7 @@ export async function verifyPackagedDesktopGateway(input: {
   z.object({ target: z.literal("darwin/arm64") }).parse(
     JSON.parse(await readFile(join(input.runtimeRoot, "manifest.json"), "utf8")),
   );
-  const { ownerId, deviceId, prisma, conversations, events, coordinator, redis } = input;
+  const { ownerId, deviceId, prisma, conversations, events, coordinator, redis, observeModelRequests } = input;
   await mkdir(input.scratch, { recursive: true, mode: 0o700 });
   const scratch = await realpath(input.scratch);
   const dataRoot = join(scratch, "native-runtime");
@@ -140,6 +153,10 @@ export async function verifyPackagedDesktopGateway(input: {
   const websiteAssets = ["assets/theme.css", "index.html"];
   const model = Fastify();
   const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, browser: 0, aborted: false };
+  const foreground = new AbortController();
+  const foregroundReleased = new Promise<void>(resolve =>
+    foreground.signal.addEventListener("abort", () => resolve(), { once: true }));
+  let memoryForegroundStarted = false;
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
   let citation: string | undefined;
@@ -161,16 +178,46 @@ export async function verifyPackagedDesktopGateway(input: {
   model.post("/v1/responses", async (request, reply) => {
     assert(request.headers.authorization === `Bearer ${providerKey}`, "provider authorization mismatch");
     const body = z.object({
-      model: z.literal(fixtureModel), input: z.unknown(), stream: z.literal(true),
+      model: z.enum([fixtureModel, memoryFixtureModel, memoryExtractionModel]),
+      input: z.unknown(), stream: z.literal(true),
+      reasoning: z.object({ effort: z.string().nullish() }).nullish(),
       tools: z.array(z.object({
         name: z.string().optional(), type: z.string(),
         tools: z.array(z.object({ type: z.string(), name: z.string() })).optional(),
       })).optional(),
     }).parse(request.body);
     const text = JSON.stringify(body.input);
-    assert(!JSON.stringify(request.body).includes(dataRoot), "desktop data path in model request");
+    const providerBody = JSON.stringify(request.body);
+    assert(!providerBody.includes(dataRoot), "desktop data path in model request");
     assert(!secrets.some(secret => text.includes(secret)), "server secret in model input");
     assert(!text.includes(stoppedAttachmentPrompt), "a stopped attachment transfer reached native inference");
+    if (body.model !== fixtureModel) {
+      let output = "Mac memory fixture response.";
+      const hold = body.model === memoryFixtureModel && text.includes(memoryForegroundPrompt);
+      if (body.model === memoryExtractionModel) {
+        assert(text.includes(memorySeedPrompt) && !text.includes(memoryForegroundPrompt),
+          "memory extraction did not read the completed native source rollout");
+        assert(body.tools === undefined && body.reasoning?.effort === "low",
+          "memory extraction did not use the server's restricted grant");
+        assert(!providerBody.includes('"client_metadata"') && !secrets.some(secret => providerBody.includes(secret)),
+          "native metadata or server credentials in upstream memory body");
+        // A valid v2 no-output result exercises extraction without requiring consolidation.
+        output = JSON.stringify({ rollout_summary: "", rollout_slug: "" });
+      }
+      const stream = responseStream({
+        id: "fixture-memory-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
+        content: [{ type: "output_text", text: output, annotations: [] }],
+      });
+      reply.type("text/event-stream");
+      if (!hold) return reply.send(stream);
+      return reply.send(Readable.from((async function* () {
+        const firstFrameEnd = stream.indexOf("\n\n") + 2;
+        memoryForegroundStarted = true;
+        yield stream.slice(0, firstFrameEnd);
+        await foregroundReleased;
+        yield stream.slice(firstFrameEnd);
+      })()));
+    }
     if (text.includes(interruptPrompt)) {
       modelRequests.interrupt++;
       assert(modelRequests.interrupt === 1, "interrupted turn replayed");
@@ -444,14 +491,14 @@ export async function verifyPackagedDesktopGateway(input: {
   try {
     const modelOrigin = await model.listen({ host: "127.0.0.1", port: 0 });
     await input.modelProviderSettings.update(ownerId, {
-      expected_revision: 0, default_model: fixtureModel, title_model: null,
+      expected_revision: 0, default_model: fixtureModel, title_model: null, memory_extraction_model: memoryExtractionModel,
       providers: [{
         id: "desktop-fixture", base_url: `${modelOrigin}/v1`, protocol_mode: "native_responses", api_key: providerKey,
-        models: [{
-          kind: "chat", id: fixtureModel, display_name: "Desktop fixture", enabled: true,
+        models: [fixtureModel, memoryFixtureModel, memoryExtractionModel].map(id => ({
+          kind: "chat", id, display_name: id === fixtureModel ? "Desktop fixture" : id, enabled: true,
           context_window: 32768, supported_reasoning_efforts: ["low"], default_reasoning_effort: "low", supports_image_input: true,
           input_price_per_million: "10", cached_input_price_per_million: "2", output_price_per_million: "20",
-        }],
+        })),
       }],
     }, {});
     const task = async (title: string) => {
@@ -503,17 +550,6 @@ export async function verifyPackagedDesktopGateway(input: {
     }, {});
     const stop = await task("Packaged Mac interruption");
     const stopApproval = await task("Packaged Mac browser approval interruption");
-    child = spawn(binary, ["-test.run=^TestPackagedDesktopGateway$", "-test.timeout=160s"], {
-      env: {
-        PATH: process.env.PATH,
-        TMPDIR: process.env.TMPDIR,
-        LINKSENSE_DESKTOP_RUNTIME_DIST: input.runtimeRoot,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    assert(child.stdin && child.stdout && child.stderr);
-    childExit = once(child, "close").then(([code]) => typeof code === "number" ? code : null);
-    void childExit.then(() => { nativeExited = true; }, () => { nativeExited = true; });
     const scanOutput = () => {
       let tail = "";
       const maxSecretLength = Math.max(...secrets.map(secret => secret.length));
@@ -523,12 +559,33 @@ export async function verifyPackagedDesktopGateway(input: {
         tail = output.slice(-maxSecretLength);
       };
     };
-    child.stdout.on("data", scanOutput());
-    child.stderr.on("data", scanOutput());
-    child.stdin.on("error", () => { nativeExited = true; });
-    child.stdin.write(`${JSON.stringify({
-      origin: input.address, dataRoot, credential: { token: input.token, ownerId, deviceId, name: "Mac fixture" },
-    })}\n`);
+    const startBridge = () => {
+      nativeExited = false;
+      const bridge = spawn(binary, ["-test.run=^TestPackagedDesktopGateway$", "-test.timeout=160s"], {
+        env: {
+          PATH: process.env.PATH,
+          TMPDIR: process.env.TMPDIR,
+          LINKSENSE_DESKTOP_RUNTIME_DIST: input.runtimeRoot,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      child = bridge;
+      const exited = once(bridge, "close").then(([code]) => typeof code === "number" ? code : null);
+      childExit = exited;
+      void exited.then(() => { nativeExited = true; }, () => { nativeExited = true; });
+      assert(bridge.stdin && bridge.stdout && bridge.stderr);
+      bridge.stdout.on("data", scanOutput());
+      bridge.stderr.on("data", scanOutput());
+      bridge.stdin.on("error", () => { nativeExited = true; });
+      bridge.stdin.write(`${JSON.stringify({
+        origin: input.address, dataRoot, credential: { token: input.token, ownerId, deviceId, name: "Mac fixture" },
+      })}\n`);
+      return async () => {
+        bridge.stdin?.end();
+        assert.equal(await exited, 0, "native bridge failed to stop cleanly");
+      };
+    };
+    const stopBridge = startBridge();
     const waitFor = async <T>(description: string, check: () => Promise<T | null | false>, timeout = 15_000): Promise<T> => {
       const deadline = Date.now() + timeout;
       do {
@@ -1033,12 +1090,166 @@ export async function verifyPackagedDesktopGateway(input: {
       console.log("Joined Mac and Chromium passed: paired via popup, listed only the shared tab, approved snapshot and one click, revoked via HTTP, denied the next approved click (BROWSER_USE_NOT_CONNECTED); shared count = 1, unshared count = 0.");
     }
 
-    child.stdin.end();
-    assert.equal(await childExit, 0, "native bridge failed to stop cleanly");
+    const memorySource = await task("Packaged Mac memory source");
+    const extraction = await task("Packaged Mac memory extraction");
+    const memoryState = join(dataRoot, "memory-state");
+    await mkdir(memoryState, { mode: 0o700 });
+    for (const conversation of [memorySource, extraction]) {
+      const root = join(dataRoot, ownerId, "services", conversation.id);
+      const control = join(root, "control");
+      await mkdir(control, { mode: 0o700 });
+      await writeFile(join(control, "personalization.json"), JSON.stringify({
+        version: 1, revision: randomUUID(), custom_instructions: "", memories_enabled: true,
+      }), { mode: 0o600, flag: "wx" });
+      // Share only the disposable native index; the two tasks retain separate rollouts and runtime scopes.
+      await writeFile(join(root, "home", ".codex", "config.toml"),
+        `sqlite_home = ${JSON.stringify(memoryState)}\n[memories]\nversion = "v2"\ndual_write = false\nmin_rollout_idle_hours = 1\n`,
+        { mode: 0o600, flag: "wx" });
+    }
+    const currentMemoryConnection = await coordinator.executionConnection(deviceId);
+    assert(currentMemoryConnection, "Mac disconnected before the memory fixture");
+    let memoryConnectionId = currentMemoryConnection.connectionId;
+    let expectedConversation = memorySource;
+    const observed: { purpose: DesktopModelPurpose; model: string; turnId: string }[] = [];
+    const tokenHash = z.string().regex(/^[0-9a-f]{64}$/u);
+    const modelGrant = z.object({
+      model: z.string(), protocolMode: z.literal("native_responses"), tokenHash,
+    });
+    const modelLease = z.object({
+      scope: desktopRunScopeSchema, expiresAt: z.number(), runHash: tokenHash,
+      models: z.object({ primary: modelGrant, memory_extraction: modelGrant }),
+    });
+    observeModelRequests(async request => {
+      if (request.method !== "POST" || !request.url.startsWith(`${DESKTOP_MODEL_PROXY_PATH}/`)) return;
+      try {
+        const route = z.tuple([z.uuid(), desktopModelPurposeSchema, z.literal("responses")])
+          .safeParse(request.url.slice(DESKTOP_MODEL_PROXY_PATH.length + 1).split("/"));
+        assert(route.success, "native model request did not use a scoped Responses route");
+        const [turnId, purpose] = route.data;
+        assert(purpose === "primary" || purpose === "memory_extraction", "unexpected model purpose in the memory fixture");
+        assert(request.headers[DESKTOP_MODEL_PURPOSE_HEADER] === purpose, "native purpose header did not match the route");
+        const authorization = request.headers.authorization;
+        assert(authorization && authorization.startsWith("Bearer "), "native model request lacked a bearer");
+        const bearer = desktopModelTokenSchema.safeParse(authorization.slice(7));
+        assert(bearer.success, "native model request used a non-model bearer");
+        const raw = await redis.client.get(desktopRunLeaseKey(turnId));
+        assert(raw && !secrets.some(secret => raw.includes(secret)), "invalid Redis model lease");
+        const lease = modelLease.safeParse(JSON.parse(raw));
+        assert(lease.success && lease.data.expiresAt > Date.now(), "native model request lacked a live Redis lease");
+        assert.deepEqual(lease.data.scope, {
+          ownerId, deviceId, connectionId: memoryConnectionId, conversationId: expectedConversation.id,
+          turnId, runtimeGeneration: expectedConversation.runtimeGeneration,
+        }, "native model lease was bound to a different run");
+        assert(await redis.hasTurnSlot(expectedConversation.id, turnId, ownerId), "native model request lacked the active turn slot");
+        assert(await isDesktopRunActive(prisma, coordinator, lease.data.scope, "use"),
+          "native model request lacked current run authority");
+        const body = z.object({ model: z.string(), client_metadata: z.unknown() }).safeParse(request.body);
+        const deviceWire = JSON.stringify([request.headers, request.body]);
+        assert(body.success && !deviceWire.includes(dataRoot) && !secrets.some(secret => deviceWire.includes(secret)),
+          "invalid native model request or server credential or device path on the Mac wire");
+        const grant = lease.data.models[purpose];
+        assert(grant.model === body.data.model && grant.tokenHash === createHash("sha256").update(bearer.data).digest("hex"),
+          "native model bearer did not match its Redis purpose and model");
+        assert(new Set([lease.data.runHash, lease.data.models.primary.tokenHash, lease.data.models.memory_extraction.tokenHash]).size === 3,
+          "run and model purposes shared a credential");
+        if (purpose === "memory_extraction") {
+          // Runner projects native metadata into the purpose; the original marker remains in client_metadata.
+          const metadata = codexTurnMetadataFromClientMetadata(body.data.client_metadata);
+          const kind = z.object({ request_kind: z.literal("memory") }).safeParse(JSON.parse(metadata ?? "null"));
+          assert(kind.success && body.data.model === memoryExtractionModel, "request was not native memory extraction");
+        }
+        observed.push({ purpose, model: body.data.model, turnId });
+      } catch (error) {
+        modelFailure = error instanceof assert.AssertionError ? error.message.split("\n")[0] : "Invalid native model request observation";
+        throw error;
+      }
+    });
+    const memoryTurn = (id: string) => prisma.conversationTurn.findUnique({
+      where: { id }, select: { status: true, codexThreadId: true, model: true },
+    });
+    const seedTurn = await conversations.acceptTurn(ownerId, memorySource.id, {
+      ...submission(memorySeedPrompt, randomUUID()), modelPreference: { modelId: memoryFixtureModel, reasoningEffort: "low" },
+    }, {});
+    const source = await waitFor("the completed native memory source", async () => {
+      const turn = await memoryTurn(seedTurn.turn_id);
+      return turn?.status === "completed" && !await redis.hasTurnSlot(memorySource.id, seedTurn.turn_id, ownerId) ? turn : false;
+    });
+    assert(source.codexThreadId && source.model === memoryFixtureModel && observed.some(request =>
+      request.turnId === seedTurn.turn_id && request.purpose === "primary" && request.model === memoryFixtureModel),
+    "native source turn did not use the selected source model");
+
+    // Stop the worker before editing the one disposable state index row.
+    await stopBridge();
+    const { DatabaseSync } = await import("node:sqlite");
+    const stateFile = join(memoryState, "state_5.sqlite");
+    assert(await realpath(stateFile) === stateFile, "native state must stay inside the disposable fixture");
+    const stateDb = new DatabaseSync(stateFile);
+    try {
+      const nativeRow = stateDb.prepare("SELECT source, memory_mode, archived, updated_at, updated_at_ms FROM threads WHERE id = ?");
+      const before = z.object({
+        source: z.literal("vscode"), memory_mode: z.literal("enabled"), archived: z.literal(0),
+        updated_at: z.number().int(), updated_at_ms: z.number().int(),
+      }).safeParse(nativeRow.get(source.codexThreadId));
+      const now = Date.now();
+      assert(before.success && before.data.updated_at_ms > now - 60 * 60 * 1_000,
+        "the completed native source was not in the disposable state DB as a fresh memory candidate");
+      // Codex 0.170.0 clamps the idle floor to one hour. Age only the native
+      // metadata clock for this test; do not seed history or a memory job.
+      const agedSeconds = Math.floor(now / 1000) - 2 * 60 * 60;
+      assert.equal(stateDb.prepare("UPDATE threads SET updated_at = ?, updated_at_ms = ? WHERE id = ? AND updated_at_ms = ?")
+        .run(agedSeconds, agedSeconds * 1000, source.codexThreadId, before.data.updated_at_ms).changes, 1);
+      assert.deepEqual({ ...nativeRow.get(source.codexThreadId) }, {
+        ...before.data, updated_at: agedSeconds, updated_at_ms: agedSeconds * 1000,
+      });
+    } finally {
+      stateDb.close();
+    }
+    expectedConversation = extraction;
+    const stopMemoryBridge = startBridge();
+    memoryConnectionId = await waitForConnection(memoryConnectionId);
+    const extractionTurn = await conversations.acceptTurn(ownerId, extraction.id, {
+      ...submission(memoryForegroundPrompt, randomUUID()), modelPreference: { modelId: memoryFixtureModel, reasoningEffort: "low" },
+    }, {});
+    try {
+      const target = await waitFor("a new native foreground thread holding the extraction run", async () => {
+        if (!memoryForegroundStarted || !observed.some(request =>
+          request.turnId === extractionTurn.turn_id && request.purpose === "primary" && request.model === memoryFixtureModel)) return false;
+        const turn = await memoryTurn(extractionTurn.turn_id);
+        return turn?.status === "running" ? turn : false;
+      });
+      assert(target.codexThreadId && target.model === memoryFixtureModel && target.codexThreadId !== source.codexThreadId,
+        "extraction turn did not use a distinct foreground thread");
+      const usage = await waitFor("native extraction metered on the active turn", () => prisma.modelUsageRecord.findFirst({
+        where: { ownerId, conversationId: extraction.id, turnId: extractionTurn.turn_id, workload: "memory_generation",
+          model: memoryExtractionModel, measurementMethod: "provider" },
+        select: { totalTokens: true, inputTokens: true, outputTokens: true, usedCreditMicros: true },
+      }));
+      assert.deepEqual(usage, { totalTokens: 2n, inputTokens: 1n, outputTokens: 1n, usedCreditMicros: 3_000n },
+        "native extraction must meter the exact provider usage on the foreground turn");
+      const memoryDb = new DatabaseSync(join(memoryState, "memories_v2_1.sqlite"), { readOnly: true });
+      try {
+        const job = memoryDb.prepare("SELECT status FROM jobs WHERE kind = 'memory_stage1' AND job_key = ? AND worker_id = ?");
+        await waitFor("Codex to finish its native extraction job", async () =>
+          job.get(source.codexThreadId, target.codexThreadId)?.status === "done");
+      } finally {
+        memoryDb.close();
+      }
+      assert.equal((await memoryTurn(extractionTurn.turn_id))?.status, "running");
+      assert(await redis.hasTurnSlot(extraction.id, extractionTurn.turn_id, ownerId), "foreground lost the slot before extraction completed");
+      assert.equal(observed.filter(request => request.turnId === extractionTurn.turn_id && request.purpose === "memory_extraction").length,
+        1, "the actual source rollout must be extracted exactly once");
+    } finally {
+      foreground.abort();
+    }
+    await waitFor("the extraction foreground turn to complete and release its slot", async () =>
+      await status(extractionTurn.turn_id) === "completed" && !await redis.hasTurnSlot(extraction.id, extractionTurn.turn_id, ownerId));
+
+    await stopMemoryBridge();
     assert.equal(modelRequests.interrupt, 1);
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
+    console.log("Packaged Mac memory credentials passed: native extraction under its own grant on a live foreground turn, exact provider usage, and no server canaries in the device model request, native output or fixture files.");
     console.log(`Packaged Mac gateway passed: stop before admission and during download, download revocation and reconnect, throttled ${attachmentMiB} MiB retry read by native Codex, scoped tools, approvals, native artifact registration and authenticated download, interruption, and start idempotency.`);
     return {
       id: artifact.file_id, turnId: completed.turn_id, conversationId: read.id, sizeBytes: download.sizeBytes,
@@ -1046,6 +1257,8 @@ export async function verifyPackagedDesktopGateway(input: {
       model: fixtureModel, modelCalls: modelRequests.read,
     };
   } finally {
+    foreground.abort();
+    observeModelRequests(undefined);
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();
     if (childExit) await Promise.race([childExit.catch(() => null), delay(8_000, null, { ref: false })]);
