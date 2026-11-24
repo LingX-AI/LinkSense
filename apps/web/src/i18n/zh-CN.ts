@@ -806,7 +806,7 @@ export const zhCN = {
       "已请求系统显示测试通知。如果没有看到，请检查操作系统对当前浏览器的通知设置。",
     desktopTitle: "macOS 通知",
     desktopDescription:
-      "LinkSense 在后台运行时，任务或自动化结束后会发送通知。",
+      "LinkSense 在后台运行时，任务或自动化结束以及有可用的签名更新时会发送通知。",
     desktopEnable: "启用 macOS 通知",
     desktopUnsupported:
       "当前安装包无法显示系统通知。请使用已打包的 LinkSense 桌面应用接收任务完成通知。",

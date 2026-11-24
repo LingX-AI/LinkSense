@@ -21,6 +21,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/LingX-AI/linksense/apps/desktop/locales"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/plugins/preferences"
@@ -84,7 +85,9 @@ var (
 )
 
 const (
-	updateChannelPreference = "desktop.updateChannel"
+	updateChannelPreference   = "desktop.updateChannel"
+	updateNotificationID      = "linksense:update-available"
+	desktopUpdateSettingsPath = "/settings/general#desktop-update-heading"
 
 	maxUpdateManifestSize       = 1 << 20
 	maxUpdateSignedEnvelopeSize = maxUpdateManifestSize + 128
@@ -112,6 +115,7 @@ var (
 	errDesktopUpdateInstallerUnavailable = errors.New("DESKTOP_UPDATE_INSTALLER_UNAVAILABLE")
 	errDesktopUpdatePreferenceFailed     = errors.New("DESKTOP_PREFERENCES_SAVE_FAILED")
 	errDesktopUpdateInvalidChannel       = errors.New("VALIDATION_ERROR")
+	errDesktopUpdateNotificationInvalid  = errors.New("DESKTOP_UPDATE_NOTIFICATION_INVALID")
 )
 
 func checkDesktopUpdate(ctx context.Context, check func(context.Context) (*mygo.Update, error)) DesktopUpdateResult {
@@ -140,6 +144,27 @@ func classifyDesktopUpdate(update *mygo.Update, err error) (DesktopUpdateState, 
 type updateLease interface {
 	release()
 }
+
+// updateNotificationAttempt fences one native update notification to the exact
+// revision and account generation that made it eligible. A new check, stage,
+// candidate or account invalidates it before its delivery wait completes.
+type updateNotificationAttempt struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	lease    accountLease
+	revision int64
+	version  string
+	canceled bool
+	// delivered records that MyGo accepted the show. A repeated request after
+	// its caller abandoned the call must not display the same notice twice.
+	delivered bool
+	done      chan struct{}
+}
+
+// closeUpdateNotification removes the one fixed update notice. It is a seam so
+// the lifecycle tests can hold a stale cleanup in the same slot a replacement
+// must not enter.
+var closeUpdateNotification = func() { closeNotification(updateNotificationID) }
 
 // desktopUpdates owns the self-hosted update lifecycle of one app run. It
 // exists only when the release build injected a valid update feed; legacy
@@ -173,12 +198,20 @@ type desktopUpdates struct {
 	installing     bool
 	requestCancel  context.CancelFunc
 	requestDone    chan struct{}
-	result         DesktopUpdateResult
-	revision       int64
-	available      *mygo.Update
-	quitAccepted   bool
-	quitRequested  bool
-	restarting     bool
+	notification   *updateNotificationAttempt
+	// notifyWaiting is a test seam; tests use it to pin a request before an
+	// account change instead of racing a scheduler sleep.
+	notifyWaiting func()
+	// notifyAdmission is a test seam; it runs before a request enters the update
+	// lock, so a race test can invalidate the pinned account after the request
+	// started but before it can reserve the notification slot.
+	notifyAdmission func()
+	result          DesktopUpdateResult
+	revision        int64
+	available       *mygo.Update
+	quitAccepted    bool
+	quitRequested   bool
+	restarting      bool
 }
 
 func newDesktopUpdates(desktop *Desktop) *desktopUpdates {
@@ -329,9 +362,23 @@ func sanitizeDesktopUpdateNotes(notes string) string {
 func (u *desktopUpdates) emitLocked(result DesktopUpdateResult) DesktopUpdateResult {
 	u.revision++
 	result.Revision = u.revision
+	u.cancelStaleNotificationLocked(result)
 	u.result = result
 	u.publish(result)
 	return result
+}
+
+func (u *desktopUpdates) cancelStaleNotificationLocked(result DesktopUpdateResult) {
+	attempt := u.notification
+	if attempt == nil {
+		return
+	}
+	if result.State == UpdateAvailable && result.Revision == attempt.revision &&
+		result.Version == attempt.version {
+		return
+	}
+	attempt.canceled = true
+	attempt.cancel()
 }
 
 func (u *desktopUpdates) readyLocked() bool {
@@ -412,6 +459,221 @@ func (u *desktopUpdates) checkRequest(ctx context.Context) (DesktopUpdateResult,
 	close(done)
 	u.mu.Unlock()
 	return result, nil
+}
+
+// showNotificationRequest shows one quiet notice for the exact available
+// candidate the page rendered. It accepts no URL, text or version from the
+// WebView; the localized body and ID come from the verified native snapshot.
+func (u *desktopUpdates) showNotificationRequest(ctx context.Context, revision int64) error {
+	if revision <= 0 {
+		return errDesktopUpdateNotificationInvalid
+	}
+	if u.desktop == nil {
+		return errDesktopUpdateUnavailable
+	}
+	// Pin the account generation for the whole call. Waiting for an earlier
+	// attempt or an account change must not let this request act for a newer
+	// session that happens to use the same user id.
+	lease, err := requireAccount(&u.desktop.account)
+	if err != nil {
+		return err
+	}
+	// A notification request waits at most once for an earlier delivery. A
+	// second canceled attempt in the same call means contention the page can
+	// retry from a later eligible event, never an unbounded wait.
+	waited := false
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if u.notifyAdmission != nil {
+			u.notifyAdmission()
+		}
+		var attempt *updateNotificationAttempt
+		var waiting *updateNotificationAttempt
+		waitedSameAttempt := false
+		u.mu.Lock()
+		// Admission and slot reservation are one bounded section. withLease
+		// holds the account read lease, so a clear either lands before it (and no
+		// slot is reserved) or after it (and its callback sees the reserved
+		// attempt). Neither lock is held across the native delivery or a wait.
+		err = u.desktop.account.withLease(lease, func() error {
+			if !u.readyLocked() {
+				return errDesktopUpdateUnavailable
+			}
+			if u.result.State != UpdateAvailable || u.result.Revision != revision ||
+				u.available == nil || u.available.Version == "" || u.available.Version != u.result.Version {
+				return errDesktopUpdateStale
+			}
+			// The caller may have unloaded while this request waited for the lock.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if u.requestBusyLocked() {
+				return errDesktopUpdateBusy
+			}
+			if previous := u.notification; previous != nil {
+				if waited {
+					return errDesktopUpdateBusy
+				}
+				sameAttempt := previous.revision == revision && previous.version == u.result.Version
+				sameLease := previous.lease.id == lease.id &&
+					previous.lease.generation == lease.generation
+				if sameAttempt && sameLease && !previous.canceled && previous.ctx.Err() == nil {
+					// The same live delivery is still pending: never stack a second
+					// notice for it.
+					return errDesktopUpdateBusy
+				}
+				// A canceled or superseded attempt may still hold the fixed-ID
+				// slot while it cleans up. Wait outside every lock; a notice that
+				// was already delivered is not shown again.
+				previous.canceled = true
+				previous.cancel()
+				waiting = previous
+				waitedSameAttempt = sameAttempt && sameLease
+				return nil
+			}
+			notificationCtx, cancel := context.WithDeadline(ctx, lease.expiresAt)
+			attempt = &updateNotificationAttempt{
+				ctx: notificationCtx, cancel: cancel, lease: lease,
+				revision: revision, version: u.result.Version,
+				done: make(chan struct{}),
+			}
+			u.notification = attempt
+			return nil
+		})
+		if errors.Is(err, errAccountRequired) {
+			// The pinned session was invalidated between requireAccount and
+			// admission; it must never reserve the slot or reach delivery.
+			err = errDesktopUpdateStale
+		}
+		u.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if waiting != nil {
+			if u.notifyWaiting != nil {
+				u.notifyWaiting()
+			}
+			select {
+			case <-waiting.done:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if waitedSameAttempt && waiting.delivered {
+				return errDesktopUpdateBusy
+			}
+			waited = true
+			continue
+		}
+		if attempt == nil {
+			// Admission returns nil only after reserving a slot or a wait.
+			return errDesktopUpdateStale
+		}
+		body := locales.UpdateAvailableNotice(attempt.version)
+		// An account or candidate change may have canceled the reserved attempt
+		// after admission released the locks. Recheck the exact lease and the
+		// cancellation before entering the native delivery seam; a cancel that
+		// lands after this point cannot recall an OS banner already displayed.
+		if attempt.ctx.Err() != nil || !u.desktop.account.matches(attempt.lease) {
+			attempt.cancel()
+			u.finishNotificationAttempt(attempt)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return errDesktopUpdateStale
+		}
+
+		showErr := u.desktop.showNotification(attempt.ctx, mygo.NotificationOptions{
+			ID: updateNotificationID, Body: body, Silent: true,
+		})
+
+		// A successful acknowledgement and the slot release share this bounded
+		// admission section. An account clear either invalidates the lease
+		// before it, so the delivery is treated as stale, or waits until the
+		// success has been published and the slot released. Inspect the caller's
+		// context here too: a page that unloaded during the native call must not
+		// keep a success or leave a notice the WebView no longer owns.
+		delivered := showErr == nil
+		accepted := false
+		u.mu.Lock()
+		accountErr := u.desktop.account.withLease(attempt.lease, func() error {
+			attempt.delivered = delivered
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// The attempt stays pinned to the lease expiry it was admitted with.
+			// A same-generation refresh may extend the account for later
+			// requests, but it must not revive this expired native attempt.
+			if attempt.ctx.Err() != nil || attempt.canceled || u.notification != attempt ||
+				u.result.State != UpdateAvailable || u.result.Revision != attempt.revision ||
+				u.available == nil || u.available.Version != attempt.version {
+				return errDesktopUpdateStale
+			}
+			u.finishNotificationAttemptLocked(attempt)
+			accepted = true
+			return nil
+		})
+		u.mu.Unlock()
+		if accepted {
+			attempt.cancel()
+			return showErr
+		}
+		if delivered {
+			// Keep this slot occupied until the fixed-ID notice is really gone.
+			// Closing after releasing the slot could delete a replacement that
+			// reused the same id in the gap.
+			closeUpdateNotification()
+		}
+		u.finishNotificationAttempt(attempt)
+		attempt.cancel()
+		if accountErr != nil && !errors.Is(accountErr, errAccountRequired) {
+			return accountErr
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return errDesktopUpdateStale
+	}
+}
+
+// finishNotificationAttempt releases the single notification slot and lets a
+// replacement proceed. The caller owns the attempt and calls it once.
+func (u *desktopUpdates) finishNotificationAttempt(attempt *updateNotificationAttempt) {
+	u.mu.Lock()
+	u.finishNotificationAttemptLocked(attempt)
+	u.mu.Unlock()
+}
+
+// finishNotificationAttemptLocked is finishNotificationAttempt for a caller
+// that already holds the update mutex, so acknowledgement and slot release
+// linearize with the account check.
+func (u *desktopUpdates) finishNotificationAttemptLocked(attempt *updateNotificationAttempt) {
+	if u.notification == attempt {
+		u.notification = nil
+	}
+	close(attempt.done)
+}
+
+// cancelUpdateNotification cancels only an attempt whose exact account lease is
+// no longer current. A delayed invalidation for an older session must not
+// cancel a notice admitted for the new session, even for the same user id.
+func (u *desktopUpdates) cancelUpdateNotification() {
+	if u.desktop == nil {
+		return
+	}
+	u.mu.Lock()
+	attempt := u.notification
+	u.mu.Unlock()
+	if attempt == nil || u.desktop.account.matches(attempt.lease) {
+		return
+	}
+	u.mu.Lock()
+	if !attempt.canceled {
+		attempt.canceled = true
+		attempt.cancel()
+	}
+	u.mu.Unlock()
 }
 
 func (u *desktopUpdates) installRequest(ctx context.Context, revision int64) (DesktopUpdateResult, error) {
@@ -718,6 +980,10 @@ func (u *desktopUpdates) shutdown() {
 	u.cancelApp()
 	if u.requestCancel != nil {
 		u.requestCancel()
+	}
+	if u.notification != nil {
+		u.notification.canceled = true
+		u.notification.cancel()
 	}
 	done := u.requestDone
 	u.mu.Unlock()
@@ -1055,6 +1321,29 @@ func (d *Desktop) GetUpdateState(ctx context.Context) (DesktopUpdateResult, erro
 		return result, nil
 	}
 	return d.updates.stateRequest(), nil
+}
+
+// ShowUpdateNotification shows one quiet system notice for the exact signed
+// candidate revision. The page supplies no text, version or URL, and the
+// native controller rechecks the account, snapshot and candidate under lock.
+func (d *Desktop) ShowUpdateNotification(ctx context.Context, revision int64) error {
+	if err := d.checkCaller(ctx); err != nil {
+		return err
+	}
+	if !desktopNativeNotifications() {
+		return errNotificationsUnsupported
+	}
+	if revision <= 0 {
+		return errDesktopUpdateNotificationInvalid
+	}
+	if win := d.mainWindow(); win != nil && win.IsVisible() && win.IsFocused() {
+		// The foreground app already shows the in-app availability toast.
+		return errDesktopUpdateStale
+	}
+	if d.updates == nil {
+		return errDesktopUpdateUnavailable
+	}
+	return d.updates.showNotificationRequest(ctx, revision)
 }
 
 func (d *Desktop) InstallUpdate(ctx context.Context, revision int64) (DesktopUpdateResult, error) {

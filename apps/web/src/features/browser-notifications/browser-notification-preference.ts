@@ -31,6 +31,14 @@ export type BrowserNotificationPreference = Readonly<{
   supported: boolean
 }>
 
+/**
+ * A visible, focused app is already showing its own in-app result or notice.
+ * Hidden and visible-but-unfocused windows are treated as background.
+ */
+export function isLinkSenseActivelyUsed(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus()
+}
+
 export function browserNotificationStorageKey(userId: string) {
   return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
 }

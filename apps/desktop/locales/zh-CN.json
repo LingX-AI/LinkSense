@@ -13,6 +13,7 @@
   "quit": "退出",
   "showWindow": "显示 LinkSense",
   "desktopUpdates": "桌面更新…",
+  "updateAvailableNotice": "版本 {version} 可用。",
   "exportDiagnostics": "导出 LinkSense 诊断信息…",
   "diagnosticsExportTitle": "导出 LinkSense 诊断信息",
   "diagnosticsPrivacy": "报告仅包含应用版本、设备连接状态、macOS 权限状态以及最新的已知连接错误码。不会包含名称、标识符、路径、消息、屏幕截图、凭据或日志。",

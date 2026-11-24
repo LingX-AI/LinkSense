@@ -15,6 +15,7 @@ import {
   claimBrowserNotificationDelivery,
   clearBrowserNotificationFeedCursor,
   hasBrowserNotificationDelivery,
+  isLinkSenseActivelyUsed,
   readBrowserNotificationFeedCursor,
   readBrowserNotificationPreference,
   recordMacNotificationDenial,
@@ -193,10 +194,6 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
   ])
 
   return null
-}
-
-function isLinkSenseActivelyUsed(): boolean {
-  return document.visibilityState === "visible" && document.hasFocus()
 }
 
 async function createClaimedBrowserNotification(input: {

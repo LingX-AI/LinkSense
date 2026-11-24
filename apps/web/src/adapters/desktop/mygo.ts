@@ -275,6 +275,12 @@ export const Desktop = {
    * authorization prompt when the user enables notifications.
    */
   showTestNotification: bind<[string], void>("Desktop.ShowTestNotification", (body: string) => [body]),
+  /**
+   * ShowUpdateNotification shows one quiet system notice for the exact signed
+   * candidate revision. The page supplies no text, version or URL, and the
+   * native controller rechecks the account, snapshot and candidate under lock.
+   */
+  showUpdateNotification: bind<[number], void>("Desktop.ShowUpdateNotification", (revision: number) => [revision]),
   signIn: bind<[], void>("Desktop.SignIn", () => []),
   /**
    * WorkspaceNotice derives the account from the authenticated native refresh

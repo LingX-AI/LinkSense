@@ -1145,7 +1145,7 @@ export const ptBR = {
       "Uma notificação de teste foi enviada ao sistema. Se não a viu, confira as configurações de notificações deste navegador no sistema operacional.",
     desktopTitle: "Notificações do macOS",
     desktopDescription:
-      "Receba uma notificação quando uma tarefa ou automação terminar enquanto o LinkSense estiver em segundo plano.",
+      "Receba uma notificação quando uma tarefa ou automação terminar, ou quando houver uma atualização assinada disponível, enquanto o LinkSense estiver em segundo plano.",
     desktopEnable: "Ativar notificações do macOS",
     desktopUnsupported:
       "As notificações não estão disponíveis nesta versão do aplicativo. Use um aplicativo de desktop LinkSense empacotado para receber notificações de conclusão de tarefas.",

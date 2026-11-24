@@ -127,6 +127,10 @@ func validNotificationText(value string) bool {
 // handleNotificationClick runs on the main thread. A notification can outlive
 // the run that showed it, so only IDs this app wrote are accepted.
 func (d *Desktop) handleNotificationClick(id string) {
+	if id == updateNotificationID {
+		d.handleUpdateNotificationClick()
+		return
+	}
 	if !strings.HasPrefix(id, completionNotificationIDPrefix) {
 		return
 	}
@@ -146,10 +150,34 @@ func (d *Desktop) handleNotificationClick(id string) {
 			log.Print("DESKTOP_NOTIFICATION_NAVIGATION_UNAVAILABLE")
 			return
 		}
-		if desktopNativeNotifications() {
-			mygo.NewNotification(mygo.NotificationOptions{ID: id}).Close()
-		}
+		closeNotification(id)
 	})
+}
+
+// handleUpdateNotificationClick opens only the fixed update section through the
+// same protected launch path as other native notifications. It carries no
+// account identity and performs no update action.
+func (d *Desktop) handleUpdateNotificationClick() {
+	mygo.App.WhenReady(func() {
+		if d.server == nil {
+			return
+		}
+		win := d.presentMainWindow()
+		if win == nil {
+			return
+		}
+		if err := desktopNavigate.Emit(win, desktopUpdateSettingsPath); err != nil {
+			log.Print("DESKTOP_NOTIFICATION_NAVIGATION_UNAVAILABLE")
+			return
+		}
+		closeNotification(updateNotificationID)
+	})
+}
+
+func closeNotification(id string) {
+	if desktopNativeNotifications() {
+		mygo.NewNotification(mygo.NotificationOptions{ID: id}).Close()
+	}
 }
 
 func (d *Desktop) completionNotificationPrefix() string {

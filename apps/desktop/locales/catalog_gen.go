@@ -176,6 +176,18 @@ func (msgs Messages) DesktopUpdates() string {
 	return Catalog.Format(msgs.locale, "desktopUpdates", nil)
 }
 
+// UpdateAvailableNotice says "版本 {version} 可用。"
+// in the language the app shows.
+func UpdateAvailableNotice(version string) string {
+	return In(i18n.Locale()).UpdateAvailableNotice(version)
+}
+
+// UpdateAvailableNotice says "版本 {version} 可用。"
+// in the language of msgs.
+func (msgs Messages) UpdateAvailableNotice(version string) string {
+	return Catalog.Format(msgs.locale, "updateAvailableNotice", map[string]any{"version": version})
+}
+
 // ExportDiagnostics says "导出 LinkSense 诊断信息…"
 // in the language the app shows.
 func ExportDiagnostics() string { return In(i18n.Locale()).ExportDiagnostics() }

@@ -13,6 +13,7 @@
   "quit": "Quitter",
   "showWindow": "Afficher LinkSense",
   "desktopUpdates": "Mises à jour de l’application…",
+  "updateAvailableNotice": "La version {version} est disponible.",
   "exportDiagnostics": "Exporter les diagnostics de LinkSense…",
   "diagnosticsExportTitle": "Exporter les diagnostics de LinkSense",
   "diagnosticsPrivacy": "Le rapport contient uniquement la version de l’application, l’état de connexion de l’appareil, les états des autorisations macOS et le dernier code d’erreur de connexion connu. Il ne contient jamais de noms, d’identifiants, de chemins, de messages, de captures d’écran, d’identifiants de connexion ni de journaux.",

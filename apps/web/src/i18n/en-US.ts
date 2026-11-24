@@ -870,7 +870,7 @@ export const enUS = {
       "A test notification was sent to the system. If you did not see it, check your operating system's notification settings for this browser.",
     desktopTitle: "macOS notifications",
     desktopDescription:
-      "Get a notification when a task or automation finishes while LinkSense is in the background.",
+      "Get a notification when a task or automation finishes, or a signed update is available, while LinkSense is in the background.",
     desktopEnable: "Enable macOS notifications",
     desktopUnsupported:
       "Notifications are unavailable in this app build. Use a packaged LinkSense desktop app to receive task completion notifications.",

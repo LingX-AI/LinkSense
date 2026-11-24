@@ -56,6 +56,7 @@ const native = vi.hoisted(() => ({
   notificationsSupported: vi.fn(),
   showCompletionNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   showTestNotification: Object.assign(vi.fn(), { with: vi.fn() }),
+  showUpdateNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   onNotificationClick: vi.fn(),
   workspaceUsage: vi.fn(),
   cleanupWorkspaces: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock("./mygo", () => ({
     notificationsSupported: native.notificationsSupported,
     showCompletionNotification: native.showCompletionNotification,
     showTestNotification: native.showTestNotification,
+    showUpdateNotification: native.showUpdateNotification,
     workspaceUsage: native.workspaceUsage,
     cleanupWorkspaces: native.cleanupWorkspaces,
     workspaceNotice: native.workspaceNotice,
@@ -112,9 +114,11 @@ import {
   armDesktopArtifactDownload,
   beginDesktopArtifactDownload,
   beginDesktopArtifactPreview,
+  cancelDeferredDesktopNotification,
   cancelDesktopArtifactDownload,
   checkDesktopUpdate,
   cleanupDesktopWorkspaces,
+  desktopUpdateSettingsHref,
   getDesktopPlatform,
   getDesktopServerUrl,
   getDesktopUpdateState,
@@ -128,9 +132,11 @@ import {
   readDesktopWorkspaceUsage,
   restartDesktopAfterUpdate,
   revealDesktopArtifactDownload,
+  scopeDesktopNotificationNavigation,
   setDesktopUpdateChannel,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
+  showDesktopUpdateNotification,
   subscribeDesktopArtifactSaved,
   subscribeDesktopLaunchNavigation,
   subscribeDesktopNavigation,
@@ -447,6 +453,186 @@ describe("desktop host boundary", () => {
     act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
     expect(screen.getByText("New task")).toBeVisible()
     expect(screen.queryByText("General settings")).toBeNull()
+  })
+
+  it("holds the fixed update-settings notification path until a protected owner is ready", async () => {
+    await initializePairingTestHost()
+    installDesktopNavigationBridge()
+    const menuNavigate = vi.fn()
+    const stopMenu = subscribeDesktopNavigation(menuNavigate)
+    const navigate = vi.fn()
+    const stop = subscribeDesktopLaunchNavigation(navigate)
+    updateDesktopLaunchContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+      pathname: "/login",
+      hash: "",
+    })
+
+    act(() => emitDesktopNavigation(desktopUpdateSettingsHref))
+    act(() =>
+      emitDesktopNavigation(`${desktopUpdateSettingsHref}?token=fixture`)
+    )
+    expect(navigate).not.toHaveBeenCalled()
+    expect(menuNavigate).not.toHaveBeenCalled()
+
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(navigate).toHaveBeenCalledWith(desktopUpdateSettingsHref)
+    expect(menuNavigate).not.toHaveBeenCalled()
+    stop?.()
+    stopMenu?.()
+  })
+
+  it("keeps an existing launch link ahead of the update notification path", async () => {
+    await initializePairingTestHost()
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopLaunchNavigation(navigate)
+    const conversation = `/conversations/${pairingConversation}`
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: false,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+
+    act(() => emitDesktopNavigation(desktopUpdateSettingsHref))
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    act(() => emitDesktopNavigation(conversation))
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(navigate).toHaveBeenCalledWith(conversation)
+
+    // The update intent must not replace the already-opened task after the
+    // protected route commits.
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: conversation,
+      hash: "",
+    })
+    expect(navigate).toHaveBeenCalledOnce()
+    stop?.()
+  })
+
+  it("drops a queued update intent once pairing is selected", async () => {
+    await initializePairingTestHost()
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopLaunchNavigation(navigate)
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: false,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+
+    act(() => {
+      emitDesktopNavigation(desktopUpdateSettingsHref)
+      emitDesktopNavigation(desktopDeviceSettingsHref)
+    })
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+    expect(navigate.mock.calls).toEqual([[desktopDeviceSettingsHref]])
+
+    // The update intent must not surface on the next context flush after the
+    // pairing route (or its blocked draft) commits.
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/settings/general",
+      hash: "#desktop-devices-heading",
+    })
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/settings/personalization",
+      hash: "",
+    })
+    expect(navigate.mock.calls).toEqual([[desktopDeviceSettingsHref]])
+    stop?.()
+  })
+
+  it("discards an update intent while a conversation handoff waits on a draft", async () => {
+    await initializePairingTestHost()
+    installDesktopNavigationBridge()
+    const navigate = vi.fn()
+    const stop = subscribeDesktopLaunchNavigation(navigate)
+    const pathname = "/settings/personalization"
+    const linked = `/conversations/${pairingConversation}`
+    const buffered = "71000000-0000-4000-8000-000000000927"
+    const stopScope = scopeDesktopNotificationNavigation(pairingOwner, pathname)
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: false,
+      pathname,
+      hash: "",
+    })
+
+    act(() => {
+      emitDesktopNavigation(linked)
+      emitNotificationClick({
+        userId: pairingOwner,
+        conversationId: buffered,
+      })
+    })
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname,
+      hash: "",
+    })
+    expect(navigate.mock.calls).toEqual([[linked]])
+
+    // The update intent arrives while the lower-priority notification click
+    // waits behind the conversation/draft handoff. Declining that draft must
+    // not leave the update intent to jump to Settings later.
+    act(() => emitDesktopNavigation(desktopUpdateSettingsHref))
+    act(() => cancelDeferredDesktopNotification(linked))
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname,
+      hash: "",
+    })
+    expect(navigate.mock.calls).toEqual([[linked]])
+    updateDesktopLaunchContext({
+      authenticated: true,
+      ownerId: pairingOwner,
+      ready: true,
+      pathname: "/settings/general",
+      hash: "",
+    })
+    expect(navigate.mock.calls).toEqual([[linked]])
+    stopScope?.()
+    stop?.()
   })
 
   it("opens pairing only after an anonymous sign-in has been cancelled and retried", async () => {
@@ -1577,6 +1763,65 @@ describe("desktop host boundary", () => {
       showDesktopCompletionNotification(input, AbortSignal.abort())
     ).resolves.toBe("cancelled")
     expect(native.showCompletionNotification.with).toHaveBeenCalledTimes(4)
+
+    native.showUpdateNotification.with.mockReturnValue(
+      native.showUpdateNotification
+    )
+    native.showUpdateNotification.mockResolvedValueOnce(undefined)
+    await expect(showDesktopUpdateNotification(7, signal)).resolves.toBe(
+      "shown"
+    )
+    expect(native.showUpdateNotification).toHaveBeenCalledWith(7)
+    native.showUpdateNotification.mockRejectedValueOnce(
+      new Error("DESKTOP_UPDATE_STALE")
+    )
+    await expect(showDesktopUpdateNotification(8, signal)).resolves.toBe(
+      "stale"
+    )
+    native.showUpdateNotification.mockRejectedValueOnce(
+      new Error("DESKTOP_UPDATE_BUSY")
+    )
+    await expect(showDesktopUpdateNotification(11, signal)).resolves.toBe(
+      "stale"
+    )
+    native.showUpdateNotification.mockRejectedValueOnce(
+      new Error("AUTH_REQUIRED")
+    )
+    await expect(showDesktopUpdateNotification(12, signal)).resolves.toBe(
+      "stale"
+    )
+    // A malformed or zero revision is rejected locally, without a native call
+    // or an unhandled rejected promise.
+    const nativeCalls = native.showUpdateNotification.mock.calls.length
+    await expect(showDesktopUpdateNotification(0, signal)).resolves.toBe(
+      "failed"
+    )
+    await expect(
+      showDesktopUpdateNotification(Number.NaN, signal)
+    ).resolves.toBe("failed")
+    expect(native.showUpdateNotification).toHaveBeenCalledTimes(nativeCalls)
+    // A mixed legacy host still exposes the generated `.with`; the host rejects
+    // the unbound method with the exact Go reply. Only the update call maps
+    // that reply to unsupported.
+    native.showUpdateNotification.with.mockReturnValueOnce(() =>
+      Promise.reject(
+        new Error("method Desktop.ShowUpdateNotification is not bound")
+      )
+    )
+    await expect(showDesktopUpdateNotification(10, signal)).resolves.toBe(
+      "unsupported"
+    )
+    native.showCompletionNotification.with.mockReturnValueOnce(() =>
+      Promise.reject(
+        new Error("method Desktop.ShowUpdateNotification is not bound")
+      )
+    )
+    await expect(
+      showDesktopCompletionNotification(input, signal)
+    ).resolves.toBe("failed")
+    await expect(
+      showDesktopUpdateNotification(9, AbortSignal.abort())
+    ).resolves.toBe("cancelled")
   })
 
   it("opens only valid notification clicks for the current protected account", async () => {

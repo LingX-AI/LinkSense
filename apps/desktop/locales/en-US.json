@@ -13,6 +13,7 @@
   "quit": "Quit",
   "showWindow": "Show LinkSense",
   "desktopUpdates": "Desktop updates…",
+  "updateAvailableNotice": "Version {version} is available.",
   "exportDiagnostics": "Export LinkSense Diagnostics…",
   "diagnosticsExportTitle": "Export LinkSense Diagnostics",
   "diagnosticsPrivacy": "The report contains only the app version, device connection state, macOS permission states, and the latest known connection error code. It never includes names, identifiers, paths, messages, screenshots, credentials, or logs.",

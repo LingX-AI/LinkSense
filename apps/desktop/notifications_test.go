@@ -38,6 +38,7 @@ func TestCompletionNotificationIDsAcceptOnlyAppWrittenUUIDs(t *testing.T) {
 		"",
 		"https://example.com/conversations/" + notificationConversationID,
 		"linksense:notification-test",
+		updateNotificationID,
 		prefix + notificationUserID + ":" + notificationConversationID,
 		prefix + notificationUserID + ":" + notificationConversationID + ":" +
 			notificationTurnID + ":extra",

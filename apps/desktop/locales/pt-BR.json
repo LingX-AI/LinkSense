@@ -13,6 +13,7 @@
   "quit": "Sair",
   "showWindow": "Mostrar o LinkSense",
   "desktopUpdates": "Atualizações do aplicativo…",
+  "updateAvailableNotice": "A versão {version} está disponível.",
   "exportDiagnostics": "Exportar diagnósticos do LinkSense…",
   "diagnosticsExportTitle": "Exportar diagnósticos do LinkSense",
   "diagnosticsPrivacy": "O relatório inclui apenas a versão do aplicativo, o estado de conexão do dispositivo, os estados das permissões do macOS e o código de erro de conexão conhecido mais recente. Ele nunca inclui nomes, identificadores, caminhos, mensagens, capturas de tela, credenciais ou registros.",

@@ -60,6 +60,10 @@ export interface Messages {
    */
   desktopUpdates(): string;
   /**
+   * `版本 {version} 可用。`
+   */
+  updateAvailableNotice(version: string): string;
+  /**
    * `导出 LinkSense 诊断信息…`
    */
   exportDiagnostics(): string;
@@ -119,6 +123,7 @@ const catalog = createCatalog<Messages>({
     "quit": [],
     "showWindow": [],
     "desktopUpdates": [],
+    "updateAvailableNotice": ["version"],
     "exportDiagnostics": [],
     "diagnosticsExportTitle": [],
     "diagnosticsPrivacy": [],
@@ -144,6 +149,7 @@ const catalog = createCatalog<Messages>({
       "quit": "退出",
       "showWindow": "显示 LinkSense",
       "desktopUpdates": "桌面更新…",
+      "updateAvailableNotice": "版本 {version} 可用。",
       "exportDiagnostics": "导出 LinkSense 诊断信息…",
       "diagnosticsExportTitle": "导出 LinkSense 诊断信息",
       "diagnosticsPrivacy": "报告仅包含应用版本、设备连接状态、macOS 权限状态以及最新的已知连接错误码。不会包含名称、标识符、路径、消息、屏幕截图、凭据或日志。",
@@ -168,6 +174,7 @@ const catalog = createCatalog<Messages>({
       "quit": "Quit",
       "showWindow": "Show LinkSense",
       "desktopUpdates": "Desktop updates…",
+      "updateAvailableNotice": "Version {version} is available.",
       "exportDiagnostics": "Export LinkSense Diagnostics…",
       "diagnosticsExportTitle": "Export LinkSense Diagnostics",
       "diagnosticsPrivacy": "The report contains only the app version, device connection state, macOS permission states, and the latest known connection error code. It never includes names, identifiers, paths, messages, screenshots, credentials, or logs.",
@@ -192,6 +199,7 @@ const catalog = createCatalog<Messages>({
       "quit": "Salir",
       "showWindow": "Mostrar LinkSense",
       "desktopUpdates": "Actualizaciones de escritorio…",
+      "updateAvailableNotice": "La versión {version} está disponible.",
       "exportDiagnostics": "Exportar diagnósticos de LinkSense…",
       "diagnosticsExportTitle": "Exportar diagnósticos de LinkSense",
       "diagnosticsPrivacy": "El informe solo incluye la versión de la aplicación, el estado de conexión del dispositivo, los estados de permisos de macOS y el código de error de conexión conocido más reciente. Nunca incluye nombres, identificadores, rutas, mensajes, capturas de pantalla, credenciales ni registros.",
@@ -216,6 +224,7 @@ const catalog = createCatalog<Messages>({
       "quit": "Quitter",
       "showWindow": "Afficher LinkSense",
       "desktopUpdates": "Mises à jour de l’application…",
+      "updateAvailableNotice": "La version {version} est disponible.",
       "exportDiagnostics": "Exporter les diagnostics de LinkSense…",
       "diagnosticsExportTitle": "Exporter les diagnostics de LinkSense",
       "diagnosticsPrivacy": "Le rapport contient uniquement la version de l’application, l’état de connexion de l’appareil, les états des autorisations macOS et le dernier code d’erreur de connexion connu. Il ne contient jamais de noms, d’identifiants, de chemins, de messages, de captures d’écran, d’identifiants de connexion ni de journaux.",
@@ -240,6 +249,7 @@ const catalog = createCatalog<Messages>({
       "quit": "終了",
       "showWindow": "LinkSense を表示",
       "desktopUpdates": "デスクトップの更新…",
+      "updateAvailableNotice": "バージョン {version} が利用可能です。",
       "exportDiagnostics": "LinkSense の診断情報を書き出す…",
       "diagnosticsExportTitle": "LinkSense の診断情報を書き出す",
       "diagnosticsPrivacy": "レポートには、アプリのバージョン、デバイスの接続状態、macOS の権限状態、最新の既知の接続エラーコードのみが含まれます。名前、識別子、パス、メッセージ、スクリーンショット、認証情報、ログは含まれません。",
@@ -264,6 +274,7 @@ const catalog = createCatalog<Messages>({
       "quit": "Sair",
       "showWindow": "Mostrar o LinkSense",
       "desktopUpdates": "Atualizações do aplicativo…",
+      "updateAvailableNotice": "A versão {version} está disponível.",
       "exportDiagnostics": "Exportar diagnósticos do LinkSense…",
       "diagnosticsExportTitle": "Exportar diagnósticos do LinkSense",
       "diagnosticsPrivacy": "O relatório inclui apenas a versão do aplicativo, o estado de conexão do dispositivo, os estados das permissões do macOS e o código de erro de conexão conhecido mais recente. Ele nunca inclui nomes, identificadores, caminhos, mensagens, capturas de tela, credenciais ou registros.",

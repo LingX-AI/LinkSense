@@ -415,7 +415,7 @@ export const settingsResources = {
       "Une notification de test a été envoyée au système. Si vous ne l’avez pas vue, vérifiez les paramètres de notification du système pour ce navigateur.",
     desktopTitle: "Notifications macOS",
     desktopDescription:
-      "Recevez une notification quand une tâche ou une automatisation se termine pendant que LinkSense est en arrière-plan.",
+      "Recevez une notification quand une tâche ou une automatisation se termine, ou qu’une mise à jour signée est disponible, pendant que LinkSense est en arrière-plan.",
     desktopEnable: "Activer les notifications macOS",
     desktopUnsupported:
       "Les notifications ne sont pas disponibles dans cette version de l’application. Utilisez une application de bureau LinkSense empaquetée pour recevoir les notifications de fin de tâche.",

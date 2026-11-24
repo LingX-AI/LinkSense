@@ -146,8 +146,13 @@ Enable **macOS notifications** in **Settings → General**. Turning it on
 sends a test notification and can open the system permission prompt. A saved
 browser preference does not enable Mac notifications. While the app runs
 in the background, it shows task and automation results without task names
-or content. Clicking a notification opens the task only on the matching
-server and account, with the same unsaved-change prompt as in-app navigation.
+or content, and one quiet notice when a signed LinkSense update is available.
+The update notice contains only the app name and a localized availability
+message (optionally the verified version), never release notes, routes, server
+or account details. Clicking a task notification opens the task only on the
+matching server and account, with the same unsaved-change prompt as in-app
+navigation. Clicking an update notice opens only the update section in
+**Settings → General**; it never installs or restarts the app.
 
 ### Window chrome
 

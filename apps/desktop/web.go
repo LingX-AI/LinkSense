@@ -98,6 +98,9 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 		// the runtime pipe lock and must not delay the device's fail-closed
 		// transition. Both calls are nonblocking.
 		d.clearInvalidatedDevice()
+		if d.updates != nil {
+			d.updates.cancelUpdateNotification()
+		}
 		if d.localRuntime != nil {
 			d.localRuntime.dropWorkspaceRequests()
 		}

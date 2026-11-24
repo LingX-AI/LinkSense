@@ -126,7 +126,7 @@ export type DesktopArtifactDownloadSaved = z.infer<
 >
 
 export type DesktopNotificationResult =
-  "shown" | "denied" | "unsupported" | "cancelled" | "failed"
+  "shown" | "denied" | "unsupported" | "cancelled" | "stale" | "failed"
 
 export async function checkDesktopUpdate(): Promise<DesktopUpdateResult> {
   if (!isDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
@@ -317,6 +317,9 @@ let pendingConversationNavigation: PendingLaunch<DesktopConversationPath> | null
 let pendingPairingNavigation: PendingLaunch<
   typeof desktopDeviceSettingsHref
 > | null = null
+let pendingUpdateNavigation: PendingLaunch<
+  typeof desktopUpdateSettingsHref
+> | null = null
 let updateRequired = false
 const updateListeners = new Set<() => void>()
 
@@ -371,9 +374,38 @@ export async function showDesktopTestNotification(
   )
 }
 
+// MyGo's generated bind() always gives the client a `.with` function, even
+// when the running host never bound the method. The host answers such a call
+// with this exact Go error; only the update caller treats it as unsupported.
+const missingUpdateNotificationBinding =
+  "method Desktop.ShowUpdateNotification is not bound"
+
+/**
+ * Show one quiet native notice for the exact signed update revision. The page
+ * supplies no text or version; the host rechecks its account and candidate.
+ */
+export async function showDesktopUpdateNotification(
+  revision: number,
+  signal: AbortSignal
+): Promise<DesktopNotificationResult> {
+  if (!supportsNativeDesktopNotifications()) return "unsupported"
+  // A malformed or zero revision is a page bug: never call native and never
+  // leave an unhandled rejection for the caller's async effect.
+  const exactRevision = desktopUpdateRevisionSchema
+    .refine((value) => value > 0)
+    .safeParse(revision)
+  if (!exactRevision.success) return "failed"
+  return desktopNotificationResult(
+    signal,
+    () => Desktop.showUpdateNotification.with({ signal })(exactRevision.data),
+    missingUpdateNotificationBinding
+  )
+}
+
 async function desktopNotificationResult(
   signal: AbortSignal,
-  show: () => Promise<void>
+  show: () => Promise<void>,
+  missingHostMethod?: string
 ): Promise<DesktopNotificationResult> {
   try {
     signal.throwIfAborted()
@@ -382,8 +414,16 @@ async function desktopNotificationResult(
   } catch (error) {
     if (signal.aborted) return "cancelled"
     const message = error instanceof Error ? error.message : ""
+    if (missingHostMethod !== undefined && message === missingHostMethod)
+      return "unsupported"
     if (message === "DESKTOP_NOTIFICATIONS_DENIED") return "denied"
     if (message === "DESKTOP_NOTIFICATIONS_UNSUPPORTED") return "unsupported"
+    if (
+      message === "DESKTOP_UPDATE_STALE" ||
+      message === "DESKTOP_UPDATE_BUSY" ||
+      message === "AUTH_REQUIRED"
+    )
+      return "stale"
     return "failed"
   }
 }
@@ -444,6 +484,9 @@ export function scopeDesktopNotificationNavigation(
   }
 }
 
+export const desktopUpdateSettingsHref =
+  "/settings/general#desktop-update-heading" as const
+
 const desktopMenuPathSchema = z.enum([
   "/settings/general",
   "/conversations/new",
@@ -458,7 +501,9 @@ const desktopConversationPathSchema = z.templateLiteral([
 type DesktopMenuPath = z.infer<typeof desktopMenuPathSchema>
 type DesktopConversationPath = z.infer<typeof desktopConversationPathSchema>
 type DesktopLaunchPath =
-  DesktopConversationPath | typeof desktopDeviceSettingsHref
+  | DesktopConversationPath
+  | typeof desktopDeviceSettingsHref
+  | typeof desktopUpdateSettingsHref
 
 type DesktopLaunchContext = {
   authenticated: boolean
@@ -484,7 +529,9 @@ export function installDesktopNavigationBridge(): void {
       menuNavigationListener?.(menuPath.data)
       return
     }
-    if (value === desktopDeviceSettingsHref) {
+    if (value === desktopUpdateSettingsHref) {
+      pendingUpdateNavigation = { path: value, ownerId: launchContext.ownerId }
+    } else if (value === desktopDeviceSettingsHref) {
       // Null means the bridge is installed but Desktop.info has not resolved.
       if (getDesktopPlatform() === "windows") return
       pendingPairingNavigation = { path: value, ownerId: launchContext.ownerId }
@@ -557,6 +604,10 @@ export function updateDesktopLaunchContext(
     pendingPairingNavigation,
     context.ownerId
   )
+  pendingUpdateNavigation = launchForOwner(
+    pendingUpdateNavigation,
+    context.ownerId
+  )
   flushPendingDesktopLaunch()
 }
 
@@ -587,6 +638,7 @@ function flushPendingDesktopLaunch(): void {
   pendingConversationNavigation = null
   if (conversation) {
     pendingPairingNavigation = null
+    pendingUpdateNavigation = null
     if (conversation !== pathname) {
       if (notificationPath === conversation) pendingNotificationClick = null
       // Keep a different notification until this route commits so it cannot
@@ -597,15 +649,27 @@ function flushPendingDesktopLaunch(): void {
       return
     }
   }
-  if (pendingNotificationClick?.afterConversation) return
+  if (pendingNotificationClick?.afterConversation) {
+    // The click waits behind a higher-priority conversation/draft handoff.
+    // An update intent is lower priority and must not surface later after the
+    // draft is accepted or declined.
+    pendingUpdateNavigation = null
+    return
+  }
   if (notificationPath) {
     pendingNotificationClick = null
     pendingPairingNavigation = null
+    pendingUpdateNavigation = null
     if (notificationPath !== pathname)
       launchNavigationListener(notificationPath)
   } else if (pendingPairingNavigation && isMacDesktopHost()) {
     const { path } = pendingPairingNavigation
     pendingPairingNavigation = null
+    pendingUpdateNavigation = null
+    if (path !== `${pathname}${hash}`) launchNavigationListener(path)
+  } else if (pendingUpdateNavigation && isMacDesktopHost()) {
+    const { path } = pendingUpdateNavigation
+    pendingUpdateNavigation = null
     if (path !== `${pathname}${hash}`) launchNavigationListener(path)
   }
 }

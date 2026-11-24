@@ -1281,6 +1281,767 @@ func TestBackgroundUpdateCheckNeverInstallsAndSkipsStagedOrQuitting(t *testing.T
 	}
 }
 
+func newUpdateNotificationFixture(t *testing.T) (*desktopUpdates, *Desktop, DesktopUpdateResult) {
+	t.Helper()
+	u, _ := newUpdateFixture(t)
+	desktop := &Desktop{updates: u}
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	u.desktop = desktop
+	available := makeUpdateAvailable(t, u, "0.2.0")
+	return u, desktop, available
+}
+
+func captureUpdateNotifications(t *testing.T) *[]mygo.NotificationOptions {
+	t.Helper()
+	supported, show := desktopNativeNotifications, showSystemNotification
+	calls := &[]mygo.NotificationOptions{}
+	desktopNativeNotifications = func() bool { return true }
+	showSystemNotification = func(_ context.Context, options mygo.NotificationOptions) error {
+		*calls = append(*calls, options)
+		return nil
+	}
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification = supported, show
+	})
+	return calls
+}
+
+func TestUpdateNotificationUsesTheExactAvailableCandidate(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	calls := captureUpdateNotifications(t)
+
+	if err := u.showNotificationRequest(context.Background(), 0); !errors.Is(err, errDesktopUpdateNotificationInvalid) {
+		t.Fatalf("a zero revision returned %v", err)
+	}
+	if err := u.showNotificationRequest(context.Background(), available.Revision-1); !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("a stale revision returned %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("a stale revision notified: %+v", *calls)
+	}
+	if err := u.showNotificationRequest(context.Background(), available.Revision); err != nil {
+		t.Fatalf("the exact candidate did not notify: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("notification calls = %d, want 1", len(*calls))
+	}
+	notification := (*calls)[0]
+	if notification.ID != updateNotificationID || !notification.Silent {
+		t.Fatalf("unexpected native notification: %+v", notification)
+	}
+	if !strings.Contains(notification.Body, available.Version) || strings.Contains(notification.Body, "untrusted release notes") ||
+		strings.Contains(notification.Body, "https://") {
+		t.Fatalf("native notification body leaked or omitted content: %q", notification.Body)
+	}
+
+	// A periodic check may offer the same version under a new revision; that
+	// does not authorize a second notification from the old snapshot.
+	next := makeUpdateAvailable(t, u, available.Version)
+	if next.Revision <= available.Revision {
+		t.Fatalf("the repeated availability revision did not advance: %+v", next)
+	}
+	if err := u.showNotificationRequest(context.Background(), available.Revision); !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the replaced revision returned %v", err)
+	}
+
+	// A staged snapshot must not notify even for the old candidate.
+	u.mu.Lock()
+	u.available = nil
+	u.result = u.resultFor(UpdateStaged, available.Version)
+	u.mu.Unlock()
+	if err := u.showNotificationRequest(context.Background(), next.Revision); !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("a staged update notified: %v", err)
+	}
+
+	desktop.account.clear()
+	if err := u.showNotificationRequest(context.Background(), next.Revision); !errors.Is(err, errAccountRequired) {
+		t.Fatalf("a signed-out account returned %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("stale or unauthenticated requests notified: %+v", *calls)
+	}
+}
+
+func TestUpdateNotificationCancelsWhenTheSnapshotOrAccountChanges(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	supported, show := desktopNativeNotifications, showSystemNotification
+	desktopNativeNotifications = func() bool { return true }
+	started := make(chan struct{})
+	showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification = supported, show
+	})
+
+	done := make(chan error, 1)
+	go func() { done <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-started
+	u.mu.Lock()
+	u.emitLocked(u.resultFor(UpdateChecking, available.Version))
+	u.mu.Unlock()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDesktopUpdateStale) {
+			t.Fatalf("a changed snapshot returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a changed update snapshot deadlocked the pending notification")
+	}
+
+	available = makeUpdateAvailable(t, u, "0.2.1")
+	started = make(chan struct{})
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+	go func() { done <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-started
+	desktop.account.clear()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDesktopUpdateStale) {
+			t.Fatalf("an account change returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("an account change deadlocked the pending notification")
+	}
+}
+
+func TestUpdateNotificationReplacesAStalePendingAttemptForANewCandidate(t *testing.T) {
+	u, _, available := newUpdateNotificationFixture(t)
+	supported, show := desktopNativeNotifications, showSystemNotification
+	desktopNativeNotifications = func() bool { return true }
+	started := make(chan int, 2)
+	calls := 0
+	showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+		calls++
+		started <- calls
+		if calls == 1 {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification = supported, show
+	})
+
+	oldDone := make(chan error, 1)
+	go func() { oldDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-started
+	next := makeUpdateAvailable(t, u, "0.2.1")
+	newDone := make(chan error, 1)
+	go func() { newDone <- u.showNotificationRequest(context.Background(), next.Revision) }()
+	select {
+	case err := <-oldDone:
+		if !errors.Is(err, errDesktopUpdateStale) {
+			t.Fatalf("the replaced attempt returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the replaced notification did not unwind")
+	}
+	select {
+	case err := <-newDone:
+		if err != nil {
+			t.Fatalf("the new candidate did not notify: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the new candidate waited forever for the old attempt")
+	}
+	if calls != 2 {
+		t.Fatalf("notification calls = %d, want 2", calls)
+	}
+}
+
+func TestUpdateNotificationKeepsTheFixedIDUntilStaleCleanupFinishes(t *testing.T) {
+	u, _, available := newUpdateNotificationFixture(t)
+	supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+	})
+	desktopNativeNotifications = func() bool { return true }
+
+	showStarted := make(chan struct{})
+	releaseShow := make(chan struct{})
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	var releaseShowOnce, releaseCloseOnce sync.Once
+	releaseOldShow := func() { releaseShowOnce.Do(func() { close(releaseShow) }) }
+	releaseStaleClose := func() { releaseCloseOnce.Do(func() { close(releaseClose) }) }
+	defer releaseOldShow()
+	defer releaseStaleClose()
+
+	var traceMu sync.Mutex
+	var trace []string
+	record := func(event string) {
+		traceMu.Lock()
+		trace = append(trace, event)
+		traceMu.Unlock()
+	}
+	calls := 0
+	showSystemNotification = func(_ context.Context, _ mygo.NotificationOptions) error {
+		calls++
+		if calls == 1 {
+			close(showStarted)
+			<-releaseShow
+			return nil
+		}
+		record("show")
+		return nil
+	}
+	closeUpdateNotification = func() {
+		record("close")
+		close(closeStarted)
+		<-releaseClose
+	}
+
+	oldDone := make(chan error, 1)
+	go func() { oldDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-showStarted
+	next := makeUpdateAvailable(t, u, "0.2.1")
+
+	// The old show succeeded but its candidate is stale. It must retain the
+	// fixed-id slot while its cleanup removes that exact notice.
+	releaseOldShow()
+	select {
+	case <-closeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stale successful show did not clean up its notice")
+	}
+	u.mu.Lock()
+	slot := u.notification
+	u.mu.Unlock()
+	if slot == nil {
+		t.Fatal("the stale cleanup released the fixed-id slot before closing the notice")
+	}
+
+	newDone := make(chan error, 1)
+	go func() { newDone <- u.showNotificationRequest(context.Background(), next.Revision) }()
+	releaseStaleClose()
+	if err := <-oldDone; !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the replaced attempt returned %v", err)
+	}
+	if err := <-newDone; err != nil {
+		t.Fatalf("the replacement did not notify after stale cleanup: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("notification calls = %d, want 2", calls)
+	}
+	traceMu.Lock()
+	defer traceMu.Unlock()
+	if len(trace) != 2 || trace[0] != "close" || trace[1] != "show" {
+		t.Fatalf("stale close and replacement show order = %v", trace)
+	}
+}
+
+func TestUpdateNotificationReplacementWaitsAcrossSameUserSignIn(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+	})
+	desktopNativeNotifications = func() bool { return true }
+	closeUpdateNotification = func() {}
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+
+	showStarted := make(chan struct{})
+	releaseOldShow := make(chan struct{})
+	calls := 0
+	showSystemNotification = func(_ context.Context, _ mygo.NotificationOptions) error {
+		calls++
+		if calls == 1 {
+			close(showStarted)
+			<-releaseOldShow
+		}
+		return nil
+	}
+
+	oldDone := make(chan error, 1)
+	go func() { oldDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-showStarted
+	next := makeUpdateAvailable(t, u, "0.2.1")
+
+	// Sign out and back in as the same user. The replacement is admitted under
+	// the new generation only after the older delivery has fully unwound.
+	desktop.account.clear()
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	waiting := make(chan struct{}, 1)
+	u.notifyWaiting = func() {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+	}
+	newDone := make(chan error, 1)
+	go func() { newDone <- u.showNotificationRequest(context.Background(), next.Revision) }()
+	select {
+	case <-waiting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the replacement did not wait for the older attempt")
+	}
+	close(releaseOldShow)
+	if err := <-oldDone; !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the signed-out attempt returned %v", err)
+	}
+	if err := <-newDone; err != nil {
+		t.Fatalf("the same-user replacement did not notify: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("notification calls = %d, want 2", calls)
+	}
+}
+
+func TestUpdateNotificationPinnedLeaseDoesNotCrossSameUserSignIn(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+	})
+	desktopNativeNotifications = func() bool { return true }
+	closeUpdateNotification = func() {}
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+
+	showStarted := make(chan struct{})
+	releaseOldShow := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseOldShow:
+		default:
+			close(releaseOldShow)
+		}
+	}()
+	calls := 0
+	showSystemNotification = func(_ context.Context, _ mygo.NotificationOptions) error {
+		calls++
+		if calls == 1 {
+			close(showStarted)
+			<-releaseOldShow
+		}
+		return nil
+	}
+
+	oldDone := make(chan error, 1)
+	go func() { oldDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-showStarted
+	next := makeUpdateAvailable(t, u, "0.2.1")
+	waiting := make(chan struct{}, 1)
+	u.notifyWaiting = func() {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+	}
+	newDone := make(chan error, 1)
+	go func() { newDone <- u.showNotificationRequest(context.Background(), next.Revision) }()
+	select {
+	case <-waiting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the replacement did not wait for the older attempt")
+	}
+
+	// The waiting request pinned the pre-sign-in generation. Re-signing in as
+	// the same user must invalidate it instead of authorizing a late notice.
+	desktop.account.clear()
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	close(releaseOldShow)
+	if err := <-oldDone; !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the signed-out attempt returned %v", err)
+	}
+	if err := <-newDone; !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the old-generation replacement returned %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("an old-generation replacement notified: calls=%d", calls)
+	}
+}
+
+func TestUpdateNotificationCallerCancellationDoesNotReportSuccess(t *testing.T) {
+	u, _, available := newUpdateNotificationFixture(t)
+	supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+	})
+	desktopNativeNotifications = func() bool { return true }
+	var closed atomic.Int32
+	closeUpdateNotification = func() { closed.Add(1) }
+	showStarted := make(chan struct{})
+	showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+		close(showStarted)
+		<-ctx.Done()
+		// MyGo can return nil after its caller gave up; the updater must still
+		// treat the delivery as abandoned.
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- u.showNotificationRequest(ctx, available.Revision) }()
+	<-showStarted
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("a canceled caller got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the canceled delivery did not finish")
+	}
+	if closed.Load() != 1 {
+		t.Fatalf("abandoned notice cleanup calls = %d, want 1", closed.Load())
+	}
+	u.mu.Lock()
+	retained := u.notification
+	u.mu.Unlock()
+	if retained != nil {
+		t.Fatal("the canceled delivery retained the notification slot")
+	}
+}
+
+func TestUpdateNotificationLeaseExpiryCancelsInFlightDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		expiry  time.Duration
+		refresh bool
+	}{
+		{name: "session expiry", expiry: 500 * time.Millisecond},
+		{name: "same-generation refresh does not extend the pinned attempt", expiry: time.Second, refresh: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, desktop, available := newUpdateNotificationFixture(t)
+			supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+			t.Cleanup(func() {
+				desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+			})
+			desktopNativeNotifications = func() bool { return true }
+			var closed atomic.Int32
+			closeUpdateNotification = func() { closed.Add(1) }
+			showStarted := make(chan struct{})
+			showCtxErr := make(chan error, 1)
+			showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+				close(showStarted)
+				select {
+				case <-ctx.Done():
+					showCtxErr <- ctx.Err()
+				case <-time.After(2 * time.Second):
+					showCtxErr <- errors.New("native delivery outlived the pinned lease")
+				}
+				// A late nil cannot turn an expired attempt into a delivered success.
+				return nil
+			}
+
+			desktop.account.set(notificationUserID, time.Now().Add(tc.expiry))
+			done := make(chan error, 1)
+			go func() { done <- u.showNotificationRequest(context.Background(), available.Revision) }()
+			<-showStarted
+			if tc.refresh {
+				// A same-generation refresh extends future requests only. This attempt
+				// stays pinned to the expiry its lease was admitted with.
+				desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, errDesktopUpdateStale) {
+					t.Fatalf("an expired pinned attempt returned %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("an expired pinned attempt did not unwind")
+			}
+			select {
+			case err := <-showCtxErr:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("native delivery context = %v, want the lease deadline", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("native delivery never observed its lease deadline")
+			}
+			if closed.Load() != 1 {
+				t.Fatalf("expired delivery cleanup calls = %d, want 1", closed.Load())
+			}
+			u.mu.Lock()
+			retained := u.notification
+			u.mu.Unlock()
+			if retained != nil {
+				t.Fatal("an expired delivery retained the notification slot")
+			}
+		})
+	}
+}
+
+func TestUpdateNotificationRevokedLeaseCannotReserveOrDeliver(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	calls := captureUpdateNotifications(t)
+	closeNotice := closeUpdateNotification
+	closeUpdateNotification = func() {}
+	t.Cleanup(func() { closeUpdateNotification = closeNotice })
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	u.notifyAdmission = func() {
+		once.Do(func() {
+			close(admitted)
+			<-release
+		})
+	}
+	done := make(chan error, 1)
+	go func() { done <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-admitted
+
+	// The request pinned the old generation. Invalidate it before the request
+	// can reserve the slot; re-signing in with the same id must not revive it.
+	desktop.account.clear()
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	close(release)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDesktopUpdateStale) {
+			t.Fatalf("a revoked lease returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a revoked lease did not leave admission")
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("a revoked lease reached delivery: %+v", *calls)
+	}
+}
+
+func TestUpdateNotificationRevokedLeaseCannotCancelANewerAttempt(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	closeNotice := closeUpdateNotification
+	closeUpdateNotification = func() {}
+	t.Cleanup(func() { closeUpdateNotification = closeNotice })
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	u.notifyAdmission = func() {
+		once.Do(func() {
+			close(admitted)
+			<-release
+		})
+	}
+	done := make(chan error, 1)
+	go func() { done <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-admitted
+
+	desktop.account.clear()
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	lease, ok := desktop.account.lease()
+	if !ok {
+		t.Fatal("the replacement account has no lease")
+	}
+	canceled := make(chan struct{})
+	next := &updateNotificationAttempt{
+		cancel: func() { close(canceled) }, lease: lease,
+		revision: available.Revision, version: available.Version,
+		done: make(chan struct{}),
+	}
+	u.mu.Lock()
+	u.notification = next
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		if u.notification == next {
+			u.notification = nil
+			close(next.done)
+		}
+		u.mu.Unlock()
+	}()
+	close(release)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDesktopUpdateStale) {
+			t.Fatalf("a revoked lease returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a revoked lease disturbed a newer valid attempt")
+	}
+	select {
+	case <-canceled:
+		t.Fatal("an obsolete lease canceled a newer valid attempt")
+	default:
+	}
+}
+
+func TestUpdateNotificationSameRevisionRetryAfterCanceledDelivery(t *testing.T) {
+	t.Run("does not duplicate a delivered notice", func(t *testing.T) {
+		u, _, available := newUpdateNotificationFixture(t)
+		supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+		t.Cleanup(func() {
+			desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+		})
+		desktopNativeNotifications = func() bool { return true }
+		var closed atomic.Int32
+		closeUpdateNotification = func() { closed.Add(1) }
+		firstStarted := make(chan struct{})
+		releaseFirst := make(chan struct{})
+		calls := 0
+		showSystemNotification = func(_ context.Context, _ mygo.NotificationOptions) error {
+			calls++
+			if calls == 1 {
+				close(firstStarted)
+				<-releaseFirst
+			}
+			return nil
+		}
+
+		firstCtx, firstCancel := context.WithCancel(context.Background())
+		firstDone := make(chan error, 1)
+		go func() { firstDone <- u.showNotificationRequest(firstCtx, available.Revision) }()
+		<-firstStarted
+		firstCancel()
+
+		waiting := make(chan struct{}, 1)
+		u.notifyWaiting = func() {
+			select {
+			case waiting <- struct{}{}:
+			default:
+			}
+		}
+		retryDone := make(chan error, 1)
+		go func() { retryDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+		select {
+		case <-waiting:
+		case <-time.After(2 * time.Second):
+		}
+		close(releaseFirst)
+		if err := <-firstDone; !errors.Is(err, context.Canceled) {
+			t.Fatalf("the abandoned caller returned %v", err)
+		}
+		if err := <-retryDone; !errors.Is(err, errDesktopUpdateBusy) {
+			t.Fatalf("the repeated delivery returned %v", err)
+		}
+		if calls != 1 || closed.Load() != 1 {
+			t.Fatalf("delivery calls=%d cleanup=%d, want one delivered notice cleaned once", calls, closed.Load())
+		}
+	})
+
+	t.Run("retries a notice that never reached delivery", func(t *testing.T) {
+		u, _, available := newUpdateNotificationFixture(t)
+		supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+		t.Cleanup(func() {
+			desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+		})
+		desktopNativeNotifications = func() bool { return true }
+		closeUpdateNotification = func() {}
+		firstStarted := make(chan struct{})
+		releaseFirst := make(chan struct{})
+		calls := 0
+		showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+			calls++
+			if calls == 1 {
+				close(firstStarted)
+				<-releaseFirst
+				return ctx.Err()
+			}
+			return nil
+		}
+
+		firstCtx, firstCancel := context.WithCancel(context.Background())
+		firstDone := make(chan error, 1)
+		go func() { firstDone <- u.showNotificationRequest(firstCtx, available.Revision) }()
+		<-firstStarted
+		firstCancel()
+
+		waiting := make(chan struct{}, 1)
+		u.notifyWaiting = func() {
+			select {
+			case waiting <- struct{}{}:
+			default:
+			}
+		}
+		retryDone := make(chan error, 1)
+		go func() { retryDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+		select {
+		case <-waiting:
+		case <-time.After(2 * time.Second):
+		}
+		close(releaseFirst)
+		if err := <-firstDone; !errors.Is(err, context.Canceled) {
+			t.Fatalf("the abandoned caller returned %v", err)
+		}
+		if err := <-retryDone; err != nil {
+			t.Fatalf("the same-revision retry did not notify: %v", err)
+		}
+		if calls != 2 {
+			t.Fatalf("notification calls = %d, want 2", calls)
+		}
+	})
+}
+
+func TestUpdateNotificationDelayedAccountClearDoesNotCancelANewerSession(t *testing.T) {
+	u, desktop, available := newUpdateNotificationFixture(t)
+	supported, show, closeNotice := desktopNativeNotifications, showSystemNotification, closeUpdateNotification
+	t.Cleanup(func() {
+		desktopNativeNotifications, showSystemNotification, closeUpdateNotification = supported, show, closeNotice
+	})
+	desktopNativeNotifications = func() bool { return true }
+	closeUpdateNotification = func() {}
+	desktop.account.setOnClear(u.cancelUpdateNotification)
+
+	oldStarted := make(chan struct{})
+	newStarted := make(chan struct{})
+	releaseNew := make(chan struct{})
+	calls := 0
+	showSystemNotification = func(ctx context.Context, _ mygo.NotificationOptions) error {
+		calls++
+		switch calls {
+		case 1:
+			close(oldStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		default:
+			close(newStarted)
+			select {
+			case <-releaseNew:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	oldDone := make(chan error, 1)
+	go func() { oldDone <- u.showNotificationRequest(context.Background(), available.Revision) }()
+	<-oldStarted
+	desktop.account.clear()
+	if err := <-oldDone; !errors.Is(err, errDesktopUpdateStale) {
+		t.Fatalf("the cleared account's attempt returned %v", err)
+	}
+	desktop.account.set(notificationUserID, time.Now().Add(time.Hour))
+	next := makeUpdateAvailable(t, u, "0.2.1")
+
+	newDone := make(chan error, 1)
+	go func() { newDone <- u.showNotificationRequest(context.Background(), next.Revision) }()
+	<-newStarted
+	// A delayed callback for the old sign-out must not cancel this newer,
+	// still-valid generation.
+	u.cancelUpdateNotification()
+	close(releaseNew)
+	if err := <-newDone; err != nil {
+		t.Fatalf("a delayed old account clear canceled the new notice: %v", err)
+	}
+}
+
+func TestNativeUpdateNotificationIsLocalized(t *testing.T) {
+	for locale, want := range map[string]string{
+		"zh-CN": "版本 1.2.3 可用。",
+		"en-US": "Version 1.2.3 is available.",
+		"es-ES": "La versión 1.2.3 está disponible.",
+		"pt-BR": "A versão 1.2.3 está disponível.",
+		"fr-FR": "La version 1.2.3 est disponible.",
+		"ja-JP": "バージョン 1.2.3 が利用可能です。",
+	} {
+		if got := locales.In(locale).UpdateAvailableNotice("1.2.3"); got != want {
+			t.Fatalf("%s notification body = %q, want %q", locale, got, want)
+		}
+	}
+}
+
 func TestUpdateEventAndBridgeRejectUntrustedPages(t *testing.T) {
 	if desktopUpdateChanged.Name() != "desktop:update-changed" {
 		t.Fatalf("event name = %q", desktopUpdateChanged.Name())
@@ -1298,8 +2059,9 @@ func TestUpdateEventAndBridgeRejectUntrustedPages(t *testing.T) {
 			_, err := desktop.SetUpdateChannel(ctx, string(UpdateChannelStable))
 			return err
 		},
-		"restart":   func() error { return desktop.RestartAfterUpdate(ctx) },
-		"installer": func() error { return desktop.OpenUpdateInstaller(ctx) },
+		"restart":             func() error { return desktop.RestartAfterUpdate(ctx) },
+		"installer":           func() error { return desktop.OpenUpdateInstaller(ctx) },
+		"update notification": func() error { return desktop.ShowUpdateNotification(ctx, 1) },
 	} {
 		if err := call(); err == nil || err.Error() != "DESKTOP_CALLER_FORBIDDEN" {
 			t.Fatalf("%s accepted an untrusted page: %v", name, err)

@@ -224,7 +224,7 @@ export const settingsMessages = {
       "Se ha enviado una notificación de prueba al sistema. Si no la has visto, comprueba los ajustes de notificaciones de este navegador en tu sistema operativo.",
     desktopTitle: "Notificaciones de macOS",
     desktopDescription:
-      "Recibe una notificación cuando termine una tarea o automatización mientras LinkSense está en segundo plano.",
+      "Recibe una notificación cuando termine una tarea o automatización, o haya una actualización firmada disponible, mientras LinkSense está en segundo plano.",
     desktopEnable: "Activar las notificaciones de macOS",
     desktopUnsupported:
       "Las notificaciones no están disponibles en esta compilación de la aplicación. Usa una aplicación de escritorio LinkSense empaquetada para recibir notificaciones al completar tareas.",
