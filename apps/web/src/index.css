@@ -4190,6 +4190,9 @@ html[data-desktop-platform="darwin"] .desktop-sidebar-trigger {
   z-index: 30;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  /* Content-sized rows keep the Composer border in step with a toolbar that
+     wraps after the preview pane resizes the workspace. */
+  grid-auto-rows: max-content;
   min-width: 0;
   gap: 8px;
   pointer-events: none;
