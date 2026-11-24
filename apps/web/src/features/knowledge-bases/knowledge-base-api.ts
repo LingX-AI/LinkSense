@@ -11,12 +11,10 @@ import {
   apiRequest as realApiRequest,
   buildApiUrl,
   downloadApiFile,
-  isDefinitiveAuthenticationError,
-  refreshSession,
+  requestWithSessionRetry,
   prepareClientBuildRequest,
   validateUploadResponseBuild,
 } from "@/api/client"
-import { getAccessToken, setAccessToken } from "@/api/session"
 import {
   knowledgeBasePageSchema,
   knowledgeBaseCreationCapabilitySchema,
@@ -584,25 +582,11 @@ export async function uploadKnowledgeDocument(
       await import("./knowledge-ui-demo-data")
     rejectKnowledgeUiDemoWrite()
   }
-  const accessToken = getAccessToken()
-  try {
-    return await uploadWithToken(options, accessToken)
-  } catch (error) {
-    if (!isDefinitiveAuthenticationError(error)) {
-      return resolveUploadConflict(options, error)
-    }
-    try {
-      await refreshSession(accessToken)
-    } catch (refreshError) {
-      if (isDefinitiveAuthenticationError(refreshError)) setAccessToken(null)
-      throw refreshError
-    }
-    try {
-      return await uploadWithToken(options, getAccessToken())
-    } catch (retryError) {
-      return resolveUploadConflict(options, retryError)
-    }
-  }
+  return requestWithSessionRetry(
+    `/knowledge-bases/${options.knowledgeBaseId}/documents`,
+    options,
+    (token) => uploadWithToken(options, token)
+  ).catch((error: unknown) => resolveUploadConflict(options, error))
 }
 
 async function resolveUploadConflict(

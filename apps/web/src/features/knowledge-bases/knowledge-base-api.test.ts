@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { getAccessToken, setAccessToken } from "@/api/session"
 import {
   downloadKnowledgeDocument,
   getKnowledgeBaseCreationCapability,
@@ -47,6 +48,44 @@ describe("knowledge-base creation capability API", () => {
 })
 
 describe("knowledge-base document upload API", () => {
+  it("does not resend an upload once the account changes", async () => {
+    const send = vi.fn()
+    class ExpiredUploadRequest extends EventTarget {
+      responseType = ""
+      readonly status = 401
+      readonly response = {
+        success: false,
+        error_code: "AUTH_SESSION_EXPIRED",
+      }
+      readonly upload = new EventTarget()
+
+      open() {}
+      setRequestHeader() {}
+      send() {
+        send()
+        queueMicrotask(() => {
+          if (send.mock.calls.length === 1) setAccessToken("new-account-token")
+          this.dispatchEvent(new Event("load"))
+        })
+      }
+    }
+
+    setAccessToken("old-account-token")
+    vi.stubGlobal("XMLHttpRequest", ExpiredUploadRequest)
+    try {
+      await expect(
+        uploadKnowledgeDocument({
+          knowledgeBaseId,
+          file: new File(["manual"], "manual.txt", { type: "text/plain" }),
+        })
+      ).rejects.toMatchObject({ name: "AbortError" })
+      expect(send).toHaveBeenCalledOnce()
+      expect(getAccessToken()).toBe("new-account-token")
+    } finally {
+      setAccessToken(null)
+    }
+  })
+
   it("parses the accepted document inside the success envelope", async () => {
     let sentBody: Document | XMLHttpRequestBodyInit | null | undefined
     const document = {

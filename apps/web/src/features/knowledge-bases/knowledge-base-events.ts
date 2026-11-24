@@ -1,14 +1,6 @@
-import {
-  buildApiUrl,
-  isDefinitiveAuthenticationError,
-  refreshSession,
-  ApiError,
-  prepareClientBuildRequest,
-  validateResponseBuild,
-} from "@/api/client"
+import { apiEventStreamRequest, ApiError } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
-import { getAccessToken, setAccessToken } from "@/api/session"
 import {
   knowledgeBaseEventSchema,
   type KnowledgeBaseEvent,
@@ -40,46 +32,11 @@ export function connectKnowledgeBaseEvents(
 
   const connect = async () => {
     while (!controller.signal.aborted) {
-      const headers = new Headers({ Accept: "text/event-stream" })
-      const token = getAccessToken()
-      if (token) headers.set("Authorization", `Bearer ${token}`)
-
       try {
-        prepareClientBuildRequest(headers)
-        let response = await fetch(
-          buildApiUrl(`/knowledge-bases/${knowledgeBaseId}/events`),
-          {
-            headers,
-            credentials: "include",
-            cache: "no-store",
-            signal: controller.signal,
-          }
+        const response = await apiEventStreamRequest(
+          `/knowledge-bases/${knowledgeBaseId}/events`,
+          { signal: controller.signal }
         )
-
-        validateResponseBuild(response.headers)
-        if (response.status === 401) {
-          try {
-            await refreshSession(token)
-          } catch (error) {
-            if (isDefinitiveAuthenticationError(error)) setAccessToken(null)
-            throw error
-          }
-          const refreshedToken = getAccessToken()
-          if (refreshedToken) {
-            headers.set("Authorization", `Bearer ${refreshedToken}`)
-          }
-          response = await fetch(
-            buildApiUrl(`/knowledge-bases/${knowledgeBaseId}/events`),
-            {
-              headers,
-              credentials: "include",
-              cache: "no-store",
-              signal: controller.signal,
-            }
-          )
-          validateResponseBuild(response.headers)
-          if (response.status === 401) setAccessToken(null)
-        }
 
         if (!response.ok || !response.body) {
           throw new Error("KNOWLEDGE_SSE_CONNECTION_FAILED")

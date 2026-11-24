@@ -526,8 +526,8 @@ describe("archived conversation pagination", () => {
 
 describe("conversation knowledge base snapshots", () => {
   beforeEach(async () => {
-    setAccessToken("conversation-knowledge-token")
     window.localStorage.clear()
+    setAccessToken("conversation-knowledge-token")
     await i18n.changeLanguage("zh-CN")
   })
 

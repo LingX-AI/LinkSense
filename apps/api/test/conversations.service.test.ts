@@ -1968,6 +1968,23 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("leaves failed first-login cleanup to the embed initializer", async () => {
+    const fixture = await conversationFixture();
+    const finalize = vi.fn(async () => { throw new AppError("CONFLICT"); });
+
+    await expect(fixture.service.createExternalApplicationConversation(OWNER_ID, {
+      id: APPLICATION_ID,
+      name: "Finance assistant",
+      kind: "standard",
+      interactivePackageId: null,
+    }, SECOND_CONVERSATION_ID, finalize)).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce();
+    expect(finalize).toHaveBeenCalledExactlyOnceWith(fixture.defaultTransaction);
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+  });
+
   it("resolves the installed version once and uses its name and page for a new interactive task", async () => {
     const fixture = await conversationFixture();
     const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);

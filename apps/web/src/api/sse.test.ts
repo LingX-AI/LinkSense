@@ -114,6 +114,25 @@ describe("conversation SSE", () => {
       stop()
     }
   })
+  it("does not reopen an old conversation stream with a new account", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn<typeof fetch>().mockImplementationOnce(async () => {
+      setAccessToken("new-account-token")
+      return new Response(null, { status: 401 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const onEvent = vi.fn()
+    const stop = connectConversationEvents(CONVERSATION_ID, { onEvent })
+
+    try {
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(getAccessToken()).toBe("new-account-token")
+      expect(onEvent).not.toHaveBeenCalled()
+    } finally {
+      stop()
+    }
+  })
   it.each([false, true])(
     "yields during event bursts across network chunks (one frame per chunk: %s)",
     async (onePerChunk) => {

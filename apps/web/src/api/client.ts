@@ -17,8 +17,10 @@ import {
 
 import { authSessionSchema, type AccessSession } from "@/api/contracts"
 import {
+  captureAccessSessionGuard,
   getAccessToken,
   getStoredAccessSession,
+  readAccessTokenIdentity,
   restoreAccessTokenFromStorage,
   setAccessToken,
 } from "@/api/session"
@@ -139,7 +141,16 @@ export type ApiStreamRequestOptions = {
   skipRefresh?: boolean
 }
 
-let refreshPromise: Promise<AccessSession> | null = null
+type RefreshAttempt = {
+  token: string | null
+  isCurrent: () => boolean
+  canReuse?: () => boolean
+}
+
+let activeRefresh: {
+  isCurrent: () => boolean
+  promise: Promise<AccessSession>
+} | null = null
 
 const REFRESH_LOCK_NAME = "linksense.auth.refresh.v1"
 const REFRESH_LEASE_STORAGE_KEY = "linksense.auth.refresh-lease.v1"
@@ -444,20 +455,29 @@ function rawUploadRequest<TSchema extends z.ZodType>(
   })
 }
 
-function getReusableSession(staleAccessToken: string | null) {
-  const restoredToken = restoreAccessTokenFromStorage()
-  if (!restoredToken || restoredToken === staleAccessToken) return null
-
-  const storedSession = getStoredAccessSession()
-  return {
-    access_token: restoredToken,
-    access_token_expires_at: storedSession
-      ? new Date(storedSession.expiresAt).toISOString()
-      : undefined,
-  } satisfies AccessSession
+function assertCurrentSession(isCurrent: () => boolean) {
+  if (!isCurrent()) {
+    throw new DOMException("Access session changed", "AbortError")
+  }
 }
 
-async function requestNewSession() {
+function getReusableSession({ token, isCurrent, canReuse }: RefreshAttempt) {
+  if (canReuse) assertCurrentSession(canReuse)
+  const storedSession = getStoredAccessSession()
+  if (storedSession && storedSession.accessToken !== token) {
+    const restoredToken = restoreAccessTokenFromStorage()
+    assertCurrentSession(() => restoredToken === storedSession.accessToken)
+    return {
+      access_token: storedSession.accessToken,
+      access_token_expires_at: new Date(storedSession.expiresAt).toISOString(),
+    } satisfies AccessSession
+  }
+
+  assertCurrentSession(isCurrent)
+  return null
+}
+
+async function requestNewSession(isCurrent: () => boolean) {
   const session = await rawRequest(
     "/auth/refresh",
     {
@@ -466,20 +486,25 @@ async function requestNewSession() {
       skipRefresh: true,
     },
     null
-  )
+  ).catch((error: unknown) => {
+    assertCurrentSession(isCurrent)
+    if (isDefinitiveAuthenticationError(error)) setAccessToken(null)
+    throw error
+  })
+  assertCurrentSession(isCurrent)
   setAccessToken(session.access_token, session.access_token_expires_at)
   return session
 }
 
-async function refreshInsideLock(staleAccessToken: string | null) {
-  return getReusableSession(staleAccessToken) ?? requestNewSession()
+async function refreshInsideLock(attempt: RefreshAttempt) {
+  return getReusableSession(attempt) ?? requestNewSession(attempt.isCurrent)
 }
 
-async function refreshWithStorageLease(staleAccessToken: string | null) {
+async function refreshWithStorageLease(attempt: RefreshAttempt) {
   const ownerId = createRefreshOwnerId()
 
   while (true) {
-    const reusableSession = getReusableSession(staleAccessToken)
+    const reusableSession = getReusableSession(attempt)
     if (reusableSession) return reusableSession
 
     const currentLease = readRefreshLease()
@@ -488,7 +513,7 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
         ownerId,
         expiresAt: Date.now() + REFRESH_LEASE_DURATION_MS,
       })
-      if (!acquired) return refreshInsideLock(staleAccessToken)
+      if (!acquired) return refreshInsideLock(attempt)
 
       await waitForRefreshLease()
       if (readRefreshLease()?.ownerId !== ownerId) continue
@@ -503,7 +528,7 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
       }, REFRESH_LEASE_RENEW_INTERVAL_MS)
 
       try {
-        return await refreshInsideLock(staleAccessToken)
+        return await refreshInsideLock(attempt)
       } finally {
         window.clearInterval(renewTimer)
         releaseRefreshLease(ownerId)
@@ -514,23 +539,82 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
   }
 }
 
-async function refreshAcrossTabs(staleAccessToken: string | null) {
+async function refreshAcrossTabs(attempt: RefreshAttempt) {
   if (navigator.locks) {
     return navigator.locks.request(REFRESH_LOCK_NAME, () =>
-      refreshInsideLock(staleAccessToken)
+      refreshInsideLock(attempt)
     )
   }
-  return refreshWithStorageLease(staleAccessToken)
+  return refreshWithStorageLease(attempt)
 }
 
-export async function refreshSession(staleAccessToken = getAccessToken()) {
-  if (!refreshPromise) {
-    refreshPromise = refreshAcrossTabs(staleAccessToken).finally(() => {
-      refreshPromise = null
-    })
+export async function refreshSession(
+  token = getAccessToken(),
+  canReuse?: () => boolean
+): Promise<AccessSession> {
+  if (canReuse) assertCurrentSession(canReuse)
+  if (activeRefresh?.isCurrent()) return activeRefresh.promise
+
+  const isCurrent = captureAccessSessionGuard()
+  const promise = refreshAcrossTabs({ token, isCurrent, canReuse }).finally(() => {
+    if (activeRefresh?.promise === promise) activeRefresh = null
+  })
+  activeRefresh = { isCurrent, promise }
+  return promise
+}
+
+export async function requestWithSessionRetry<T>(
+  path: string,
+  options: { signal?: AbortSignal; skipRefresh?: boolean },
+  request: (token: string | null) => Promise<T>
+) {
+  options.signal?.throwIfAborted()
+  const token = getAccessToken()
+  const canRefresh =
+    !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
+  const isCurrentAccount = canRefresh
+    ? captureAccessSessionGuard({ allowSameAccountRotation: true })
+    : undefined
+  try {
+    const result = await request(token)
+    options.signal?.throwIfAborted()
+    if (token && isCurrentAccount) assertCurrentSession(isCurrentAccount)
+    return result
+  } catch (error) {
+    if (!isCurrentAccount || !isDefinitiveAuthenticationError(error)) {
+      throw error
+    }
   }
 
-  return refreshPromise
+  options.signal?.throwIfAborted()
+  const session = await refreshSession(token, isCurrentAccount)
+  options.signal?.throwIfAborted()
+  const previous = readAccessTokenIdentity(token)
+  const next = session.user ?? readAccessTokenIdentity(session.access_token)
+  const isCurrent = captureAccessSessionGuard()
+  assertCurrentSession(
+    () =>
+      (!previous ||
+        (previous.id === next?.id && previous.role === next.role)) &&
+      getAccessToken() === session.access_token &&
+      isCurrent()
+  )
+  const isCurrentRetryAccount = captureAccessSessionGuard({
+    allowSameAccountRotation: true,
+  })
+  try {
+    const result = await request(session.access_token)
+    options.signal?.throwIfAborted()
+    assertCurrentSession(isCurrentRetryAccount)
+    return result
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (isDefinitiveAuthenticationError(error)) {
+      assertCurrentSession(isCurrent)
+      setAccessToken(null)
+    }
+    throw error
+  }
 }
 
 export async function apiRequest<TSchema extends z.ZodType>(
@@ -555,40 +639,9 @@ export async function apiRequest<TSchema extends z.ZodType>(
     options.signal?.throwIfAborted()
     return options.schema.parse(resolveWorkspaceUiDemoRequest(path, options))
   }
-  const accessTokenUsed = getAccessToken()
-  try {
-    return await rawRequest(path, options, accessTokenUsed)
-  } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      try {
-        await refreshSession(accessTokenUsed)
-      } catch (refreshError) {
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
-      }
-
-      try {
-        return await rawRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken()
-        )
-      } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
-          setAccessToken(null)
-        }
-        throw retryError
-      }
-    }
-    throw error
-  }
+  return requestWithSessionRetry(path, options, (token) =>
+    rawRequest(path, options, token)
+  )
 }
 
 export async function apiUploadRequest<TSchema extends z.ZodType>(
@@ -600,40 +653,9 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
       await import("@/features/ui-demo/workspace-ui-demo-data")
     rejectWorkspaceUiDemoWrite()
   }
-  const accessTokenUsed = getAccessToken()
-  try {
-    return await rawUploadRequest(path, options, accessTokenUsed)
-  } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      try {
-        await refreshSession(accessTokenUsed)
-      } catch (refreshError) {
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
-      }
-
-      try {
-        return await rawUploadRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken()
-        )
-      } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
-          setAccessToken(null)
-        }
-        throw retryError
-      }
-    }
-    throw error
-  }
+  return requestWithSessionRetry(path, options, (token) =>
+    rawUploadRequest(path, options, token)
+  )
 }
 
 async function rawStreamRequest(
@@ -704,40 +726,36 @@ export async function apiStreamRequest(
       messageKey: "workspaceUiDemo.readOnly",
     })
   }
-  const accessTokenUsed = getAccessToken()
-  try {
-    return await rawStreamRequest(path, options, accessTokenUsed)
-  } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      try {
-        await refreshSession(accessTokenUsed)
-      } catch (refreshError) {
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
-      }
+  return requestWithSessionRetry(path, options, (token) =>
+    rawStreamRequest(path, options, token)
+  )
+}
 
-      try {
-        return await rawStreamRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken()
-        )
-      } catch (retryError) {
-        if (isDefinitiveAuthenticationError(retryError)) {
-          setAccessToken(null)
-        }
-        throw retryError
+export function apiEventStreamRequest(
+  path: string,
+  options: { signal: AbortSignal; lastEventId?: string }
+) {
+  return requestWithSessionRetry(path, options, async (token) => {
+    const headers = new Headers({ Accept: "text/event-stream" })
+    prepareClientBuildRequest(headers, path)
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+    if (options.lastEventId) headers.set("Last-Event-ID", options.lastEventId)
+
+    const response = await fetch(
+      buildApiUrl(path, { last_event_id: options.lastEventId }),
+      {
+        headers,
+        credentials: "include",
+        cache: "no-store",
+        signal: options.signal,
       }
+    )
+    validateResponseBuild(response.headers)
+    if (response.status === 401) {
+      throw new ApiError({ status: 401, errorCode: "AUTH_REQUIRED" })
     }
-    throw error
-  }
+    return response
+  })
 }
 
 export async function downloadApiFile(
@@ -753,61 +771,21 @@ export async function downloadApiFile(
       messageKey: "workspaceUiDemo.readOnly",
     })
   }
-  const headers = new Headers()
-  prepareClientBuildRequest(headers, path)
-  const language = document.documentElement.lang
-  if (isLocale(language)) {
-    headers.set("Accept-Language", language)
-  }
-  const accessTokenUsed = getAccessToken()
-  if (accessTokenUsed) {
-    headers.set("Authorization", `Bearer ${accessTokenUsed}`)
-  }
+  return requestWithSessionRetry(path, { signal }, async (token) => {
+    const headers = new Headers()
+    prepareClientBuildRequest(headers, path)
+    const language = document.documentElement.lang
+    if (isLocale(language)) headers.set("Accept-Language", language)
+    if (token) headers.set("Authorization", `Bearer ${token}`)
 
-  const fetchFile = async () => {
-    const response = await fetch(buildApiUrl(path, query), {
-      headers,
-      credentials: "include",
-      signal,
-      cache: options?.cache ?? "no-store",
-    })
-    validateResponseBuild(response.headers)
-    return response
-  }
-
-  let response: Response
-  try {
-    response = await fetchFile()
-  } catch (error) {
-    if (error instanceof ApiError) throw error
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw error
-    }
-    throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
-  }
-
-  if (response.status === 401) {
-    const authenticationError = await parseError(response.clone()).catch(
-      (error: unknown) => error
-    )
-    if (!isDefinitiveAuthenticationError(authenticationError)) {
-      throw authenticationError
-    }
-
+    let response: Response
     try {
-      await refreshSession(accessTokenUsed)
-      const refreshedToken = getAccessToken()
-      if (refreshedToken)
-        headers.set("Authorization", `Bearer ${refreshedToken}`)
-    } catch (refreshError) {
-      if (isDefinitiveAuthenticationError(refreshError)) {
-        setAccessToken(null)
-      }
-      throw refreshError
-    }
-
-    try {
-      response = await fetchFile()
+      response = await fetch(buildApiUrl(path, query), {
+        headers,
+        credentials: "include",
+        signal,
+        cache: options?.cache ?? "no-store",
+      })
     } catch (error) {
       if (error instanceof ApiError) throw error
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -815,17 +793,9 @@ export async function downloadApiFile(
       }
       throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
     }
-  }
 
-  if (!response.ok) {
-    try {
-      await parseError(response)
-    } catch (error) {
-      if (isDefinitiveAuthenticationError(error)) {
-        setAccessToken(null)
-      }
-      throw error
-    }
-  }
-  return response.blob()
+    validateResponseBuild(response.headers)
+    if (!response.ok) await parseError(response)
+    return response.blob()
+  })
 }

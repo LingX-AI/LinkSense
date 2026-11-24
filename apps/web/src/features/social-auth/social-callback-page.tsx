@@ -20,7 +20,7 @@ import { AccountAccessLayout } from "@/components/auth/account-access-layout"
 
 export function SocialCallbackPage() {
   const { t } = useTranslation()
-  const { acceptSession } = useAuth()
+  const { refreshUser } = useAuth()
   const navigate = useNavigate()
   const [initial] = useState(() => {
     const url = new URL(window.location.href)
@@ -37,9 +37,10 @@ export function SocialCallbackPage() {
   const [error, setError] = useState<string | null>(null)
   const attempted = useRef(false)
   const finish = useCallback(async () => {
-    await acceptSession(await refreshSession())
+    await refreshSession()
+    await refreshUser()
     navigate("/conversations/new", { replace: true })
-  }, [acceptSession, navigate])
+  }, [refreshUser, navigate])
   useEffect(() => {
     window.history.replaceState(
       window.history.state,

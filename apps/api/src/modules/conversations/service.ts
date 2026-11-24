@@ -7370,10 +7370,12 @@ export class ConversationService {
       channel?: ApplicationDistributionChannel;
     },
     conversationId?: string,
+    finalizeExternalInitialization?: (tx: Prisma.TransactionClient) => Promise<void>,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, undefined, application, {
         ...(conversationId ? { conversationId } : {}),
+        ...(finalizeExternalInitialization ? { finalizeExternalInitialization } : {}),
       }),
     );
   }
@@ -7431,6 +7433,7 @@ export class ConversationService {
       reusePinnedCreation?: boolean;
       collaborationMode?: ConversationCollaborationMode;
       conversationId?: string;
+      finalizeExternalInitialization?: (tx: Prisma.TransactionClient) => Promise<void>;
       projectId?: string | null;
       projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
@@ -7536,6 +7539,7 @@ export class ConversationService {
           else await assertNotDevelopmentPreview(tx, application.id);
         }
         if (options?.developmentSource) await lockDetachedDevelopment(tx, ownerId, options.developmentSource);
+        if (options?.finalizeExternalInitialization) await options.finalizeExternalInitialization(tx);
         assertUserRuntimeLeaseCurrent();
         const usesAutomaticTitle =
           !options?.title && !options?.development && !options?.developmentSource;
@@ -7599,9 +7603,11 @@ export class ConversationService {
         const existing = await this.prisma.conversation.findUnique({ where: { id } });
         if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
       }
-      await this.cleanup
-        .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
-        .catch(() => undefined);
+      if (!options?.finalizeExternalInitialization) {
+        await this.cleanup
+          .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
+          .catch(() => undefined);
+      }
       throw error;
     }
   }
