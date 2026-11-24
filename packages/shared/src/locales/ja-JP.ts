@@ -82,6 +82,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   EXTERNAL_ACCOUNT_PENDING_APPROVAL: "ログインに成功しました。アカウントを作成し、管理者の承認を待っています。管理者に連絡し、有効化された後に再ログインしてください。",
   CAPABILITY_NOT_FOUND: "プラグインまたはスキルが見つかりません。",
   MCP_SERVER_NOT_FOUND: "MCP サーバーが見つかりません。",
+  MCP_SERVER_IN_USE: "この MCP サーバーはアプリケーションで使用されています。削除する前に、該当するアプリケーションから解除してください。",
   MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED: "HTTP では認証情報やツールのデータが暗号化されません。先にリスクを確認してください。",
   MCP_CREDENTIAL_REQUIRED: "選択した認証方法には認証情報が必要です。",
   MCP_DESTINATION_FORBIDDEN: "MCP の接続先に localhost、プライベートネットワーク、クラウドのメタデータサービスは指定できません。",

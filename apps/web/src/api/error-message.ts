@@ -104,6 +104,7 @@ const errorCodeToKey: Record<string, string> = {
   CREDENTIAL_BINDING_CONFLICT: "errors.credentialConflict",
   CREDENTIAL_BINDING_REQUIRED: "errors.credentialRequired",
   MCP_SERVER_NOT_FOUND: "errors.notFound",
+  MCP_SERVER_IN_USE: errorCatalog.MCP_SERVER_IN_USE.message_key,
   MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED:
     "errors.mcp.insecureHttpAcknowledgementRequired",
   MCP_CREDENTIAL_REQUIRED: "errors.mcp.credentialRequired",

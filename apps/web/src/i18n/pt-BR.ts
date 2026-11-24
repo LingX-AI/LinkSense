@@ -1096,6 +1096,19 @@ export const ptBR = {
     deleteTitle: "Excluir este servidor MCP?",
     deleteDescription:
       "A configuração do servidor, a credencial criptografada e as variáveis de ambiente criptografadas serão excluídas permanentemente. Novas tarefas deixarão de se conectar a ele.",
+    deleteBlocked: {
+      title: "O servidor MCP ainda está em uso",
+      locations: {
+        application: "Configuração ou versão atual do aplicativo",
+        draft: "Rascunho em desenvolvimento",
+        shared: "Versão compartilhada com a organização",
+        center: "Versão publicada na Central de Aplicativos",
+        shared_installation: "Versão instalada acessível por compartilhamento",
+        center_installation: "Versão instalada acessível pela Central de Aplicativos",
+      },
+      installedVersionHint:
+        "Se houver membros usando uma versão anterior, peça que a atualizem ou deixe de oferecer o aplicativo por esse canal.",
+    },
   },
   bootstrap: {
     unavailableTitle: "{{productName}} está temporariamente indisponível",
@@ -5880,6 +5893,7 @@ export const ptBR = {
         "A entrada por voz pode ser usada até 20 vezes por minuto. Tente novamente em breve.",
     },
     mcp: {
+      inUse: "Remova o servidor dos aplicativos afetados e atualize as versões que ainda o utilizam. Depois, tente excluí-lo novamente.",
       insecureHttpAcknowledgementRequired:
         "Você deve reconhecer o risco da transmissão sem criptografia antes de usar um servidor MCP HTTP.",
       credentialRequired:

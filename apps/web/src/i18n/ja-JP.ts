@@ -1082,6 +1082,19 @@ export const jaJP = {
     deleteTitle: "この MCP サーバーを削除しますか？",
     deleteDescription:
       "サーバー設定、暗号化された認証情報と環境変数は完全に削除されます。新しいタスクからこのサーバーに接続できなくなります。",
+    deleteBlocked: {
+      title: "MCP サーバーは使用中です",
+      locations: {
+        application: "アプリの設定または現在のバージョン",
+        draft: "開発中の下書き",
+        shared: "組織内で共有中のバージョン",
+        center: "アプリセンターで公開中のバージョン",
+        shared_installation: "組織内共有で引き続き使えるインストール済みバージョン",
+        center_installation: "アプリセンターで引き続き使えるインストール済みバージョン",
+      },
+      installedVersionHint:
+        "古いバージョンを利用中のメンバーがいる場合は、更新を依頼するか、該当する共有または公開を停止してください。",
+    },
   },
   bootstrap: {
     unavailableTitle: "{{productName}}は一時的に利用できません",
@@ -5784,6 +5797,7 @@ export const jaJP = {
         "音声入力は 1 分間に 20 回までです。少し待ってから再試行してください。",
     },
     mcp: {
+      inUse: "該当するアプリでこのサーバーとの連携を解除し、使用中のバージョンを更新してから、もう一度削除してください。",
       insecureHttpAcknowledgementRequired:
         "HTTP では認証情報やツールのデータが暗号化されません。先にリスクを確認してください。",
       credentialRequired: "選択した認証方法には認証情報が必要です。",

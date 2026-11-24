@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { applicationKindSchema } from "./application-kind.js";
 import { timestampSchema, uuidSchema } from "./common.js";
 
 export const coreMcpServerKey = "linksense_core" as const;
@@ -12,6 +13,21 @@ export const builtInMcpServerKeys = [
 export const mcpServerTransportSchema = z.enum(["streamable_http", "stdio"]);
 export const mcpServerAuthTypeSchema = z.enum(["none", "bearer", "api_key"]);
 export const mcpServerStatusSchema = z.enum(["active", "disabled"]);
+export const mcpServerApplicationUsagesSchema = z.array(z.strictObject({
+  application_id: uuidSchema,
+  name: z.string().trim().min(1),
+  kind: applicationKindSchema,
+  locations: z.array(z.enum([
+    "application",
+    "draft",
+    "shared",
+    "center",
+    "shared_installation",
+    "center_installation",
+  ])).min(1),
+}));
+export type McpServerApplicationUsage = z.infer<typeof mcpServerApplicationUsagesSchema>[number];
+
 export const mcpDefaultStartupTimeoutSeconds = 60;
 export const mcpDefaultToolTimeoutSeconds = 600;
 

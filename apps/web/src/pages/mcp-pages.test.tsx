@@ -1,7 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  errorCatalog,
   mcpDefaultStartupTimeoutSeconds,
   mcpDefaultToolTimeoutSeconds,
+  mcpServerApplicationUsagesSchema,
+  supportedLocales,
 } from "@linksense/shared"
 import {
   cleanup,
@@ -626,6 +629,112 @@ describe("McpManagementPage", () => {
     )
     expect(await screen.findByText("MCP 服务器已删除。")).toBeVisible()
     expect(screen.queryByText("Issue tracker")).not.toBeInTheDocument()
+  })
+
+  it("shows every application and binding location, then retries after unbinding", async () => {
+    let servers = [serverFixture({ status: "disabled" })]
+    const remove = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            error_code: "MCP_SERVER_IN_USE",
+            message: "MCP server is in use",
+            params: {
+              usages: [
+                {
+                  application_id: "01900000-0000-7000-8000-000000000091",
+                  name: "报表助手",
+                  kind: "interactive",
+                  locations: ["draft", "center"],
+                },
+                {
+                  application_id: "01900000-0000-7000-8000-000000000092",
+                  name: "工单助手",
+                  kind: "standard",
+                  locations: ["shared_installation"],
+                },
+              ],
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockImplementationOnce(async () => {
+        servers = []
+        return new Response(null, { status: 204 })
+      })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "DELETE" ? remove() : envelope({ items: servers })
+      )
+    )
+    const interaction = userEvent.setup()
+    renderPage()
+
+    async function confirmDeletion() {
+      await interaction.click(
+        await screen.findByRole("button", { name: "更多操作" })
+      )
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: "删除" })
+      )
+      const dialog = await screen.findByRole("dialog", {
+        name: "删除此 MCP 服务器？",
+      })
+      await interaction.click(
+        within(dialog).getByRole("button", { name: "删除" })
+      )
+    }
+
+    await confirmDeletion()
+    const blocked = await screen.findByRole("dialog", {
+      name: "MCP 服务器仍在使用中",
+    })
+    expect(within(blocked).getByText("报表助手")).toBeVisible()
+    expect(within(blocked).getByText("交互式应用")).toBeVisible()
+    expect(within(blocked).getByText("开发草稿")).toBeVisible()
+    expect(within(blocked).getByText("应用中心上架版本")).toBeVisible()
+    expect(within(blocked).getByText("工单助手")).toBeVisible()
+    expect(within(blocked).getByText("普通应用")).toBeVisible()
+    expect(within(blocked).getByText("组织共享中已安装的版本")).toBeVisible()
+    expect(
+      within(blocked).queryByRole("button", { name: "删除" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      within(blocked).getByRole("button", { name: "关闭" })
+    )
+    expect(screen.getByText("Issue tracker")).toBeVisible()
+
+    await confirmDeletion()
+    expect(await screen.findByText("MCP 服务器已删除。")).toBeVisible()
+    expect(remove).toHaveBeenCalledTimes(2)
+  })
+
+  it("translates every delete blocker and uses Chinese for unsupported languages", () => {
+    const usage = mcpServerApplicationUsagesSchema.element.shape
+    const keys = [
+      errorCatalog.MCP_SERVER_IN_USE.message_key,
+      "mcp.deleteBlocked.title",
+      "mcp.deleteBlocked.installedVersionHint",
+      ...usage.kind.options.map((kind) => `applications.details.kinds.${kind}`),
+      ...usage.locations.element.options.map(
+        (location) => `mcp.deleteBlocked.locations.${location}`
+      ),
+    ]
+    for (const key of keys) {
+      for (const locale of supportedLocales) {
+        expect(
+          i18n.getResource(locale, "translation", key),
+          `${locale}: ${key}`
+        ).toMatch(/\S/)
+      }
+      expect(i18n.t(key, { lng: "de-DE" })).toBe(
+        i18n.getResource("zh-CN", "translation", key)
+      )
+    }
   })
 })
 

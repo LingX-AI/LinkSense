@@ -3,6 +3,7 @@ import { Fragment, useState, type FormEvent } from "react"
 import {
   mcpDefaultStartupTimeoutSeconds,
   mcpDefaultToolTimeoutSeconds,
+  mcpServerApplicationUsagesSchema,
 } from "@linksense/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -16,14 +17,13 @@ import {
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
-import { apiRequest } from "@/api/client"
+import { ApiError, apiRequest } from "@/api/client"
 import {
   mcpServerSchema,
   mcpServerTestResultSchema,
   type McpServer,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
-import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
   ErrorState,
@@ -413,8 +413,8 @@ export function McpManagementPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(`/mcp-servers/${deleteTarget?.id}`, {
+    mutationFn: (serverId: string) =>
+      apiRequest(`/mcp-servers/${serverId}`, {
         method: "DELETE",
         schema: emptySchema,
       }),
@@ -424,8 +424,21 @@ export function McpManagementPage() {
       setNotice(t("mcp.deleted"))
       await invalidate()
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
+  const deleteError = deleteMutation.error
+  const deleteBlocked =
+    deleteError instanceof ApiError &&
+    deleteError.errorCode === "MCP_SERVER_IN_USE"
+  const deleteUsages = deleteBlocked
+    ? (mcpServerApplicationUsagesSchema.safeParse(deleteError.params?.usages)
+        .data ?? [])
+    : []
+  const hasInstalledUsage = deleteUsages.some(({ locations }) =>
+    locations.some(
+      (location) =>
+        location === "shared_installation" || location === "center_installation"
+    )
+  )
 
   const isHttp = url.trim().toLocaleLowerCase().startsWith("http://")
   const needsNewCredential =
@@ -886,17 +899,99 @@ export function McpManagementPage() {
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog
-        variant="workspace"
+      <Dialog
         open={Boolean(deleteTarget)}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={t("mcp.deleteTitle")}
-        description={t("mcp.deleteDescription")}
-        confirmLabel={t("common.delete")}
-        destructive
-        pending={deleteMutation.isPending}
-        onConfirm={() => deleteMutation.mutate()}
-      />
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            setDeleteTarget(null)
+            deleteMutation.reset()
+          }
+        }}
+      >
+        <DialogContent
+          variant="workspace"
+          closeLabel={t("common.close")}
+          showCloseButton={!deleteBlocked && !deleteMutation.isPending}
+          className="flex min-w-0 flex-col"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t(deleteBlocked ? "mcp.deleteBlocked.title" : "mcp.deleteTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t(deleteBlocked ? "errors.mcp.inUse" : "mcp.deleteDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteUsages.length > 0 && (
+            <ul className={dialogBodyStyles("flex flex-col gap-3")}>
+              {deleteUsages.map((usage) => (
+                <li
+                  key={usage.application_id}
+                  className="min-w-0 border-b border-divider pb-3 last:border-0"
+                >
+                  <p className="text-sm font-medium wrap-anywhere">
+                    {usage.name}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {t(`applications.details.kinds.${usage.kind}`)}
+                  </p>
+                  <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                    {usage.locations.map((location) => (
+                      <li key={location} className="max-w-full min-w-0">
+                        <Badge
+                          variant="outline"
+                          className="h-auto max-w-full wrap-anywhere whitespace-normal"
+                        >
+                          {t(`mcp.deleteBlocked.locations.${location}`)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+          {hasInstalledUsage && (
+            <p className="text-sm text-muted-foreground">
+              {t("mcp.deleteBlocked.installedVersionHint")}
+            </p>
+          )}
+          {deleteError && !deleteBlocked && (
+            <StatusBanner variant="error">
+              {getErrorMessage(deleteError, t)}
+            </StatusBanner>
+          )}
+          <DialogFooter>
+            <DialogClose
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={deleteMutation.isPending}
+                />
+              }
+            >
+              {t(deleteBlocked ? "common.close" : "common.cancel")}
+            </DialogClose>
+            {!deleteBlocked && (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleteMutation.isPending}
+                aria-busy={deleteMutation.isPending || undefined}
+                onClick={() =>
+                  deleteTarget && deleteMutation.mutate(deleteTarget.id)
+                }
+              >
+                {deleteMutation.isPending && (
+                  <Spinner data-icon="inline-start" />
+                )}
+                {t("common.delete")}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   )
 }

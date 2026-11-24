@@ -6,6 +6,7 @@ import {
 } from "@linksense/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 
 type DependencyDatabase = Pick<Prisma.TransactionClient, "capability" | "knowledgeBase" | "mcpServer">;
 const identity = (item: { type: string; id: string }): string => `${item.type}:${item.id}`;
@@ -82,19 +83,21 @@ export function interactiveRuntimeDependencyIds(state: InteractiveDependencyStat
 
 /** Actual runtime bindings are deduplicated; several declarations may use one resource. */
 export async function writeInteractiveRuntimeBindings(
-  tx: Pick<Prisma.TransactionClient, "applicationCapability" | "applicationKnowledgeBase" | "applicationMcpServer">,
-  applicationId: string, state: InteractiveDependencyState, replace: boolean,
+  tx: Pick<Prisma.TransactionClient, "$queryRaw" | "applicationCapability" | "applicationKnowledgeBase" | "applicationMcpServer">,
+  ownerId: string, applicationId: string, state: InteractiveDependencyState, replace: boolean,
 ): Promise<void> {
-  if (replace) await Promise.all([
-    tx.applicationCapability.deleteMany({ where: { applicationId } }),
-    tx.applicationKnowledgeBase.deleteMany({ where: { applicationId } }),
-    tx.applicationMcpServer.deleteMany({ where: { applicationId } }),
-  ]);
   const bound = state.items.filter((item): item is typeof item & { resource_id: string } => item.resource_id !== null);
   const unique = [...new Map(bound.map(item => [`${item.type}:${item.resource_id}`, item])).values()];
   const capabilities = unique.filter(item => item.type === "plugin" || item.type === "skill");
   const knowledge = unique.filter(item => item.type === "knowledge_base");
   const mcp = unique.filter(item => item.type === "mcp_server");
+  await assertOwnedMcpServersExist(tx, ownerId, mcp.filter(item => item.available).map(item => item.resource_id));
+
+  if (replace) await Promise.all([
+    tx.applicationCapability.deleteMany({ where: { applicationId } }),
+    tx.applicationKnowledgeBase.deleteMany({ where: { applicationId } }),
+    tx.applicationMcpServer.deleteMany({ where: { applicationId } }),
+  ]);
   if (capabilities.length) await tx.applicationCapability.createMany({ data: capabilities.map((item, selectionOrder) => ({ applicationId,
     capabilityId: item.resource_id, capabilityNameSnapshot: item.resource_name ?? item.name, capabilityTypeSnapshot: item.type, selectionOrder })) });
   if (knowledge.length) await tx.applicationKnowledgeBase.createMany({ data: knowledge.map((item, selectionOrder) => ({ applicationId,

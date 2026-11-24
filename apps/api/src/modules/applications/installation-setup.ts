@@ -11,6 +11,7 @@ import {
 } from "@linksense/shared";
 import type { Prisma, Application, ApplicationInstallation, ApplicationVersion } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 import type { ModelRuntimeSettingsReader } from "../system/model-provider-settings.js";
 import { publishedApplicationDefinitionSchema, type PublishedApplicationDefinition } from "./published-definition.js";
 import type { ApplicationCredentialResolver } from "./runtime-credentials.js";
@@ -199,7 +200,8 @@ export async function saveApplicationSetupModel(
 
 /** Called inside the runtime gate and transaction; positions preserve partially configured steps. */
 export async function saveApplicationSetupBinding(
-  db: SetupDatabase, ownerId: string, applicationId: string, input: ApplicationSetupBindingInput,
+  db: SetupDatabase & Pick<Prisma.TransactionClient, "$queryRaw">,
+  ownerId: string, applicationId: string, input: ApplicationSetupBindingInput,
 ): Promise<void> {
   const state = await ownedInstallation(db, ownerId, applicationId);
   assertApplicationSetupRevision(state, input);
@@ -219,6 +221,7 @@ export async function saveApplicationSetupBinding(
       : type === "knowledge_base" ? await db.knowledgeBase.findFirst({ where: { id: resourceId, ownerId, lifecycleStatus: "active", availabilityStatus: "enabled" }, select: { id: true, name: true } })
       : await db.mcpServer.findFirst({ where: { id: resourceId, ownerId, status: "active" }, select: { id: true, name: true } });
     if (!resource) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+    if (type === "mcp_server") await assertOwnedMcpServersExist(db, ownerId, [resourceId]);
     name = resource.name;
     if (bindings.some(item => item.selectionOrder !== position && (
       "capabilityId" in item ? item.capabilityId : "knowledgeBaseId" in item ? item.knowledgeBaseId : item.mcpServerId

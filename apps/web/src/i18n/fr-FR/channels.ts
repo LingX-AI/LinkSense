@@ -279,5 +279,18 @@ export const channelResources = {
     deleteTitle: "Supprimer ce serveur MCP ?",
     deleteDescription:
       "La configuration du serveur, l’identifiant chiffré et les variables d’environnement chiffrées seront définitivement supprimés. Les nouvelles tâches ne s’y connecteront plus.",
+    deleteBlocked: {
+      title: "Le serveur MCP est encore utilisé",
+      locations: {
+        application: "Paramètres ou version actuelle de l’application",
+        draft: "Brouillon de développement",
+        shared: "Version partagée avec l’organisation",
+        center: "Version publiée dans le Centre d’applications",
+        shared_installation: "Version installée accessible via le partage",
+        center_installation: "Version installée accessible via le Centre d’applications",
+      },
+      installedVersionHint:
+        "Si des membres utilisent encore une ancienne version, demandez-leur de la mettre à jour ou retirez l’application du canal concerné.",
+    },
   },
 } as const

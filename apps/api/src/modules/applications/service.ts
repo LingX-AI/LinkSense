@@ -10,7 +10,8 @@ import { readApplicationDetails } from "./details.js";
 import { readOwnedApplicationCatalog, projectApplicationCatalogPage } from "./catalog-repository.js";
 import { deleteApplicationDevelopment } from "./development-deletion.js";
 import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, interactiveRuntimeDependencyIds, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "./interactive-dependencies.js";
-import { readApplicationDistributionAccess, readApplicationDistributionAccessBatch } from "./distribution-repository.js";
+import { assertDistributionVersionMcpServersExist, readApplicationDistributionAccess, readApplicationDistributionAccessBatch } from "./distribution-repository.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 import { applicationRuntimeChannel, isApplicationCenterUnavailable, allowedApplicationUsageModes, assertApplicationUsageModes, applicationModesForChannel, requireApplicationDistributionVersion } from "./distribution-policy.js";
 import { installedApplicationBaselineSchema } from "./installation-merge.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -564,6 +565,7 @@ export class ApplicationService {
     let row;
     try {
       row = await this.prisma.$transaction(async (tx) => {
+        await assertOwnedMcpServersExist(tx, actor.id, input.mcp_server_ids);
         const created = await tx.application.create({
           data: {
             ownerId: actor.id,
@@ -696,7 +698,7 @@ export class ApplicationService {
             status: "active",
           },
         });
-        await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, false);
+        await writeInteractiveRuntimeBindings(tx, actor.id, applicationId, dependencies, false);
         await tx.interactiveApplicationPackage.create({
           data: {
             id: packageId,
@@ -865,7 +867,7 @@ export class ApplicationService {
           },
         });
         if (updated.count !== 1) throw new AppError("CONFLICT");
-        await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, true);
+        await writeInteractiveRuntimeBindings(tx, actor.id, applicationId, dependencies, true);
         await options.complete?.(tx, applicationId);
       };
       if (options.release && !current.developmentOnly) {
@@ -945,7 +947,7 @@ export class ApplicationService {
       const updated = await tx.application.updateMany({ where: { id: applicationId, ownerId: actor.id, updatedAt: current.updatedAt, status: { not: "deleted" } },
         data: { interactiveDependencyBindings: dependencyBindings(dependencies), updatedAt: new Date() } });
       if (updated.count !== 1) throw new AppError("CONFLICT");
-      await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, true);
+      await writeInteractiveRuntimeBindings(tx, actor.id, applicationId, dependencies, true);
     });
     await this.audit.write({ ...context, actorId: actor.id, action: "interactive_application_dependencies_updated", targetType: "application", targetId: applicationId, result: "success" });
     return this.get(actor, applicationId);
@@ -1158,6 +1160,9 @@ export class ApplicationService {
     const now = new Date();
     try {
       const saveChanges = async (tx: Prisma.TransactionClient): Promise<void> => {
+        if (!publication && input.mcp_server_ids !== undefined) {
+          await assertOwnedMcpServersExist(tx, actor.id, mcpServerIds);
+        }
         const updated = await tx.application.updateMany({
           where: {
             id: applicationId,
@@ -1494,6 +1499,13 @@ export class ApplicationService {
       } else if (!await tx.applicationGrant.findFirst({ where: { applicationId, status: "active" }, select: { id: true } })) {
         throw new AppError("APPLICATION_GRANT_TARGET_INVALID");
       }
+      const serviceGrant = await tx.applicationGrant.findFirst({
+        where: { applicationId, status: "active", usageModes: { has: "service" } }, select: { id: true },
+      });
+      if (serviceGrant) {
+        const definition = publishedApplicationDefinitionSchema.parse(version.definitionJson);
+        await assertOwnedMcpServersExist(tx, actor.id, definition.mcpServerIds);
+      }
       await tx.application.update({ where: { id: applicationId, ownerId: actor.id }, data: { publishedVersionId: version.id } });
     });
     await this.audit.write({ ...context, actorId: actor.id, action: "application_shared", targetType: "application", targetId: applicationId,
@@ -1553,6 +1565,14 @@ export class ApplicationService {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid FOR UPDATE`);
       const result = await tx.applicationGrant.updateMany({ where: { id: grantId, applicationId, status: "active" }, data: { usageModes } });
       if (result.count !== 1) throw new AppError("NOT_FOUND");
+      if (usageModes.includes("service")) {
+        const current = await tx.application.findUniqueOrThrow({
+          where: { id: applicationId }, select: { publishedVersionId: true },
+        });
+        if (current.publishedVersionId) {
+          await assertDistributionVersionMcpServersExist(tx, actor.id, applicationId, current.publishedVersionId);
+        }
+      }
     });
     await this.audit.write({ ...context, actorId: actor.id, action: "application_share_modes_updated", targetType: "application_grant", targetId: grantId, result: "success", metadata: { can_install: usageModes.includes("install"), can_use_service: usageModes.includes("service") } });
   }
