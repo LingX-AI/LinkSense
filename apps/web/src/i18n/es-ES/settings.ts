@@ -234,6 +234,11 @@ export const settingsMessages = {
       "El sistema no pudo mostrar la notificación. Revisa los ajustes de notificaciones de {{productName}} en Ajustes del Sistema de macOS y vuelve a intentarlo.",
     desktopTestSent:
       "Se ha enviado una notificación de prueba al sistema. Si no la has visto, revisa los ajustes de notificaciones de {{productName}} en Ajustes del Sistema de macOS.",
+    approvalEnable: "Recordatorios de aprobación",
+    approvalDescription:
+      "Muestra una notificación cuando una tarea local espera tu aprobación mientras LinkSense está en segundo plano. Al hacer clic se abre la tarea, pero nunca se responde a la aprobación.",
+    approvalPaused:
+      "Los recordatorios de aprobación están en pausa mientras las notificaciones de macOS están desactivadas.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Procesado correctamente",
     statusFailedBody: "Error de procesamiento",

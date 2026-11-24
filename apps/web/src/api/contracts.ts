@@ -73,6 +73,7 @@ import {
   clawHubSkillCatalogItemSchema as sharedClawHubSkillCatalogItemSchema,
   clawHubSkillCatalogSortSchema as sharedClawHubSkillCatalogSortSchema,
   completionNotificationFeedSchema as sharedCompletionNotificationFeedSchema,
+  desktopApprovalNotificationSnapshotSchema as sharedDesktopApprovalNotificationSnapshotSchema,
   feishuConnectionListSchema as sharedFeishuConnectionListSchema,
   feishuConnectionSchema as sharedFeishuConnectionSchema,
   feishuRegistrationSessionSchema as sharedFeishuRegistrationSessionSchema,
@@ -143,6 +144,11 @@ export const completionNotificationFeedSchema =
   sharedCompletionNotificationFeedSchema
 export type CompletionNotification = SharedCompletionNotification
 export type CompletionNotificationFeed = SharedCompletionNotificationFeed
+export const desktopApprovalNotificationSnapshotSchema =
+  sharedDesktopApprovalNotificationSnapshotSchema
+export type DesktopApprovalNotificationSnapshot = z.infer<
+  typeof desktopApprovalNotificationSnapshotSchema
+>
 export const weixinConnectionSchema = sharedWeixinConnectionSchema
 export const weixinConnectionListSchema = sharedWeixinConnectionListSchema
 export const weixinLoginSessionSchema = sharedWeixinLoginSessionSchema

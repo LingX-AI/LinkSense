@@ -59,12 +59,14 @@ function useDesktopLaunchNavigation({
   user,
   bootstrap,
   pathname,
+  search,
   hash,
 }: {
   status: AuthContextValue["status"]
   user: User | null
   bootstrap: BootstrapStatus | undefined
   pathname: string
+  search: string
   hash: string
 }): void {
   const navigate = useNavigate()
@@ -82,11 +84,12 @@ function useDesktopLaunchNavigation({
       ownerId,
       ready,
       pathname,
+      search,
       hash,
     })
     // A notification buffered on a public page can first route after the
     // destination commits under ProtectedRoute, even if auth did not change.
-  }, [ownerId, ready, status, pathname, hash])
+  }, [ownerId, ready, status, pathname, search, hash])
 
   useEffect(
     () =>
@@ -110,6 +113,7 @@ export function BootstrapGate() {
     user,
     bootstrap,
     pathname: location.pathname,
+    search: location.search,
     hash: location.hash,
   })
   const content = (
@@ -176,8 +180,13 @@ export function ProtectedRoute() {
   useLayoutEffect(() => {
     // Let the index redirect settle before consuming an app-launch click.
     if (status !== "authenticated" || !user || location.pathname === "/") return
-    return scopeDesktopNotificationNavigation(user.id, location.pathname)
-  }, [status, user, location.pathname])
+    return scopeDesktopNotificationNavigation(
+      user.id,
+      location.pathname,
+      location.search,
+      location.hash
+    )
+  }, [status, user, location.pathname, location.search, location.hash])
   const [destinationUserId, setDestinationUserId] = useState(user?.id)
   if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
     setDestinationUserId(user.id)

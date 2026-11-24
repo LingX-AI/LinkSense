@@ -1155,6 +1155,11 @@ export const ptBR = {
       "O sistema não conseguiu mostrar a notificação. Verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS e tente novamente.",
     desktopTestSent:
       "Uma notificação de teste foi enviada ao sistema. Se você não a viu, verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS.",
+    approvalEnable: "Lembretes de aprovação",
+    approvalDescription:
+      "Mostra uma notificação quando uma tarefa local está aguardando sua aprovação enquanto o LinkSense está em segundo plano. Clicar abre a tarefa; nunca responde à aprovação.",
+    approvalPaused:
+      "Os lembretes de aprovação ficam pausados enquanto as notificações do macOS estiverem desativadas.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processamento concluído",
     statusFailedBody: "Falha no processamento",

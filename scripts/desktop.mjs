@@ -258,7 +258,7 @@ async function main() {
     await run("go", desktopTestArguments());
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
-        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/features/desktop-devices", "src/features/desktop-execution", "src/features/desktop-computer-permissions", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/adapters/desktop", "src/features/browser-notifications", "src/features/desktop-login", "src/features/desktop-update", "src/features/desktop-devices", "src/features/desktop-execution", "src/features/desktop-computer-permissions", "src/features/local-workspace", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
         "src/features/applications/application-annotation-bridge.test.ts",
         "src/features/applications/application-annotation-native-runtime.test.ts",
         "src/features/applications/application-annotation-preload-install.test.ts",

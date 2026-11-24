@@ -95,6 +95,10 @@ export interface Messages {
    * `请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。`
    */
   crashReportsOpenFailedDetail(): string;
+  /**
+   * `有一项任务正在等待你的审批。`
+   */
+  approvalRequestNotice(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -132,6 +136,7 @@ const catalog = createCatalog<Messages>({
     "viewCrashReports": [],
     "crashReportsOpenFailedHeading": [],
     "crashReportsOpenFailedDetail": [],
+    "approvalRequestNotice": [],
   },
   messages: {
     "zh-CN": {
@@ -158,6 +163,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "查看崩溃报告…",
       "crashReportsOpenFailedHeading": "无法打开控制台",
       "crashReportsOpenFailedDetail": "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。",
+      "approvalRequestNotice": "有一项任务正在等待你的审批。",
     },
     "en-US": {
       "buildConfigurationTitle": "Unable to start LinkSense",
@@ -183,6 +189,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "View Crash Reports…",
       "crashReportsOpenFailedHeading": "Could not open Console",
       "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar.",
+      "approvalRequestNotice": "A task is waiting for your approval.",
     },
     "es-ES": {
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
@@ -208,6 +215,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "Ver informes de errores…",
       "crashReportsOpenFailedHeading": "No se pudo abrir Consola",
       "crashReportsOpenFailedDetail": "Abre Consola desde Aplicaciones > Utilidades y selecciona «Informes de errores» en la barra lateral.",
+      "approvalRequestNotice": "Una tarea está esperando tu aprobación.",
     },
     "fr-FR": {
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
@@ -233,6 +241,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "Afficher les rapports de blocage…",
       "crashReportsOpenFailedHeading": "Impossible d’ouvrir Console",
       "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale.",
+      "approvalRequestNotice": "Une tâche attend votre approbation.",
     },
     "ja-JP": {
       "buildConfigurationTitle": "LinkSense を起動できません",
@@ -258,6 +267,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "クラッシュレポートを表示…",
       "crashReportsOpenFailedHeading": "コンソールを開けませんでした",
       "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。",
+      "approvalRequestNotice": "承認待ちのタスクがあります。",
     },
     "pt-BR": {
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
@@ -283,6 +293,7 @@ const catalog = createCatalog<Messages>({
       "viewCrashReports": "Ver relatórios de falha…",
       "crashReportsOpenFailedHeading": "Não foi possível abrir o Console",
       "crashReportsOpenFailedDetail": "Abra o Console em Aplicativos > Utilitários e selecione “Relatórios de Falha” na barra lateral.",
+      "approvalRequestNotice": "Uma tarefa está aguardando sua aprovação.",
     },
   },
 });

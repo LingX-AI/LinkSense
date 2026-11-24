@@ -154,6 +154,27 @@ matching server and account, with the same unsaved-change prompt as in-app
 navigation. Clicking an update notice opens only the update section in
 **Settings → General**; it never installs or restarts the app.
 
+**Approval reminders** are a separate default-off sub-switch on supported Mac
+builds. The choice is stored for the same server and account as the master
+switch; turning the master off pauses reminders without clearing the choice.
+While LinkSense is hidden, a live local command or file approval head can
+produce one generic “A task is waiting for your approval.” notice. It carries
+no command, path, task title, server, or account detail, and the app never
+shows it while the main window is visible and focused. Clicking only reopens
+the conversation after an exact conversation/request recheck against the
+signed-in server; a resolved, expired, foreign, or unavailable request does
+nothing beyond normal app activation and the click never answers the approval.
+
+The approval snapshot route (`GET /conversations/desktop-approval-notifications`)
+is additive. Deploy the API and its shared schema before enabling the client so
+the opt-in works on first use. A client running against an older API receives a
+missing-route response, stops asking for that login, and keeps completion and
+update notifications unchanged; shipping the client first is therefore safe.
+The native host also requires packaged macOS notification support and its own
+current account lease. Tests use fixture delivery and a synthetic WKWebView;
+they never send a real OS notification, touch TCC, use a real account, or
+answer an approval.
+
 ### Window chrome
 
 The macOS main window is fixed at the standard 100% page scale. Window

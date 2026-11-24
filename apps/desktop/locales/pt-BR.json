@@ -21,5 +21,6 @@
   "diagnosticsExportFailedDetail": "Não foi possível salvar o arquivo de diagnóstico. Nenhum arquivo existente foi substituído. Escolha outro local e tente novamente.",
   "viewCrashReports": "Ver relatórios de falha…",
   "crashReportsOpenFailedHeading": "Não foi possível abrir o Console",
-  "crashReportsOpenFailedDetail": "Abra o Console em Aplicativos > Utilitários e selecione “Relatórios de Falha” na barra lateral."
+  "crashReportsOpenFailedDetail": "Abra o Console em Aplicativos > Utilitários e selecione “Relatórios de Falha” na barra lateral.",
+  "approvalRequestNotice": "Uma tarefa está aguardando sua aprovação."
 }

@@ -55,6 +55,7 @@ const native = vi.hoisted(() => ({
   onNavigate: vi.fn(),
   notificationsSupported: vi.fn(),
   showCompletionNotification: Object.assign(vi.fn(), { with: vi.fn() }),
+  showApprovalNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   showTestNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   showUpdateNotification: Object.assign(vi.fn(), { with: vi.fn() }),
   onNotificationClick: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock("./mygo", () => ({
     openExternal: native.openExternal,
     notificationsSupported: native.notificationsSupported,
     showCompletionNotification: native.showCompletionNotification,
+    showApprovalNotification: native.showApprovalNotification,
     showTestNotification: native.showTestNotification,
     showUpdateNotification: native.showUpdateNotification,
     workspaceUsage: native.workspaceUsage,
@@ -115,6 +117,7 @@ import {
   beginDesktopArtifactDownload,
   beginDesktopArtifactPreview,
   cancelDeferredDesktopNotification,
+  cancelPendingApprovalNotificationClick,
   cancelDesktopArtifactDownload,
   checkDesktopUpdate,
   cleanupDesktopWorkspaces,
@@ -132,8 +135,10 @@ import {
   readDesktopWorkspaceUsage,
   restartDesktopAfterUpdate,
   revealDesktopArtifactDownload,
+  registerDesktopApprovalClickVerifier,
   scopeDesktopNotificationNavigation,
   setDesktopUpdateChannel,
+  showDesktopApprovalNotification,
   showDesktopCompletionNotification,
   showDesktopTestNotification,
   showDesktopUpdateNotification,
@@ -352,6 +357,7 @@ beforeAll(async () => {
 describe("desktop host boundary", () => {
   afterEach(() => {
     cleanup()
+    cancelPendingApprovalNotificationClick()
     setAccessToken(null)
     native.isDesktop = false
     vi.clearAllMocks()
@@ -2107,5 +2113,580 @@ describe("desktop update lifecycle boundary", () => {
     })
     stop()
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+describe("desktop approval notification clicks", () => {
+  const approvalOwner = "10000000-0000-4000-8000-0000000000a1"
+  const approvalConversation = "71000000-0000-4000-8000-000000000a01"
+  const approvalRequest = "81000000-0000-4000-8000-000000000a01"
+  const secondConversation = "71000000-0000-4000-8000-000000000a02"
+  const secondRequest = "81000000-0000-4000-8000-000000000a02"
+  const approvalSession: TestSession = {
+    status: "authenticated",
+    userId: approvalOwner,
+    role: "user",
+  }
+
+  afterEach(() => {
+    cleanup()
+    cancelPendingApprovalNotificationClick()
+    native.isDesktop = false
+    vi.clearAllMocks()
+    updateDesktopLaunchContext({
+      authenticated: false,
+      ownerId: null,
+      ready: false,
+      pathname: "/conversations/new",
+      hash: "",
+    })
+  })
+
+  function deferredVerifier() {
+    const resolvers: Array<(value: boolean) => void> = []
+    const verifier =
+      vi.fn<
+        (input: {
+          userId: string
+          conversationId: string
+          requestId: string
+          signal: AbortSignal
+        }) => Promise<boolean>
+      >()
+    verifier.mockImplementation(
+      () => new Promise<boolean>((resolve) => resolvers.push(resolve))
+    )
+    return { verifier, resolvers }
+  }
+
+  it("holds a cold-start approval click until the exact pair is verified", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+    expect(verifier.mock.calls[0]?.[0]).toMatchObject({
+      userId: approvalOwner,
+      conversationId: approvalConversation,
+      requestId: approvalRequest,
+    })
+    expect(onLocation).not.toHaveBeenCalled()
+
+    await act(async () => resolvers.shift()?.(true))
+    expect(onLocation.mock.calls).toEqual([
+      [`/conversations/${approvalConversation}`],
+    ])
+    stop()
+  })
+
+  it("ignores a resolved, mismatched, or unavailable approval click", async () => {
+    await initializePairingTestHost()
+    const notLive =
+      vi.fn<
+        (input: {
+          userId: string
+          conversationId: string
+          requestId: string
+          signal: AbortSignal
+        }) => Promise<boolean>
+      >()
+    notLive.mockImplementation(async () => false)
+    const stop = registerDesktopApprovalClickVerifier(notLive)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() => {
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: "../../etc/passwd",
+      })
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    })
+    await waitFor(() => expect(notLive).toHaveBeenCalledOnce())
+    expect(notLive.mock.calls[0]?.[0]?.requestId).toBe(approvalRequest)
+    expect(onLocation).not.toHaveBeenCalled()
+    stop()
+  })
+
+  it("does not let stale verification override a newer click or link", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledTimes(1))
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: secondConversation,
+        requestId: secondRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      resolvers[0]?.(true)
+      await Promise.resolve()
+    })
+    expect(onLocation).not.toHaveBeenCalled()
+    await act(async () => resolvers[1]?.(true))
+    expect(onLocation.mock.calls).toEqual([
+      [`/conversations/${secondConversation}`],
+    ])
+    stop()
+  })
+
+  it("does not cancel a pending approval verification on an unrecognized native link", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+
+    // None of these are a valid conversation, pairing, update-settings, or
+    // menu destination, so they must not cancel the exact-pair check.
+    act(() => {
+      emitDesktopNavigation(
+        `/conversations/${approvalConversation}?token=fixture`
+      )
+      emitDesktopNavigation("https://outside.example.test")
+      emitDesktopNavigation("/conversations/not-a-uuid")
+    })
+    await act(async () => resolvers[0]?.(true))
+    expect(onLocation.mock.calls).toEqual([
+      [`/conversations/${approvalConversation}`],
+    ])
+    stop()
+  })
+
+  it("lets a newer valid conversation link supersede a pending approval verification", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    const linked = `/conversations/${secondConversation}`
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+
+    act(() => emitDesktopNavigation(linked))
+    await waitFor(() => expect(onLocation).toHaveBeenCalledWith(linked))
+    // The newer explicit link wins; the buffered approval prompt must not ask
+    // again after the conversation/draft handoff resolves.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(verifier).toHaveBeenCalledOnce()
+
+    await act(async () => resolvers[0]?.(true))
+    expect(onLocation.mock.calls).toEqual([[linked]])
+    stop()
+  })
+
+  it("cancels a buffered approval click when a newer valid conversation link arrives before its check starts", async () => {
+    await initializePairingTestHost()
+    const onLocation = vi.fn()
+    const linked = `/conversations/${secondConversation}`
+    const update = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: { status: "loading" },
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    // The approval click is buffered before auth is ready, so no exact-pair
+    // check has started yet.
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    act(() => emitDesktopNavigation(linked))
+
+    update(approvalSession)
+    await waitFor(() => expect(onLocation).toHaveBeenCalledWith(linked))
+
+    // Registering later must not revive the superseded approval click: the
+    // newer conversation link already won.
+    const verifier = vi.fn(async () => true)
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(verifier).not.toHaveBeenCalled()
+    expect(screen.getByTestId("current-path")).toHaveTextContent(linked)
+    stop()
+  })
+
+  it("lets a protected manual hash change supersede a pending approval verification", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+
+    act(() => {
+      updateDesktopLaunchContext({
+        authenticated: true,
+        ownerId: approvalOwner,
+        ready: true,
+        pathname: "/conversations/new",
+        hash: "#manual",
+      })
+      updateDesktopLaunchContext({
+        authenticated: true,
+        ownerId: approvalOwner,
+        ready: true,
+        pathname: "/conversations/new",
+        hash: "",
+      })
+    })
+    await act(async () => resolvers[0]?.(true))
+    expect(verifier).toHaveBeenCalledOnce()
+    expect(onLocation).not.toHaveBeenCalledWith(
+      `/conversations/${approvalConversation}`
+    )
+    stop()
+  })
+
+  it("does not route a verified click after sign-out or a manual route change", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    const view = renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+    view({ status: "anonymous" })
+    await act(async () => resolvers[0]?.(true))
+    expect(onLocation).not.toHaveBeenCalledWith(
+      `/conversations/${approvalConversation}`
+    )
+
+    const second = deferredVerifier()
+    const stopSecond = registerDesktopApprovalClickVerifier(second.verifier)
+    view(approvalSession)
+    onLocation.mockClear()
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(second.verifier).toHaveBeenCalledOnce())
+    act(() =>
+      updateDesktopLaunchContext({
+        authenticated: true,
+        ownerId: approvalOwner,
+        ready: true,
+        pathname: "/settings/general",
+        hash: "",
+      })
+    )
+    await act(async () => second.resolvers[0]?.(true))
+    expect(onLocation).not.toHaveBeenCalledWith(
+      `/conversations/${approvalConversation}`
+    )
+    // The manual route change cancels the prompt instead of re-verifying it
+    // against the new surface.
+    expect(second.verifier).toHaveBeenCalledOnce()
+    stopSecond()
+    stop()
+  })
+
+  it("cancels an in-flight approval click on login boundary invalidation", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+    act(() => cancelPendingApprovalNotificationClick())
+    await act(async () => resolvers[0]?.(true))
+    expect(onLocation).not.toHaveBeenCalled()
+    stop()
+  })
+
+  it("lets a newer pairing link cancel an in-flight approval prompt", async () => {
+    await initializePairingTestHost()
+    const { verifier, resolvers } = deferredVerifier()
+    const stop = registerDesktopApprovalClickVerifier(verifier)
+    const onLocation = vi.fn()
+    renderDeepLinkHarness({
+      bootstrap: activeBootstrap,
+      session: approvalSession,
+      pathname: "/conversations/new",
+      onLocation,
+    })
+    onLocation.mockClear()
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    await waitFor(() => expect(verifier).toHaveBeenCalledOnce())
+    act(() => emitDesktopNavigation(desktopDeviceSettingsHref))
+    await act(async () => resolvers[0]?.(true))
+    expect(onLocation.mock.calls).toEqual([[desktopDeviceSettingsHref]])
+    stop()
+  })
+
+  it("keeps approval clicks behind the existing unsaved-draft blocker", async () => {
+    await initializePairingTestHost()
+    const pathname = "/settings/personalization"
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(personalizationQueryKey, {
+      custom_instructions: "",
+      memories_enabled: false,
+      show_reasoning: false,
+      task_auto_naming: "first_message",
+    })
+    const router = createMemoryRouter(
+      [
+        {
+          element: createElement(BootstrapGate),
+          children: [
+            {
+              element: createElement(ProtectedRoute),
+              children: [
+                {
+                  path: pathname,
+                  element: createElement(SettingsPersonalizationPage),
+                },
+                {
+                  path: "/conversations/:conversationId",
+                  element: createElement(LocationProbe),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      { initialEntries: [pathname] }
+    )
+    const verifier = vi.fn(async () => true)
+    const stopVerifier = registerDesktopApprovalClickVerifier(verifier)
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          BootstrapContext.Provider,
+          {
+            value: {
+              bootstrap: activeBootstrap,
+              isLoading: false,
+              error: null,
+              refetch: vi.fn(),
+            },
+          },
+          createElement(
+            AuthContext.Provider,
+            {
+              value: {
+                status: "authenticated",
+                user: testSessionUser(approvalSession),
+                acceptSession: vi.fn(),
+                refreshUser: vi.fn(),
+                signOut: vi.fn(),
+              },
+            },
+            createElement(RouterProvider, { router })
+          )
+        )
+      )
+    )
+    const draft = screen.getByRole("textbox", { name: "Custom instructions" })
+    act(() => draft.focus())
+    fireEvent.change(draft, { target: { value: "Unsaved approval draft" } })
+
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Discard Unsaved Changes?",
+      })
+    ).toBeVisible()
+    expect(router.state.location.pathname).toBe(pathname)
+
+    fireEvent.click(screen.getByRole("button", { name: "Stay on Page" }))
+    await waitFor(() => expect(draft).toHaveFocus())
+    expect(router.state.location.pathname).toBe(pathname)
+    act(() =>
+      emitNotificationClick({
+        userId: approvalOwner,
+        conversationId: approvalConversation,
+        requestId: approvalRequest,
+      })
+    )
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Discard Unsaved Changes?",
+      })
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Discard Changes" }))
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent(
+        `/conversations/${approvalConversation}`
+      )
+    )
+    stopVerifier()
+  })
+
+  it("shows the approval binding result without leaking task text", async () => {
+    native.isDesktop = true
+    native.info.mockResolvedValue({
+      bridgeVersion: 1,
+      serverUrl: "https://example.com",
+      platform: "darwin",
+      version: "0.1.0",
+    })
+    native.notificationsSupported.mockResolvedValue(true)
+    await initializeDesktopHost()
+    native.showApprovalNotification.with.mockReturnValue(
+      native.showApprovalNotification
+    )
+    native.showApprovalNotification.mockResolvedValueOnce(undefined)
+    const { signal } = new AbortController()
+    await expect(
+      showDesktopApprovalNotification(
+        {
+          userId: approvalOwner,
+          conversationId: approvalConversation,
+          requestId: approvalRequest,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+        signal
+      )
+    ).resolves.toBe("shown")
+    await expect(
+      showDesktopApprovalNotification(
+        {
+          userId: approvalOwner,
+          conversationId: approvalConversation,
+          requestId: approvalRequest,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+        AbortSignal.abort()
+      )
+    ).resolves.toBe("cancelled")
   })
 })

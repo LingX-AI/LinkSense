@@ -21,5 +21,6 @@
   "diagnosticsExportFailedDetail": "The diagnostics file could not be saved. No existing file was replaced. Choose another location and try again.",
   "viewCrashReports": "View Crash Reports…",
   "crashReportsOpenFailedHeading": "Could not open Console",
-  "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar."
+  "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar.",
+  "approvalRequestNotice": "A task is waiting for your approval."
 }

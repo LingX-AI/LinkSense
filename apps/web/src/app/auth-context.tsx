@@ -133,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // settle. A late acceptance from the ending login must not reopen the
       // protected routes or advance past that cleanup.
       if (signOutPendingRef.current) return
-      const loginSessionBoundary = beginLoginSession()
+      const loginSessionBoundary = beginLoginSession("sign-in")
       lastAcceptedLoginRef.current = loginSessionBoundary
       if (!(await applySessionCredentials(session, loginSessionBoundary)))
         return
@@ -142,61 +142,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySessionCredentials, refreshUser]
   )
 
-  const signOut = useCallback(async (options?: MacSignOutOptions) => {
-    // The Mac's first sign-out owns the session until its logout request and
-    // native ClearSession both settle. A concurrent invocation must not
-    // advance the boundary, send a second logout, or enter ClearSession again:
-    // its earlier completion would release the login while native cleanup is
-    // still running.
-    const closesLocally = isMacDesktopHost()
-    if (closesLocally && signOutPendingRef.current) return
-    // Sign-out intent invalidates admitted work immediately, before the logout
-    // request or native cleanup can pause. A later explicit login advances the
-    // boundary again, so this older flow must not clear its credentials.
-    const loginSessionBoundary = beginLoginSession()
-    // A definitive token clear during the logout request ends this same login,
-    // so native cleanup still belongs to it. Only an explicitly accepted
-    // replacement makes the native session belong to someone else.
-    const replacementAccepted = () => {
-      const acceptedBoundary = lastAcceptedLoginRef.current
-      return (
-        acceptedBoundary !== null && acceptedBoundary > loginSessionBoundary
-      )
-    }
-    // The Mac keeps the protected view and the login control closed until the
-    // logout request and native ClearSession both settle. Closing happens in
-    // the same turn as the intent so menu navigation that was already
-    // delivered cannot admit a new task.
-    if (closesLocally) {
-      signOutPendingRef.current = true
-      void resetAccountState("loading")
-    }
-    try {
-      await apiRequest("/auth/logout", {
-        method: "POST",
-        schema: z.unknown(),
-        skipRefresh: true,
-        loginSessionBoundary,
-      })
-    } finally {
+  const signOut = useCallback(
+    async (options?: MacSignOutOptions) => {
+      // The Mac's first sign-out owns the session until its logout request and
+      // native ClearSession both settle. A concurrent invocation must not
+      // advance the boundary, send a second logout, or enter ClearSession again:
+      // its earlier completion would release the login while native cleanup is
+      // still running.
+      const closesLocally = isMacDesktopHost()
+      if (closesLocally && signOutPendingRef.current) return
+      // Sign-out intent invalidates admitted work immediately, before the logout
+      // request or native cleanup can pause. A later explicit login advances the
+      // boundary again, so this older flow must not clear its credentials.
+      const loginSessionBoundary = beginLoginSession("sign-out")
+      // A definitive token clear during the logout request ends this same login,
+      // so native cleanup still belongs to it. Only an explicitly accepted
+      // replacement makes the native session belong to someone else.
+      const replacementAccepted = () => {
+        const acceptedBoundary = lastAcceptedLoginRef.current
+        return (
+          acceptedBoundary !== null && acceptedBoundary > loginSessionBoundary
+        )
+      }
+      // The Mac keeps the protected view and the login control closed until the
+      // logout request and native ClearSession both settle. Closing happens in
+      // the same turn as the intent so menu navigation that was already
+      // delivered cannot admit a new task.
+      if (closesLocally) {
+        signOutPendingRef.current = true
+        void resetAccountState("loading")
+      }
       try {
-        if (!replacementAccepted()) {
-          try {
-            await clearDesktopSession(options)
-          } finally {
-            if (!replacementAccepted()) {
-              // Notifying an already-cleared token would re-enter the account
-              // reset from the token listener.
-              if (getAccessToken() !== null) setAccessToken(null)
-              await resetAccountState()
+        await apiRequest("/auth/logout", {
+          method: "POST",
+          schema: z.unknown(),
+          skipRefresh: true,
+          loginSessionBoundary,
+        })
+      } finally {
+        try {
+          if (!replacementAccepted()) {
+            try {
+              await clearDesktopSession(options)
+            } finally {
+              if (!replacementAccepted()) {
+                // Notifying an already-cleared token would re-enter the account
+                // reset from the token listener.
+                if (getAccessToken() !== null) setAccessToken(null)
+                await resetAccountState()
+              }
             }
           }
+        } finally {
+          if (closesLocally) signOutPendingRef.current = false
         }
-      } finally {
-        if (closesLocally) signOutPendingRef.current = false
       }
-    }
-  }, [resetAccountState])
+    },
+    [resetAccountState]
+  )
 
   useEffect(() => {
     if (bootstrapInitialized !== true) return
@@ -273,7 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // session is live means a definitive refresh rejection or sign-out
         // ended it. Advance the boundary before the synchronous reset so
         // admitted Mac work whose response arrives later is already stale.
-        if (reason === "session") beginLoginSession()
+        if (reason === "session") beginLoginSession("sign-out")
         void resetAccountState()
       }),
     [resetAccountState, status]

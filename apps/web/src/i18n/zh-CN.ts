@@ -816,6 +816,11 @@ export const zhCN = {
       "系统未能显示通知。请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置，然后重试。",
     desktopTestSent:
       "已向系统发送测试通知。如果没有看到，请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置。",
+    approvalEnable: "审批提醒",
+    approvalDescription:
+      "LinkSense 在后台运行时，本地任务等待你审批会发送通知。点击只会打开任务，不会代替你做出审批决定。",
+    approvalPaused:
+      "macOS 通知已关闭，审批提醒已暂停。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "处理成功",
     statusFailedBody: "处理失败",

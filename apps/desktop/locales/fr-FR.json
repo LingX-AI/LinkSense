@@ -21,5 +21,6 @@
   "diagnosticsExportFailedDetail": "Impossible d’enregistrer le fichier de diagnostic. Aucun fichier existant n’a été remplacé. Choisissez un autre emplacement et réessayez.",
   "viewCrashReports": "Afficher les rapports de blocage…",
   "crashReportsOpenFailedHeading": "Impossible d’ouvrir Console",
-  "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale."
+  "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale.",
+  "approvalRequestNotice": "Une tâche attend votre approbation."
 }

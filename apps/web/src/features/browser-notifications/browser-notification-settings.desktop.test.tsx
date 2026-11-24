@@ -6,7 +6,10 @@ import { supportedLocales } from "@linksense/shared"
 
 import { apiRequest } from "@/api/client"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
-import { browserNotificationStorageKey } from "@/features/browser-notifications/browser-notification-preference"
+import {
+  browserNotificationStorageKey,
+  desktopApprovalNotificationStorageKey,
+} from "@/features/browser-notifications/browser-notification-preference"
 import i18n from "@/i18n"
 
 const native = vi.hoisted(() => ({
@@ -14,10 +17,13 @@ const native = vi.hoisted(() => ({
   showTestNotification: vi.fn(),
 }))
 vi.mock("@/adapters/desktop/desktop-adapter", () => ({
+  isDesktopHost: () => true,
   isMacDesktopHost: () => true,
   getDesktopServerUrl: () => "https://example.test",
   supportsNativeDesktopNotifications: () => native.supported,
   showDesktopTestNotification: native.showTestNotification,
+  registerDesktopApprovalClickVerifier: vi.fn(() => vi.fn()),
+  cancelPendingApprovalNotificationClick: vi.fn(),
 }))
 vi.mock("@/api/client", () => ({ apiRequest: vi.fn() }))
 
@@ -114,7 +120,9 @@ describe("BrowserNotificationSettings on macOS", () => {
         )
     )
     const view = render(settings())
-    await interaction.click(screen.getByRole("switch"))
+    await interaction.click(
+      screen.getByRole("switch", { name: "Enable macOS notifications" })
+    )
     const signal = native.showTestNotification.mock.calls[0]?.[1]
     expect(signal.aborted).toBe(false)
     view.rerender(settings("10000000-0000-4000-8000-000000000002"))
@@ -123,7 +131,9 @@ describe("BrowserNotificationSettings on macOS", () => {
     expect(
       window.localStorage.getItem(browserNotificationStorageKey(USER_ID))
     ).toBeNull()
-    expect(screen.getByRole("switch")).not.toBeChecked()
+    expect(
+      screen.getByRole("switch", { name: "Enable macOS notifications" })
+    ).not.toBeChecked()
   })
 
   it("explains a build without native notification support", () => {
@@ -151,4 +161,83 @@ describe("BrowserNotificationSettings on macOS", () => {
       ).toBeVisible()
     }
   )
+})
+
+describe("approval reminder sub-setting on macOS", () => {
+  beforeEach(async () => {
+    window.localStorage.clear()
+    vi.clearAllMocks()
+    native.supported = true
+    native.showTestNotification.mockResolvedValue("shown")
+    vi.mocked(apiRequest).mockResolvedValue({
+      items: [],
+      next_cursor: "completion-baseline-cursor",
+    })
+    await i18n.changeLanguage("en-US")
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    window.localStorage.clear()
+  })
+
+  it("stays off by default and enables only the scoped approval key", async () => {
+    const interaction = userEvent.setup()
+    render(settings())
+    const approvalSwitch = screen.getByRole("switch", {
+      name: "Approval reminders",
+    })
+    expect(approvalSwitch).not.toBeChecked()
+
+    await interaction.click(approvalSwitch)
+
+    await waitFor(() => expect(approvalSwitch).toBeChecked())
+    expect(
+      window.localStorage.getItem(
+        desktopApprovalNotificationStorageKey(USER_ID)
+      )
+    ).toBe("true")
+    expect(
+      window.localStorage.getItem(browserNotificationStorageKey(USER_ID))
+    ).toBeNull()
+  })
+
+  it("pauses without clearing the approval choice when the master is off", async () => {
+    const interaction = userEvent.setup()
+    render(settings())
+    const approvalSwitch = screen.getByRole("switch", {
+      name: "Approval reminders",
+    })
+    await interaction.click(approvalSwitch)
+    await waitFor(() => expect(approvalSwitch).toBeChecked())
+
+    expect(
+      screen.getByText(
+        "Approval reminders are paused while macOS notifications are off."
+      )
+    ).toBeVisible()
+    await interaction.click(
+      screen.getByRole("switch", { name: "Enable macOS notifications" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Enable macOS notifications" })
+      ).toBeChecked()
+    )
+    expect(
+      screen.queryByText(
+        "Approval reminders are paused while macOS notifications are off."
+      )
+    ).toBeNull()
+    expect(approvalSwitch).toBeChecked()
+  })
+
+  it("does not present the approval choice without native support", () => {
+    native.supported = false
+    render(settings())
+    expect(
+      screen.queryByRole("switch", { name: "Approval reminders" })
+    ).toBeNull()
+  })
 })

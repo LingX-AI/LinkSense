@@ -1141,6 +1141,11 @@ export const jaJP = {
       "システムが通知を表示できませんでした。macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認し、もう一度お試しください。",
     desktopTestSent:
       "テスト通知をシステムに送信しました。表示されない場合は、macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認してください。",
+    approvalEnable: "承認リマインダー",
+    approvalDescription:
+      "LinkSense がバックグラウンドのときに、ローカルタスクが承認待ちになると通知します。クリックしてもタスクを開くだけで、承認は行いません。",
+    approvalPaused:
+      "macOS の通知がオフの間、承認リマインダーは一時停止します。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "処理が完了しました",
     statusFailedBody: "処理に失敗しました",

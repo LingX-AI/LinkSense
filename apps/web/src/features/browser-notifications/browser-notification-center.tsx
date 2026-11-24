@@ -20,21 +20,32 @@ import {
   readBrowserNotificationPreference,
   recordMacNotificationDenial,
   saveBrowserNotificationFeedCursor,
+  BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS,
   showBrowserNotification,
+  withBrowserNotificationLock,
 } from "@/features/browser-notifications/browser-notification-preference"
+import { DesktopApprovalNotificationCenter } from "@/features/browser-notifications/desktop-approval-notification-center"
+import { useDesktopApprovalNotificationClickVerifier } from "@/features/browser-notifications/use-desktop-approval-notification"
 import { useBrowserNotificationPreference } from "@/features/browser-notifications/use-browser-notification-preference"
 
-export const completionNotificationRefetchIntervalMs = 5_000
 let nextBrowserNotificationQueryInstanceId = 0
 
 export function BrowserNotificationCenter() {
   const { status, user } = useAuth()
   const preference = useBrowserNotificationPreference(user?.id)
-  if (status !== "authenticated" || !user || !preference.effectiveEnabled) {
-    return null
-  }
+  // Register the exact-pair approval click recheck before any auth-ready launch
+  // flush can consume a cold-start notification.
+  useDesktopApprovalNotificationClickVerifier()
+  const authenticated = status === "authenticated" && user !== null
 
-  return <ActiveBrowserNotificationCenter key={user.id} userId={user.id} />
+  return (
+    <>
+      {authenticated && preference.effectiveEnabled && (
+        <ActiveBrowserNotificationCenter key={user.id} userId={user.id} />
+      )}
+      {authenticated && <DesktopApprovalNotificationCenter />}
+    </>
+  )
 }
 
 function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
@@ -81,7 +92,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
       }
     },
     gcTime: 0,
-    refetchInterval: completionNotificationRefetchIntervalMs,
+    refetchInterval: BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: true,
   })
   const { data: completionData, refetch } = completionQuery
@@ -121,7 +132,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
         if (nativeNotifications) {
           // Native text stays generic: the task title and content must not
           // reach the lock screen or Notification Center.
-          const result = await withNotificationLock(
+          const result = await withBrowserNotificationLock(
             userId,
             notificationId,
             async () => {
@@ -203,39 +214,22 @@ async function createClaimedBrowserNotification(input: {
   body: string
   onClick: () => void
 }): Promise<Notification | null> {
-  return withNotificationLock(input.userId, input.notificationId, async () => {
-    if (hasBrowserNotificationDelivery(input.userId, input.notificationId)) {
-      return null
-    }
-    const notification = await showBrowserNotification({
-      title: input.title,
-      body: input.body,
-      tag: `${input.userId}:${input.notificationId}`,
-      onClick: input.onClick,
-    })
-    if (!notification) return null
-    claimBrowserNotificationDelivery(input.userId, input.notificationId)
-    return notification
-  })
-}
-
-async function withNotificationLock<T>(
-  userId: string,
-  notificationId: string,
-  deliver: () => Promise<T>
-): Promise<T> {
-  if (!navigator.locks) return deliver()
-  let started = false
-  return navigator.locks
-    .request(
-      `linksense-browser-notification:${userId}:${notificationId}`,
-      () => {
-        started = true
-        return deliver()
+  return withBrowserNotificationLock(
+    input.userId,
+    input.notificationId,
+    async () => {
+      if (hasBrowserNotificationDelivery(input.userId, input.notificationId)) {
+        return null
       }
-    )
-    .catch((error) => {
-      if (started) throw error
-      return deliver()
-    })
+      const notification = await showBrowserNotification({
+        title: input.title,
+        body: input.body,
+        tag: `${input.userId}:${input.notificationId}`,
+        onClick: input.onClick,
+      })
+      if (!notification) return null
+      claimBrowserNotificationDelivery(input.userId, input.notificationId)
+      return notification
+    }
+  )
 }

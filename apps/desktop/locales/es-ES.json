@@ -21,5 +21,6 @@
   "diagnosticsExportFailedDetail": "No se pudo guardar el archivo de diagnóstico. No se reemplazó ningún archivo existente. Elige otra ubicación e inténtalo de nuevo.",
   "viewCrashReports": "Ver informes de errores…",
   "crashReportsOpenFailedHeading": "No se pudo abrir Consola",
-  "crashReportsOpenFailedDetail": "Abre Consola desde Aplicaciones > Utilidades y selecciona «Informes de errores» en la barra lateral."
+  "crashReportsOpenFailedDetail": "Abre Consola desde Aplicaciones > Utilidades y selecciona «Informes de errores» en la barra lateral.",
+  "approvalRequestNotice": "Una tarea está esperando tu aprobación."
 }

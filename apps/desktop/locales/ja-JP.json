@@ -21,5 +21,6 @@
   "diagnosticsExportFailedDetail": "診断ファイルを保存できませんでした。既存のファイルは置き換えていません。別の場所を選んで、もう一度お試しください。",
   "viewCrashReports": "クラッシュレポートを表示…",
   "crashReportsOpenFailedHeading": "コンソールを開けませんでした",
-  "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。"
+  "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。",
+  "approvalRequestNotice": "承認待ちのタスクがあります。"
 }

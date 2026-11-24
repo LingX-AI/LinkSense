@@ -269,3 +269,13 @@ func CrashReportsOpenFailedDetail() string { return In(i18n.Locale()).CrashRepor
 func (msgs Messages) CrashReportsOpenFailedDetail() string {
 	return Catalog.Format(msgs.locale, "crashReportsOpenFailedDetail", nil)
 }
+
+// ApprovalRequestNotice says "有一项任务正在等待你的审批。"
+// in the language the app shows.
+func ApprovalRequestNotice() string { return In(i18n.Locale()).ApprovalRequestNotice() }
+
+// ApprovalRequestNotice says "有一项任务正在等待你的审批。"
+// in the language of msgs.
+func (msgs Messages) ApprovalRequestNotice() string {
+	return Catalog.Format(msgs.locale, "approvalRequestNotice", nil)
+}

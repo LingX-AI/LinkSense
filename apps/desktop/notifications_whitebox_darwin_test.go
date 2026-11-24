@@ -36,9 +36,17 @@ func TestNativeNotificationsDeliverWhileHiddenAndGuardClick(t *testing.T) {
 	defer win.Destroy()
 	page := win.Page()
 	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+	// The WebView keeps localStorage across fixtures. Clear only notification
+	// keys and reload so this fixture always starts from the real opt-out state,
+	// even when an earlier notification fixture enabled the switches or claimed
+	// the same delivery.
+	nativeClearNotificationPreferences(t, page)
+	whiteboxReload(t, page)
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
 	mygo.RunOnMain(func() { d.navigateMainWindow("/settings/general") })
 	const toggle = `document.querySelector('[role="switch"][aria-label="Enable macOS notifications"]')`
 	whiteboxWait(t, page, toggle+` !== null`)
+	whiteboxWait(t, page, toggle+`?.getAttribute("aria-checked") === "false"`)
 
 	select {
 	case <-delivered:
@@ -119,20 +127,13 @@ func TestNativeUpdateAvailabilityNotificationOpensSettings(t *testing.T) {
 	win := d.mainWindow()
 	toggle := `document.querySelector('[role="switch"][aria-label="Enable macOS notifications"]')`
 	whiteboxWait(t, page, toggle+` !== null`)
-	// The completion fixture above can enable notifications in this WebView's
-	// persistent storage. Start this fixture from the real opt-out state so the
-	// toggle performs the activation and test notice this test asserts. A
-	// fresh single-test run usually needs no reload.
-	enabled, err := page.Eval(toggle + `?.getAttribute("aria-checked") === "true"`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if enabled == true {
-		nativeClearNotificationPreferences(t, page)
-		whiteboxReload(t, page)
-		whiteboxWait(t, page, `location.pathname === "/settings/general" && document.querySelector("#desktop-update-heading") !== null`)
-		whiteboxWait(t, page, toggle+` !== null`)
-	}
+	// Start from the real opt-out state and drop the page's in-memory delivery
+	// history, which localStorage clearing alone cannot reset. The completion
+	// fixture can leave the switch enabled and the same update notice claimed.
+	nativeClearNotificationPreferences(t, page)
+	whiteboxReload(t, page)
+	whiteboxWait(t, page, `location.pathname === "/settings/general" && document.querySelector("#desktop-update-heading") !== null`)
+	whiteboxWait(t, page, toggle+`?.getAttribute("aria-checked") === "false"`)
 	if _, err := page.Eval(toggle + `.click()`); err != nil {
 		t.Fatal(err)
 	}

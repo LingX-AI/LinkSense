@@ -425,6 +425,11 @@ export const settingsResources = {
       "Le système n’a pas pu afficher la notification. Vérifiez les réglages de notifications de {{productName}} dans Réglages Système de macOS, puis réessayez.",
     desktopTestSent:
       "Une notification de test a été envoyée au système. Si vous ne l’avez pas vue, vérifiez les réglages de notifications de {{productName}} dans Réglages Système de macOS.",
+    approvalEnable: "Rappels d’approbation",
+    approvalDescription:
+      "Affiche une notification lorsqu’une tâche locale attend votre approbation pendant que LinkSense est en arrière-plan. Un clic ouvre la tâche, sans jamais répondre à l’approbation.",
+    approvalPaused:
+      "Les rappels d’approbation sont en pause tant que les notifications macOS sont désactivées.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Traitement réussi",
     statusFailedBody: "Échec du traitement",

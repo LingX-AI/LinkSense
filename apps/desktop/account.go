@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -32,6 +33,11 @@ type workspaceAccount struct {
 	// started under one generation cannot complete under another, even when the
 	// server returns the same account id after a sign-out.
 	generation uint64
+	// sessionCtx ends when this exact account generation is invalidated or
+	// replaced. A same-generation refresh keeps it, so native notification
+	// delivery can wait on the session without canceling on every refresh.
+	sessionCtx    context.Context
+	cancelSession context.CancelFunc
 	// onClear releases relays that must not outlive this account, such as a
 	// pending workspace cleanup. It is installed once during startup.
 	onClear func()
@@ -43,6 +49,9 @@ type accountLease struct {
 	id         string
 	generation uint64
 	expiresAt  time.Time
+	// sessionCtx is canceled when the exact account generation ends. Only
+	// approval notification delivery depends on it.
+	sessionCtx context.Context
 }
 
 func (a *workspaceAccount) set(id string, expiresAt time.Time) {
@@ -96,6 +105,10 @@ func (a *workspaceAccount) setForRefreshIf(
 	replaced := previous != "" && (previous != id || expired)
 	if previous != id || expired {
 		a.generation++
+		if a.cancelSession != nil {
+			a.cancelSession()
+		}
+		a.sessionCtx, a.cancelSession = context.WithCancel(context.Background())
 	}
 	a.id, a.expiresAt = id, expiresAt
 	onClear := a.onClear
@@ -118,6 +131,11 @@ func (a *workspaceAccount) clear() {
 	// Invalidate every lease issued to the previous session, including a later
 	// sign-in that happens to receive the same account id.
 	a.generation++
+	if a.cancelSession != nil {
+		a.cancelSession()
+		a.cancelSession = nil
+	}
+	a.sessionCtx = nil
 	onClear := a.onClear
 	a.mu.Unlock()
 	if onClear != nil {
@@ -140,7 +158,9 @@ func (a *workspaceAccount) lease() (accountLease, bool) {
 	if a.id == "" || !time.Now().Before(a.expiresAt) {
 		return accountLease{}, false
 	}
-	return accountLease{id: a.id, generation: a.generation, expiresAt: a.expiresAt}, true
+	return accountLease{
+		id: a.id, generation: a.generation, expiresAt: a.expiresAt, sessionCtx: a.sessionCtx,
+	}, true
 }
 
 func (a *workspaceAccount) matches(lease accountLease) bool {

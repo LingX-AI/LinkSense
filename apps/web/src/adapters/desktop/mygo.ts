@@ -67,12 +67,27 @@ export interface ComputerPermissionResult {
 export type ComputerPermissionStatus = "granted" | "notGranted" | "notDetermined" | "unknown";
 
 /**
+ * DesktopApprovalNotificationInput carries only identifiers and the server
+ * deadline. The reminder has no command, path, text, route, or decision.
+ */
+export interface DesktopApprovalNotificationInput {
+  userId: string;
+  conversationId: string;
+  requestId: string;
+  expiresAt: string;
+}
+
+/**
  * DesktopNotificationClick names the account and conversation of a clicked
  * notification. The page checks the account before opening the conversation.
+ * RequestID is present only for an approval reminder; the page rechecks the
+ * exact pair with the server before opening the conversation, and the click
+ * itself never answers the approval.
  */
 export interface DesktopNotificationClick {
   userId: string;
   conversationId: string;
+  requestId?: string;
 }
 
 /**
@@ -265,6 +280,12 @@ export const Desktop = {
   revealArtifactDownload: bind<[string], void>("Desktop.RevealArtifactDownload", (handle: string) => [handle]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
   setUpdateChannel: bind<[string], DesktopUpdateResult>("Desktop.SetUpdateChannel", (channel: string) => [channel]),
+  /**
+   * ShowApprovalNotification shows one generic reminder for the live approval
+   * request the page observed. It accepts only IDs and the server deadline; the
+   * native host rechecks its own account lease and never answers the request.
+   */
+  showApprovalNotification: bind<[DesktopApprovalNotificationInput], void>("Desktop.ShowApprovalNotification", (input: DesktopApprovalNotificationInput) => [input]),
   /**
    * ShowCompletionNotification shows one task-completion notification. It uses
    * only the app name and localized status; task content stays in the app.

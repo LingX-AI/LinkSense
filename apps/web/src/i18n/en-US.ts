@@ -880,6 +880,11 @@ export const enUS = {
       "The system could not show the notification. Check the notification settings for {{productName}} in macOS System Settings, then try again.",
     desktopTestSent:
       "A test notification was sent. If you did not see it, check the notification settings for {{productName}} in macOS System Settings.",
+    approvalEnable: "Approval reminders",
+    approvalDescription:
+      "Show a notification when a local task is waiting for your approval while LinkSense is in the background. Clicking opens the task; it never answers the approval.",
+    approvalPaused:
+      "Approval reminders are paused while macOS notifications are off.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processed successfully",
     statusFailedBody: "Processing failed",

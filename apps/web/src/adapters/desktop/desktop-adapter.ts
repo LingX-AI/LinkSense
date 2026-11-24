@@ -8,6 +8,7 @@ import {
   Desktop,
   events,
   type CompletionNotificationInput,
+  type DesktopApprovalNotificationInput,
   type DesktopNotificationClick,
   type MacSignOutOptions,
 } from "./mygo"
@@ -85,6 +86,9 @@ function requireMacUpdateHost(): void {
 const desktopNotificationClickSchema = z.strictObject({
   userId: z.uuid(),
   conversationId: z.uuid(),
+  // Present only on an approval reminder. It is a recheck key, never a
+  // decision or a route supplied by the notification.
+  requestId: z.uuid().optional(),
 })
 
 const desktopWorkspaceUsageSchema = z.strictObject({
@@ -297,11 +301,20 @@ export function subscribeDesktopArtifactSaved(
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null
 let desktopNotificationsSupported = false
 let notificationClickBridgeInstalled = false
-let protectedNotificationScope: { ownerId: string; pathname: string } | null =
-  null
+type ProtectedNotificationScope = {
+  ownerId: string
+  pathname: string
+  search: string
+  hash: string
+}
+let protectedNotificationScope: ProtectedNotificationScope | null = null
 let pendingNotificationClick:
   | (DesktopNotificationClick & { afterConversation?: DesktopConversationPath })
   | null = null
+let desktopApprovalClickVerifier: DesktopApprovalClickVerifier | null = null
+let approvalClickGeneration = 0
+let approvalClickVerification: DesktopApprovalClickVerification | null = null
+let verifiedApprovalClick: DesktopNotificationClick | null = null
 let navigationBridgeInstalled = false
 let menuNavigationListener: ((path: DesktopMenuPath) => void) | null = null
 let launchNavigationListener: ((path: DesktopLaunchPath) => void) | null = null
@@ -310,6 +323,7 @@ let launchContext: DesktopLaunchContext = {
   ownerId: null,
   ready: false,
   pathname: "",
+  search: "",
   hash: "",
 }
 let pendingConversationNavigation: PendingLaunch<DesktopConversationPath> | null =
@@ -374,6 +388,25 @@ export async function showDesktopTestNotification(
   )
 }
 
+const missingApprovalNotificationBinding =
+  "method Desktop.ShowApprovalNotification is not bound"
+
+/**
+ * Show a generic native reminder for one observed approval pair. The payload
+ * carries no task text, command, path, or route, and never answers the request.
+ */
+export async function showDesktopApprovalNotification(
+  input: DesktopApprovalNotificationInput,
+  signal: AbortSignal
+): Promise<DesktopNotificationResult> {
+  if (!supportsNativeDesktopNotifications()) return "unsupported"
+  return desktopNotificationResult(
+    signal,
+    () => Desktop.showApprovalNotification.with({ signal })(input),
+    missingApprovalNotificationBinding
+  )
+}
+
 // MyGo's generated bind() always gives the client a `.with` function, even
 // when the running host never bound the method. The host answers such a call
 // with this exact Go error; only the update caller treats it as unsupported.
@@ -421,11 +454,133 @@ async function desktopNotificationResult(
     if (
       message === "DESKTOP_UPDATE_STALE" ||
       message === "DESKTOP_UPDATE_BUSY" ||
+      message === "DESKTOP_APPROVAL_NOTIFICATION_STALE" ||
+      message === "DESKTOP_APPROVAL_NOTIFICATION_INVALID" ||
       message === "AUTH_REQUIRED"
     )
       return "stale"
     return "failed"
   }
+}
+
+type DesktopApprovalClickVerifier = (input: {
+  userId: string
+  conversationId: string
+  requestId: string
+  signal: AbortSignal
+}) => Promise<boolean>
+
+type DesktopApprovalClickVerification = {
+  click: DesktopNotificationClick & { requestId: string }
+  ownerId: string
+  surface: { pathname: string; search: string; hash: string }
+  generation: number
+  controller: AbortController
+}
+
+/**
+ * The page injects the exact-pair GET so this native adapter never imports the
+ * authenticated API client. Until a verifier is registered, an approval click
+ * stays buffered; without one it can never navigate.
+ */
+export function registerDesktopApprovalClickVerifier(
+  verifier: DesktopApprovalClickVerifier
+): () => void {
+  desktopApprovalClickVerifier = verifier
+  flushPendingDesktopLaunch()
+  return () => {
+    if (desktopApprovalClickVerifier !== verifier) return
+    desktopApprovalClickVerifier = null
+    invalidateApprovalClickVerification()
+  }
+}
+
+/**
+ * Cancel a queued or in-flight approval click on sign-out, account replacement
+ * (including the same id), or a newer protected surface. Completion clicks are
+ * left to their existing owner checks.
+ */
+export function cancelPendingApprovalNotificationClick(): void {
+  invalidateApprovalClickVerification()
+  if (pendingNotificationClick?.requestId) pendingNotificationClick = null
+}
+
+function invalidateApprovalClickVerification(): void {
+  approvalClickVerification?.controller.abort()
+  approvalClickVerification = null
+  approvalClickGeneration += 1
+  verifiedApprovalClick = null
+}
+
+// A pre-auth cold-start notification stays buffered until a newer explicit
+// action or the page readiness lets an exact-pair check start.
+function verifyApprovalNotificationClick(
+  click: DesktopNotificationClick & { requestId: string },
+  ownerId: string,
+  surface: { pathname: string; search: string; hash: string }
+): void {
+  if (approvalClickVerification?.click === click) return
+  const verifier = desktopApprovalClickVerifier
+  if (!verifier) return
+  approvalClickVerification?.controller.abort()
+  verifiedApprovalClick = null
+  const generation = ++approvalClickGeneration
+  const controller = new AbortController()
+  const verification: DesktopApprovalClickVerification = {
+    click,
+    ownerId,
+    surface,
+    generation,
+    controller,
+  }
+  approvalClickVerification = verification
+  void verifier({
+    userId: click.userId,
+    conversationId: click.conversationId,
+    requestId: click.requestId,
+    signal: controller.signal,
+  })
+    .then((live) => {
+      if (
+        approvalClickVerification !== verification ||
+        generation !== approvalClickGeneration
+      )
+        return
+      approvalClickVerification = null
+      if (!live) {
+        if (pendingNotificationClick === click) pendingNotificationClick = null
+        return
+      }
+      // Recheck the exact protected surface after the async GET. A newer
+      // click, link, account, sign-out, or manual route change (path, query,
+      // or hash) must win.
+      const scope = protectedNotificationScope
+      if (
+        pendingNotificationClick !== click ||
+        !launchContext.authenticated ||
+        !launchContext.ready ||
+        launchContext.ownerId !== ownerId ||
+        !scope ||
+        scope.ownerId !== ownerId ||
+        scope.pathname !== surface.pathname ||
+        scope.search !== surface.search ||
+        scope.hash !== surface.hash
+      ) {
+        if (pendingNotificationClick === click) pendingNotificationClick = null
+        return
+      }
+      verifiedApprovalClick = click
+      flushPendingDesktopLaunch()
+    })
+    .catch(() => {
+      if (
+        approvalClickVerification !== verification ||
+        generation !== approvalClickGeneration
+      )
+        return
+      approvalClickVerification = null
+      if (pendingNotificationClick === click) pendingNotificationClick = null
+    })
 }
 
 // Notification clicks may launch the app, so the listener is installed before
@@ -442,6 +597,7 @@ export function installDesktopNotificationClickBridge(): void {
       target.data.userId !== pendingNotificationClick.userId
     )
       return
+    invalidateApprovalClickVerification()
     pendingNotificationClick = target.data
     flushPendingDesktopLaunch()
   })
@@ -450,19 +606,34 @@ export function installDesktopNotificationClickBridge(): void {
 // Staying on an unsaved draft also discards the click waiting behind the
 // declined conversation link.
 export function cancelDeferredDesktopNotification(pathname: string): void {
-  if (pendingNotificationClick?.afterConversation === pathname)
-    pendingNotificationClick = null
+  if (pendingNotificationClick?.afterConversation !== pathname) return
+  invalidateApprovalClickVerification()
+  pendingNotificationClick = null
 }
 
 // Published during the protected route's commit, before BootstrapGate drains
 // launch intents. A signed-in public page still cannot open a notification.
+// The full committed location (path, query, and hash) fences a deferred exact
+// check so it cannot navigate over a newer route.
 export function scopeDesktopNotificationNavigation(
   ownerId: string,
-  pathname: string
+  pathname: string,
+  search = "",
+  hash = ""
 ) {
   if (!isDesktopHost()) return
   installDesktopNotificationClickBridge()
-  const scope = { ownerId, pathname }
+  if (
+    launchContext.ready &&
+    (launchContext.pathname !== pathname ||
+      launchContext.search !== search ||
+      launchContext.hash !== hash)
+  ) {
+    // A route change committed while a protected surface was live is a newer
+    // explicit intent than a queued approval click.
+    cancelPendingApprovalNotificationClick()
+  }
+  const scope = { ownerId, pathname, search, hash }
   protectedNotificationScope = scope
   if (pendingNotificationClick) {
     // Suspense can reveal a protected route again without rerunning the
@@ -471,7 +642,9 @@ export function scopeDesktopNotificationNavigation(
       if (
         protectedNotificationScope === scope &&
         launchContext.ownerId === ownerId &&
-        launchContext.pathname === pathname
+        launchContext.pathname === pathname &&
+        launchContext.search === search &&
+        launchContext.hash === hash
       ) {
         flushPendingDesktopLaunch()
       }
@@ -510,6 +683,7 @@ type DesktopLaunchContext = {
   ownerId: string | null
   ready: boolean
   pathname: string
+  search?: string
   hash: string
 }
 
@@ -526,18 +700,32 @@ export function installDesktopNavigationBridge(): void {
   events.desktopNavigate.on((value) => {
     const menuPath = desktopMenuPathSchema.safeParse(value)
     if (menuPath.success) {
-      menuNavigationListener?.(menuPath.data)
+      // A menu action is live-only and supersedes a queued approval prompt.
+      if (!menuNavigationListener) return
+      cancelPendingApprovalNotificationClick()
+      menuNavigationListener(menuPath.data)
       return
     }
     if (value === desktopUpdateSettingsHref) {
+      cancelPendingApprovalNotificationClick()
       pendingUpdateNavigation = { path: value, ownerId: launchContext.ownerId }
     } else if (value === desktopDeviceSettingsHref) {
       // Null means the bridge is installed but Desktop.info has not resolved.
+      // Windows never opens this Mac-only pairing surface, so it must not
+      // cancel an unrelated pending approval there.
       if (getDesktopPlatform() === "windows") return
+      // A newer explicit settings handoff wins over a queued approval prompt.
+      cancelPendingApprovalNotificationClick()
       pendingPairingNavigation = { path: value, ownerId: launchContext.ownerId }
     } else {
       const conversationPath = desktopConversationPathSchema.safeParse(value)
+      // Malformed or unknown native values are not navigation. They must not
+      // invalidate an exact-pair check that is already in flight.
       if (!conversationPath.success) return
+      // A recognized conversation link wins over a pending approval prompt,
+      // including one buffered before its exact-pair check started. Completion
+      // clicks keep their existing draft-handoff priority.
+      cancelPendingApprovalNotificationClick()
       pendingConversationNavigation = {
         path: conversationPath.data,
         ownerId: launchContext.ownerId,
@@ -580,6 +768,44 @@ export function subscribeDesktopLaunchNavigation(
 export function updateDesktopLaunchContext(
   context: DesktopLaunchContext
 ): void {
+  const search = context.search ?? ""
+  const pathnameChanged = context.pathname !== launchContext.pathname
+  const searchChanged = search !== launchContext.search
+  const hashChanged = context.hash !== launchContext.hash
+  if (
+    pathnameChanged ||
+    searchChanged ||
+    hashChanged ||
+    context.ownerId !== launchContext.ownerId
+  ) {
+    // A manually changed route, query, anchor, or account replacement must
+    // not let an earlier approval verification navigate over the new surface.
+    invalidateApprovalClickVerification()
+  }
+  if (
+    pendingNotificationClick?.requestId &&
+    context.ownerId !== null &&
+    pendingNotificationClick.userId !== context.ownerId
+  ) {
+    pendingNotificationClick = null
+  }
+  if (
+    launchContext.ready &&
+    context.ready &&
+    pendingNotificationClick?.requestId &&
+    (hashChanged ||
+      searchChanged ||
+      (pathnameChanged && !pendingNotificationClick.afterConversation))
+  ) {
+    // Once a protected surface is live, an explicit route, query, or anchor
+    // change wins over a queued approval prompt. A completion click waiting
+    // behind a conversation/draft handoff keeps its afterConversation marker
+    // until that handoff settles.
+    pendingNotificationClick = null
+  }
+  if (launchContext.authenticated && !context.authenticated) {
+    cancelPendingApprovalNotificationClick()
+  }
   const waiting = pendingNotificationClick
   if (
     waiting?.afterConversation &&
@@ -595,7 +821,7 @@ export function updateDesktopLaunchContext(
       pendingNotificationClick = null
     }
   }
-  launchContext = context
+  launchContext = { ...context, search }
   pendingConversationNavigation = launchForOwner(
     pendingConversationNavigation,
     context.ownerId
@@ -623,9 +849,9 @@ function flushPendingDesktopLaunch(): void {
   const { authenticated, ownerId, ready, pathname, hash } = launchContext
   if (!launchNavigationListener || !authenticated || !ready || !ownerId) return
 
+  const scope = protectedNotificationScope
   const notification =
-    protectedNotificationScope?.ownerId === ownerId &&
-    protectedNotificationScope.pathname === pathname
+    scope?.ownerId === ownerId && scope.pathname === pathname
       ? pendingNotificationClick
       : null
   const notificationPath =
@@ -657,6 +883,22 @@ function flushPendingDesktopLaunch(): void {
     return
   }
   if (notificationPath) {
+    if (notification?.requestId && verifiedApprovalClick !== notification) {
+      // The native banner only names the pair; the authenticated page must
+      // confirm it is still the live head for this login before routing.
+      if (!scope) return
+      verifyApprovalNotificationClick(
+        notification as DesktopNotificationClick & { requestId: string },
+        ownerId,
+        {
+          pathname: scope.pathname,
+          search: scope.search,
+          hash: scope.hash,
+        }
+      )
+      return
+    }
+    verifiedApprovalClick = null
     pendingNotificationClick = null
     pendingPairingNavigation = null
     pendingUpdateNavigation = null

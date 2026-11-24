@@ -26,6 +26,7 @@ type LoginSessionListener = (boundary: LoginSessionBoundary) => void
  * verified session ending.
  */
 export type SessionChangeReason = "session" | "storage"
+export type LoginSessionChange = "sign-in" | "sign-out"
 export type LoginSessionBoundary = number
 type StorageReadResult =
   | { status: "unavailable" }
@@ -38,6 +39,9 @@ let expirationTimer: ReturnType<typeof setTimeout> | null = null
 // A token rotation is not a new login. Only an explicit session replacement
 // (sign-out intent or accepting a session) advances this boundary.
 let loginSessionBoundary: LoginSessionBoundary = 0
+// Callers distinguish a first sign-in, which may keep a buffered approval
+// click for the matched owner, from a sign-out that must clear it.
+let loginSessionChange: LoginSessionChange = "sign-out"
 
 const listeners = new Set<SessionListener>()
 const loginSessionListeners = new Set<LoginSessionListener>()
@@ -248,6 +252,10 @@ export function getLoginSessionBoundary(): LoginSessionBoundary {
   return loginSessionBoundary
 }
 
+export function getLoginSessionChange(): LoginSessionChange {
+  return loginSessionChange
+}
+
 /**
  * Observes an explicit login replacement (sign-out intent, an accepted
  * session, or a definitive authentication clear). Token rotation keeps the
@@ -261,8 +269,11 @@ export function subscribeToLoginSession(listener: LoginSessionListener) {
   }
 }
 
-export function beginLoginSession(): LoginSessionBoundary {
+export function beginLoginSession(
+  change: LoginSessionChange = "sign-out"
+): LoginSessionBoundary {
   loginSessionBoundary += 1
+  loginSessionChange = change
   for (const listener of loginSessionListeners) {
     try {
       listener(loginSessionBoundary)
