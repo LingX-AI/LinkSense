@@ -9,6 +9,8 @@
 > 2026-11-17 复审同步：独立设备契约覆盖主模型、记忆提取与模型切换来源；补 Core MCP 受限回调；命令/文件审批分开；Phase 0、M1、M1b 采用各自出口和测试依赖。新增回调任务后约 130 人日，2 人理想开发约 13 周，排期预留 14 周。
 >
 > 2026-11-17 复审补齐：设备通道以真实 Codex 回合验收（回显桩不算）；更新与进行中回合互斥；本地工作区补保留期与清理。均为既有任务内的验收补充，估时不变。
+>
+> 2026-11-24 范围调整：macOS 本期不含内置浏览器；P2-05 至 P2-07 尚未完成，暂缓并移出活动工作与发布门槛。主窗口 WebView 继续承载 LinkSense UI；系统浏览器外链/登录、Chrome/Edge 扩展与云端 `BrowserPanel` 保持现状。
 
 ## 1. 一句话
 
@@ -23,10 +25,9 @@
 | UI 复用 | 主窗口加载 `apps/web` 构建，**一套 UI 不 fork**；Go 只做窗口/系统层，禁止在 Go 里重画侧栏或聊天 |
 | 本地模式 | macOS + Windows 双平台 |
 | 云模式 | 复用现有 Linux Docker runner，不新建基础设施 |
-| 明确不做 | Windows 云电脑（VM/RDP/视频流）、Linux 客户端、WebRTC/PIP 可视化云桌面、混合模式 |
+| 明确不做 | 内置浏览器（P2-05 至 P2-07 暂缓）、Windows 云电脑（VM/RDP/视频流）、Linux 客户端、WebRTC/PIP 可视化云桌面、混合模式 |
 | computer use | `vercel-labs/agent-desktop`（Apache-2.0，**最新版**，当前 1.3.1），由 Go 引擎以子进程管理，模型只看到 `computer_*` 工具 |
-| Browser Use | 沿用现有 Chrome/Edge MV3 扩展；桌面端只做引导与状态 |
-| 内置浏览器 | 独立原生窗口 + mygo webview，应用自有隔离会话；Agent 可操作（DOM/JS，坐标兜底）；不替代扩展 |
+| Browser Use | 沿用现有 Chrome/Edge MV3 扩展；桌面端只做引导与状态；云端继续用现有 Docker Runner Chromium 与 `BrowserPanel` |
 | 模式选择 | 会话级 `Conversation.executionTarget = local \| cloud`；切换必须确认并新建会话 |
 | UI 风格 | 浅色 A（豆包浅蓝白，#3370FF）+ 深色 C（#4D7CFE），同一套 token 与组件 |
 | 更新 | mygo 签名更新：bsdiff 增量、失败回退整包、stable/beta 渠道 |
@@ -72,7 +73,7 @@
 | `apps/api/src/modules/files` | 附件下发、工件上传确认（扩展） |
 | `apps/api/src/adapters` | `runner.ts`（RunnerTransport）、`desktop-device-transport.ts` |
 | `apps/runner/src` | `controller/desktop-worker-provider.ts`、`desktop/device-event-sink.ts`（受限业务/控制回调）、`mcp/core-services/computer-use-service.ts`、`desktop/computer-tool.ts` |
-| `apps/desktop` | Go module：`main.go`、`web.go`（主窗口）、`view.go`（伴随窗口）、`bridge.go`（设备 WS）、`engine.go`（agent-desktop）、`browser.go`（内置浏览器）、`assets/browser-agent.js`（DOM 注入）、`runtime.go`（supervisor） |
+| `apps/desktop` | Go module：`main.go`、`web.go`（主窗口）、`view.go`（伴随窗口）、`bridge.go`（设备 WS）、`engine.go`（agent-desktop）、`runtime.go`（supervisor） |
 | `scripts/desktop.mjs` | 构建、打包、签名入口 |
 
 - `apps/desktop` 是 Go module，**不进 pnpm workspace**；桌面契约放 `packages/shared`。
@@ -107,7 +108,7 @@
 | Agent | 本地 runner（`desktop` provider，随包） | 现有 Docker runner |
 | 文件 | 本地工作区/授权目录；工件上传后入列表 | 容器工作区 |
 | Shell | 本地 shell，**沙箱 + 命令级审批** | 容器 shell（`approvalPolicy: never`） |
-| 浏览器 | 用户真实 Chrome/Edge（扩展） | 容器内 headless Chromium |
+| 浏览器 | 用户真实 Chrome/Edge（扩展） | 容器内 headless Chromium（现有 `BrowserPanel`） |
 | 桌面 GUI | `computer_observe/act`（agent-desktop） | 不提供 |
 | 权限 | OS 权限 + 应用授权 + 命令审批 + 设备租约 | 容器/工作区边界 |
 | 展示 | 会话内 computer use 状态卡 | 与 Web 会话一致；云文件/浏览器面板 |
@@ -119,11 +120,9 @@
 
 ## 5. 客户端范围
 
-**主窗口**：浏览器登录交接、会话列表与详情（对话、计划、表单、工件）、知识库、浏览器面板、设置；桌面新增设备与权限、本地电脑状态、更新、关于/诊断。服务地址在打包时固定，不让用户首启填写 URL；账号登录/注册在系统浏览器完成。macOS 端主窗口与内置浏览器统一固定 100% 页面比例，不提供客户端页内缩放控件（含菜单项与快捷键）；窗口尺寸调整、最大化/还原、最小化、全屏与系统辅助功能不受影响。
+**主窗口**：浏览器登录交接、会话列表与详情（对话、计划、表单、工件）、知识库、浏览器面板、设置；桌面新增设备与权限、本地电脑状态、更新、关于/诊断。服务地址在打包时固定，不让用户首启填写 URL；账号登录/注册在系统浏览器完成。macOS 端主窗口固定 100% 页面比例，不提供客户端页内缩放控件（含菜单项与快捷键）；窗口尺寸调整、最大化/还原、最小化、全屏与系统辅助功能不受影响。
 
-**内置浏览器**：独立原生窗口，带后退/前进/刷新、地址栏、标签页、下载、页内查找；应用自有隔离会话。应用内链接默认在此打开，可在设置改回系统浏览器。
-
-**外跳**：支付、第三方 OAuth、营销页等需要独立浏览器窗口的流程交给系统浏览器。
+**外链与登录**：普通外链、支付、第三方 OAuth、营销页等交给系统浏览器；已有有效浏览器登录可复用，经授权交接，不读取或复制 Cookie。
 
 **范围外**：多窗口会话（Phase 3 可选）、内置终端、纯离线会话。
 
@@ -182,17 +181,16 @@
 
 ## 8. 浏览器
 
-三种浏览器面并存，不互相替代：
+本期 Browser Use 只有两种面，内置浏览器不在范围（P2-05 至 P2-07 尚未完成并已暂缓；范围与重新评估条件见[方案 §5.11](../research/linksense-desktop-dual-mode-plan-2026-11-16.md#511-内置浏览器暂缓)）：
 
 | 面 | 用途 | 登录态 | Agent 自动化 |
 | --- | --- | --- | --- |
-| 内置浏览器 | 应用内打开链接、隔离浏览、不动用户主浏览器 | 应用自有隔离会话 | DOM/JS，坐标兜底 |
 | 用户真实浏览器（扩展） | 登录态、复杂站点、上传/验证码 | 用户 Chrome/Edge | 现有 `browser_use` |
-| 云模式 | 容器内执行 | 容器内 | headless Chromium + 现有 panel |
+| 云模式 | 容器内执行 | 容器内 | headless Chromium + 现有 `BrowserPanel` |
 
 - **扩展**：沿用 Chrome/Edge MV3（配对 `/api/v1/browser-use/pair`、`/socket`；tab 级授权、虚拟指针、截图浮窗、站点信任与撤销）。桌面不打包 Chromium；webview UA 不是 Chrome/Edge，桌面内改用专用引导：打开系统浏览器 → 登录同一账号 → 扩展自动连接。本地执行链路为 `browser_use` → 本地 runner → 设备桥受限请求 → API → 扩展 WSS；扩展授权仍在 API/扩展侧。
-- **内置浏览器**：独立原生窗口（mygo `Window.NewWebView`），标签/下载/查找/隔离会话。Agent 沿用 `browser_*` 语义，按 `browserTarget=builtin|extension` 路由，默认扩展；DOM 快照与 ref 由注入脚本提供，JS 失败时回落到坐标点击。第三方页 `Untrusted`，不能调用 Go；禁止 `file://`，下载需确认，生产禁用 DevTools。
-- **限制**：不是 Chromium/CDP——没有跨域 iframe、文件上传自动化、网络拦截；复杂 SPA 与反爬站点成功率低于扩展。遇到时明确报错并建议改用扩展。
+- **云端**：沿用现有 Docker Runner 的 headless Chromium 与 `BrowserPanel`；不新增浏览器引擎、不迁移链接。
+- **限制**：本地 Browser Use 依赖用户安装扩展；未连接时明确提示，不影响云模式。
 
 ## 9. 应用内更新
 
@@ -222,7 +220,7 @@ mygo 内置：签名 manifest、bsdiff 增量、失败回退整包、stable/beta
 | Phase 0 | 壳、系统浏览器登录、独立本地运行时、云模式和配对/WS 骨架 |
 | M1 | 设备凭据与通道、受限工具与文件链路、原生审批、安装与更新 |
 | M1b | GUI 引擎、桌面租约、macOS 权限引导、暂停/停止和审计 |
-| Phase 2 | 云模式回归、内置浏览器、Agent 适配与安全交接 |
+| Phase 2 | 云模式回归（P2-01–04） |
 
 各阶段完成后先审查，再跑白盒、修复和复测，通过后提交。通道门槛与详细依赖见[任务拆解](./linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#7-macos-实施顺序)。
 
@@ -245,7 +243,6 @@ Phase 3（后续）：多设备、配额/usage、审计导出、GA 加固；Linu
 | 更新 | 安装/重启与进行中回合互斥；重启后按中断处理，不续跑 |
 | 本地工作区 | 保留 14 天/总量上限；清理不影响已上传工件；重开后提示已清理 |
 | 协议兼容 | 上一版安装包连当前 API 可登录、可开会话、升级提示可达 |
-| 内置浏览器 | 导航/标签/下载/查找；DOM 点击/输入/等待；会话隔离；`file://` 拦截；双平台 |
 | 验收 | M1：本地与云都能完成"读文件 + 改文件 + 执行命令 + 浏览器任务"；M1b：本地额外完成 GUI 操作 |
 
 ## 12. 外部参考的取舍
@@ -266,7 +263,6 @@ UI 只借交互模型，视觉按 A/C 重做。
 - **崩溃/断线**：界面状态不可重建，回合标 `interrupted`，不重放已投递动作；`UNCERTAIN` 命令不自动重发。
 - **macOS TCC 由用户授权**：拖拽引导不替用户打开开关；引擎在执行前重新校验权限。
 - **`agent-desktop` 升级**：采用最新版（当前 1.3.1），Phase 0 做 AX/UIA 回归并记录 sha256；许可证随包。
-- **内置浏览器无 CDP**：复杂站点成功率低于扩展；默认仍用扩展，失败时回落到扩展或坐标点击。
 - **WKWebView / WebView2 差异**：UA、下载、媒体、权限行为不一致，需双平台回归，能力差异返回稳定 code。
 - **Windows UIA 差异**：提权窗口、DPI、多显示器需白盒回归（P1-18/19b/20b）；M1 安装/沙箱/升级由 P1-19a/20a 独立验收。
 - **设备通道不确定性**：命令用 `commandId` + 短 TTL；不确定结果不重发，UI 显式提示。

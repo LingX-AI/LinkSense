@@ -1,6 +1,6 @@
 # LinkSense 桌面端双模式任务拆解
 
-日期：2026-11-16，2026-11-18 修订。依据：[桌面端双模式方案 v2](../research/linksense-desktop-dual-mode-plan-2026-11-16.md)。
+日期：2026-11-16，2026-11-24 修订。依据：[桌面端双模式方案 v2](../research/linksense-desktop-dual-mode-plan-2026-11-16.md)。
 
 > 2026-11-17 修订：壳改为 Go + mygo；按"完整桌面客户端"重排任务，新增主窗口 webview、桌面宿主适配层、本地 runner supervisor；computer use 按已有初稿扩展而非重写。
 >
@@ -9,6 +9,8 @@
 > 2026-11-17 复审补齐：设备通道以真实 Codex 回合验收（P1-01/24/02/03/04 后的通道门槛），回显桩不算通过；更新与进行中回合互斥（P1-22）；本地工作区保留期与清理（P0-07、P1-10）。均为既有任务内的验收补充，不改动估时。
 >
 > 2026-11-18：本轮仅推进 macOS 的 Phase 0、M1、M1b 与 Phase 2。Windows 专属任务及跨平台项中的 Windows 验收留待后续。
+>
+> 2026-11-24 范围调整：macOS 本期不含内置浏览器；P2-05 至 P2-07（未完成）暂缓，已移出活动行、依赖图与阶段出口。
 
 范围与前提：
 
@@ -18,6 +20,7 @@
 - 仓库形态：当前 monorepo；`apps/desktop` 是 **Go module**（不进 pnpm workspace，由 `scripts/desktop.mjs` 构建）；桌面契约放 `packages/shared`；不建 `apps/desktop-helper`（引擎与应用同进程）。
 - 本地电脑 **macOS + Windows**；云电脑 **只复用现有 Linux Docker runner**；不做 Windows 云电脑/VM、Linux 客户端、WebRTC/PIP 可视化云桌面、混合模式。
 - 本地 computer use 使用 **`agent-desktop`（vercel-labs，Apache-2.0）**。
+- 浏览器边界：主窗口 WebView 承载 LinkSense UI；普通外链与 OAuth/登录走系统浏览器（经授权交接复用已有登录，不读取或复制 Cookie）；本地 Browser Use 用现有 Chrome/Edge 扩展，云用现有 Docker Runner Chromium 与同一 `BrowserPanel`；本期不含内置浏览器，不新增浏览器引擎、不迁移链接。
 - 估时为**理想开发日**，按 1 名熟悉仓库的工程师计；并行安排见 §7。
 
 ---
@@ -66,7 +69,6 @@ flowchart LR
     WS6 --> GuiChecks["macOS GUI 增量验收<br/>P1-13b,14b,16b"]
     GuiChecks --> M1b["macOS M1b 发布"]
     WS7 --> WS10["WS10 云模式回归<br/>P2-01..04"]
-    WS6 --> Browser["内置浏览器<br/>P2-05..07"]
 ```
 
 macOS M1 主要依赖链：Phase 0 出口 → P1-01 → P1-24 → P1-02/03/04 → P1-29 → P1-25 → P1-10 → P1-12 → P1-22 → P1-13a/14a → P1-16a。审批（P1-07）和协议兼容（P1-27）也必须在产品 UI 验收前完成。
@@ -173,7 +175,7 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 
 ---
 
-## 5. Phase 2：云模式与内置浏览器（约 18 人日）
+## 5. Phase 2：云模式回归
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
@@ -181,11 +183,10 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 | P2-02 | 桌面端云模式对齐 | `apps/desktop` + `apps/web` | P2-01 | 会话/SSE/工件/浏览器面板与 Web 一致；断线重连；worker 回收 | 2 |
 | P2-03 | 云模式回归 | 测试（用户部署后） | P2-02 | `e14f12c2` 的 103 项定向 Runner 单测已通过（含 Docker provider）；P2-02 的 Mac 夹具回归见下方记录。真实 Docker 验收待做：到此阶段时提醒用户将最新适用的 LinkSense 服务部署到 `linksense-dev-server` 并确认所部署的版本；确认后用现有 Docker runner 验证 Shell 实际执行并返回输出、Browser Use 操作云端浏览器、重开同一任务后仍可读取已保存的输出和工件、停止运行中的回合并观察 worker 按现有空闲策略回收。受影响包仍需跑 `pnpm test`；无 Windows 依赖 | 2 |
 | P2-04 | 功能开关/灰度 | API + UI | P2-03 | `desktop.localComputer`、`desktop.cloudTarget` 开关；不可用提示；遥测 | 1.5 |
-| P2-05 | 内置浏览器窗口（Go） | `apps/desktop/browser.go`：原生窗口 + webview、工具条/标签/下载/页内查找、`NewSession` 隔离 | P0-08 | 多标签/前进后退/刷新/下载确认/查找；独立 cookie；外部协议交系统；macOS/Windows | 4 |
-| P2-06 | 内置浏览器 Agent 适配 | `assets/browser-agent.js`（DOM 快照/ref/点击/输入/等待）+ loopback RPC + `browserTarget` 路由 | P1-06/23、P2-05 | navigate/read/click/type/scroll/screenshot/wait；稳定 ref；JS 失败回落坐标点击；不支持项稳定错误码 | 5 |
-| P2-07 | 内置浏览器安全与交接 | 隔离会话、下载/外链策略、登录/验证码交接、审计 | P2-05/06 | 第三方页 `Untrusted`；`file://` 拦截；下载确认；登录交给用户；审计不含正文/键入 | 2 |
 
-**Phase 2 出口标准**：M1 双目标与桌面/Web 行为一致性回归通过；云模式完全复用现有 Docker runner，无新增云桌面基础设施；内置浏览器可独立使用并接受 Agent 操作，扩展仍是默认浏览器。
+**暂缓**：P2-05 至 P2-07（内置浏览器窗口、Agent 适配、安全与交接）尚未完成，移出活动工作、依赖与出口；确认具体需求后第一步仅评估最小 MyGo 原型，范围与重新评估条件见[方案 §5.11](../research/linksense-desktop-dual-mode-plan-2026-11-16.md#511-内置浏览器暂缓)。
+
+**Phase 2 出口标准**：M1 双目标与桌面/Web 行为一致性回归通过；云模式完全复用现有 Docker runner，无新增云桌面基础设施；云端 Browser Use 继续使用现有 `BrowserPanel`。
 
 ---
 
@@ -202,7 +203,6 @@ Windows 专属任务 P1-17/18/19a/19b/20a/20b 不属于本轮前置。进入 Win
 | Browser Use | 扩展状态、配对引导、工具路由 | 现有 Web/API 测试 + 桌面冒烟 | 未安装、未连接、撤销、跨任务 tab、重连 |
 | 更新 | 签名、manifest、delta、回退、渠道 | 打包冒烟 + 本地 HTTPS 源 | 篡改签名、降级、断网、delta 失败回退整包 |
 | 产品 UI | Web UI（浏览器 + webview） | 现有 Web E2E + 桌面冒烟 | 登录、会话、工件、浏览器面板、目标选择、权限卡片 |
-| 内置浏览器 | 导航、DOM 操作、下载、隔离会话 | Go 测试 + 桌面冒烟 + 双平台 | 标签/前进后退/下载/查找；点击/输入/等待；`file://` 拦截；会话隔离 |
 | 云模式 | Docker runner 回归 | 现有 runner 测试 + 冒烟 | 文件/Shell/浏览器/SSE/回收 |
 | 安全 | 设备/命令/权限/路径 | 专用测试 | 伪造、重放、越权、路径遍历、日志脱敏 |
 | 凭据边界 | 严格设备契约、用途代理 token、事件回传 | API Vitest + 抓包/进程检查 | 正常/记忆提取/模型切换均无真实供应商密钥及内部 secret；未知/嵌套字段拒绝；过期/撤销/跨会话拒绝；云契约回归 |
@@ -232,7 +232,7 @@ Definition of Done（每个任务）：
 | M1 通道 | P1-01 → P1-24 → P1-02/03/04 | 真实 Codex 回合走设备通道，平台密钥不离开服务端 |
 | M1 产品 | P1-07/27/29 → P1-25/21/10 → P1-12/22 → P1-13a/14a/15/16a | 文件、审批、连接器、签名安装与更新贯通 |
 | M1b | P1-05/06/08/11/23/26/28 → P1-13b/14b/16b | GUI 工具、按需系统权限、暂停/停止与审计 |
-| Phase 2 | P2-01..07 | 回归云模式；内置浏览器隔离、导航、下载与交接 |
+| Phase 2 | P2-01..04 | 回归云模式与 `BrowserPanel`；内置浏览器不在本期范围 |
 
 ---
 
