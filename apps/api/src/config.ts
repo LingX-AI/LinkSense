@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 
+import { DEFAULT_WORKER_READY_TIMEOUT_SECONDS } from "@linksense/shared";
 import { z } from "zod";
 
 import { containsControlCharacter } from "./lib/text.js";
@@ -373,6 +374,7 @@ const rawConfigSchema = z
       .refine(isAbsolute, "user_data_root_must_be_absolute"),
     LINKSENSE_RUNNER_URL: z.url(),
     LINKSENSE_RUNNER_SHARED_SECRET: z.string().min(32),
+    LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: positiveInteger(DEFAULT_WORKER_READY_TIMEOUT_SECONDS),
     LINKSENSE_TRUST_PROXY: z.enum(["true", "false"]).default("false"),
     LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: z
       .enum(["true", "false"])
@@ -587,6 +589,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     capabilityRoot: join(userDataRoot, ".capabilities"),
     runnerUrl: raw.LINKSENSE_RUNNER_URL,
     runnerSharedSecret: raw.LINKSENSE_RUNNER_SHARED_SECRET,
+    runnerWorkerReadyTimeoutSeconds: raw.LINKSENSE_WORKER_READY_TIMEOUT_SECONDS,
     trustProxy: raw.LINKSENSE_TRUST_PROXY === "true",
     safeHttp: {
       allowBenchmarkProxyAddresses:

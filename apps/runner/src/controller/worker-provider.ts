@@ -1,3 +1,5 @@
+import type { WorkerRequestTrace } from "./worker-lifecycle.js"
+
 export type WorkerProviderKind = "docker" | "local-process"
 
 export type WorkerProviderCapabilities = {
@@ -42,6 +44,7 @@ export type WorkerAcquireInput = {
   storageKey: string
   name: string
   probe: boolean
+  trace?: WorkerRequestTrace
 }
 
 /**
@@ -58,7 +61,7 @@ export interface WorkerProvider {
   prepareOwnerFilesystem(paths: WorkerOwnerPaths): Promise<void>
   acquire(input: WorkerAcquireInput): Promise<WorkerInstance>
   resume(worker: WorkerInstance): Promise<WorkerInstance>
-  inspect(worker: WorkerInstance): Promise<WorkerInstanceState>
+  inspect(worker: WorkerInstance, signal?: AbortSignal): Promise<WorkerInstanceState>
   release(worker: WorkerInstance): Promise<void>
   hasWorkerForEnvironment(ownerId: string, serviceSessionId?: string): Promise<boolean>
   healthDetails(

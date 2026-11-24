@@ -181,7 +181,7 @@ export async function buildApi(
     bodyLimit: maximumMultipartFileSize + 1024 * 1024,
   });
 
-  app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
+  app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done, { requestId: request.id }); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
   registerClientBuildGuard(app, buildId);

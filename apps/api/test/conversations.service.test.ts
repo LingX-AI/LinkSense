@@ -6804,6 +6804,7 @@ describe("ConversationService pending and turn materialization", () => {
       turn_id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
     });
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.redis.acquireConversationLock).toHaveBeenCalledWith(CONVERSATION_ID, 390_000);
     expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     expect(
       fixture.runner.acceptStartTurn.mock.calls[0]?.[0].context,

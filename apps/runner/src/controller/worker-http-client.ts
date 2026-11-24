@@ -1,3 +1,5 @@
+import { WORKER_HTTP_REQUEST_TIMEOUT_MS } from "@linksense/shared"
+
 export type WorkerHttpResponse = {
   statusCode: number
   headers: Record<string, string>
@@ -16,7 +18,7 @@ export interface WorkerTransport {
 }
 
 export class FetchWorkerTransport implements WorkerTransport {
-  constructor(private readonly timeoutMs = 60_000) {}
+  constructor(private readonly timeoutMs = WORKER_HTTP_REQUEST_TIMEOUT_MS) {}
 
   async request(
     baseUrl: string,

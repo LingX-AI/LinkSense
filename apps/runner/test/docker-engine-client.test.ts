@@ -3,8 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { parseRunnerConfig } from "../src/config.js"
+import { buildWorkerContainerSpec } from "../src/controller/docker-worker-provider.js"
 import {
   DockerEngineClient,
   DockerEngineError,
@@ -19,6 +21,109 @@ afterEach(async () => {
 })
 
 describe("Docker Engine client", () => {
+  it("inspects the exact container name and recognizes a concurrent start", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-docker-recovery-"))
+    roots.push(root)
+    const socket = path.join(root, "docker.sock")
+    const paths: string[] = []
+    const server = createServer((request, response) => {
+      const requestPath = request.url ?? ""
+      paths.push(requestPath)
+      if (requestPath.endsWith("/container-id/start")) {
+        response.writeHead(304)
+        response.end()
+      } else if (requestPath.endsWith("/worker-name/json")) {
+        response.end(JSON.stringify({
+          Id: "container-id",
+          Name: "/worker-name",
+          Config: { Image: "other-image", User: "", Env: [], Labels: null },
+          HostConfig: { Init: null },
+          State: { Running: false, Status: "created" },
+        }))
+      } else {
+        response.writeHead(404)
+        response.end()
+      }
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socket, resolve)
+    })
+    try {
+      const client = new DockerEngineClient(socket, "v1.45")
+      await expect(client.inspectContainerByName("worker-name")).resolves.toMatchObject({
+        Id: "container-id",
+        Name: "/worker-name",
+        Config: { Labels: null },
+        HostConfig: null,
+        State: { Status: "created" },
+      })
+      await expect(client.inspectContainerByName("missing-worker")).resolves.toBeNull()
+      await expect(client.startContainer("container-id")).resolves.toBe(304)
+      expect(paths).toEqual([
+        "/v1.45/containers/worker-name/json",
+        "/v1.45/containers/missing-worker/json",
+        "/v1.45/containers/container-id/start",
+      ])
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it("gives container creation 120 seconds and leaves start on the 15-second deadline", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-docker-timeouts-"))
+    roots.push(root)
+    const socket = path.join(root, "docker.sock")
+    let resolveReceived!: (received: void) => void
+    const requestsReceived = new Promise<void>((resolve) => { resolveReceived = resolve })
+    let received = 0
+    const server = createServer((request, response) => {
+      request.resume()
+      if (request.url?.endsWith("/containers/create?name=slow-worker")) {
+        setTimeout(() => {
+          response.writeHead(201)
+          response.end(JSON.stringify({ Id: "slow-created-container" }))
+        }, 110_000)
+      }
+      if (++received === 3) resolveReceived()
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socket, resolve)
+    })
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      const client = new DockerEngineClient(socket, "v1.45")
+      const spec = buildWorkerContainerSpec(parseRunnerConfig({
+        LINKSENSE_RUNNER_MODE: "controller",
+        LINKSENSE_RUNNER_SHARED_SECRET: "test-runner-secret-00000000000000",
+        LINKSENSE_API_INTERNAL_URL: "http://api:4000",
+        LINKSENSE_USER_DATA_ROOT: root,
+      }), "01900000-0000-7000-8000-000000000001", "fixture")
+      const creation = client.createContainer("slow-worker", spec)
+      void creation.catch(() => undefined)
+      const stalledCreation = client.createContainer("stalled-worker", spec)
+      const rejected = vi.fn()
+      void stalledCreation.catch(rejected)
+      const start = expect(client.startContainer("pending-container")).rejects.toMatchObject({ kind: "timeout" })
+      void start.catch(() => undefined)
+      await requestsReceived
+      await vi.advanceTimersByTimeAsync(15_000)
+      await start
+      await vi.advanceTimersByTimeAsync(95_000)
+      await expect(creation).resolves.toEqual({ id: "slow-created-container", statusCode: 201 })
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(rejected).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(stalledCreation).rejects.toMatchObject({ kind: "timeout" })
+    } finally {
+      vi.useRealTimers()
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
   it("cancels a long disk scan and removes its probe before shutdown completes", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-disk-cancel-"))
     roots.push(root)
@@ -314,7 +419,7 @@ describe("Docker Engine client", () => {
     try {
       const client = new DockerEngineClient(socket, "v1.45", 200)
       await expect(client.inspectContainerRunning("test-container"))
-        .rejects.toThrow("Docker Engine response failed")
+        .rejects.toMatchObject({ message: "Docker Engine response failed", kind: "connection", statusCode: 200 })
       await expect(client.inspectContainerRunning("test-container")).resolves.toBe(true)
     } finally {
       server.closeAllConnections()

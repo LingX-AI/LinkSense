@@ -1,5 +1,21 @@
 import { z } from "zod";
 
+export const DOCKER_WORKER_CREATE_TIMEOUT_MS = 120_000;
+export const DOCKER_ENGINE_REQUEST_TIMEOUT_MS = 15_000;
+export const WORKER_HTTP_REQUEST_TIMEOUT_MS = 60_000;
+export const DEFAULT_WORKER_READY_TIMEOUT_SECONDS = 60;
+export const WORKER_CREATE_RECOVERY_WINDOW_MS = 10_000;
+export const runnerRequestIdHeader = "x-linksense-request-id";
+
+export function workerColdStartTimeoutMs(
+  readyTimeoutSeconds: number,
+  workerRequestTimeoutMs = WORKER_HTTP_REQUEST_TIMEOUT_MS,
+): number {
+  // Reserve part of the margin for Docker to make an ambiguous creation visible.
+  return DOCKER_WORKER_CREATE_TIMEOUT_MS + DOCKER_ENGINE_REQUEST_TIMEOUT_MS
+    + readyTimeoutSeconds * 1_000 + workerRequestTimeoutMs + 15_000;
+}
+
 /** Wake business projection after the native result is durably recorded. */
 export const runnerStartSettledSchema = z.strictObject({
   conversationId: z.uuid(),
