@@ -59,7 +59,8 @@
     "test:runtime:projects:postgres": "pnpm --filter @linksense/api exec tsx test/integration/user-project-runtime-postgres.ts",
     "test:interactive-files:postgres": "pnpm --filter @linksense/api exec tsx test/integration/interactive-files-postgres.ts",
     "test:image-previews:postgres": "pnpm --filter @linksense/api exec tsx test/integration/image-previews-postgres.ts",
-    "test:development-instructions:postgres": "pnpm --filter @linksense/api exec tsx test/integration/development-turn-instructions-postgres.ts"
+    "test:development-instructions:postgres": "pnpm --filter @linksense/api exec tsx test/integration/development-turn-instructions-postgres.ts",
+    "test:embed:first-login:postgres": "pnpm --filter @linksense/api exec tsx test/integration/application-embed-first-login-postgres.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",

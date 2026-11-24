@@ -747,12 +747,12 @@ export function createServices(input: {
     input.config.publicBaseUrl,
     input.config.credentialMasterKey,
     input.config.credentialKeyId,
-    (ownerId, application, conversationId) =>
+    (ownerId, application, conversationId, finalizeInitialization) =>
       conversations.createExternalApplicationConversation(ownerId, {
         ...application,
         kind: "standard",
         interactivePackageId: null,
-      }, conversationId),
+      }, conversationId, finalizeInitialization),
     (ownerId, conversationId, context = {}, deletionReason = "creation-failed") =>
       conversations.delete(ownerId, conversationId, context, deletionReason),
     (conversationId) => conversationTitles.schedule(conversationId),
