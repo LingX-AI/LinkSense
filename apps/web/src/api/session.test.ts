@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  captureAccessSessionGuard,
   getAccessToken,
   getStoredAccessSession,
   hasUsableAccessToken,
+  readAccessTokenIdentity,
   restoreAccessTokenFromStorage,
   setAccessToken,
   subscribeToAccessToken,
@@ -11,8 +13,9 @@ import {
 
 const STORAGE_KEY = "linksense.auth.access-session"
 const NOW = new Date("2026-07-13T08:00:00.000Z")
+const USER_ID = "a58c4172-38cb-4f22-9ca4-520c5730672a"
 
-function createJwt(expiresAt: Date) {
+function createJwt(expiresAt: Date, claims: Record<string, unknown> = {}) {
   const header = btoa(JSON.stringify({ alg: "none", typ: "JWT" }))
     .replace(/=/g, "")
     .replace(/\+/g, "-")
@@ -21,6 +24,7 @@ function createJwt(expiresAt: Date) {
     JSON.stringify({
       sub: "user-id",
       exp: Math.floor(expiresAt.getTime() / 1000),
+      ...claims,
     })
   )
     .replace(/=/g, "")
@@ -29,14 +33,45 @@ function createJwt(expiresAt: Date) {
   return `${header}.${payload}.signature`
 }
 
-function dispatchStorageChange(newValue: string | null) {
-  const event = new Event("storage")
-  Object.defineProperties(event, {
-    key: { value: STORAGE_KEY },
-    newValue: { value: newValue },
-  })
+function dispatchStorageChange(
+  newValue: string | null,
+  storageArea = window.localStorage
+) {
+  const event = new StorageEvent("storage", { key: STORAGE_KEY, newValue })
+  Object.defineProperty(event, "storageArea", { value: storageArea })
   window.dispatchEvent(event)
 }
+
+describe("access token identity hint", () => {
+  const expiresAt = new Date(NOW.getTime() + 60_000)
+
+  it.each(["admin", "user"])(
+    "reads a UUID and %s role from the claims",
+    (role) => {
+      const token = createJwt(expiresAt, { sub: USER_ID, role })
+
+      expect(readAccessTokenIdentity(token)).toEqual({ id: USER_ID, role })
+    }
+  )
+
+  it.each([
+    ["no token", null],
+    ["an opaque token", "opaque-access-token"],
+    ["a malformed payload", "header.invalid-base64url.signature"],
+    [
+      "a malformed token",
+      `${createJwt(expiresAt, { sub: USER_ID, role: "user" })}.extra`,
+    ],
+    ["a missing role", createJwt(expiresAt, { sub: USER_ID })],
+    ["an unknown role", createJwt(expiresAt, { sub: USER_ID, role: "owner" })],
+    [
+      "an invalid subject",
+      createJwt(expiresAt, { sub: "not-a-uuid", role: "user" }),
+    ],
+  ])("does not use %s to identify the account", (_label, token) => {
+    expect(readAccessTokenIdentity(token)).toBeNull()
+  })
+})
 
 describe("access token session storage", () => {
   beforeEach(() => {
@@ -167,6 +202,78 @@ describe("access token session storage", () => {
     unsubscribe()
   })
 
+  it("uses the current stored session when an older update arrives late", () => {
+    const expiresAt = NOW.getTime() + 60_000
+    const listener = vi.fn()
+    const unsubscribe = subscribeToAccessToken(listener)
+    const latestSession = JSON.stringify({
+      access_token: "latest-tab-token",
+      expires_at: expiresAt,
+    })
+    window.localStorage.setItem(STORAGE_KEY, latestSession)
+
+    try {
+      dispatchStorageChange(
+        JSON.stringify({
+          access_token: "older-tab-token",
+          expires_at: expiresAt,
+        })
+      )
+      dispatchStorageChange("older-invalid-session")
+
+      expect(getAccessToken()).toBe("latest-tab-token")
+      expect(window.localStorage.getItem(STORAGE_KEY)).toBe(latestSession)
+      expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it.each(["expiry timer", "access token read", "late removal event"])(
+    "preserves a newer stored session during %s",
+    (trigger) => {
+      setAccessToken("short-lived-token", NOW.getTime() + 1_000)
+      const listener = vi.fn()
+      const unsubscribe = subscribeToAccessToken(listener)
+      const latestSession = JSON.stringify({
+        access_token: "latest-tab-token",
+        expires_at: NOW.getTime() + 60_000,
+      })
+      window.localStorage.setItem(STORAGE_KEY, latestSession)
+
+      try {
+        if (trigger === "expiry timer") {
+          vi.advanceTimersByTime(1_000)
+        } else {
+          vi.setSystemTime(NOW.getTime() + 1_000)
+          if (trigger === "late removal event") dispatchStorageChange(null)
+        }
+
+        if (trigger !== "access token read") {
+          expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+        }
+        expect(getAccessToken()).toBe("latest-tab-token")
+        expect(window.localStorage.getItem(STORAGE_KEY)).toBe(latestSession)
+        expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+      } finally {
+        unsubscribe()
+      }
+    }
+  )
+
+  it("ignores storage events from sessionStorage", () => {
+    const expiresAt = NOW.getTime() + 60_000
+    const foreignSession = JSON.stringify({
+      access_token: "foreign-token",
+      expires_at: expiresAt,
+    })
+    setAccessToken("active-token", expiresAt)
+
+    dispatchStorageChange(foreignSession, window.sessionStorage)
+
+    expect(getAccessToken()).toBe("active-token")
+  })
+
   it("does not throw when localStorage is unavailable", () => {
     const getItem = vi
       .spyOn(window.localStorage, "getItem")
@@ -188,4 +295,31 @@ describe("access token session storage", () => {
     getItem.mockRestore()
     setItem.mockRestore()
   })
+
+  it.each([false, true])(
+    "keeps a memory-only session when storage writes fail (previous session: %s)",
+    (hadPreviousSession) => {
+      if (hadPreviousSession) setAccessToken("previous-token")
+      const setItem = vi
+        .spyOn(window.localStorage, "setItem")
+        .mockImplementation(() => {
+          throw new DOMException("storage full", "QuotaExceededError")
+        })
+      setAccessToken("memory-only-token")
+      const isCurrent = captureAccessSessionGuard()
+
+      expect(isCurrent()).toBe(true)
+      expect(restoreAccessTokenFromStorage()).toBe("memory-only-token")
+
+      setItem.mockRestore()
+      const nextValue = JSON.stringify({
+        access_token: "another-tab-token",
+        expires_at: NOW.getTime() + 60_000,
+      })
+      window.localStorage.setItem(STORAGE_KEY, nextValue)
+      expect(isCurrent()).toBe(false)
+      dispatchStorageChange(nextValue)
+      expect(getAccessToken()).toBe("another-tab-token")
+    }
+  )
 })

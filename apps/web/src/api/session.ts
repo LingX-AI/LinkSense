@@ -1,6 +1,14 @@
+import {
+  accessTokenClaimsSchema,
+  type AccessTokenClaims,
+} from "@linksense/shared"
+
 const ACCESS_SESSION_STORAGE_KEY = "linksense.auth.access-session"
 const DEFAULT_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const MAX_TIMEOUT_MS = 2_147_483_647
+const accessTokenIdentitySchema = accessTokenClaimsSchema
+  .pick({ sub: true, role: true })
+  .strip()
 
 export type StoredAccessSession = {
   accessToken: string
@@ -21,6 +29,9 @@ type StorageReadResult =
 let accessToken: string | null = null
 let accessTokenExpiresAt: number | null = null
 let expirationTimer: ReturnType<typeof setTimeout> | null = null
+let sessionRevision = 0
+let signOutRevision = 0
+let failedWriteBackingValue: string | null | undefined
 
 const listeners = new Set<SessionListener>()
 
@@ -38,6 +49,14 @@ function removeStoredAccessSession() {
     getLocalStorage()?.removeItem(ACCESS_SESSION_STORAGE_KEY)
   } catch {
     // The in-memory session remains usable when storage is unavailable.
+  }
+}
+
+function readStoredValue(storage: Storage | null) {
+  try {
+    return storage?.getItem(ACCESS_SESSION_STORAGE_KEY)
+  } catch {
+    return undefined
   }
 }
 
@@ -75,39 +94,43 @@ function parsePersistedAccessSession(
   }
 }
 
-function readStoredAccessSession(): StorageReadResult {
-  const storage = getLocalStorage()
-  if (!storage) return { status: "unavailable" }
-
-  let storedValue: string | null
-  try {
-    storedValue = storage.getItem(ACCESS_SESSION_STORAGE_KEY)
-  } catch {
+function readStoredAccessSession(removeInvalid = true): StorageReadResult {
+  const storedValue = readStoredValue(getLocalStorage())
+  if (storedValue === undefined || storedValue === failedWriteBackingValue) {
     return { status: "unavailable" }
   }
+  failedWriteBackingValue = undefined
 
   if (storedValue === null) return { status: "empty" }
 
   const session = parsePersistedAccessSession(storedValue)
   if (session) return { status: "valid", session }
 
-  removeStoredAccessSession()
+  if (removeInvalid) removeStoredAccessSession()
   return { status: "empty" }
 }
 
-function persistAccessSession(session: StoredAccessSession) {
-  const persistedSession: PersistedAccessSession = {
-    access_token: session.accessToken,
-    expires_at: session.expiresAt,
-  }
+function persistAccessSession(session: StoredAccessSession | null) {
+  const storage = getLocalStorage()
+  if (!storage) return
+  const previousValue = readStoredValue(storage)
 
   try {
-    getLocalStorage()?.setItem(
-      ACCESS_SESSION_STORAGE_KEY,
-      JSON.stringify(persistedSession)
-    )
+    if (session) {
+      const persistedSession: PersistedAccessSession = {
+        access_token: session.accessToken,
+        expires_at: session.expiresAt,
+      }
+      storage.setItem(
+        ACCESS_SESSION_STORAGE_KEY,
+        JSON.stringify(persistedSession)
+      )
+    } else {
+      storage.removeItem(ACCESS_SESSION_STORAGE_KEY)
+    }
+    failedWriteBackingValue = undefined
   } catch {
-    // Keep the token in memory when storage is blocked or full.
+    failedWriteBackingValue = previousValue
   }
 }
 
@@ -124,25 +147,24 @@ function clearExpirationTimer() {
   }
 }
 
+function hasExpired() {
+  return accessTokenExpiresAt !== null && accessTokenExpiresAt <= Date.now()
+}
+
 function scheduleExpiration() {
   clearExpirationTimer()
   if (!accessToken || accessTokenExpiresAt === null) return
 
   const delay = accessTokenExpiresAt - Date.now()
-  if (delay <= 0) {
-    updateAccessSession(null, null, { persist: true, notify: false })
-    return
-  }
-
   expirationTimer = setTimeout(
     () => {
-      if (accessTokenExpiresAt !== null && accessTokenExpiresAt <= Date.now()) {
-        updateAccessSession(null, null, { persist: true, notify: false })
+      if (hasExpired()) {
+        restoreAccessTokenFromStorage()
         return
       }
       scheduleExpiration()
     },
-    Math.min(delay, MAX_TIMEOUT_MS)
+    Math.max(0, Math.min(delay, MAX_TIMEOUT_MS))
   )
 }
 
@@ -151,22 +173,24 @@ function updateAccessSession(
   expiresAt: number | null,
   options: { persist: boolean; notify: boolean }
 ) {
+  if (options.notify) {
+    if (token !== accessToken || token === null) sessionRevision += 1
+    if (token === null) signOutRevision += 1
+  }
   accessToken = token
   accessTokenExpiresAt = expiresAt
 
   if (options.persist) {
-    if (token && expiresAt !== null) {
-      persistAccessSession({ accessToken: token, expiresAt })
-    } else {
-      removeStoredAccessSession()
-    }
+    persistAccessSession(
+      token && expiresAt !== null ? { accessToken: token, expiresAt } : null
+    )
   }
 
   scheduleExpiration()
   if (options.notify) notifyListeners(token)
 }
 
-function decodeJwtExpiration(token: string) {
+function decodeJwtPayload(token: string): unknown {
   const payloadSegment = token.split(".")[1]
   if (!payloadSegment || typeof atob !== "function") return null
 
@@ -177,21 +201,59 @@ function decodeJwtExpiration(token: string) {
     const bytes = Uint8Array.from(binaryPayload, (character) =>
       character.charCodeAt(0)
     )
-    const jsonPayload = new TextDecoder().decode(bytes)
-    const payload = JSON.parse(jsonPayload) as unknown
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      !("exp" in payload)
-    ) {
-      return null
-    }
-    const expiration = payload.exp
-    return typeof expiration === "number" && Number.isFinite(expiration)
-      ? expiration * 1000
-      : null
+    return JSON.parse(new TextDecoder().decode(bytes))
   } catch {
     return null
+  }
+}
+
+function decodeJwtExpiration(token: string) {
+  const payload = decodeJwtPayload(token)
+  if (typeof payload !== "object" || payload === null || !("exp" in payload)) {
+    return null
+  }
+  return typeof payload.exp === "number" && Number.isFinite(payload.exp)
+    ? payload.exp * 1000
+    : null
+}
+
+export function readAccessTokenIdentity(
+  token: string | null
+): { id: string; role: AccessTokenClaims["role"] } | null {
+  if (!token || !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) return null
+
+  const claims = accessTokenIdentitySchema.safeParse(decodeJwtPayload(token))
+  return claims.success ? { id: claims.data.sub, role: claims.data.role } : null
+}
+
+export function captureAccessSessionGuard(
+  { allowSameAccountRotation = false } = {}
+): () => boolean {
+  const token = accessToken
+  const expiresAt = accessTokenExpiresAt
+  const revision = sessionRevision
+  const signedOut = signOutRevision
+  const previous = allowSameAccountRotation ? readAccessTokenIdentity(token) : null
+
+  const matchesToken = (candidate: string | null) => {
+    if (candidate === token) return true
+    if (candidate === null) {
+      return (accessTokenExpiresAt ?? expiresAt ?? Infinity) <= Date.now()
+    }
+    if (!previous) return false
+    const next = readAccessTokenIdentity(candidate)
+    return previous.id === next?.id && previous.role === next.role
+  }
+
+  return () => {
+    if (signedOut !== signOutRevision) return false
+    if (!allowSameAccountRotation && revision !== sessionRevision) return false
+    if (!matchesToken(accessToken)) return false
+    const stored = readStoredAccessSession(false)
+    return (
+      stored.status === "unavailable" ||
+      matchesToken(stored.status === "valid" ? stored.session.accessToken : null)
+    )
   }
 }
 
@@ -219,19 +281,25 @@ export function getStoredAccessSession(): StoredAccessSession | null {
 
 export function restoreAccessTokenFromStorage() {
   const result = readStoredAccessSession()
-  if (result.status === "unavailable") return getAccessToken()
+  if (result.status === "unavailable") {
+    if (hasExpired()) {
+      updateAccessSession(null, null, { persist: false, notify: false })
+    }
+    return accessToken
+  }
 
   const nextSession = result.status === "valid" ? result.session : null
   const nextToken = nextSession?.accessToken ?? null
   const nextExpiresAt = nextSession?.expiresAt ?? null
-  const changed =
-    accessToken !== nextToken || accessTokenExpiresAt !== nextExpiresAt
+  if (accessToken === nextToken && accessTokenExpiresAt === nextExpiresAt) {
+    return accessToken
+  }
 
   updateAccessSession(nextToken, nextExpiresAt, {
     persist: false,
-    notify: changed,
+    notify: nextSession !== null || !hasExpired(),
   })
-  return nextToken
+  return accessToken
 }
 
 export function hasUsableAccessToken() {
@@ -239,10 +307,7 @@ export function hasUsableAccessToken() {
 }
 
 export function getAccessToken() {
-  if (accessTokenExpiresAt !== null && accessTokenExpiresAt <= Date.now()) {
-    updateAccessSession(null, null, { persist: true, notify: false })
-  }
-  return accessToken
+  return hasExpired() ? restoreAccessTokenFromStorage() : accessToken
 }
 
 export function setAccessToken(
@@ -275,32 +340,7 @@ export function subscribeToAccessToken(listener: SessionListener) {
 
 function handleStorageEvent(event: StorageEvent) {
   if (event.key !== null && event.key !== ACCESS_SESSION_STORAGE_KEY) return
-
-  if (event.key === ACCESS_SESSION_STORAGE_KEY && event.newValue !== null) {
-    const session = parsePersistedAccessSession(event.newValue)
-    if (session) {
-      const changed =
-        accessToken !== session.accessToken ||
-        accessTokenExpiresAt !== session.expiresAt
-      updateAccessSession(session.accessToken, session.expiresAt, {
-        persist: false,
-        notify: changed,
-      })
-      return
-    }
-    removeStoredAccessSession()
-  }
-
-  if (
-    event.key === ACCESS_SESSION_STORAGE_KEY &&
-    event.newValue === null &&
-    accessTokenExpiresAt !== null &&
-    accessTokenExpiresAt <= Date.now()
-  ) {
-    updateAccessSession(null, null, { persist: false, notify: false })
-    return
-  }
-
+  if (event.storageArea !== getLocalStorage()) return
   restoreAccessTokenFromStorage()
 }
 
