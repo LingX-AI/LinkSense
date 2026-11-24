@@ -157,12 +157,12 @@ navigation. Clicking an update notice opens only the update section in
 **Approval reminders** are a separate default-off sub-switch on supported Mac
 builds. The choice is stored for the same server and account as the master
 switch; turning the master off pauses reminders without clearing the choice.
-While LinkSense is hidden, a live local command or file approval head can
-produce one generic “A task is waiting for your approval.” notice. It carries
-no command, path, task title, server, or account detail, and the app never
-shows it while the main window is visible and focused. Clicking only reopens
-the conversation after an exact conversation/request recheck against the
-signed-in server; a resolved, expired, foreign, or unavailable request does
+While LinkSense is in the background, a live local command or file approval
+head can produce one generic “A task is waiting for your approval.” notice.
+It carries no command, path, task title, server, or account detail, and the app
+never shows it while the main window is visible and focused. Clicking only
+reopens the conversation after an exact conversation/request recheck against
+the signed-in server; a resolved, expired, foreign, or unavailable request does
 nothing beyond normal app activation and the click never answers the approval.
 
 The approval snapshot route (`GET /conversations/desktop-approval-notifications`)
