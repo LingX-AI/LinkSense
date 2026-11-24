@@ -82,6 +82,7 @@ export const errorMessages = {
   "EXTERNAL_ACCOUNT_PENDING_APPROVAL": "El inicio de sesión se completó. Tu cuenta se ha creado y espera la aprobación de un administrador. Contacta con un administrador y vuelve a iniciar sesión cuando esté activada.",
   "CAPABILITY_NOT_FOUND": "No se ha encontrado el plugin o Skill.",
   "MCP_SERVER_NOT_FOUND": "No se ha encontrado el servidor MCP.",
+  "MCP_SERVER_IN_USE": "Hay aplicaciones que todavía usan este servidor MCP. Quítalo de esas aplicaciones antes de eliminarlo.",
   "MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED": "HTTP no cifra las credenciales ni los datos de las herramientas. Acepta primero el riesgo.",
   "MCP_CREDENTIAL_REQUIRED": "El método de autenticación seleccionado requiere una credencial.",
   "MCP_DESTINATION_FORBIDDEN": "La dirección MCP no puede apuntar a localhost, una red privada ni un servicio de metadatos de la nube.",

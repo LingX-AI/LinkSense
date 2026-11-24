@@ -382,6 +382,14 @@ export const errorCatalog = {
       "en-US": "The MCP server was not found.",
     },
   },
+  MCP_SERVER_IN_USE: {
+    message_key: "errors.mcp.inUse",
+    http_status: 409,
+    messages: {
+      "zh-CN": "此 MCP 服务器仍有应用在使用。请先在相关应用中解绑，再删除服务器。",
+      "en-US": "Applications still use this MCP server. Remove it from those applications before deleting it.",
+    },
+  },
   MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED: {
     message_key: "errors.mcp.insecureHttpAcknowledgementRequired",
     http_status: 422,

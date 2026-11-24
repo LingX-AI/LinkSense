@@ -82,6 +82,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "EXTERNAL_ACCOUNT_PENDING_APPROVAL": "O acesso foi concluído. Sua conta foi criada e aguarda aprovação do administrador. Entre em contato com um administrador e entre novamente após a ativação.",
   "CAPABILITY_NOT_FOUND": "O plugin ou habilidade não foi encontrado.",
   "MCP_SERVER_NOT_FOUND": "O servidor MCP não foi encontrado.",
+  "MCP_SERVER_IN_USE": "Há aplicativos que ainda usam este servidor MCP. Remova-o desses aplicativos antes de excluí-lo.",
   "MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED": "HTTP não criptografa credenciais nem dados de ferramentas. Reconheça o risco primeiro.",
   "MCP_CREDENTIAL_REQUIRED": "O método de autenticação selecionado exige uma credencial.",
   "MCP_DESTINATION_FORBIDDEN": "O endereço MCP não pode apontar para localhost, uma rede privada ou um serviço de metadados da nuvem.",

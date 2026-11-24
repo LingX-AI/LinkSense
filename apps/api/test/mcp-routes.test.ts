@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localizedErrorMessage, supportedLocales } from "@linksense/shared";
 
+import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import type { McpServerRoutesOptions } from "../src/modules/mcp/routes.js";
 import { mcpServerRoutes } from "../src/modules/mcp/routes.js";
@@ -109,6 +111,33 @@ describe("MCP server routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.delete).not.toHaveBeenCalled();
+  });
+
+  it.each([...supportedLocales, "de-DE"] as const)("returns a localized conflict and the blocking applications for %s", async (locale) => {
+    const service = fakeService();
+    const usages = [{
+      application_id: "30000000-0000-4000-8000-000000000001",
+      name: "Reports",
+      kind: "interactive",
+      locations: ["draft", "center"],
+    }];
+    service.delete.mockRejectedValueOnce(new AppError("MCP_SERVER_IN_USE", { usages }));
+    const app = await createApp(service);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/mcp-servers/${SERVER_ID}`,
+      headers: { "accept-language": locale },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "MCP_SERVER_IN_USE",
+      message_key: "errors.mcp.inUse",
+      message: localizedErrorMessage("MCP_SERVER_IN_USE", locale === "de-DE" ? "zh-CN" : locale),
+      params: { usages },
+    });
   });
 
   it("accepts Codex JSON imports without echoing embedded env values", async () => {

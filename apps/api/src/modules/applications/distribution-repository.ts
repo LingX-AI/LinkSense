@@ -2,10 +2,22 @@ import { publishedApplicationDefinitionSchema } from "./published-definition.js"
 import { applicationUsageModesSchema, type ApplicationCenterSubmissionInput } from "@linksense/shared";
 import { Prisma, type PrismaClient, type ApplicationRelease, type ApplicationListing } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 import { mergeApplicationUsageModes, type ApplicationDistributionAccess } from "./distribution-policy.js";
 
 export type ApplicationDistributionDatabase = Pick<Prisma.TransactionClient,
   "application" | "applicationGrant" | "applicationVersion" | "applicationListing" | "applicationRelease" | "applicationInstallation" | "user" | "userGroupMember">;
+
+export async function assertDistributionVersionMcpServersExist(
+  tx: Prisma.TransactionClient, ownerId: string, applicationId: string, versionId: string,
+): Promise<void> {
+  const version = await tx.applicationVersion.findFirst({
+    where: { id: versionId, applicationId, assetsReady: true }, select: { definitionJson: true },
+  });
+  if (!version) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+  const definition = publishedApplicationDefinitionSchema.parse(version.definitionJson);
+  await assertOwnedMcpServersExist(tx, ownerId, definition.mcpServerIds);
+}
 
 /** List screens and task projections resolve permissions in bounded batches. */
 export async function readApplicationDistributionAccessBatch(db: ApplicationDistributionDatabase, actorId: string, applicationIds: readonly string[]): Promise<Map<string, ApplicationDistributionAccess>> {
@@ -130,6 +142,9 @@ export class ApplicationDistributionRepository {
       const listing = await tx.applicationListing.findUnique({ where: { id: release.listingId } });
       const application = await tx.application.findFirst({ where: { id: release.applicationId, status: "active" } });
       if (!application || current?.status !== "pending" || !listing || listing.status === "suspended") throw new AppError("CONFLICT");
+      if (decision === "approved" && listing.status !== "unlisted" && current.usageModes.includes("service")) {
+        await assertDistributionVersionMcpServersExist(tx, application.ownerId, application.id, current.versionId);
+      }
       await tx.applicationRelease.update({ where: { id: releaseId }, data: { status: decision, reviewerId, reviewComment: comment || null, reviewedAt: new Date() } });
       if (decision === "approved") await tx.applicationListing.update({ where: { id: listing.id }, data: { currentReleaseId: releaseId, status: listing.status === "unlisted" ? "unlisted" : "published" } });
     });
@@ -151,7 +166,16 @@ export class ApplicationDistributionRepository {
       const listing = await tx.applicationListing.findUnique({ where: { applicationId } });
       if (!listing || (!admin && listing.publisherId !== actorId)) throw new AppError("FORBIDDEN");
       if (!admin && (status === "suspended" || listing.status === "suspended")) throw new AppError("FORBIDDEN");
-      if (status === "published" && !listing.currentReleaseId) throw new AppError("CONFLICT");
+      if (status === "published") {
+        if (!listing.currentReleaseId) throw new AppError("CONFLICT");
+        const release = await tx.applicationRelease.findFirst({
+          where: { id: listing.currentReleaseId, listingId: listing.id, applicationId, status: "approved" },
+        });
+        if (!release) throw new AppError("CONFLICT");
+        if (release.usageModes.includes("service")) {
+          await assertDistributionVersionMcpServersExist(tx, listing.publisherId, applicationId, release.versionId);
+        }
+      }
       await tx.applicationListing.update({ where: { id: listing.id }, data: { status, suspensionReason: status === "suspended" ? reason : null } });
     });
   }
