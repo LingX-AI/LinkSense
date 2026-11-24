@@ -172,6 +172,20 @@ export const completionNotificationFeedSchema = z.strictObject({
   next_cursor: z.string().min(1).max(320),
 });
 
+// An OS notification is only a prompt to reopen the existing native approval
+// card. The snapshot intentionally carries no command, path, owner, device,
+// turn, or native request identifier, and its presence never proves that the
+// approval is still pending or that the device connection is still live.
+export const desktopApprovalNotificationSchema = z.strictObject({
+  conversation_id: uuidSchema,
+  request_id: uuidSchema,
+  expires_at: timestampSchema,
+});
+
+export const desktopApprovalNotificationSnapshotSchema = z.strictObject({
+  items: z.array(desktopApprovalNotificationSchema).max(100),
+});
+
 export const archivedConversationClearResultSchema = z.strictObject({
   deleted_count: z.number().int().nonnegative(),
   failed_tasks: z.array(z.strictObject({

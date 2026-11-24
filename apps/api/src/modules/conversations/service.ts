@@ -15,6 +15,11 @@ import { lockDetachedDevelopment, type DevelopmentConversationCreation } from ".
 import { readApplicationDistributionAccess } from "../applications/distribution-repository.js";
 import { deleteConversationWithinTransaction } from "./deletion.js";
 import { projectDesktopApproval, respondToDesktopApproval } from "./desktop-approvals.js";
+import {
+  readDesktopApprovalNotifications,
+  type DesktopApprovalNotificationFilter,
+  type DesktopApprovalNotificationSnapshot,
+} from "./desktop-approval-notifications.js";
 import { desktopStartStopEventId, recoveredLocalQuoteCandidateIds, recoveredLocalQuoteDraftIds } from "./recovered-local-quote-draft.js";
 import { readConversationDevelopmentRoles, ordinaryConversationFilter } from "./application-development-role.js";
 import { requireApplicationDistributionVersion } from "../applications/distribution-policy.js";
@@ -6163,6 +6168,17 @@ export class ConversationService {
       await this.redis.publishConversationEvent(input.conversationId, projectStoredEvent(result.event));
     }
     return projectUserInputRequest(result.request);
+  }
+
+  async listDesktopApprovalNotifications(
+    ownerId: string,
+    filter: DesktopApprovalNotificationFilter = {},
+  ): Promise<DesktopApprovalNotificationSnapshot> {
+    return readDesktopApprovalNotifications(this.prisma, {
+      ownerId,
+      ...filter,
+      now: new Date(),
+    });
   }
 
   async respondToDesktopApprovalRequest(

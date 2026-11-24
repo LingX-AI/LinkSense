@@ -10,6 +10,7 @@ import {
   conversationSourcesSchema,
   conversationOrderUpdateSchema,
   conversationUserInputResponseSchema,
+  desktopApprovalNotificationSnapshotSchema,
   desktopApprovalResponseSchema,
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
@@ -62,6 +63,18 @@ const pendingRequestOrderBodySchema = z.strictObject({
 const contextCompactionBodySchema = z.strictObject({
   idempotency_key: z.string().trim().min(1).max(120),
 });
+const desktopApprovalNotificationQuerySchema = z
+  .strictObject({
+    conversation_id: z.string().uuid().optional(),
+    request_id: z.string().uuid().optional(),
+  })
+  .refine(
+    (query) =>
+      (query.conversation_id === undefined) ===
+      (query.request_id === undefined),
+    "conversation_and_request_pair_required",
+  );
+
 const priorityIds = priorityCapabilityIdsSchema.default([]);
 const inputText = z.string().max(1_000_000);
 const planReviewActionBodySchema = z.discriminatedUnion("action", [
@@ -265,6 +278,22 @@ export const conversationRoutes: FastifyPluginAsync<{
         request.id,
       ),
     );
+  });
+
+  app.get("/desktop-approval-notifications", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const query = desktopApprovalNotificationQuerySchema.parse(request.query);
+    // A click checks the same read again, so no cache may answer with stale rows.
+    reply.header("cache-control", "no-store");
+    const snapshot = services.config.desktopNativeApprovalsEnabled
+      ? await services.conversations.listDesktopApprovalNotifications(user.id, {
+          ...(query.conversation_id
+            ? { conversationId: query.conversation_id }
+            : {}),
+          ...(query.request_id ? { requestId: query.request_id } : {}),
+        })
+      : desktopApprovalNotificationSnapshotSchema.parse({ items: [] });
+    return reply.send(ok(snapshot, request.id));
   });
 
   app.get("/:id", async (request, reply) => {
