@@ -8,11 +8,20 @@ type Context = {
   now: () => number;
   identity: Identity;
   measured: boolean;
+  requestId: string | undefined;
 };
 const contexts = new AsyncLocalStorage<Context>();
 
-export function withTaskLatencyContext<T>(log: Context["log"], action: () => T, now = () => performance.now()): T {
-  return contexts.run({ log, now, startedAt: now(), identity: {}, measured: false }, action);
+export function withTaskLatencyContext<T>(
+  log: Context["log"],
+  action: () => T,
+  { now = () => performance.now(), requestId }: { now?: () => number; requestId?: string } = {},
+): T {
+  return contexts.run({ log, now, startedAt: now(), identity: {}, measured: false, requestId }, action);
+}
+
+export function currentTaskRequestId(): string | undefined {
+  return contexts.getStore()?.requestId;
 }
 
 export function bindTaskLatency(identity: Identity): void {

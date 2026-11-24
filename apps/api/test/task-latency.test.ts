@@ -9,7 +9,7 @@ describe("task latency", () => {
     const result = await withTaskLatencyContext(log, () => measureTaskStage(stage, async () => {
       now += 25;
       return { privateSource: "application source" };
-    }), () => now);
+    }), { now: () => now });
     expect(result.privateSource).toBe("application source");
     expect(log.info).toHaveBeenCalledExactlyOnceWith({ stage, outcome: "ok", durationMs: 25, elapsedMs: 25 }, "task admission latency");
     expect(JSON.stringify(log.info.mock.calls)).not.toContain("application source");
@@ -36,7 +36,7 @@ describe("task latency", () => {
       bindTaskLatency({ conversationId });
       await measureTaskStage("runner_accept", async () => { await Promise.resolve(); time += 5; return "secret response"; });
       finishTaskRequest();
-    }, () => time)));
+    }, { now: () => time })));
     expect(log.info.mock.calls.map(([fields]) => fields.conversationId).sort()).toEqual(["one", "one", "two", "two"]);
     expect(JSON.stringify(log.info.mock.calls)).not.toContain("secret");
     expect(log.info.mock.calls.every(([fields]) => Number(fields.elapsedMs) >= 0)).toBe(true);

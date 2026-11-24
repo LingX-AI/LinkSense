@@ -10,6 +10,7 @@ import {
   type RunnerStartInput,
   type RunnerSteerInput,
 } from "../src/adapters/runner.js";
+import { withTaskLatencyContext } from "../src/lib/task-latency.js";
 import { testConfig } from "./test-config.js";
 
 const conversationId = "01900000-0000-7000-8000-000000000001";
@@ -1201,6 +1202,7 @@ describe("RunnerClient owner routing", () => {
   });
 
   it("prewarms one owner worker through the no-content controller endpoint", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -1214,9 +1216,11 @@ describe("RunnerClient owner routing", () => {
     );
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
     expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
+    expect(timeout).toHaveBeenCalledWith(210_000);
   });
 
   it("prewarms and inspects an owner-scoped native conversation runtime", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const response = {
       codexThreadId: "thread-prewarmed-1",
       agentsTemplateVersion: "v1",
@@ -1250,6 +1254,40 @@ describe("RunnerClient owner routing", () => {
     );
     expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("GET");
+    expect(timeout.mock.calls).toEqual([[270_000], [270_000]]);
+  });
+
+  it.each([
+    [undefined, 270_000],
+    ["90", 300_000],
+    ["120", 330_000],
+  ])("waits for a cold runtime inspection using readiness setting %s", async (readySeconds, budgetMs) => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), milliseconds);
+      return controller.signal;
+    });
+    const runtime = { agentsTemplateVersion: "v1", runtimeGeneration };
+    const fetchMock = vi.fn<typeof fetch>(async (_url, options) =>
+      new Promise<Response>((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+        setTimeout(() => resolve(jsonResponse(runtime)), 210_000);
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const runner = new RunnerClient(testConfig({ LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: readySeconds }));
+    const response = withTaskLatencyContext(
+      { info: vi.fn() },
+      () => runner.inspectRuntime(conversationId, ownerId),
+      { requestId: "req-api-test" },
+    );
+    void response.catch(() => undefined);
+
+    await vi.advanceTimersByTimeAsync(210_000);
+    await expect(response).resolves.toEqual(runtime);
+    expect(timeout).toHaveBeenCalledExactlyOnceWith(budgetMs);
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-linksense-request-id")).toBe("req-api-test");
   });
 
   it("reads a strict subagent snapshot without exposing a native child thread id", async () => {
