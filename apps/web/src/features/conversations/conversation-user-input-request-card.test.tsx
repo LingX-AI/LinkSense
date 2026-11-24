@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { browserUseActionSchema, supportedLocales, type DesktopApprovalRequest } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
+import * as desktopAdapter from "@/adapters/desktop/desktop-adapter"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { desktopComputerUseMessages } from "@/features/desktop-computer-use/messages"
@@ -432,6 +433,7 @@ describe("ConversationUserInputRequestCard", () => {
     async (locale) => {
       await i18n.changeLanguage(locale)
       const messages = desktopComputerUseMessages[locale]
+      vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(true)
       const onSubmit = vi.fn()
       const interaction = userEvent.setup()
       render(
@@ -447,7 +449,11 @@ describe("ConversationUserInputRequestCard", () => {
       expect(legend).not.toBeNull()
       expect(legend).toHaveTextContent(messages.title)
       expect(legend).toHaveTextContent(messages.approvalClickQuestion)
+      const riskBadge = screen.getByText(messages.riskUnknown)
+      expect(riskBadge).toBeVisible()
+      expect(legend).toContainElement(riskBadge)
       expect(card).not.toHaveTextContent("computer_act")
+      expect(onSubmit).not.toHaveBeenCalled()
 
       const allow = screen.getByRole("radio", {
         name: i18n.t("desktopApproval.allowOnce"),
@@ -484,6 +490,7 @@ describe("ConversationUserInputRequestCard", () => {
   it("distinguishes clicking from typing and submits the native Cancel value", async () => {
     await i18n.changeLanguage("en-US")
     const messages = desktopComputerUseMessages["en-US"]
+    vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(true)
     const onSubmit = vi.fn()
     const interaction = userEvent.setup()
     const { rerender } = render(
@@ -500,6 +507,8 @@ describe("ConversationUserInputRequestCard", () => {
     const card = screen.getByTestId("conversation-user-input-request")
     expect(card).toHaveTextContent(messages.approvalTypeQuestion)
     expect(card).not.toHaveTextContent(messages.approvalClickQuestion)
+    expect(screen.getByText(messages.riskUnknown)).toBeVisible()
+    expect(onSubmit).not.toHaveBeenCalled()
 
     await interaction.click(
       screen.getByRole("radio", {
@@ -529,11 +538,13 @@ describe("ConversationUserInputRequestCard", () => {
     )
     expect(card).toHaveTextContent(messages.approvalQuestion)
     expect(card).not.toHaveTextContent(messages.approvalTypeQuestion)
+    expect(screen.getByText(messages.riskUnknown)).toBeVisible()
   })
 
   it.each(computerActNearMissRequests)(
     "keeps the native question text for $label",
     ({ request: nearMissRequest }) => {
+      vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(true)
       render(
         <ConversationUserInputRequestCard
           request={nearMissRequest}
@@ -545,9 +556,40 @@ describe("ConversationUserInputRequestCard", () => {
       const card = screen.getByTestId("conversation-user-input-request")
       expect(card).toHaveTextContent("computer_act")
       expect(card).toHaveTextContent(nearMissRequest.questions[0]!.question)
+      expect(
+        screen.queryByText(i18n.t("desktopComputerUse.riskUnknown"))
+      ).toBeNull()
       expect(screen.getAllByRole("radio")).toHaveLength(2)
       expect(screen.getByText("Allow")).toBeVisible()
       expect(screen.getByText("Cancel")).toBeVisible()
+    }
+  )
+
+  it.each([
+    ["click", "computer_act: click", "approvalClickQuestion"],
+    ["type", "computer_act: type", "approvalTypeQuestion"],
+    ["generic", "computer_act", "approvalQuestion"],
+  ] as const)(
+    "keeps the exact %s approval projection without the Mac risk badge outside the Mac host",
+    async (_label, summary, messageKey) => {
+      await i18n.changeLanguage("en-US")
+      const messages = desktopComputerUseMessages["en-US"]
+      vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(false)
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...computerActRequest,
+            questions: [computerActApprovalQuestion(summary)],
+          }}
+          submitting={false}
+          onSubmit={vi.fn()}
+        />
+      )
+
+      const card = screen.getByTestId("conversation-user-input-request")
+      expect(card).toHaveTextContent(messages[messageKey])
+      expect(card).not.toHaveTextContent(messages.riskUnknown)
+      expect(screen.getAllByRole("radio")).toHaveLength(2)
     }
   )
 

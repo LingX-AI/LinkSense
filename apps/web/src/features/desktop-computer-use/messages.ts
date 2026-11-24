@@ -34,6 +34,7 @@ type DesktopComputerUseMessages = {
   approvalQuestion: string
   approvalClickQuestion: string
   approvalTypeQuestion: string
+  riskUnknown: string
   permissionChecking: string
   permissionFailed: string
   permissionUnsupported: string
@@ -93,6 +94,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "允许执行这次电脑操作吗？",
     approvalClickQuestion: "允许在已批准的窗口中进行点击吗？",
     approvalTypeQuestion: "允许在已批准的窗口中键入文字吗？",
+    riskUnknown: "风险未知",
     permissionChecking: "正在检查辅助功能权限…",
     permissionFailed: "无法检查辅助功能权限。请重试。",
     permissionUnsupported:
@@ -151,6 +153,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "Allow this Computer Use action?",
     approvalClickQuestion: "Allow clicking in the approved window?",
     approvalTypeQuestion: "Allow typing in the approved window?",
+    riskUnknown: "Risk: unknown",
     permissionChecking: "Checking Accessibility permission…",
     permissionFailed: "Couldn’t check the Accessibility permission. Try again.",
     permissionUnsupported:
@@ -214,6 +217,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "¿Permitir esta acción de Uso del equipo?",
     approvalClickQuestion: "¿Permitir hacer clic en la ventana aprobada?",
     approvalTypeQuestion: "¿Permitir escribir en la ventana aprobada?",
+    riskUnknown: "Riesgo: desconocido",
     permissionChecking: "Comprobando el permiso de Accesibilidad…",
     permissionFailed:
       "No se pudo comprobar el permiso de Accesibilidad. Inténtalo de nuevo.",
@@ -280,6 +284,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "Permitir esta ação de Uso do computador?",
     approvalClickQuestion: "Permitir clicar na janela aprovada?",
     approvalTypeQuestion: "Permitir digitar na janela aprovada?",
+    riskUnknown: "Risco: desconhecido",
     permissionChecking: "Verificando a permissão de Acessibilidade…",
     permissionFailed:
       "Não foi possível verificar a permissão de Acessibilidade. Tente novamente.",
@@ -347,6 +352,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "Autoriser cette action d’utilisation de l’ordinateur ?",
     approvalClickQuestion: "Autoriser les clics dans la fenêtre approuvée ?",
     approvalTypeQuestion: "Autoriser la saisie dans la fenêtre approuvée ?",
+    riskUnknown: "Risque : inconnu",
     permissionChecking: "Vérification de l’autorisation Accessibilité…",
     permissionFailed:
       "Impossible de vérifier l’autorisation Accessibilité. Réessayez.",
@@ -414,6 +420,7 @@ export const desktopComputerUseMessages: Record<
     approvalQuestion: "このコンピューター操作を許可しますか？",
     approvalClickQuestion: "承認したウィンドウでのクリックを許可しますか？",
     approvalTypeQuestion: "承認したウィンドウでの文字入力を許可しますか？",
+    riskUnknown: "リスク不明",
     permissionChecking: "アクセシビリティ権限を確認しています…",
     permissionFailed:
       "アクセシビリティ権限を確認できませんでした。もう一度お試しください。",

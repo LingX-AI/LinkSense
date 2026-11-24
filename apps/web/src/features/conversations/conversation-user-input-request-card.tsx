@@ -26,6 +26,7 @@ import type {
   ConversationUserInputRequest,
   ConversationUserInputRequestView,
 } from "@/api/contracts"
+import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -562,6 +563,8 @@ function QuestionUserInputForm({
     request,
     browserApproval
   )
+  const showComputerActRisk =
+    computerActApprovalQuestionKey !== null && isMacDesktopHost()
   const savedAnswers =
     request.kind === "async_questions" ? request.response_content : null
   const fieldsDisabled = disabled || savedAnswers !== null
@@ -645,10 +648,24 @@ function QuestionUserInputForm({
               >
                 <FieldLegend variant="label" className="mb-1.5 w-full">
                   {request.kind !== "async_questions" && (
-                    <span className="block text-xs font-semibold text-[var(--app-muted)]">
+                    <span
+                      className={cn(
+                        "block text-xs font-semibold text-[var(--app-muted)]",
+                        showComputerActRisk &&
+                          "flex flex-wrap items-center gap-x-2 gap-y-1"
+                      )}
+                    >
                       {computerActApprovalQuestionKey
                         ? t("desktopComputerUse.title")
                         : question.header}
+                      {showComputerActRisk && (
+                        <Badge
+                          variant="outline"
+                          className="h-auto max-w-full whitespace-normal"
+                        >
+                          {t("desktopComputerUse.riskUnknown")}
+                        </Badge>
+                      )}
                     </span>
                   )}
                   <span className="mt-0.5 flex items-start gap-2 text-sm leading-5 text-[var(--app-text)]">
