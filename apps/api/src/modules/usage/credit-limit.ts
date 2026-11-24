@@ -1,16 +1,10 @@
-import { assertExecutionPrincipalActive } from "../../lib/execution-principal.js";
 import { creditMicrosToDecimal, type PersonalQuotaOverview } from "@linksense/shared";
-import dayjs from "dayjs";
-import isoWeek from "dayjs/plugin/isoWeek.js";
-import timezone from "dayjs/plugin/timezone.js";
-import utc from "dayjs/plugin/utc.js";
+import type { Dayjs } from "dayjs";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
+import { localDateAsUtc, localMidnight } from "../../lib/calendar-boundaries.js";
 import { AppError } from "../../lib/errors.js";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
-dayjs.extend(isoWeek);
+import { assertExecutionPrincipalActive } from "../../lib/execution-principal.js";
 
 type CreditLimitServiceOptions = {
   timeZone: string;
@@ -40,8 +34,8 @@ type CreditQuotaLimitInput = {
 type CreditQuotaCheck = {
   scope: CreditQuotaPeriod;
   limit: bigint | null;
-  start: dayjs.Dayjs;
-  end: dayjs.Dayjs;
+  start: Dayjs;
+  end: Dayjs;
 };
 
 export class CreditLimitService {
@@ -151,14 +145,14 @@ export class CreditLimitService {
   }
 
   private currentChecks(limits: CreditQuotaLimitInput): CreditQuotaCheck[] {
-    const now = dayjs(this.now()).tz(this.options.timeZone);
-    const weekStart = now.startOf("isoWeek");
+    const { timeZone } = this.options;
+    const weekStart = localDateAsUtc(this.now(), timeZone).startOf("isoWeek");
     return [
       {
         scope: "weekly",
         limit: limits.weeklyCreditLimitMicros,
-        start: weekStart,
-        end: weekStart.add(1, "week"),
+        start: localMidnight(weekStart, timeZone),
+        end: localMidnight(weekStart.add(1, "week"), timeZone),
       },
     ];
   }

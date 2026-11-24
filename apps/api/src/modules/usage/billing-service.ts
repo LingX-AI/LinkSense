@@ -6,9 +6,7 @@ import {
   type BillingStatementList,
   type ModelProviderSettings,
 } from "@linksense/shared";
-import dayjs from "dayjs";
-import timezone from "dayjs/plugin/timezone.js";
-import utc from "dayjs/plugin/utc.js";
+import dayjs, { type Dayjs } from "dayjs";
 
 import type {
   BillingStatement,
@@ -16,10 +14,8 @@ import type {
   Prisma,
   PrismaClient,
 } from "../../generated/prisma/client.js";
+import { localDateAsUtc, localMidnight } from "../../lib/calendar-boundaries.js";
 import { AppError } from "../../lib/errors.js";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const PICO_USD_PER_USD = 1_000_000_000_000n;
 const MICROS_PER_USD = 1_000_000n;
@@ -73,13 +69,12 @@ export class BillingStatementService {
   }
 
   async generateMissingStatements(): Promise<number> {
-    const lastClosedMonth = dayjs(this.now())
-      .tz(this.timeZone)
+    const lastClosedMonth = localDateAsUtc(this.now(), this.timeZone)
       .startOf("month")
       .subtract(1, "month");
     const earliest = await this.earliestObservedAt();
     const earliestMonth = earliest
-      ? dayjs(earliest).tz(this.timeZone).startOf("month")
+      ? localDateAsUtc(earliest, this.timeZone).startOf("month")
       : null;
     const firstMonth =
       earliestMonth?.isBefore(lastClosedMonth, "month") === true
@@ -100,15 +95,18 @@ export class BillingStatementService {
   }
 
   async generateStatement(month: string): Promise<boolean> {
-    const periodStart = dayjs.tz(`${month}-01T00:00:00`, this.timeZone);
-    if (!periodStart.isValid() || periodStart.format("YYYY-MM") !== month) {
+    const calendarMonth = dayjs.utc(`${month}-01`);
+    if (!calendarMonth.isValid() || calendarMonth.format("YYYY-MM") !== month) {
       throw new AppError("VALIDATION_ERROR");
     }
-    const currentMonth = dayjs(this.now()).tz(this.timeZone).startOf("month");
-    if (!periodStart.isBefore(currentMonth)) {
+    const currentMonth = localDateAsUtc(this.now(), this.timeZone).startOf("month");
+    if (!calendarMonth.isBefore(currentMonth)) {
       return false;
     }
-    const periodEnd = periodStart.add(1, "month");
+    const { start: periodStart, end: periodEnd } = monthBoundaries(
+      calendarMonth,
+      this.timeZone,
+    );
     const periodStartDate = periodStart.toDate();
     const periodEndDate = periodEnd.toDate();
     const displayNames = await this.loadDisplayNames();
@@ -201,14 +199,17 @@ export class BillingStatementService {
   }
 
   async list(): Promise<BillingStatementList> {
-    const now = dayjs(this.now()).tz(this.timeZone);
-    const periodStart = now.startOf("month");
-    const periodEnd = periodStart.add(1, "month");
+    const now = this.now();
+    const calendarMonth = localDateAsUtc(now, this.timeZone).startOf("month");
+    const { start: periodStart, end: periodEnd } = monthBoundaries(
+      calendarMonth,
+      this.timeZone,
+    );
     const statements = await this.prisma.billingStatement.findMany({
       orderBy: [{ periodStart: "desc" }],
     });
     return billingStatementListSchema.parse({
-      generated_at: this.now().toISOString(),
+      generated_at: now.toISOString(),
       current_period: {
         period: {
           month: periodStart.format("YYYY-MM"),
@@ -266,6 +267,16 @@ export class BillingStatementService {
       return new Map();
     }
   }
+}
+
+function monthBoundaries(
+  calendarMonth: Dayjs,
+  timeZone: string,
+): { start: Dayjs; end: Dayjs } {
+  return {
+    start: localMidnight(calendarMonth, timeZone),
+    end: localMidnight(calendarMonth.add(1, "month"), timeZone),
+  };
 }
 
 const usageFactSelect = {
