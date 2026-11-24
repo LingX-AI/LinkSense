@@ -866,6 +866,19 @@ export const enUS = {
     deleteTitle: "Delete this MCP server?",
     deleteDescription:
       "The server configuration, encrypted credential, and encrypted environment variables will be permanently deleted. New tasks will no longer connect to it.",
+    deleteBlocked: {
+      title: "MCP server is still in use",
+      locations: {
+        application: "App settings or current version",
+        draft: "Development draft",
+        shared: "Version shared with the organization",
+        center: "Version listed in App Center",
+        shared_installation: "Installed version still available through organization sharing",
+        center_installation: "Installed version still available through App Center",
+      },
+      installedVersionHint:
+        "If members still use an older installed version, ask them to update or stop offering the app through that channel.",
+    },
   },
   bootstrap: {
     unavailableTitle: "{{productName}} is temporarily unavailable",
@@ -5530,6 +5543,7 @@ export const enUS = {
         "Voice input can be used up to 20 times per minute. Try again shortly.",
     },
     mcp: {
+      inUse: "Remove this server from the affected apps and update any versions still using it. Then try deleting it again.",
       insecureHttpAcknowledgementRequired:
         "You must acknowledge the unencrypted transport risk before using an HTTP MCP server.",
       credentialRequired:
