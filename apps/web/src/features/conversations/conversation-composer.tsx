@@ -518,6 +518,9 @@ type ConversationComposerProps = Readonly<{
    * target. Editing, attachments and the slash application picker stay usable.
    */
   submissionBlocked?: boolean
+  /** Blocks quote submission without changing the standalone compact action. */
+  quoteSubmissionBlocked?: boolean
+  submissionBlockedMessage?: string
   onGoalModeChange?: (enabled: boolean) => void
   onPlanModeChange?: (enabled: boolean) => void
   onStartNewTask: () => void
@@ -602,6 +605,8 @@ export const ConversationComposer = forwardRef<
     compacting = false,
     taskStartDisabled = false,
     submissionBlocked = false,
+    quoteSubmissionBlocked = false,
+    submissionBlockedMessage,
     onGoalModeChange,
     onPlanModeChange,
     onStartNewTask,
@@ -633,6 +638,7 @@ export const ConversationComposer = forwardRef<
   const [dismissedTaskReferenceValue, setDismissedTaskReferenceValue] =
     useState<string | null>(null)
   const taskReferenceMenuId = useId()
+  const submissionBlockedMessageId = useId()
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false)
   const addMenuListRef = useRef<HTMLDivElement>(null)
   const skillsRowRef = useRef<HTMLDivElement>(null)
@@ -1007,10 +1013,12 @@ export const ConversationComposer = forwardRef<
         const status = knowledgeBaseSelectionStatusById?.[id]
         return status === "loading" || status === "verification_failed"
       }))
+  const isCompactionValue = (nextValue: string) =>
+    !textOnly && isConversationContextCompactionCommand(nextValue)
   const canSendValue = (nextValue: string) =>
-    (!textOnly && isConversationContextCompactionCommand(nextValue)
+    (isCompactionValue(nextValue)
       ? compactAvailable
-      : canSubmitValue(nextValue)) &&
+      : !quoteSubmissionBlocked && canSubmitValue(nextValue)) &&
     !voiceBusy &&
     !submitting &&
     !attachmentOperationPending &&
@@ -1022,8 +1030,11 @@ export const ConversationComposer = forwardRef<
     modelReady &&
     !knowledgeBaseSelectionPending
   const canSend = canSendValue(value)
+  const currentQuoteBlocked =
+    quoteSubmissionBlocked && !isCompactionValue(value)
   const showSendButton =
-    !isRunning || (hasTextContent && !waitingForAttachmentStart)
+    !isRunning ||
+    (hasTextContent && !waitingForAttachmentStart && !quoteSubmissionBlocked)
   const sendButtonDisabled =
     voiceBusy ||
     submitting ||
@@ -1032,6 +1043,7 @@ export const ConversationComposer = forwardRef<
     interactionBlocked ||
     taskStartDisabled ||
     submissionBlocked ||
+    currentQuoteBlocked ||
     !modelReady ||
     knowledgeBaseSelectionPending
   const attachmentActionUnavailable =
@@ -1217,7 +1229,7 @@ export const ConversationComposer = forwardRef<
   // focus; only the form's own submit event returns focus to the textarea.
   const trySubmitValue = (nextValue: string, focusTextarea = false) => {
     if (!canSendValue(nextValue)) return false
-    if (!textOnly && isConversationContextCompactionCommand(nextValue)) {
+    if (isCompactionValue(nextValue)) {
       onCompact()
       return true
     }
@@ -1925,6 +1937,11 @@ export const ConversationComposer = forwardRef<
           {unavailableMessage}
         </FieldDescription>
       )}
+      {submissionBlockedMessage && (
+        <FieldDescription id={submissionBlockedMessageId} role="status">
+          {submissionBlockedMessage}
+        </FieldDescription>
+      )}
       <div className="composer-input-layer -mr-3">
         {hasComposerInputUrl && (
           <ConversationComposerUrlHighlightLayer
@@ -1967,6 +1984,9 @@ export const ConversationComposer = forwardRef<
             if (highlight) highlight.scrollTop = event.currentTarget.scrollTop
           }}
           aria-label={t("conversation.messageInput")}
+          aria-describedby={
+            submissionBlockedMessage ? submissionBlockedMessageId : undefined
+          }
           maxLength={maxLength}
           aria-controls={
             taskReferenceMenuOpen

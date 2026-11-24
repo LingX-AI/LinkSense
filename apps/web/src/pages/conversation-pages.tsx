@@ -1680,6 +1680,17 @@ export function ConversationPage({
   const planMode = collaborationMode === "plan"
   const goalMode =
     goalModeState.conversationId === conversationId && goalModeState.enabled
+  // The local native quote path admits only a direct, idle, default-mode turn.
+  // Accepted starts can be visible before there is a projected running turn.
+  const localSideChatQuoteBlocked =
+    Boolean(sideChatReference) &&
+    conversation?.execution_target === "local" &&
+    (collaborationMode !== "default" ||
+      goalMode ||
+      turnExecutionActive ||
+      pendingTurnExecutionActive ||
+      Boolean(pendingConversationExecution || conversation.starting_turn) ||
+      conversation.execution_status === "running")
   // The Mac cloud browser preview is the only preview entry added for P2-02.
   // It is mounted into the shared conversation preview slot and only after the
   // current owner, conversation and surface have loaded; the server still
@@ -6185,6 +6196,7 @@ export function ConversationPage({
       return
     }
     if (
+      localSideChatQuoteBlocked ||
       collaborationModeMutationPending ||
       composerSubmissionInFlightRef.current ||
       composerAttachmentOperationInFlightRef.current ||
@@ -8081,6 +8093,12 @@ export function ConversationPage({
               taskStartDisabledByCreditQuota || newProjectResolving
             }
             submissionBlocked={desktopNoTargetAvailable}
+            quoteSubmissionBlocked={localSideChatQuoteBlocked}
+            submissionBlockedMessage={
+              localSideChatQuoteBlocked
+                ? t("sideChat.localQuoteWait")
+                : undefined
+            }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {
               if (

@@ -2585,6 +2585,35 @@ describe("conversation voice input", () => {
     expect(props.onSubmit).not.toHaveBeenCalled()
   })
 
+  it("blocks a quote without blocking the independent compaction command", async () => {
+    const interaction = userEvent.setup()
+    const onCompact = vi.fn()
+    const { props, rerender } = renderComposer({
+      value: "Follow up /compact",
+      quoteSubmissionBlocked: true,
+      compactAvailable: true,
+      onCompact,
+    })
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+    expect(screen.getByRole("option", { name: /压缩上下文/u })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    await interaction.click(input)
+    await interaction.keyboard("{Escape}{Enter}")
+    expect(props.onSubmit).not.toHaveBeenCalled()
+    expect(onCompact).not.toHaveBeenCalled()
+
+    rerender(<ConversationComposer {...props} value="/compact" />)
+    await interaction.click(screen.getByRole("option", { name: /压缩上下文/u }))
+    expect(onCompact).toHaveBeenCalledTimes(1)
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    expect(onCompact).toHaveBeenCalledTimes(2)
+    await interaction.keyboard("{Enter}")
+    expect(onCompact).toHaveBeenCalledTimes(3)
+    expect(props.onSubmit).not.toHaveBeenCalled()
+  })
+
   it("does not run /压缩 while the current task is unavailable", async () => {
     const onCompact = vi.fn()
     const { props } = renderComposer({
