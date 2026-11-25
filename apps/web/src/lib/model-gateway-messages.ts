@@ -2,6 +2,8 @@ import type { Locale, ModelGatewayFailureCode } from "@linksense/shared"
 
 export const modelGatewayMessages = {
   "zh-CN": {
+    sensitive_data_protection_blocked:
+      "本地模型暂时无法继续处理，任务已停止。请确认本地模型可用后继续。",
     model_provider_error:
       "模型渠道请求失败。请联系管理员检查模型渠道和执行服务日志，确认原因后再继续任务。",
     model_provider_authentication_failed:
@@ -18,6 +20,8 @@ export const modelGatewayMessages = {
       "模型连接失败。请联系管理员检查执行服务和模型渠道网络。",
   },
   "en-US": {
+    sensitive_data_protection_blocked:
+      "The task stopped because a local model could not continue. Check that a local model is available before continuing.",
     model_provider_error:
       "The model provider request failed. Ask an administrator to check the provider and execution logs before continuing the task.",
     model_provider_authentication_failed:
@@ -34,6 +38,8 @@ export const modelGatewayMessages = {
       "The model connection failed. Ask an administrator to check the execution service and provider connectivity.",
   },
   "es-ES": {
+    sensitive_data_protection_blocked:
+      "La tarea se detuvo porque el modelo local no pudo continuar. Comprueba que haya un modelo local disponible.",
     model_provider_error:
       "Falló la solicitud al proveedor del modelo. Pide a un administrador que revise el proveedor y los registros de ejecución antes de continuar la tarea.",
     model_provider_authentication_failed:
@@ -50,6 +56,8 @@ export const modelGatewayMessages = {
       "Falló la conexión con el modelo. Pide a un administrador que revise el servicio de ejecución y la conectividad del proveedor.",
   },
   "pt-BR": {
+    sensitive_data_protection_blocked:
+      "A tarefa foi interrompida porque o modelo local não conseguiu continuar. Verifique se há um modelo local disponível.",
     model_provider_error:
       "A solicitação ao provedor do modelo falhou. Peça a um administrador para verificar o provedor e os logs de execução antes de continuar a tarefa.",
     model_provider_authentication_failed:
@@ -66,6 +74,8 @@ export const modelGatewayMessages = {
       "A conexão com o modelo falhou. Peça a um administrador para verificar o serviço de execução e a conectividade do provedor.",
   },
   "fr-FR": {
+    sensitive_data_protection_blocked:
+      "La tâche s’est arrêtée car le modèle local ne pouvait pas continuer. Vérifiez qu’un modèle local est disponible.",
     model_provider_error:
       "La requête au fournisseur du modèle a échoué. Demandez à un administrateur de vérifier le fournisseur et les journaux d’exécution avant de poursuivre la tâche.",
     model_provider_authentication_failed:
@@ -82,6 +92,8 @@ export const modelGatewayMessages = {
       "La connexion au modèle a échoué. Demandez à un administrateur de vérifier le service d’exécution et la connectivité du fournisseur.",
   },
   "ja-JP": {
+    sensitive_data_protection_blocked:
+      "ローカルモデルで続行できなかったため、タスクが停止しました。利用可能なローカルモデルを確認してください。",
     model_provider_error:
       "モデルプロバイダーへのリクエストに失敗しました。タスクを続ける前に、管理者にプロバイダーと実行ログの確認を依頼してください。",
     model_provider_authentication_failed:
