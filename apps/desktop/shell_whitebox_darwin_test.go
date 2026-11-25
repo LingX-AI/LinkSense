@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -488,6 +490,175 @@ func TestNativeAuthenticatedConversationDeepLinkSurvivesIndexRedirect(t *testing
 	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
 		location.pathname === "/conversations/`+target+`" &&
 		window.__conversationDeepLinkSentinel === "ready"), 200))`)
+}
+
+func TestNativeMacSessionRestoreRetriesWithoutLosingLaunchLink(t *testing.T) {
+	const (
+		target         = "71000000-0000-4000-8000-000000000916"
+		targetPath     = "/conversations/" + target
+		apiTargetPath  = "/api/v1" + targetPath
+		requestedTitle = "Offline restore launch task"
+	)
+	refreshToken := strings.Repeat("a", 64)
+
+	nativeWhiteboxSession(t, true)
+	desktop := nativeWhitebox.desktop
+	session := desktop.session
+	initialCredential, err := nativeWhitebox.store.Get(session.secretKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The restored account has no paired device, so any device connection would
+	// be a side effect of restoring the session rather than user intent. Keep an
+	// existing fake pairing so this test does not reset another fixture's state.
+	deviceKey := serverCredentialKey(desktop.server, "device")
+	previousDevice, deviceErr := nativeWhitebox.store.Get(deviceKey)
+	if deviceErr != nil && !errors.Is(deviceErr, mygo.ErrSecretNotFound) {
+		t.Fatal(deviceErr)
+	}
+	desktop.closeDevice()
+	if err := nativeWhitebox.store.Delete(deviceKey); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		desktop.closeDevice()
+		if deviceErr == nil {
+			if err := nativeWhitebox.store.Set(deviceKey, previousDevice); err != nil {
+				t.Error(err)
+			}
+			return
+		}
+		if err := nativeWhitebox.store.Delete(deviceKey); err != nil {
+			t.Error(err)
+		}
+	})
+
+	var offline atomic.Bool
+	offline.Store(true)
+	var unavailableRefreshes, wrongRefreshCookie, turnSubmissions, browserOpens atomic.Int32
+	api := nativeWhiteboxAPI(func(w http.ResponseWriter, r *http.Request) bool {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/refresh":
+			cookie, err := r.Cookie(refreshCookieName)
+			if err != nil || cookie.Value != refreshToken {
+				wrongRefreshCookie.Add(1)
+			}
+			if offline.Load() {
+				unavailableRefreshes.Add(1)
+				// The fixture protocol/build headers were already written by the
+				// legacy handler. This offline envelope must not clear the credential.
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"success":    false,
+					"error_code": "SERVICE_TEMPORARILY_UNAVAILABLE",
+				})
+				return true
+			}
+			// Let the unchanged fixture validate the original native cookie and
+			// perform its existing refresh rotation and account proof.
+			return false
+		case r.Method == http.MethodPost && r.URL.Path == apiTargetPath+"/turns":
+			turnSubmissions.Add(1)
+			return false
+		case r.Method == http.MethodGet && r.URL.Path == apiTargetPath:
+			if !cloudAuthorized(w, r) {
+				return true
+			}
+			data := cloudBrowserConversationData(target, requestedTitle)
+			// This is an existing idle task, not a live turn whose stream would
+			// need to be held open during login recovery.
+			data["execution_status"] = "idle"
+			writeCloudData(w, data)
+			return true
+		}
+		return false
+	})
+	nativeWhitebox.api.Store(&api)
+	t.Cleanup(func() {
+		offline.Store(false)
+		nativeWhitebox.api.Store(nil)
+	})
+
+	originalBrowser := desktop.openBrowser
+	desktop.openBrowser = func(string) error {
+		browserOpens.Add(1)
+		return errors.New("unexpected browser launch during native session restore")
+	}
+	t.Cleanup(func() { desktop.openBrowser = originalBrowser })
+
+	refreshBefore := nativeWhitebox.refresh.Load()
+	desktop.openMainWindowInSession(mygo.NewEphemeralSession())
+	win := desktop.mainWindow()
+	defer win.Destroy()
+	page := win.Page()
+
+	const retryButton = `document.querySelector('[data-slot="public-failure-screen"] button')`
+	const failureState = `(() => {
+		const screen = document.querySelector('[data-slot="public-failure-screen"]');
+		const alert = screen?.querySelector('[role="alert"]');
+		return screen !== null && screen.getClientRects().length > 0 &&
+			alert != null && alert.getClientRects().length > 0 && alert.textContent.trim() !== "" &&
+			screen.querySelectorAll("button").length === 1 &&
+			location.pathname !== "` + targetPath + `" &&
+			!document.body.innerText.includes("` + requestedTitle + `") &&
+			document.querySelector("[data-desktop-sign-in]") === null &&
+			` + cloudAccountMenuTrigger + ` === null;
+	})()`
+	whiteboxWait(t, page, failureState)
+
+	if _, err := page.Eval(`window.__restoreJourneyDocument = "same"`); err != nil {
+		t.Fatal(err)
+	}
+	link := "linksense-desktop://conversation/" + target
+	desktop.handleOpenURL(link)
+	mygo.RunOnMain(func() {})
+	// The launch link is valid but must wait in this document while restore is
+	// unavailable: no task, sign-in page, reload, or automatic navigation.
+	whiteboxWait(t, page, `window.__restoreJourneyDocument === "same" && `+failureState)
+	if got := unavailableRefreshes.Load(); got <= 0 {
+		t.Fatalf("session restore received %d loopback 503 responses, want at least one", got)
+	}
+	stored, err := nativeWhitebox.store.Get(session.secretKey())
+	if err != nil || string(stored) != string(initialCredential) {
+		t.Fatal("the pending launch link changed the native refresh credential")
+	}
+
+	offline.Store(false)
+	mygo.RunOnMain(func() {})
+	whiteboxWait(t, page, `window.__restoreJourneyDocument === "same" && `+failureState)
+	refreshesBeforeRetry := nativeWhitebox.refresh.Load()
+	if refreshesBeforeRetry != refreshBefore {
+		t.Fatal("recovering the service restarted session restore without a user retry")
+	}
+
+	if _, err := page.Eval(`(() => {
+		const button = ` + retryButton + `;
+		if (!button) throw new Error("the session restore retry is missing");
+		button.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `location.pathname === "`+targetPath+`" &&
+		document.body.innerText.includes("`+requestedTitle+`") &&
+		document.body.innerText.includes("Eli") &&
+		window.__restoreJourneyDocument === "same" &&
+		`+cloudAccountMenuTrigger+` !== null`)
+
+	if got, wrong := nativeWhitebox.refresh.Load(), wrongRefreshCookie.Load(); got != refreshesBeforeRetry+1 || wrong != 0 {
+		t.Fatalf("Retry performed %d successful native refreshes with %d wrong cookies, want 1 and 0", got-refreshesBeforeRetry, wrong)
+	}
+	if turns, browsers := turnSubmissions.Load(), browserOpens.Load(); turns != 0 || browsers != 0 {
+		t.Fatalf("restoring the launch link submitted %d turns and opened %d browsers", turns, browsers)
+	}
+	_, deviceCredentialErr := nativeWhitebox.store.Get(deviceKey)
+	if device := desktop.currentDevice(); device != nil || !errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound) {
+		t.Fatalf("restoring the launch link started a device connection or created a credential: connectionNonNil=%t credentialNotAbsent=%t", device != nil, !errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound))
+	}
+	stored, err = nativeWhitebox.store.Get(session.secretKey())
+	var refreshed storedRefreshSession
+	if err != nil || json.Unmarshal(stored, &refreshed) != nil || refreshed.Token != refreshToken {
+		t.Fatal("the successful refresh did not retain the original native refresh cookie")
+	}
 }
 
 func TestNativeShellRestoresPreferenceAndQuits(t *testing.T) {
