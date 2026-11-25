@@ -119,6 +119,26 @@ describe("sensitive data routing", () => {
     expect(await service.authorize(ownerId, { ...firstRequest, turn_id: secondTurn })).toEqual({ action: "blocked" })
   })
 
+  it("uses the task's approved local model for titles and blocks titles if that binding changes", async () => {
+    const { service, settings, check, modelSettings } = fixture({
+      ...personalPreference, selection: "default", default_model_id: "local-b",
+    })
+    check.mockResolvedValue(false)
+    await expect(service.authorize(ownerId, firstRequest)).resolves.toMatchObject({
+      action: "local", runtime: { model: "local-b" },
+    })
+
+    settings.enabled = false
+    await expect(service.resolveTitleModel(conversationId)).resolves.toMatchObject({
+      trustedLocal: true,
+      model: { id: "local-b" },
+    })
+
+    settings.modelBindings["local-b"] = "changed"
+    await expect(service.resolveTitleModel(conversationId)).resolves.toBeNull()
+    expect(modelSettings.resolveTaskTitleModel).not.toHaveBeenCalled()
+  })
+
   it("keeps the active turn on its local model and applies a saved switch to the next turn", async () => {
     const { service, settings, check, preferences, prisma } = fixture({
       ...personalPreference, selection: "default", default_model_id: "local-a",
@@ -266,18 +286,19 @@ function fixture(preference?: SensitiveDataPreference) {
     getPersonalization: vi.fn(async () => ({ ...preferenceDefaults, ...(preference ? { sensitive_data: preference } : {}) })),
     updatePersonalization: vi.fn(async () => preferenceDefaults),
   }
+  const modelSettings = {
+    resolveManagedModels: vi.fn(async (ids: readonly string[]) =>
+      models.filter(({ model }) => ids.includes(model.id))),
+    resolveTaskTitleModel: vi.fn(async () => null),
+  }
   const service = new SensitiveDataService(
     prisma as unknown as PrismaClient,
     { read: vi.fn(async () => settings) } as unknown as SensitiveDataSettingsService,
-    {
-      resolveManagedModels: vi.fn(async (ids: readonly string[]) =>
-        models.filter(({ model }) => ids.includes(model.id))),
-      resolveTaskTitleModel: vi.fn(async () => null),
-    },
+    modelSettings,
     preferences,
     check,
   )
-  return { service, check, settings, preferences, prisma }
+  return { service, check, settings, preferences, prisma, modelSettings }
 }
 
 function model(id: string): ResolvedManagedModelRuntime {

@@ -9,10 +9,13 @@ describe("ConversationTitleService", () => {
   it("generates from persisted history, stores the title, and publishes its event", async () => {
     const fixture = titleFixture()
     await fixture.service.refresh(CONVERSATION_ID)
-    expect(fixture.generator.generate).toHaveBeenCalledWith([
-      { role: "user", content: "实现任务自动命名" },
-      { role: "assistant", content: "已完成实现" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenCalledWith(
+      [
+        { role: "user", content: "实现任务自动命名" },
+        { role: "assistant", content: "已完成实现" },
+      ],
+      CONVERSATION_ID,
+    )
     expect(fixture.user.findUnique).not.toHaveBeenCalled()
     expect(fixture.usageRecorder.recordModelUsage).toHaveBeenCalledWith({
       requestId: "30000000-0000-4000-8000-000000000001",
@@ -58,9 +61,12 @@ describe("ConversationTitleService", () => {
     )
 
     await vi.waitFor(() => {
-      expect(fixture.generator.generate).toHaveBeenCalledWith([
-        { role: "user", content: "消息发送成功后立即命名任务" },
-      ])
+      expect(fixture.generator.generate).toHaveBeenCalledWith(
+        [
+          { role: "user", content: "消息发送成功后立即命名任务" },
+        ],
+        CONVERSATION_ID,
+      )
     })
     expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled()
     await vi.waitFor(() => {
@@ -104,9 +110,12 @@ describe("ConversationTitleService", () => {
     ])
     await fixture.service.refresh(CONVERSATION_ID)
 
-    expect(fixture.generator.generate).toHaveBeenCalledExactlyOnceWith([
-      { role: "user", content: "你好" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenCalledExactlyOnceWith(
+      [
+        { role: "user", content: "你好" },
+      ],
+      CONVERSATION_ID,
+    )
     expect(fixture.tx.conversation.updateMany).toHaveBeenCalledOnce()
     expect(fixture.redis.publishConversationEvent).toHaveBeenCalledOnce()
   })
@@ -132,10 +141,13 @@ describe("ConversationTitleService", () => {
 
     await fixture.service.refresh(CONVERSATION_ID)
 
-    expect(fixture.generator.generate).toHaveBeenCalledWith([
-      { role: "user", content: "把结果改为百分比" },
-      { role: "assistant", content: "已完成处理" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenCalledWith(
+      [
+        { role: "user", content: "把结果改为百分比" },
+        { role: "assistant", content: "已完成处理" },
+      ],
+      CONVERSATION_ID,
+    )
     expect(JSON.stringify(fixture.generator.generate.mock.calls)).not.toMatch(
       /private-range|PRIVATE_FORMULA|private selected content/u,
     )
@@ -169,9 +181,12 @@ describe("ConversationTitleService", () => {
 
       await fixture.service.refresh(CONVERSATION_ID)
 
-      expect(fixture.generator.generate).toHaveBeenCalledWith([
-        { role: "user", content: "改为英文" },
-      ])
+      expect(fixture.generator.generate).toHaveBeenCalledWith(
+        [
+          { role: "user", content: "改为英文" },
+        ],
+        CONVERSATION_ID,
+      )
       expect(JSON.stringify(fixture.generator.generate.mock.calls)).not.toMatch(
         /private-element-id|private presentation content|private-legacy-element|private legacy content/u,
       )
@@ -264,11 +279,14 @@ describe("ConversationTitleService", () => {
     expect(fixture.personalization.getPersonalization).toHaveBeenCalledWith(
       OWNER_ID,
     )
-    expect(fixture.generator.generate).toHaveBeenCalledWith([
-      { role: "user", content: "实现任务自动命名" },
-      { role: "assistant", content: "已完成实现" },
-      { role: "user", content: "继续实现" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenCalledWith(
+      [
+        { role: "user", content: "实现任务自动命名" },
+        { role: "assistant", content: "已完成实现" },
+        { role: "user", content: "继续实现" },
+      ],
+      CONVERSATION_ID,
+    )
     expect(fixture.tx.conversation.updateMany).toHaveBeenCalledWith({
       where: {
         id: CONVERSATION_ID,
@@ -381,9 +399,13 @@ describe("ConversationTitleService", () => {
     await vi.waitFor(() => {
       expect(fixture.generator.generate).toHaveBeenCalledOnce()
     })
-    expect(fixture.generator.generate).toHaveBeenNthCalledWith(1, [
-      { role: "user", content: "消息发送成功后生成标题" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenNthCalledWith(
+      1,
+      [
+        { role: "user", content: "消息发送成功后生成标题" },
+      ],
+      CONVERSATION_ID,
+    )
 
     fixture.service.schedule(CONVERSATION_ID)
     expect(fixture.generator.generate).toHaveBeenCalledOnce()
@@ -435,10 +457,14 @@ describe("ConversationTitleService", () => {
     await vi.waitFor(() => {
       expect(fixture.generator.generate).toHaveBeenCalledTimes(2)
     })
-    expect(fixture.generator.generate).toHaveBeenNthCalledWith(2, [
-      { role: "user", content: "实现任务自动命名" },
-      { role: "assistant", content: "已完成实现" },
-    ])
+    expect(fixture.generator.generate).toHaveBeenNthCalledWith(
+      2,
+      [
+        { role: "user", content: "实现任务自动命名" },
+        { role: "assistant", content: "已完成实现" },
+      ],
+      CONVERSATION_ID,
+    )
     await vi.waitFor(() => {
       expect(fixture.tx.conversation.updateMany).toHaveBeenCalledWith({
         where: { id: CONVERSATION_ID, titleSource: "fallback" },
