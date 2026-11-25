@@ -596,10 +596,34 @@ Before a local task is created, the app re-reads the native status and requires
 the same device and account. A failed, stale or changed check keeps the draft
 and the selected target, reports the error, and does not create the task on the
 cloud. A host that omits `executionReady` fails closed. Existing tasks keep the
-target assigned by the backend and show it as a read-only badge; changing an
-existing task's target, including cross-target continuation, is not wired.
-This UI adds no database migration or dependency and does not change the
-execution switch above.
+target assigned by the backend and show it as a read-only badge. In the main
+macOS window, a normal task also offers **Continue on the cloud computer** for
+a local task and **Continue on this Mac** for a cloud task. The confirmation
+says that a separate task is created on the other run location and that the
+original task, its files and its artifacts stay as they are. Confirming does
+not send a message, move the native thread, or copy files or attachments. The
+app opens the empty destination with one removable source-task reference in
+its local draft; send a message when you want the new task to read the
+original text through the existing reference tool.
+
+A cloud-to-Mac continuation needs this exact current Mac connection to report
+`executionReady` and the separately negotiated `conversation_reference.read`
+capability. An older desktop client can still run ordinary local tasks. To receive a
+continuation it needs an update that adds this capability. A Mac-to-cloud continuation
+can be created and run while this Mac is offline. An older API has no
+continuation endpoint and the app reports that LinkSense must be updated; there
+is no fallback to the current target. Before rollout, upgrade every API and
+device gateway replica and use the Mac app with its matching bundled runner;
+the existing cloud worker start body stays compatible. The bounded 15-second
+reference read is not a side-chat quote. Existing route, authorization and
+rollout rules apply, ordinary Web and default cloud behavior is unchanged, and
+these additions include no database migration or dependency.
+
+To check this path, run `pnpm test:desktop:postgres` with the prepared runtime
+for the packaged Mac leg, `pnpm desktop:whitebox` for the native WKWebView
+continuation and device-journey regressions, and
+`pnpm --filter @linksense/shared build && pnpm --filter @linksense/api exec tsx test/integration/conversation-continuation-postgres.ts`
+for the API and database semantics in disposable PostgreSQL and Redis.
 
 On Mac, users can submit structured quotes directly in their own local side
 chats in default mode using native Responses or Responses tool compatibility,
