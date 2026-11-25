@@ -176,9 +176,7 @@ export class PrivacyMasker {
       config.words_any_case,
       config.words_whole,
     );
-    this.allow = new Set(
-      config.allow.map((value) => value.trim().toLowerCase()),
-    );
+    this.allow = new Set(config.allow.map((value) => value.trim()));
     this.actions = config.actions;
     const detectors = personalDetectors(config.phone_region);
     for (const kind of privacyMaskingPersonalKindValues) {
@@ -325,7 +323,7 @@ export class PrivacyMasker {
     let lastEnd = 0;
     for (const span of resolveOverlaps(spans)) {
       const raw = span.value;
-      if (this.allow.has(raw.toLowerCase())) continue;
+      if (this.allow.has(raw)) continue;
       const action = this.actions[span.kind] ?? "mask";
       if (action === "warn") {
         hits.push({
@@ -357,7 +355,7 @@ export class PrivacyMasker {
     const masks: Span[] = [];
     const hits: PrivacyMaskHit[] = [];
     for (const span of spans) {
-      if (this.allow.has(span.value.toLowerCase())) continue;
+      if (this.allow.has(span.value)) continue;
       const action = span.action ?? this.actions[span.kind] ?? "mask";
       if (action === "mask") {
         masks.push(span);

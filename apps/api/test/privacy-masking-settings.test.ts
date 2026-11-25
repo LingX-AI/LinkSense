@@ -190,6 +190,29 @@ describe("privacy masking settings", () => {
     });
   });
 
+  it("preserves distinct allowlist spellings across save, read, and runner settings", async () => {
+    const f = fixture();
+    const draft = settings({
+      allow: ["  DemoValue-123!  ", "demovalue-123!", "DemoValue-123!"],
+    });
+    const saved = await f.service.updateForUser(
+      userA,
+      { expected_revision: 0, settings: draft },
+      {},
+    );
+
+    const allow = ["DemoValue-123!", "demovalue-123!"];
+    expect(saved.settings.allow).toEqual(allow);
+    await expect(f.service.getForUser(userA)).resolves.toMatchObject({
+      revision: 1,
+      settings: { allow },
+    });
+    await expect(f.service.runtimeForUser(userA)).resolves.toMatchObject({
+      revision: 1,
+      allow,
+    });
+  });
+
   it("fails closed when the stored settings cannot be decrypted", async () => {
     const f = fixture();
     await f.service.updateForUser(
@@ -237,6 +260,19 @@ describe("privacy masking settings", () => {
     expect(otherUser.text).not.toBe(first.text);
   });
 
+  it("previews only the exact allowlisted spelling as unmasked in a draft", async () => {
+    const f = fixture();
+    const preview = await f.service.previewForUser(userA, {
+      text: "password=DemoValue-123!\npassword=demovalue-123!",
+      settings: settings({ allow: ["DemoValue-123!"] }),
+    });
+
+    expect(preview.text).toMatch(
+      /^password=DemoValue-123!\npassword=\{\{SECRET_[a-f0-9]{16}\}\}$/u,
+    );
+    expect(f.rows.size).toBe(0);
+  });
+
   it("validates the settings before storing them", async () => {
     const f = fixture();
     await expect(
@@ -276,7 +312,7 @@ describe("privacy masking settings", () => {
       words_any_case: true,
       words_whole: true,
       actions: {},
-      allow: [],
+      allow: ["DemoValue-123!"],
     };
     fixtureData.rows.set(userA, {
       encryptedSettings: encryptJson(
@@ -292,9 +328,11 @@ describe("privacy masking settings", () => {
     const saved = await fixtureData.service.getForUser(userA);
     expect(saved).toEqual({ revision: 7, settings: legacy });
     await expect(fixtureData.service.previewForUser(userA, {
-      text: "Nightjar contacts demo@example.test",
+      text: "Nightjar contacts demo@example.test\npassword=DemoValue-123!\npassword=demovalue-123!",
     })).resolves.toMatchObject({
-      text: expect.stringMatching(/^\{\{TERM_[a-f0-9]+\}\} contacts demo@example\.test$/u),
+      text: expect.stringMatching(
+        /^\{\{TERM_[a-f0-9]+\}\} contacts demo@example\.test\npassword=DemoValue-123!\npassword=\{\{SECRET_[a-f0-9]{16}\}\}$/u,
+      ),
     });
     await expect(fixtureData.service.updateForUser(userA, {
       expected_revision: saved.revision,
@@ -303,6 +341,7 @@ describe("privacy masking settings", () => {
     await expect(fixtureData.service.runtimeForUser(userA)).resolves.toMatchObject({
       revision: 8,
       words: ["Nightjar"],
+      allow: ["DemoValue-123!"],
       personal_rules: { EMAIL: "mask" },
     });
   });

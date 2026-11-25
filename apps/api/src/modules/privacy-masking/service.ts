@@ -47,7 +47,7 @@ function throwPrivacyMaskingRuleError(error: unknown): never {
 
 function uniqueValues(
   values: readonly string[],
-  anyCase = true,
+  anyCase: boolean,
 ): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -68,7 +68,7 @@ function normalize(
   return {
     ...settings,
     words: uniqueValues(settings.words, settings.words_any_case),
-    allow: uniqueValues(settings.allow),
+    allow: uniqueValues(settings.allow, false),
   };
 }
 

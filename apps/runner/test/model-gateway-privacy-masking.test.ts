@@ -507,6 +507,51 @@ describe("ModelGateway privacy masking", () => {
     expect(JSON.stringify(upstreamBody)).toContain("{{API_KEY_");
   });
 
+  it.each([true, false])(
+    "sends only exact allowlist matches unmasked with words_any_case=%s",
+    async (wordsAnyCase) => {
+      const fetchUpstream = vi.fn<typeof fetch>(async () =>
+        Response.json({
+          id: "resp-allowlist-masking",
+          object: "response",
+          status: "completed",
+          output: [],
+        }),
+      );
+      const gateway = await startGateway({ fetch: fetchUpstream });
+      const lease = gateway.issueLease({
+        ...leaseMetering,
+        conversationId: "allowlist-masking",
+        revision: 1,
+        upstreamBaseUrl: "https://provider.example.test/v1",
+        apiKey: "provider-key",
+        protocolMode: "native_responses",
+        model: "model-a",
+        privacyMasking: {
+          ...masking,
+          allow: ["DemoValue-123!"],
+          words_any_case: wordsAnyCase,
+        },
+      });
+      const input = [
+        "password=DemoValue-123!",
+        "password=demovalue-123!",
+        "password=DEMOVALUE-123!",
+        "password=DemoValue-123!Extra",
+      ].join("\n");
+
+      const response = await requestGateway(gateway, lease.token, { model: "model-a", input });
+      expect(response.status).toBe(200);
+      expect(fetchUpstream).toHaveBeenCalledOnce();
+      const outbound = String(fetchUpstream.mock.calls[0]?.[1]?.body);
+      expect(outbound).toContain("password=DemoValue-123!");
+      expect(outbound).not.toContain("demovalue-123!");
+      expect(outbound).not.toContain("DEMOVALUE-123!");
+      expect(outbound).not.toContain("DemoValue-123!Extra");
+      expect(outbound.match(/password=\{\{SECRET_[a-f0-9]{16}\}\}/gu)).toHaveLength(3);
+    },
+  );
+
   it("blocks a request with a kind set to block without calling upstream", async () => {
     const fetchUpstream = vi.fn<typeof fetch>();
     const gateway = new ModelGateway({

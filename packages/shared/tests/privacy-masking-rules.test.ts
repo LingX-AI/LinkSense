@@ -139,16 +139,20 @@ describe("advanced privacy masking", () => {
     expect(() => mask.maskText("CUS-123456")).toThrow(InvalidPrivacyMaskingRegex);
   });
 
-  it("honors an exact case-insensitive allowlisted match, including for block", () => {
-    const mask = masker({
-      allow: ["demo@example.test"],
-      personal_rules: { EMAIL: "block" },
-    });
-    const text = "Demo@example.test contacting another@example.test";
-    const result = mask.maskText(text);
-    expect(result.hits).toEqual([
-      expect.objectContaining({ kind: "EMAIL", action: "block" }),
-    ]);
-    expect(result.hits[0]?.length).toBe("another@example.test".length);
-  });
+  it.each(["mask", "block"] as const)(
+    "exempts an email from %s only when its allowlisted spelling matches exactly",
+    (action) => {
+      const mask = masker({
+        allow: ["demo@example.test"],
+        personal_rules: { EMAIL: action },
+      });
+      expect(mask.maskText("demo@example.test")).toEqual({
+        text: "demo@example.test",
+        hits: [],
+      });
+      expect(mask.maskText("Demo@example.test").hits).toEqual([
+        expect.objectContaining({ kind: "EMAIL", action }),
+      ]);
+    },
+  );
 });
