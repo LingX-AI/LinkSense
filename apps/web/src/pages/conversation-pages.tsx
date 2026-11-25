@@ -7775,7 +7775,11 @@ export function ConversationPage({
         contentRef={contentRef}
         onRegenerateMessage={handleRegenerateMessage}
         onForkMessage={
-          developmentRole === "preview" || executionBlocked || sideChatReference
+          // The service rejects local forks before the cloud runtime.
+          displayConversation.execution_target === "local" ||
+          developmentRole === "preview" ||
+          executionBlocked ||
+          sideChatReference
             ? undefined
             : handleForkMessage
         }

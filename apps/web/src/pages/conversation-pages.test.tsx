@@ -155,15 +155,18 @@ function renderRunningTurnWithExhaustedStream({
   executionTarget,
   showComposer = true,
   showHeader = true,
+  completed = false,
 }: {
-  executionTarget: "local" | "cloud"
+  executionTarget?: "local" | "cloud"
   showComposer?: boolean
   showHeader?: boolean
+  completed?: boolean
 }) {
-  const conversationId = `conversation-exhausted-${executionTarget}`
+  const conversationId = `conversation-exhausted-${executionTarget ?? "legacy"}`
   const turnId = "40000000-0000-4000-8000-000000000021"
   const startedAt = "2026-11-19T00:00:00.000Z"
   const interruptedAt = "2026-11-19T00:00:04.000Z"
+  const completedAt = "2026-11-21T00:00:04.000Z"
   const interruptRequests: Array<{ method: string; path: string }> = []
   const turnStartRequests: Array<{ method: string; path: string }> = []
   let terminal = false
@@ -226,12 +229,18 @@ function renderRunningTurnWithExhaustedStream({
     if (path.endsWith(`/conversations/${conversationId}`)) {
       const turn = {
         id: turnId,
-        status: terminal ? "interrupted" : "running",
+        status: completed
+          ? "completed"
+          : terminal
+            ? "interrupted"
+            : "running",
         collaboration_mode: "default",
         started_at: startedAt,
-        ...(terminal
-          ? { completed_at: interruptedAt, interrupted_at: interruptedAt }
-          : {}),
+        ...(completed
+          ? { completed_at: completedAt }
+          : terminal
+            ? { completed_at: interruptedAt, interrupted_at: interruptedAt }
+            : {}),
       }
       return Promise.resolve(
         envelope({
@@ -239,8 +248,12 @@ function renderRunningTurnWithExhaustedStream({
           id: conversationId,
           title: "本地运行任务",
           archived: false,
-          execution_target: executionTarget,
-          execution_status: terminal ? "interrupted" : "running",
+          ...(executionTarget ? { execution_target: executionTarget } : {}),
+          execution_status: completed
+            ? "completed"
+            : terminal
+              ? "interrupted"
+              : "running",
           updated_at: startedAt,
           messages: [
             {
@@ -250,9 +263,20 @@ function renderRunningTurnWithExhaustedStream({
               content: "继续处理这个任务",
               created_at: startedAt,
             },
+            ...(completed
+              ? [
+                  {
+                    id: "message-terminal-assistant",
+                    role: "assistant",
+                    turn_id: turnId,
+                    content: "任务已完成。",
+                    created_at: completedAt,
+                  },
+                ]
+              : []),
           ],
           turns: [turn],
-          running_turn: terminal ? null : turn,
+          running_turn: completed || terminal ? null : turn,
           pending_requests: [],
           attachments: [],
           artifacts: [],
@@ -262,16 +286,17 @@ function renderRunningTurnWithExhaustedStream({
     return Promise.resolve(new Response(null, { status: 404 }))
   })
   vi.stubGlobal("fetch", fetchMock)
-  writeNativeReconnectSnapshot(window.localStorage, {
-    version: 2,
-    conversationId,
-    turnId,
-    phase: "failed",
-    round: 3,
-    attempt: 5,
-    startedAtMs: Date.now() - 75_000,
-    nextAttemptAtMs: null,
-  })
+  if (!completed)
+    writeNativeReconnectSnapshot(window.localStorage, {
+      version: 2,
+      conversationId,
+      turnId,
+      phase: "failed",
+      round: 3,
+      attempt: 5,
+      startedAtMs: Date.now() - 75_000,
+      nextAttemptAtMs: null,
+    })
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -312,6 +337,13 @@ function renderRunningTurnWithExhaustedStream({
         exact: true,
       }),
   }
+}
+
+function renderTerminalTask(executionTarget?: "local" | "cloud") {
+  return renderRunningTurnWithExhaustedStream({
+    executionTarget,
+    completed: true,
+  })
 }
 
 function conversation(id: string, title: string) {
@@ -2048,6 +2080,32 @@ describe("conversation knowledge base snapshots", () => {
       )
     ).toBeVisible()
   })
+
+  it.each([
+    { name: "local", executionTarget: "local" as const, showsBranch: false },
+    { name: "cloud", executionTarget: "cloud" as const, showsBranch: true },
+    { name: "legacy cloud", executionTarget: undefined, showsBranch: true },
+  ])(
+    "offers Branch only for terminal cloud tasks ($name)",
+    async ({ executionTarget, showsBranch }) => {
+      renderTerminalTask(executionTarget)
+      const reply = await screen.findByRole("article", { name: "助手回复" })
+      expect(
+        within(reply).getByRole("button", { name: "复制消息" })
+      ).toBeVisible()
+      const branchButton = within(reply).queryByRole("button", {
+        name: "分支到新聊天",
+      })
+      if (showsBranch) expect(branchButton).toBeVisible()
+      else expect(branchButton).toBeNull()
+      expect(
+        within(screen.getByRole("article", { name: "用户消息" })).getByRole(
+          "button",
+          { name: "编辑消息" }
+        )
+      ).toBeVisible()
+    }
+  )
 
   it("consumes submitted Skills and attachments immediately, keeps them hidden across stale refetches, and restores them only after failure", async () => {
     const turnResponse = createDeferred<Response>()
