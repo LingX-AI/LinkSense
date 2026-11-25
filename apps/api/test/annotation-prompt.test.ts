@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildOfficeAnnotationRunnerContext,
+  taskReferencesDisplayFromPersistedPrompt,
   OFFICE_ANNOTATION_PROMPT_MARKER,
   PRESENTATION_ANNOTATION_PROMPT_MARKER,
 } from "../src/modules/conversations/annotation-prompt.js";
@@ -48,6 +49,30 @@ describe("buildOfficeAnnotationRunnerContext", () => {
     expect(context.officeSelectionContext).toBe(prompt);
     expect(context.userInput).toContain(`User requests:\n${request}`);
     expect(context.userInput).not.toContain(privateValue);
+  });
+
+  it("passes only trusted local task-reference IDs and titles to the Mac", () => {
+    const source = "11111111-1111-4111-8111-111111111111";
+    const display = {
+      kind: "task_references" as const,
+      request: "Compare the selected tasks",
+      conversation_ids: [source],
+      sources: [{ id: source, title: "Untrusted source title" }],
+    };
+    const prompt = `${OFFICE_ANNOTATION_PROMPT_MARKER}\nDisplay metadata:\n${JSON.stringify(display)}\n\nAnnotation fingerprint:\n${"a".repeat(64)}\n\nUser request:\n${display.request}\n\nSource history:\nprivate history and /private/path`;
+    const context = buildOfficeAnnotationRunnerContext(prompt, display);
+
+    expect(context.officeSelectionContext).toBeUndefined();
+    expect(context.userInput).toContain(display.request);
+    expect(context.userInput).toContain(source);
+    expect(context.userInput).toContain("Untrusted source title");
+    expect(context.userInput).toContain("untrusted IDs and titles");
+    expect(context.userInput).not.toContain("private history");
+    expect(context.userInput).not.toContain("/private/path");
+    expect(taskReferencesDisplayFromPersistedPrompt(prompt, display)).toEqual(display);
+    expect(taskReferencesDisplayFromPersistedPrompt(prompt, {
+      ...display, request: "A forged request",
+    })).toBeNull();
   });
 
   it("fails closed when a recognized marker has no extractable request", () => {

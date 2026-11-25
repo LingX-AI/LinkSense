@@ -23,11 +23,13 @@ import {
   desktopApprovalDetailsSchema,
   desktopArtifactReceiptSchema,
   desktopAttachmentDownloadPath,
+  desktopConversationReferenceReadOperation,
   desktopModelPurposeSchema,
   desktopModelTokenSchema,
   knowledgeDocumentListSuccessSchema,
   knowledgeDocumentMarkdownSuccessSchema,
   knowledgeSearchSuccessSchema,
+  readConversationReferenceResultSchema,
   RUNNER_TURN_INTERRUPT_REQUESTED,
   type BrowserUseRequest,
   type DesktopArtifactReceipt,
@@ -77,6 +79,12 @@ const memoryFixtureModel = "desktop-memory-fixture";
 const memoryExtractionModel = "desktop-memory-extractor";
 const memorySeedPrompt = "Remember this fixture preference: write short answers.";
 const memoryForegroundPrompt = "Start a fresh Mac memory fixture turn.";
+const continuationRequest = `Continue the selected task using its recorded result (${randomUUID()}).`;
+const continuationMarker = `continuation-history-${randomUUID()}`;
+const continuationUserText = `Fixture question containing ${continuationMarker}`;
+const continuationAssistantText = `Fixture recorded answer containing ${continuationMarker}`;
+const continuationWrongMarker = `unselected-history-${randomUUID()}`;
+const continuationIdempotencyKey = `desktop-continuation-${randomUUID()}`;
 
 export async function verifyPackagedDesktopGateway(input: {
   runtimeRoot: string;
@@ -152,7 +160,7 @@ export async function verifyPackagedDesktopGateway(input: {
   const websiteCss = "h1{color:rebeccapurple}";
   const websiteAssets = ["assets/theme.css", "index.html"];
   const model = Fastify();
-  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, browser: 0, aborted: false };
+  const modelRequests = { read: 0, artifact: 0, interrupt: 0, interruptApproval: 0, nativeApproval: 0, browser: 0, continuation: 0, aborted: false };
   const foreground = new AbortController();
   const foregroundReleased = new Promise<void>(resolve =>
     foreground.signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -167,6 +175,11 @@ export async function verifyPackagedDesktopGateway(input: {
   let extension: DesktopBrowserExtensionFixture | undefined;
   let sharedTab: number | undefined;
   let sharedClick: Extract<BrowserUseRequest, { action: "click" }> | undefined;
+  let continuationSourceId: string | undefined;
+  let continuationWrongSourceId: string | undefined;
+  let continuationSourceThreadId: string | undefined;
+  let continuationDestinationId: string | undefined;
+  const continuationToolReads: string[] = [];
   model.setErrorHandler((error, _request, reply) => {
     modelFailure = error instanceof assert.AssertionError
       ? `Synthetic provider: ${error.message}`
@@ -217,6 +230,79 @@ export async function verifyPackagedDesktopGateway(input: {
         await foregroundReleased;
         yield stream.slice(firstFrameEnd);
       })()));
+    }
+    const continuation = text.includes(continuationRequest);
+    if (continuation) {
+      const sourceId = continuationSourceId;
+      const wrongSourceId = continuationWrongSourceId;
+      const sourceThreadId = continuationSourceThreadId;
+      assert(sourceId && wrongSourceId && sourceThreadId, "the continuation fixture source was not seeded");
+      const call = ++modelRequests.continuation;
+      const group = body.tools?.find(tool => tool.type === "namespace" &&
+        tool.tools?.some(member => member.type === "function" && member.name === "read_referenced_conversation"));
+      const callTool = (name: string, args: object) => {
+        assert(group?.name && group.tools?.some(member => member.type === "function" && member.name === name),
+          `Continuation tool unavailable: ${name}`);
+        return reply.type("text/event-stream").send(responseStream({
+          id: `fixture-continuation-${call}`, type: "function_call", call_id: `fixture-continuation-${call}`, name,
+          namespace: group.name, arguments: JSON.stringify(args), status: "completed",
+        }));
+      };
+      if (call === 1) {
+        assert(text.includes(sourceId), "the continuation prompt did not carry the referenced source id");
+        assert(!text.includes(continuationMarker), "source history leaked into the first native request");
+        assert(!text.includes(continuationWrongMarker), "an unselected source leaked into the first native request");
+        assert(!text.includes(wrongSourceId), "the first native request named an unselected source");
+        assert(!text.includes(sourceThreadId), "the source native thread leaked into the continuation prompt");
+        const destinationId = continuationDestinationId;
+        assert(destinationId, "the continuation destination was not recorded");
+        // Do not race the device lane's start projection: the reference endpoint
+        // authorizes a running turn against the projected destination thread.
+        const projectionDeadline = Date.now() + 25_000;
+        for (;;) {
+          const destination = await prisma.conversation.findUnique({
+            where: { id: destinationId }, select: { codexThreadId: true },
+          });
+          const turn = destination?.codexThreadId
+            ? await prisma.conversationTurn.findFirst({
+                where: { conversationId: destinationId, status: "running" }, select: { codexThreadId: true },
+              })
+            : null;
+          if (destination?.codexThreadId && turn?.codexThreadId === destination.codexThreadId) break;
+          if (modelFailure) throw new Error(modelFailure);
+          if (nativeExited) throw new Error("Mac bridge exited while waiting for the continuation start projection");
+          if (Date.now() >= projectionDeadline) throw new Error("timed out waiting for the continuation start projection");
+          await delay(60);
+        }
+        continuationToolReads.push(sourceId);
+        return callTool("read_referenced_conversation", { conversation_id: sourceId, mode: "history" });
+      }
+      if (call === 2) {
+        const history = readConversationReferenceResultSchema.parse(toolOutput(body.input, "fixture-continuation-1"));
+        assert.equal(history.conversation_id, sourceId);
+        assert.deepEqual(history.messages.map(message => ({ role: message.role, text: message.text })), [
+          { role: "user", text: continuationUserText },
+          { role: "assistant", text: continuationAssistantText },
+        ], "the referenced history did not return the canonical visible user/assistant source messages");
+        assert.equal(history.next_cursor, null);
+        assert.equal(history.next_offset, 0);
+        assert(text.includes(continuationMarker), "the next native request did not contain the returned source history");
+        continuationToolReads.push(wrongSourceId);
+        return callTool("read_referenced_conversation", { conversation_id: wrongSourceId, mode: "history" });
+      }
+      assert.equal(call, 3, "the continuation turn made an unexpected model request");
+      const failure = z.object({ code: z.string(), retryable: z.boolean() })
+        .parse(toolOutput(body.input, "fixture-continuation-2"));
+      assert.equal(failure.code, "CONVERSATION_REFERENCE_UNAVAILABLE");
+      assert.equal(failure.retryable, false);
+      assert(!JSON.stringify(failure).includes(continuationWrongMarker),
+        "the unselected source history was returned");
+      assert(!text.includes(continuationWrongMarker),
+        "the unselected source history reached native inference");
+      return reply.type("text/event-stream").send(responseStream({
+        id: "fixture-continuation-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
+        content: [{ type: "output_text", text: "The referenced history was read and the unselected source was denied.", annotations: [] }],
+      }));
     }
     if (text.includes(interruptPrompt)) {
       modelRequests.interrupt++;
@@ -950,6 +1036,219 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.match((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "index.html")).data.toString(),
       /href="\.\/assets\/theme\.css"/u);
     assert.equal((await input.websites.resource(publishedWebsite.slug, publishedWebsite.release_id, "assets/theme.css")).data.toString(), websiteCss);
+
+    // Only cloud-to-local is exercised here: this packaged Mac fixture owns one
+    // local runtime and no cloud runner. The API DB suite covers both
+    // continuation directions; this is not a reverse or production acceptance.
+    const seedContinuationSource = async (title: string, userText: string, assistantText: string) => {
+      const id = randomUUID();
+      const threadId = randomUUID();
+      const turnId = randomUUID();
+      const codexTurnId = randomUUID();
+      await prisma.conversation.create({ data: {
+        id, ownerId, title, titleSource: "manual", archiveStatus: "active", executionTarget: "cloud",
+        workspaceRelPath: `${ownerId}/services/${id}/home/workspace`, runtimeGeneration: randomUUID(),
+        codexThreadId: threadId, lastTurnStatus: "completed", lastRunAt: new Date(),
+      } });
+      await prisma.conversationTurn.create({ data: {
+        id: turnId, conversationId: id, sequenceNo: 1, submittedBy: ownerId, codexThreadId: threadId,
+        codexTurnId, status: "completed", submitMode: "normal",
+        capabilityGeneration: "0".repeat(64), capabilitiesJson: [],
+        startedAt: new Date(Date.now() - 2_000), completedAt: new Date(Date.now() - 1_000),
+      } });
+      await prisma.conversationMessage.createMany({ data: [
+        { conversationId: id, turnId, sequenceNo: 1, role: "user", contentText: userText },
+        { conversationId: id, turnId, sequenceNo: 2, role: "assistant", contentText: assistantText },
+      ] });
+      return { id, threadId, turnId, codexTurnId };
+    };
+    const continuationSource = await seedContinuationSource(
+      "Cloud task with completed history", continuationUserText, continuationAssistantText,
+    );
+    continuationSourceId = continuationSource.id;
+    continuationSourceThreadId = continuationSource.threadId;
+    await prisma.conversationFile.create({ data: {
+      conversationId: continuationSource.id, turnId: continuationSource.turnId, kind: "artifact",
+      source: "agent_generated", status: "registered", filename: "source-only.txt", mimeType: "text/plain",
+      sizeBytes: BigInt(Buffer.byteLength("source-only-file")),
+      checksumSha256: createHash("sha256").update("source-only-file").digest("hex"),
+      storageBackend: "minio", minioObjectKey: `fixtures/${randomUUID()}`, downloadable: true,
+      downloadCardEventId: randomUUID(), createdBy: ownerId,
+    } });
+    const continuationWrongSource = await seedContinuationSource(
+      "Cloud task not selected", `Unselected question containing ${continuationWrongMarker}`,
+      `Unselected answer containing ${continuationWrongMarker}`,
+    );
+    continuationWrongSourceId = continuationWrongSource.id;
+    const continuationSourceBefore = await prisma.conversation.findUniqueOrThrow({
+      where: { id: continuationSource.id },
+    });
+    const continuationSourceMessagesBefore = await prisma.conversationMessage.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { sequenceNo: "asc" },
+    });
+    const continuationSourceFilesBefore = await prisma.conversationFile.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { id: "asc" },
+    });
+    const continuationWrongBefore = await prisma.conversation.findUniqueOrThrow({
+      where: { id: continuationWrongSource.id },
+    });
+    const knownConversationIds = new Set((await prisma.conversation.findMany({
+      where: { ownerId }, select: { id: true },
+    })).map(row => row.id));
+    const knownAuditIds = new Set((await prisma.auditLog.findMany({
+      where: { actorId: ownerId }, select: { id: true },
+    })).map(row => row.id));
+    const continuationRequestId = randomUUID();
+    await conversations.continueConversation(ownerId, continuationSource.id, {
+      requestId: continuationRequestId, executionTarget: "local", desktopDeviceId: deviceId,
+    }, {});
+    const destinationRows = (await prisma.conversation.findMany({
+      where: { ownerId }, select: { id: true },
+    })).filter(row => !knownConversationIds.has(row.id));
+    assert.equal(destinationRows.length, 1, "continuation must create exactly one destination row");
+    const destinationId = destinationRows[0]!.id;
+    continuationDestinationId = destinationId;
+    const destination = await prisma.conversation.findUniqueOrThrow({ where: { id: destinationId } });
+    assert.equal(destination.ownerId, ownerId);
+    assert.equal(destination.executionTarget, "local");
+    assert.equal(destination.desktopDeviceId, deviceId);
+    assert.equal(destination.archiveStatus, "active");
+    assert.equal(destination.codexThreadId, null, "continuation must not create or reuse a native thread");
+    assert(destination.workspaceRelPath.length > 0, "continuation did not allocate a destination workspace");
+    assert.notEqual(destination.workspaceRelPath, continuationSourceBefore.workspaceRelPath);
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId: destinationId } }), 0);
+    assert.equal(await prisma.conversationTurnStartIntent.count({ where: { conversationId: destinationId } }), 0);
+    assert.equal(await prisma.conversationMessage.count({ where: { conversationId: destinationId } }), 0);
+    assert.equal(await prisma.conversationFile.count({ where: { conversationId: destinationId } }), 0);
+    assert.equal(modelRequests.continuation, 0, "continuation created a native model call before the explicit turn");
+    assert.deepEqual(await prisma.conversation.findUniqueOrThrow({ where: { id: continuationSource.id } }),
+      continuationSourceBefore, "continuation mutated the source conversation");
+    assert.deepEqual(await prisma.conversationMessage.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { sequenceNo: "asc" },
+    }), continuationSourceMessagesBefore, "continuation mutated the source history");
+    assert.deepEqual(await prisma.conversationFile.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { id: "asc" },
+    }), continuationSourceFilesBefore, "continuation mutated the source files");
+    assert.deepEqual(await prisma.conversation.findUniqueOrThrow({ where: { id: continuationWrongSource.id } }),
+      continuationWrongBefore, "continuation mutated the unselected source");
+    const continuationAudits = (await prisma.auditLog.findMany({
+      where: { actorId: ownerId }, orderBy: { createdAt: "asc" },
+    })).filter(row => !knownAuditIds.has(row.id));
+    assert.equal(continuationAudits.length, 1, "continuation must write exactly one audit row");
+    const continuationAudit = continuationAudits[0]!;
+    assert.equal(continuationAudit.action, "conversation_continued");
+    assert.equal(continuationAudit.targetType, "conversation");
+    assert.equal(continuationAudit.targetId, destinationId);
+    assert.equal(continuationAudit.result, "success");
+    assert.equal(continuationAudit.ipAddress, null);
+    assert.equal(continuationAudit.userAgent, null);
+    assert.deepEqual(continuationAudit.metadataJson, {
+      source_conversation_id: continuationSource.id, source_target: "cloud", execution_target: "local",
+    }, "the creation audit must contain only trusted source and target metadata");
+
+    const continuationReceipt = await conversations.acceptTurn(ownerId, destinationId, {
+      officeAnnotation: {
+        kind: "task_references", request: continuationRequest, conversation_ids: [continuationSource.id],
+      },
+      submitMode: "normal", idempotencyKey: continuationIdempotencyKey, priorityCapabilityIds: [],
+    }, {});
+    await waitFor("the continuation turn and slot release", async () =>
+      await status(continuationReceipt.turn_id) === "completed" &&
+      !await redis.hasTurnSlot(destinationId, continuationReceipt.turn_id, ownerId), 25_000);
+    const destinationAfter = await prisma.conversation.findUniqueOrThrow({ where: { id: destinationId } });
+    assert(destinationAfter.codexThreadId, "the continuation turn did not establish a native thread");
+    assert.notEqual(destinationAfter.codexThreadId, continuationSource.threadId,
+      "the destination reused the source native thread");
+    assert.notEqual(destinationAfter.codexThreadId, continuationWrongSource.threadId,
+      "the destination reused an unselected source native thread");
+    const destinationTurn = await prisma.conversationTurn.findFirstOrThrow({
+      where: { conversationId: destinationId },
+    });
+    assert.equal(destinationTurn.codexThreadId, destinationAfter.codexThreadId);
+    assert.notEqual(destinationTurn.codexTurnId, continuationSource.codexTurnId,
+      "the destination reused the source native turn");
+    assert.equal(await prisma.conversationTurn.count({ where: { conversationId: destinationId } }), 1);
+    assert.deepEqual(await prisma.conversation.findUniqueOrThrow({ where: { id: continuationSource.id } }),
+      continuationSourceBefore, "the continuation turn mutated the source conversation");
+    assert.deepEqual(await prisma.conversationMessage.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { sequenceNo: "asc" },
+    }), continuationSourceMessagesBefore, "the continuation turn mutated the source history");
+    assert.deepEqual(await prisma.conversationFile.findMany({
+      where: { conversationId: continuationSource.id }, orderBy: { id: "asc" },
+    }), continuationSourceFilesBefore, "the continuation turn mutated the source files");
+    assert.deepEqual(await prisma.conversation.findUniqueOrThrow({ where: { id: continuationWrongSource.id } }),
+      continuationWrongBefore, "the continuation turn mutated the unselected source");
+    assert.equal(await prisma.conversationFile.count({ where: { conversationId: destinationId } }), 0,
+      "continuation copied a source file into the destination");
+    const destinationMessages = await prisma.conversationMessage.findMany({
+      where: { conversationId: destinationId }, orderBy: { sequenceNo: "asc" },
+      select: { role: true, contentText: true },
+    });
+    assert.deepEqual(destinationMessages.map(message => message.role), ["user", "assistant"]);
+    assert(!destinationMessages[0]!.contentText.includes(continuationMarker),
+      "the destination user message embedded source history");
+    assert.equal(destinationMessages[1]!.contentText.trimEnd(),
+      "The referenced history was read and the unselected source was denied.");
+    const continuationGrants = await prisma.conversationEvent.findMany({
+      where: {
+        conversationId: destinationId, turnId: continuationReceipt.turn_id,
+        eventType: "conversation.message.display_context",
+      },
+      select: { payloadJson: true, visibility: true },
+    });
+    assert.equal(continuationGrants.length, 1, "the continuation turn must write exactly one user grant");
+    assert.equal(continuationGrants[0]!.visibility, "internal_sanitized");
+    const continuationGrant = z.object({
+      schema_version: z.literal(1), message_id: z.uuid(),
+      display: z.object({
+        kind: z.literal("task_references"), request: z.literal(continuationRequest),
+        conversation_ids: z.array(z.uuid()),
+      }),
+    }).parse(continuationGrants[0]!.payloadJson);
+    assert.deepEqual(continuationGrant.display.conversation_ids, [continuationSource.id]);
+    assert(!JSON.stringify(continuationGrant).includes(continuationMarker),
+      "the user grant embedded source history");
+    assert.deepEqual(continuationToolReads, [continuationSource.id, continuationWrongSource.id],
+      "the continuation turn attempted an unexpected tool operation");
+    assert.equal(modelRequests.continuation, 3, "the continuation turn made an extra model attempt");
+    assert.equal(modelRequests.read, 16 + connectorPages);
+    assert.equal(await prisma.conversationUserInputRequest.count({ where: { conversationId: destinationId } }), 0);
+    assert.equal(await prisma.conversationDesktopApproval.count({ where: { conversationId: destinationId } }), 0);
+    const toolAudits = await prisma.auditLog.findMany({
+      where: {
+        action: "desktop_tool_requested",
+        OR: [
+          { actorId: ownerId, id: { notIn: [...knownAuditIds] } },
+          { metadataJson: { path: ["turn_id"], equals: continuationReceipt.turn_id } },
+        ],
+      },
+      orderBy: { result: "desc" },
+      select: {
+        actorId: true, targetType: true, targetId: true, result: true, metadataJson: true, ipAddress: true, userAgent: true,
+      },
+    });
+    const readIds = new Set<string>();
+    const readAudits = toolAudits.map(({ targetId, ...audit }) => {
+      const requestId = z.uuid().parse(targetId);
+      assert(requestId !== continuationSource.id && requestId !== continuationWrongSource.id,
+        "the read audit must identify the tool request, not the requested source");
+      readIds.add(requestId);
+      return audit;
+    });
+    const readAudit = { actorId: ownerId, targetType: "conversation_reference", ipAddress: null, userAgent: null };
+    const readMetadata = {
+      operation: desktopConversationReferenceReadOperation,
+      conversation_id: destinationId, turn_id: continuationReceipt.turn_id, device_id: deviceId,
+    };
+    assert.deepEqual(readAudits, [
+      { ...readAudit, result: "success", metadataJson: readMetadata },
+      { ...readAudit, result: "failure", metadataJson: { ...readMetadata, reason_code: "FORBIDDEN" } },
+    ], "only the two reference attempts may be audited, with no request or result content");
+    assert.equal(readIds.size, 2, "the two attempts must have distinct tool request IDs");
+    assert.equal(await prisma.auditLog.count({
+      where: { actorId: ownerId, action: "conversation_continued" },
+    }), 1, "the continuation wrote more than one continuation audit");
+    console.log("Packaged Mac continuation passed: cloud source to local destination, one explicit task-reference grant, one native history read, bounded denial for an unselected source, and no source mutation or file copy.");
 
     const approvalConversation = await task("Packaged Mac native approvals");
     const approvalTurn = await conversations.acceptTurn(ownerId, approvalConversation.id,

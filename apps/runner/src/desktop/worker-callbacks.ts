@@ -5,10 +5,10 @@ import {
   browserUseFailure, browserUseRequestSchema, computerExecuteInputSchema, desktopArtifactMaxBytes, desktopArtifactPrepareSchema,
   desktopArtifactSourceBindingSchema,
   desktopArtifactUploadLifetimeMs, desktopBrowserScreenshotMaxBytes, desktopBrowserScreenshotPath,
-  desktopConnectionRequestBodySchema, desktopExecutionMaxFrameBytes, desktopWebsiteArtifactPrepareSchema,
+  desktopConnectionRequestBodySchema, desktopConversationReferenceReadOperation, desktopExecutionMaxFrameBytes, desktopWebsiteArtifactPrepareSchema,
   errorCatalog, internalKnowledgeDocumentListRequestSchema,
   internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
-  runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
+  readConversationReferenceInputSchema, runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
   type ComputerExecuteResult, type ComputerFailureCode, type DesktopToolResult,
 } from "@linksense/shared"
 import { z } from "zod"
@@ -306,6 +306,8 @@ export function desktopWorkerCallbacks(
     ({ request }) => ({ operation: "connection.execute", body: request }), 40_000)
   registerTool("/internal/browser-use/execute", toolScope.extend({ input: browserUseRequestSchema }),
     ({ input }) => ({ operation: "browser.execute", body: input }), 64_000)
+  registerTool("/internal/conversation-references/read", toolScope.extend({ input: readConversationReferenceInputSchema }),
+    ({ input }) => ({ operation: desktopConversationReferenceReadOperation, body: input }))
   // Worker -> supervisor loopback only. The API must keep using the existing
   // desktop device WebSocket for this operation and must not add an HTTP relay.
   // The worker secret plus the bound run authenticate this request; the act's

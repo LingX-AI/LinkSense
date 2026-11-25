@@ -33,6 +33,7 @@ import {
 } from "@/api/contracts"
 import { apiRequest, refreshSession } from "@/api/client"
 import {
+  beginLoginSession,
   getAccessToken,
   getLoginSessionBoundary,
   setAccessToken,
@@ -41,6 +42,7 @@ import { AuthProvider } from "@/app/auth-context"
 import { useAuth } from "@/app/auth-state"
 import { BootstrapContext, bootstrapQueryKey } from "@/app/bootstrap-state"
 import {
+  localConversationDraftStorageKey,
   readLocalConversationDraft,
   writeLocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
@@ -81,6 +83,7 @@ const deviceStatusMock = vi.hoisted(() => {
     state: "unpaired" | "connecting" | "online" | "offline" | "revoked"
     deviceId?: string
     executionReady?: boolean
+    conversationReferenceReadReady?: boolean
   }
   type Snapshot = { data: Status | undefined; isError: boolean }
   let value: Snapshot = { data: undefined, isError: false }
@@ -182,6 +185,7 @@ function readyDeviceStatus(
     state: "online",
     deviceId: "device-1",
     executionReady: true,
+    conversationReferenceReadReady: true,
     ...overrides,
   }
 }
@@ -436,6 +440,9 @@ function installApi(
     deferTurnStart?: boolean
     createUnauthorizedOnce?: boolean
     turnUnauthorizedOnce?: boolean
+    continuationResponse?: unknown
+    deferContinuation?: boolean
+    continuationUnauthorizedOnce?: boolean
     deferLogout?: boolean
     deferConversationDetail?: boolean
     deferReference?: boolean
@@ -446,6 +453,7 @@ function installApi(
 ) {
   const prewarms: { body: unknown; response: DeferredResponse }[] = []
   const createResponses: DeferredResponse[] = []
+  const continuationResponses: DeferredResponse[] = []
   const turnStarts: DeferredResponse[] = []
   const logoutResponses: DeferredResponse[] = []
   const conversationDetailResponses: DeferredResponse[] = []
@@ -454,6 +462,7 @@ function installApi(
   const refreshResponse = options.deferRefresh ? createDeferredResponse() : null
   let createAttempts = 0
   let turnAttempts = 0
+  let continuationAttempts = 0
   const createdBodies: unknown[] = []
   const requests: {
     path: string
@@ -537,6 +546,24 @@ function installApi(
             ? json(options.createResponse)
             : errorEnvelope(503, "RUNNER_UNAVAILABLE")
         )
+      }
+      const continuationMatch =
+        method === "POST" &&
+        /^\/api\/v1\/conversations\/[^/]+\/continuations$/u.test(path)
+      if (continuationMatch) {
+        continuationAttempts += 1
+        if (
+          options.continuationUnauthorizedOnce &&
+          continuationAttempts === 1
+        ) {
+          return Promise.resolve(errorEnvelope(401, "AUTH_SESSION_EXPIRED"))
+        }
+        if (options.deferContinuation) {
+          const response = createDeferredResponse()
+          continuationResponses.push(response)
+          return response.promise
+        }
+        return Promise.resolve(json(options.continuationResponse, 201))
       }
       const turnStartMatch =
         method === "POST" &&
@@ -727,6 +754,7 @@ function installApi(
   return {
     prewarms,
     createResponses,
+    continuationResponses,
     turnStarts,
     createdBodies,
     requests,
@@ -760,6 +788,14 @@ function installApi(
       await act(async () => {
         request.response.resolve(response)
         await request.response.promise
+      })
+    },
+    async resolveContinuation(index = 0, response?: Response) {
+      const request = continuationResponses[index]
+      if (!request) throw new Error("continuation request missing")
+      await act(async () => {
+        request.resolve(response ?? json(options.continuationResponse, 201))
+        await request.promise
       })
     },
     async resolveCreate(index = 0, response?: Response) {
@@ -898,6 +934,10 @@ function installRefreshRaceApi() {
 
 type ConversationPageProps = Partial<ComponentProps<typeof ConversationPage>>
 
+const testNavigation: { current: ((to: string) => void) | null } = {
+  current: null,
+}
+
 function ConversationPageWithNavigation({
   pageProps,
 }: {
@@ -905,6 +945,12 @@ function ConversationPageWithNavigation({
 }) {
   const navigate = useNavigate()
   const location = useLocation()
+  useEffect(() => {
+    testNavigation.current = (to) => navigate(to)
+    return () => {
+      testNavigation.current = null
+    }
+  }, [navigate])
   return (
     <>
       <span aria-hidden="true" data-testid="conversation-route">
@@ -1761,10 +1807,7 @@ describe("conversation execution target", () => {
       await interaction.keyboard("{Escape}")
 
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000010"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000010")
 
       const input = screen.getByRole("textbox", { name: "任务输入框" })
       await interaction.type(input, "云端仍然可用")
@@ -2162,8 +2205,7 @@ describe("conversation execution target", () => {
           message: { content: "缓存属于第二个提交" },
         })
         expect(
-          readLocalConversationDraft(window.localStorage, "user-1", "new")
-            .input
+          readLocalConversationDraft(window.localStorage, "user-1", "new").input
         ).toBe("缓存属于第二个提交")
         expect(fixture.createdBodies).toHaveLength(0)
 
@@ -2185,8 +2227,7 @@ describe("conversation execution target", () => {
           message: { content: "缓存属于第二个提交" },
         })
         expect(
-          readLocalConversationDraft(window.localStorage, "user-1", "new")
-            .input
+          readLocalConversationDraft(window.localStorage, "user-1", "new").input
         ).toBe("缓存属于第二个提交")
         expect(await screen.findByText("缓存属于第二个提交")).toBeVisible()
         expect(fixture.createdBodies).toHaveLength(1)
@@ -3464,10 +3505,7 @@ describe("conversation execution target", () => {
       })
 
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000026"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000026")
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
       await interaction.type(input, "暂停的目标")
       const addMenu = await screen.findByRole("button", { name: "添加内容" })
@@ -3534,10 +3572,7 @@ describe("conversation execution target", () => {
       })
 
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000027"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000027")
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
       await interaction.type(input, "附件草稿")
       const attachInput = screen.getByLabelText("添加附件")
@@ -3620,10 +3655,7 @@ describe("conversation execution target", () => {
       })
 
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000028"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000028")
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
       await interaction.type(input, "引用草稿")
       const addMenu = await screen.findByRole("button", { name: "添加内容" })
@@ -3778,7 +3810,10 @@ describe("conversation execution target", () => {
 
     it("keeps an accepted fresh Mac create after the task page navigates away", async () => {
       deviceStatusMock.setData(readyDeviceStatus())
-      const created = conversationDetail("new-cloud-navigation-success", "cloud")
+      const created = conversationDetail(
+        "new-cloud-navigation-success",
+        "cloud"
+      )
       const fixture = installApi({
         deferCreate: true,
         createResponse: created,
@@ -3857,13 +3892,9 @@ describe("conversation execution target", () => {
       })
       await fixture.resolveRefresh()
 
-      await waitFor(() =>
-        expect(getAccessToken()).toBe(refreshedAccessToken)
-      )
+      await waitFor(() => expect(getAccessToken()).toBe(refreshedAccessToken))
       expect(fixture.prewarms).toHaveLength(1)
-      expect(
-        screen.getByRole("textbox", { name: "任务输入框" })
-      ).toBeVisible()
+      expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
     })
 
     it("rechecks the rollout at the actual prewarm start, not only at render", async () => {
@@ -3899,10 +3930,7 @@ describe("conversation execution target", () => {
         document.dispatchEvent(new Event("visibilitychange"))
       })
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000012"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000012")
     })
 
     it("claims an in-flight prewarm that succeeds while the cloud entry is closed", async () => {
@@ -4071,10 +4099,7 @@ describe("conversation execution target", () => {
       await fixture.resolveRefresh()
       await waitFor(() => expect(fixture.prewarms).toHaveLength(2))
       expect(fixture.prewarms[1]?.body).toEqual(fixture.prewarms[0]?.body)
-      await fixture.resolvePrewarm(
-        1,
-        "71000000-0000-4000-8000-000000000013"
-      )
+      await fixture.resolvePrewarm(1, "71000000-0000-4000-8000-000000000013")
     })
 
     it("applies the same create gate to an attachment upload", async () => {
@@ -4189,10 +4214,7 @@ describe("conversation execution target", () => {
       })
 
       await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
-      await fixture.resolvePrewarm(
-        0,
-        "71000000-0000-4000-8000-000000000011"
-      )
+      await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000011")
       expect(screen.queryByText(zh.noTargetAvailable)).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: /运行位置/u })
@@ -4239,6 +4261,1009 @@ describe("conversation execution target", () => {
       )
       expect(fixture.createdBodies).toHaveLength(0)
       expect(readDesktopDeviceMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("cross-target continuation", () => {
+    const zh = desktopExecutionMessages["zh-CN"]
+    const sourceId = "10000000-0000-4000-8000-000000000101"
+    const destinationId = "10000000-0000-4000-8000-000000000102"
+    const localDeviceId = "10000000-0000-4000-8000-000000000201"
+    const otherDeviceId = "10000000-0000-4000-8000-000000000202"
+    const continuationOwnerId = "10000000-0000-4000-8000-000000000301"
+    const otherOwnerId = "10000000-0000-4000-8000-000000000302"
+    const otherTaskId = "10000000-0000-4000-8000-000000000104"
+
+    beforeEach(() => {
+      authMock.user = { ...authMock.initial, id: continuationOwnerId }
+    })
+
+    function continuationRequests(fixture: ReturnType<typeof installApi>) {
+      return fixture.requests.filter(
+        (request) =>
+          request.method === "POST" &&
+          /^\/api\/v1\/conversations\/[^/]+\/continuations$/u.test(request.path)
+      )
+    }
+
+    function continuationBody(
+      fixture: ReturnType<typeof installApi>,
+      index = 0
+    ) {
+      return continuationRequests(fixture)[index]?.body as
+        Record<string, unknown> | undefined
+    }
+
+    async function openTaskActions(
+      interaction: ReturnType<typeof userEvent.setup>
+    ) {
+      const banner = screen.getByRole("banner")
+      await interaction.click(
+        within(banner).getByRole("button", {
+          name: i18n.t("common.actions"),
+        })
+      )
+    }
+
+    async function openLocalContinuation(
+      interaction: ReturnType<typeof userEvent.setup>
+    ) {
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      return screen.findByRole("dialog")
+    }
+
+    function confirmLocalButton(dialog: HTMLElement) {
+      return within(dialog).getByRole("button", {
+        name: i18n.t("desktopExecution.continuationConfirm", {
+          destination: zh.continuationDestinationLocal,
+        }),
+      })
+    }
+
+    function continuationConversation(
+      id: string,
+      target: "cloud" | "local",
+      deviceId: string | null,
+      overrides: Record<string, unknown> = {}
+    ) {
+      return {
+        id,
+        owner_id: continuationOwnerId,
+        title: "新任务",
+        title_source: "generated",
+        archive_status: "active",
+        archived_at: null,
+        pinned_at: null,
+        project_id: null,
+        sort_order: null,
+        codex_thread_id: null,
+        agents_template_version: null,
+        collaboration_mode: "default",
+        last_turn_status: null,
+        execution_status: "idle",
+        last_run_at: null,
+        has_unread_completion: false,
+        has_automation: false,
+        application_development_role: null,
+        selected_knowledge_base_ids: [],
+        application: null,
+        created_at: "2026-11-25T00:00:00.000Z",
+        updated_at: "2026-11-25T00:00:00.000Z",
+        execution_target: target,
+        desktop_device_id: deviceId,
+        ...overrides,
+      }
+    }
+
+    it("confirms before creating, keeps the source, and seeds one reference", async () => {
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: localDeviceId })
+      )
+      writeLocalConversationDraft(
+        window.localStorage,
+        continuationOwnerId,
+        sourceId,
+        {
+          input: "原任务草稿",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+        }
+      )
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+            execution_status: "running",
+          }),
+          [destinationId]: conversationDetail(destinationId, "local", {
+            title: "新任务",
+          }),
+        },
+        deferContinuation: true,
+        continuationResponse: {
+          conversation: continuationConversation(
+            destinationId,
+            "local",
+            localDeviceId
+          ),
+          source: { id: sourceId, title: "云任务" },
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`, undefined, {
+        navigation: true,
+      })
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      const entry = await screen.findByRole("menuitem", {
+        name: zh.continueOnThisMac,
+      })
+      expect(entry).toBeVisible()
+      await interaction.click(entry)
+
+      const dialog = await screen.findByRole("dialog")
+      expect(
+        within(dialog).getByText(
+          i18n.t("desktopExecution.continuationTitle", {
+            destination: zh.continuationDestinationLocal,
+          })
+        )
+      ).toBeVisible()
+      expect(
+        within(dialog).getByText(zh.continuationOriginalAndFiles)
+      ).toBeVisible()
+      expect(continuationRequests(fixture)).toHaveLength(0)
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("common.cancel"),
+        })
+      )
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      )
+      expect(continuationRequests(fixture)).toHaveLength(0)
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      const confirmation = await screen.findByRole("dialog")
+      await interaction.click(
+        within(confirmation).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+      )
+
+      const pendingButton = await within(confirmation).findByRole("button", {
+        name: zh.continuationPending,
+      })
+      expect(pendingButton).toBeDisabled()
+      expect(
+        within(confirmation).getByRole("button", {
+          name: i18n.t("common.cancel"),
+        })
+      ).toBeDisabled()
+      await interaction.keyboard("{Escape}")
+      expect(screen.getByRole("dialog")).toBeInTheDocument()
+
+      await waitFor(() => expect(readDesktopDeviceMock).toHaveBeenCalledOnce())
+      await waitFor(() => expect(continuationRequests(fixture)).toHaveLength(1))
+      const body = continuationBody(fixture)
+      expect(body).toEqual({
+        execution_target: "local",
+        desktop_device_id: localDeviceId,
+        request_id: expect.any(String),
+      })
+      expect(z.uuid().safeParse(body?.request_id).success).toBe(true)
+      expect(
+        fixture.requests.some(
+          (request) =>
+            request.method === "POST" && request.path.endsWith("/turns")
+        )
+      ).toBe(false)
+      expect(fixture.createdBodies).toHaveLength(0)
+      expect(
+        fixture.requests.some(
+          (request) =>
+            request.method === "PATCH" &&
+            request.path === `/api/v1/conversations/${sourceId}`
+        )
+      ).toBe(false)
+
+      await fixture.resolveContinuation(0)
+      await waitFor(() =>
+        expect(screen.getByTestId("conversation-route")).toHaveTextContent(
+          `/conversations/${destinationId}`
+        )
+      )
+      expect(
+        readLocalConversationDraft(
+          window.localStorage,
+          continuationOwnerId,
+          destinationId
+        )
+      ).toMatchObject({
+        input: "",
+        capabilityIds: [],
+        knowledgeBaseIds: [],
+        taskReferences: [{ id: sourceId, title: "云任务" }],
+      })
+      expect(
+        readLocalConversationDraft(
+          window.localStorage,
+          continuationOwnerId,
+          sourceId
+        ).input
+      ).toBe("原任务草稿")
+
+      const input = await screen.findByRole("textbox", { name: "任务输入框" })
+      expect(input).toHaveValue("")
+      expect(screen.getByText("云任务")).toBeVisible()
+      await interaction.type(input, "继续工作")
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      await waitFor(() => {
+        const turn = fixture.requests.find(
+          (request) =>
+            request.method === "POST" &&
+            request.path === `/api/v1/conversations/${destinationId}/turns`
+        )
+        expect(turn?.body).toMatchObject({
+          message_display: {
+            kind: "task_references",
+            request: "继续工作",
+            conversation_ids: [sourceId],
+          },
+        })
+        expect(turn?.body).not.toHaveProperty("attachments")
+      })
+    })
+
+    it("continues a local task in the cloud without reading this Mac", async () => {
+      readDesktopDeviceMock.mockRejectedValue(new Error("offline"))
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "local", {
+            title: "本地任务",
+          }),
+          [destinationId]: conversationDetail(destinationId, "cloud", {
+            title: "云端新任务",
+          }),
+        },
+        continuationResponse: {
+          conversation: continuationConversation(destinationId, "cloud", null),
+          source: { id: sourceId, title: "本地任务" },
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`, undefined, {
+        navigation: true,
+      })
+      expect(await screen.findByText("本地任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueInCloud })
+      )
+      const dialog = await screen.findByRole("dialog")
+      expect(
+        within(dialog).getByText(
+          i18n.t("desktopExecution.continuationTitle", {
+            destination: zh.continuationDestinationCloud,
+          })
+        )
+      ).toBeVisible()
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationCloud,
+          }),
+        })
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId("conversation-route")).toHaveTextContent(
+          `/conversations/${destinationId}`
+        )
+      )
+      expect(readDesktopDeviceMock).not.toHaveBeenCalled()
+      expect(continuationBody(fixture)).toEqual({
+        execution_target: "cloud",
+        desktop_device_id: null,
+        request_id: expect.any(String),
+      })
+      expect(
+        readLocalConversationDraft(
+          window.localStorage,
+          continuationOwnerId,
+          destinationId
+        ).taskReferences
+      ).toEqual([{ id: sourceId, title: "本地任务" }])
+      expect(fixture.createdBodies).toHaveLength(0)
+    })
+
+    it.each([
+      {
+        edit: "text and send provenance",
+        draft: {
+          input: "我的编辑",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+          idempotencyKey: "previous-send",
+        },
+      },
+      {
+        edit: "a reference-only draft with a different title",
+        draft: {
+          input: "",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+          taskReferences: [{ id: sourceId, title: "我的引用名称" }],
+        },
+      },
+      {
+        edit: "a reference with send provenance",
+        draft: {
+          input: "",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+          taskReferences: [{ id: sourceId, title: "我的引用名称" }],
+          idempotencyKey: "previous-send",
+        },
+      },
+      {
+        edit: "a valid blank draft with send provenance",
+        draft: {
+          input: "",
+          capabilityIds: [],
+          knowledgeBaseIds: [],
+          idempotencyKey: "previous-send",
+        },
+      },
+    ])(
+      "retries the same confirmation and preserves $edit",
+      async ({ draft }) => {
+        readDesktopDeviceMock.mockResolvedValue(
+          readyDeviceStatus({ deviceId: localDeviceId })
+        )
+        const draftKey = localConversationDraftStorageKey(
+          continuationOwnerId,
+          destinationId
+        )
+        const storedDraft = JSON.stringify({
+          version: 1,
+          input: draft.input,
+          capability_ids: draft.capabilityIds,
+          knowledge_base_ids: draft.knowledgeBaseIds,
+          task_references: draft.taskReferences,
+          idempotency_key: draft.idempotencyKey,
+        })
+        window.localStorage.setItem(draftKey, storedDraft)
+        const fixture = installApi({
+          conversations: {
+            [sourceId]: conversationDetail(sourceId, "cloud", {
+              title: "云任务",
+            }),
+            [destinationId]: conversationDetail(destinationId, "local", {
+              title: "新任务",
+            }),
+          },
+          deferContinuation: true,
+          continuationResponse: {
+            conversation: continuationConversation(
+              destinationId,
+              "local",
+              localDeviceId
+            ),
+            source: { id: sourceId, title: "云任务" },
+          },
+        })
+        const interaction = userEvent.setup()
+        renderConversationPage(`/conversations/${sourceId}`, undefined, {
+          navigation: true,
+        })
+        expect(await screen.findByText("云任务")).toBeVisible()
+
+        await openTaskActions(interaction)
+        await interaction.click(
+          await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+        )
+        const dialog = await screen.findByRole("dialog")
+        const confirm = within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+        await interaction.click(confirm)
+        await waitFor(() =>
+          expect(continuationRequests(fixture)).toHaveLength(1)
+        )
+        const firstRequestId = continuationBody(fixture)?.request_id
+        expect(z.uuid().safeParse(firstRequestId).success).toBe(true)
+
+        await fixture.resolveContinuation(
+          0,
+          errorEnvelope(503, "RUNNER_UNAVAILABLE")
+        )
+        const alert = await within(dialog).findByRole("alert")
+        expect(alert).toHaveTextContent(i18n.t("errors.runnerUnavailable"))
+        expect(
+          within(dialog).getByRole("button", {
+            name: i18n.t("desktopExecution.continuationConfirm", {
+              destination: zh.continuationDestinationLocal,
+            }),
+          })
+        ).toBeEnabled()
+
+        await interaction.click(
+          within(dialog).getByRole("button", {
+            name: i18n.t("desktopExecution.continuationConfirm", {
+              destination: zh.continuationDestinationLocal,
+            }),
+          })
+        )
+        await waitFor(() =>
+          expect(continuationRequests(fixture)).toHaveLength(2)
+        )
+        expect(continuationBody(fixture, 1)?.request_id).toBe(firstRequestId)
+        await fixture.resolveContinuation(1)
+        await waitFor(() =>
+          expect(screen.getByTestId("conversation-route")).toHaveTextContent(
+            `/conversations/${destinationId}`
+          )
+        )
+        expect(window.localStorage.getItem(draftKey)).toBe(storedDraft)
+      }
+    )
+
+    it.each([
+      ["a generic old API 404", "NOT_FOUND", zh.continuationUnsupported],
+      ["an old API 404 without an envelope", null, zh.continuationUnsupported],
+      [
+        "a missing source task",
+        "CONVERSATION_NOT_FOUND",
+        i18n.getFixedT("zh-CN")("errors.notFound"),
+      ],
+    ])(
+      "distinguishes %s without falling back to normal create",
+      async (_, code, message) => {
+        readDesktopDeviceMock.mockResolvedValue(
+          readyDeviceStatus({ deviceId: localDeviceId })
+        )
+        writeLocalConversationDraft(
+          window.localStorage,
+          continuationOwnerId,
+          sourceId,
+          {
+            input: "原任务草稿",
+            capabilityIds: [],
+            knowledgeBaseIds: [],
+          }
+        )
+        const fixture = installApi({
+          conversations: {
+            [sourceId]: conversationDetail(sourceId, "cloud", {
+              title: "云任务",
+            }),
+          },
+          deferContinuation: true,
+        })
+        const interaction = userEvent.setup()
+        renderConversationPage(`/conversations/${sourceId}`)
+        expect(await screen.findByText("云任务")).toBeVisible()
+
+        await openTaskActions(interaction)
+        await interaction.click(
+          await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+        )
+        const dialog = await screen.findByRole("dialog")
+        await interaction.click(
+          within(dialog).getByRole("button", {
+            name: i18n.t("desktopExecution.continuationConfirm", {
+              destination: zh.continuationDestinationLocal,
+            }),
+          })
+        )
+        await waitFor(() =>
+          expect(continuationRequests(fixture)).toHaveLength(1)
+        )
+        await fixture.resolveContinuation(
+          0,
+          code ? errorEnvelope(404, code) : new Response(null, { status: 404 })
+        )
+
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+          message
+        )
+        expect(continuationRequests(fixture)).toHaveLength(1)
+        expect(fixture.createdBodies).toHaveLength(0)
+        expect(
+          fixture.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.path === "/api/v1/conversations"
+          )
+        ).toBe(false)
+        expect(
+          readLocalConversationDraft(
+            window.localStorage,
+            continuationOwnerId,
+            destinationId
+          )
+        ).toEqual({ input: "", capabilityIds: [], knowledgeBaseIds: [] })
+        expect(
+          readLocalConversationDraft(
+            window.localStorage,
+            continuationOwnerId,
+            sourceId
+          ).input
+        ).toBe("原任务草稿")
+      }
+    )
+
+    it("does not post local when this Mac cannot read the reference", async () => {
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ conversationReferenceReadReady: false })
+      )
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`)
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      const dialog = await screen.findByRole("dialog")
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+      )
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        zh.continuationReferenceUnavailable
+      )
+      expect(continuationRequests(fixture)).toHaveLength(0)
+      expect(fixture.createdBodies).toHaveLength(0)
+    })
+
+    it("keeps the first ready device across a failed retry", async () => {
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: localDeviceId })
+      )
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+        deferContinuation: true,
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`)
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      const dialog = await screen.findByRole("dialog")
+      const confirm = within(dialog).getByRole("button", {
+        name: i18n.t("desktopExecution.continuationConfirm", {
+          destination: zh.continuationDestinationLocal,
+        }),
+      })
+      await interaction.click(confirm)
+      await waitFor(() => expect(continuationRequests(fixture)).toHaveLength(1))
+      await fixture.resolveContinuation(
+        0,
+        errorEnvelope(503, "RUNNER_UNAVAILABLE")
+      )
+      expect(await within(dialog).findByRole("alert")).toBeVisible()
+
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: otherDeviceId })
+      )
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+      )
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        zh.deviceChanged
+      )
+      expect(continuationRequests(fixture)).toHaveLength(1)
+      expect(fixture.createdBodies).toHaveLength(0)
+    })
+
+    it("does not create or change a new dialog after leaving and returning during the fresh read", async () => {
+      const freshRead = createDeferred<DesktopDeviceStatus>()
+      readDesktopDeviceMock.mockReturnValue(freshRead.promise)
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+          [otherTaskId]: conversationDetail(otherTaskId, "cloud", {
+            title: "其他任务",
+          }),
+        },
+        continuationResponse: {
+          conversation: continuationConversation(
+            destinationId,
+            "local",
+            localDeviceId
+          ),
+          source: { id: sourceId, title: "云任务" },
+        },
+      })
+      const interaction = userEvent.setup()
+      const page = renderConversationPage(
+        `/conversations/${sourceId}`,
+        undefined,
+        {
+          navigation: true,
+        }
+      )
+      expect(await screen.findByText("云任务")).toBeVisible()
+      await interaction.click(
+        confirmLocalButton(await openLocalContinuation(interaction))
+      )
+      await waitFor(() => expect(readDesktopDeviceMock).toHaveBeenCalledOnce())
+      await act(async () => {
+        testNavigation.current?.(`/conversations/${otherTaskId}`)
+      })
+      expect(await screen.findByText("其他任务")).toBeVisible()
+      await interaction.click(screen.getByText("返回任务"))
+      expect(await screen.findByText("云任务")).toBeVisible()
+      const newDialog = await openLocalContinuation(interaction)
+
+      await act(async () => {
+        freshRead.resolve(readyDeviceStatus({ deviceId: localDeviceId }))
+        await freshRead.promise
+      })
+      await waitFor(() => expect(page.queryClient.isMutating()).toBe(0))
+      expect(continuationRequests(fixture)).toHaveLength(0)
+      expect(confirmLocalButton(newDialog)).toBeEnabled()
+      expect(within(newDialog).queryByRole("alert")).not.toBeInTheDocument()
+
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: otherDeviceId })
+      )
+      await interaction.click(confirmLocalButton(newDialog))
+      await waitFor(() => expect(continuationRequests(fixture)).toHaveLength(1))
+      expect(continuationBody(fixture)?.desktop_device_id).toBe(otherDeviceId)
+    })
+
+    it("does not create after the account changes during the fresh read", async () => {
+      const freshRead = createDeferred<DesktopDeviceStatus>()
+      readDesktopDeviceMock.mockReturnValue(freshRead.promise)
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`, undefined, {
+        accountSwitch: true,
+      })
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      const dialog = await screen.findByRole("dialog")
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+      )
+      await waitFor(() => expect(readDesktopDeviceMock).toHaveBeenCalledOnce())
+      await interaction.click(screen.getByText("切换账号"))
+      await act(async () => {
+        freshRead.resolve(readyDeviceStatus())
+        await freshRead.promise
+      })
+      expect(continuationRequests(fixture)).toHaveLength(0)
+      expect(fixture.createdBodies).toHaveLength(0)
+    })
+
+    it("does not POST a paused continuation after a same-owner login replacement", async () => {
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: localDeviceId })
+      )
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+        continuationResponse: {
+          conversation: continuationConversation(
+            destinationId,
+            "local",
+            localDeviceId
+          ),
+          source: { id: sourceId, title: "云任务" },
+        },
+      })
+      const interaction = userEvent.setup()
+      const page = renderConversationPage(
+        `/conversations/${sourceId}`,
+        undefined,
+        {
+          navigation: true,
+        }
+      )
+      expect(await screen.findByText("云任务")).toBeVisible()
+      const dialog = await openLocalContinuation(interaction)
+
+      onlineManager.setOnline(false)
+      try {
+        await interaction.click(confirmLocalButton(dialog))
+        const paused = await waitFor(() => {
+          const mutation = page.queryClient
+            .getMutationCache()
+            .getAll()
+            .find((mutation) => mutation.state.isPaused)
+          if (!mutation) throw new Error("continuation mutation not paused")
+          return mutation
+        })
+        expect(continuationRequests(fixture)).toHaveLength(0)
+        act(() => {
+          beginLoginSession("sign-in")
+          setAccessToken("same-owner-replacement-token")
+        })
+        // Rerender the same route and owner while the observer still has a
+        // paused mutation. Rotating an access token alone is not a new login.
+        page.setBootstrap(
+          desktopRollout({ local_computer: true, cloud_target: true })
+        )
+        expect(paused.state.isPaused).toBe(true)
+
+        onlineManager.setOnline(true)
+        await waitFor(() => expect(paused.state.status).not.toBe("pending"))
+        expect(continuationRequests(fixture)).toHaveLength(0)
+        expect(readDesktopDeviceMock).not.toHaveBeenCalled()
+        expect(
+          readLocalConversationDraft(
+            window.localStorage,
+            continuationOwnerId,
+            destinationId
+          ).taskReferences
+        ).toBeUndefined()
+        expect(
+          page.queryClient.getQueryData(["conversation", destinationId])
+        ).toBeUndefined()
+        expect(screen.getByTestId("conversation-route")).toHaveTextContent(
+          `/conversations/${sourceId}`
+        )
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      } finally {
+        onlineManager.setOnline(true)
+      }
+    })
+
+    it.each([
+      ["retries with the same ready device", localDeviceId, 2],
+      ["blocks the retry when the device changes", otherDeviceId, 1],
+    ])(
+      "%s after an authenticated refresh",
+      async (_, deviceAfterRefresh, attempts) => {
+        readDesktopDeviceMock.mockResolvedValue(
+          readyDeviceStatus({ deviceId: localDeviceId })
+        )
+        const fixture = installApi({
+          conversations: {
+            [sourceId]: conversationDetail(sourceId, "cloud", {
+              title: "云任务",
+            }),
+          },
+          deferRefresh: true,
+          continuationUnauthorizedOnce: true,
+          continuationResponse: {
+            conversation: continuationConversation(
+              destinationId,
+              "local",
+              localDeviceId
+            ),
+            source: { id: sourceId, title: "云任务" },
+          },
+        })
+        const interaction = userEvent.setup()
+        const page = renderConversationPage(`/conversations/${sourceId}`)
+        expect(await screen.findByText("云任务")).toBeVisible()
+        const dialog = await openLocalContinuation(interaction)
+        await interaction.click(confirmLocalButton(dialog))
+        await waitFor(() =>
+          expect(
+            fixture.requests.some(
+              (request) =>
+                request.method === "POST" &&
+                request.path === "/api/v1/auth/refresh"
+            )
+          ).toBe(true)
+        )
+        expect(continuationRequests(fixture)).toHaveLength(1)
+
+        readDesktopDeviceMock.mockResolvedValue(
+          readyDeviceStatus({ deviceId: deviceAfterRefresh })
+        )
+        await fixture.resolveRefresh()
+        await waitFor(() => expect(page.queryClient.isMutating()).toBe(0))
+        expect(continuationRequests(fixture)).toHaveLength(attempts)
+        expect(readDesktopDeviceMock).toHaveBeenCalledTimes(2)
+        expect(getAccessToken()).toBe(refreshedAccessToken)
+        if (attempts === 2) {
+          expect(continuationBody(fixture, 1)).toEqual(
+            continuationBody(fixture)
+          )
+          expect(continuationRequests(fixture)[1]?.authorization).toBe(
+            `Bearer ${refreshedAccessToken}`
+          )
+        } else {
+          expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+            zh.deviceChanged
+          )
+        }
+      }
+    )
+
+    it("stops an authenticated retry when the cloud rollout closes", async () => {
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "local", {
+            title: "本地任务",
+          }),
+        },
+        deferRefresh: true,
+        deferContinuation: true,
+        continuationUnauthorizedOnce: true,
+        continuationResponse: {
+          conversation: continuationConversation(destinationId, "cloud", null),
+          source: { id: sourceId, title: "本地任务" },
+        },
+      })
+      const interaction = userEvent.setup()
+      const page = renderConversationPage(
+        `/conversations/${sourceId}`,
+        undefined,
+        {
+          bootstrap: desktopRollout({ cloud_target: true }),
+        }
+      )
+      expect(await screen.findByText("本地任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueInCloud })
+      )
+      const dialog = await screen.findByRole("dialog")
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationCloud,
+          }),
+        })
+      )
+      await waitFor(() =>
+        expect(
+          fixture.requests.some(
+            (request) =>
+              request.method === "POST" &&
+              request.path === "/api/v1/auth/refresh"
+          )
+        ).toBe(true)
+      )
+      page.setBootstrap(desktopRollout({ cloud_target: false }))
+      await fixture.resolveRefresh()
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        zh.cloudTargetUnavailable
+      )
+      expect(continuationRequests(fixture)).toHaveLength(1)
+      expect(fixture.createdBodies).toHaveLength(0)
+      expect(readDesktopDeviceMock).not.toHaveBeenCalled()
+    })
+
+    it("does not offer the continuation on a Web task", async () => {
+      hostMock.mac = false
+      installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`)
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      expect(
+        screen.queryByRole("menuitem", { name: zh.continueOnThisMac })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: zh.continueInCloud })
+      ).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ["a destination that does not match the request", false],
+      ["the source returned as the destination", true],
+    ])("does not open %s", async (_, returnsSource) => {
+      readDesktopDeviceMock.mockResolvedValue(
+        readyDeviceStatus({ deviceId: localDeviceId })
+      )
+      const fixture = installApi({
+        conversations: {
+          [sourceId]: conversationDetail(sourceId, "cloud", {
+            title: "云任务",
+          }),
+        },
+        continuationResponse: {
+          conversation: returnsSource
+            ? continuationConversation(sourceId, "local", localDeviceId)
+            : continuationConversation(destinationId, "local", otherDeviceId, {
+                owner_id: otherOwnerId,
+                execution_target: "cloud",
+              }),
+          source: returnsSource
+            ? { id: sourceId, title: "云任务" }
+            : {
+                id: "10000000-0000-4000-8000-000000000103",
+                title: "另一个任务",
+              },
+        },
+      })
+      const interaction = userEvent.setup()
+      renderConversationPage(`/conversations/${sourceId}`)
+      expect(await screen.findByText("云任务")).toBeVisible()
+
+      await openTaskActions(interaction)
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: zh.continueOnThisMac })
+      )
+      const dialog = await screen.findByRole("dialog")
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("desktopExecution.continuationConfirm", {
+            destination: zh.continuationDestinationLocal,
+          }),
+        })
+      )
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        zh.continuationInvalidResponse
+      )
+      expect(
+        readLocalConversationDraft(
+          window.localStorage,
+          continuationOwnerId,
+          returnsSource ? sourceId : destinationId
+        )
+      ).toEqual({ input: "", capabilityIds: [], knowledgeBaseIds: [] })
+      expect(fixture.createdBodies).toHaveLength(0)
     })
   })
 

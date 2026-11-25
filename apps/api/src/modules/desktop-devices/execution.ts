@@ -5,6 +5,7 @@ import { DesktopRunner } from "../../adapters/desktop-runner.js";
 import { AppError } from "../../lib/errors.js";
 import type { AppServices } from "../../services.js";
 import type { ConnectionService } from "../connections/service.js";
+import { readTaskReferenceAfterProjection } from "../conversations/task-references.js";
 import { isDesktopRunActive, lockDesktopArtifactPublication, lockDesktopConversation } from "../desktop-credentials/run-authority.js";
 import type { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
 import { registerDesktopArtifactRoutes } from "../files/desktop-artifact-routes.js";
@@ -168,6 +169,15 @@ export async function registerDesktopExecution(
           webSearchSettings: services.webSearchSettings, knowledgeSearch: services.knowledgeSearch,
           ...(services.connections ? { connections: services.connections } : {}),
           ...(services.browserUse ? { browserUse: services.browserUse } : {}),
+          readConversationReference: async (scope, input, signal) => {
+            const result = await readTaskReferenceAfterProjection(prisma, {
+              ...scope, executionTarget: "local",
+              verifyRun: () => leases.verifyRunBinding(scope, frame.run_token, "use"),
+            }, input, signal);
+            signal.throwIfAborted();
+            await leases.verifyRunBinding(scope, frame.run_token, "use");
+            return result;
+          },
           // Trust only this socket generation's negotiated markers. An older
           // Mac never offers computer.wait, so its wait kind is refused here
           // before the lane or a device command exists.

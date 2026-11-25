@@ -8,8 +8,9 @@ export const desktopDeviceStatusQueryKey = (ownerId: string | undefined) =>
 
 /**
  * Reads the native, owner-keyed Mac device status. Data exposes `deviceId`,
- * `state`, optional `executionReady`, and the negotiated `computerReady` flag;
- * an older host that omits either capability yields false. The query is
+ * `state`, optional `executionReady`, the negotiated `computerReady` flag, and
+ * the exact `conversationReferenceReadReady` capability; an older host that
+ * omits any capability yields false. The query is
  * disabled outside a macOS host and without a signed-in account, so a plain
  * Web or Windows window never calls the native bridge or polls.
  */

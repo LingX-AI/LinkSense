@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  desktopContinuationDestination,
   desktopDeviceSettingsHref,
   desktopExecutionAvailabilityMessageKey,
+  desktopExecutionContinuationDeviceCheck,
   desktopExecutionDeviceAvailability,
   desktopExecutionDeviceQueryAvailability,
   desktopExecutionFreshDeviceCheck,
   desktopExecutionGatedDeviceAvailability,
   desktopExecutionLocalDeviceId,
   desktopExecutionTargetPolicy,
+  shouldOfferDesktopContinuation,
   shouldOfferDesktopExecutionTarget,
 } from "./desktop-execution-target"
 
@@ -201,6 +204,85 @@ describe("desktop execution availability", () => {
     expect(desktopDeviceSettingsHref).toBe(
       "/settings/general#desktop-devices-heading"
     )
+  })
+
+  it("derives the opposite target for a continuation", () => {
+    expect(desktopContinuationDestination("local")).toBe("cloud")
+    expect(desktopContinuationDestination("cloud")).toBe("local")
+  })
+
+  it("requires execution, a reference-capable Mac, and the same device", () => {
+    const ready = {
+      state: "online" as const,
+      deviceId: "device-1",
+      executionReady: true,
+      conversationReferenceReadReady: true,
+    }
+    expect(desktopExecutionContinuationDeviceCheck("device-1", ready)).toEqual({
+      kind: "ready",
+      deviceId: "device-1",
+    })
+    expect(desktopExecutionContinuationDeviceCheck(undefined, ready)).toEqual({
+      kind: "ready",
+      deviceId: "device-1",
+    })
+    expect(desktopExecutionContinuationDeviceCheck("device-2", ready)).toEqual({
+      kind: "changed",
+    })
+    expect(
+      desktopExecutionContinuationDeviceCheck("device-1", {
+        ...ready,
+        executionReady: false,
+      })
+    ).toEqual({ kind: "unavailable" })
+    expect(
+      desktopExecutionContinuationDeviceCheck("device-1", {
+        ...ready,
+        conversationReferenceReadReady: false,
+      })
+    ).toEqual({ kind: "reference_unavailable" })
+    expect(
+      desktopExecutionContinuationDeviceCheck("device-1", {
+        ...ready,
+        deviceId: undefined,
+      })
+    ).toEqual({ kind: "unavailable" })
+    expect(
+      desktopExecutionContinuationDeviceCheck("device-1", {
+        ...ready,
+        state: "offline",
+      })
+    ).toEqual({ kind: "unavailable" })
+  })
+
+  it("offers a continuation only on a normal main Mac task", () => {
+    const base = {
+      isNew: false,
+      showConversationActions: true,
+      hasUser: true,
+      isMacDesktopHost: true,
+      embedded: false,
+      development: false,
+      readOnly: false,
+      archived: false,
+      application: false,
+    }
+    expect(shouldOfferDesktopContinuation(base)).toBe(true)
+    for (const override of [
+      { isNew: true },
+      { showConversationActions: false },
+      { hasUser: false },
+      { isMacDesktopHost: false },
+      { embedded: true },
+      { development: true },
+      { readOnly: true },
+      { archived: true },
+      { application: true },
+    ]) {
+      expect(shouldOfferDesktopContinuation({ ...base, ...override })).toBe(
+        false
+      )
+    }
   })
 
   describe("desktop execution rollout policy", () => {

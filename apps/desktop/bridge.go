@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -42,6 +43,11 @@ type DeviceConnectionStatus struct {
 	// this host can build a signed, packaged computer driver. An older server
 	// that negotiates no computer operation reports false without an error.
 	ComputerReady bool `json:"computerReady,omitempty"`
+	// ConversationReferenceReadReady reports that this exact trusted socket
+	// negotiated conversation_reference.read and the live runtime generation
+	// for it is still available. It is unrelated to the structured side-chat
+	// quote flag; old servers and old clients simply omit it.
+	ConversationReferenceReadReady bool `json:"conversationReferenceReadReady,omitempty"`
 }
 
 type deviceConnection struct {
@@ -84,6 +90,9 @@ type deviceConnection struct {
 	// computerNegotiated is true only for the live socket generation that
 	// negotiated computer.execute. It is cleared whenever readiness is lost.
 	computerNegotiated bool
+	// conversationReferenceReadNegotiated is true only for the live socket
+	// generation that echoed the read operation this host offered.
+	conversationReferenceReadNegotiated bool
 
 	controlMu      sync.Mutex
 	controlPending map[string]*pendingComputerControl
@@ -105,13 +114,14 @@ const (
 	// read-only wait kind inside computer.execute. It is not a second wire
 	// operation: an old server ignores the unknown offered string and an old
 	// Mac never offers it.
-	desktopComputerWaitOperation        = "computer.wait"
-	desktopModelSwitchOperation         = "turn.model-switch"
-	desktopAttachmentHeader             = "X-LinkSense-Desktop-Attachments"
-	desktopAttachmentVersion            = 1
-	desktopConversationReferenceHeader  = "X-LinkSense-Desktop-Conversation-Reference"
-	desktopConversationReferenceVersion = 1
-	desktopAppVersionHeader             = "X-LinkSense-Desktop-App-Version"
+	desktopComputerWaitOperation              = "computer.wait"
+	desktopConversationReferenceReadOperation = "conversation_reference.read"
+	desktopModelSwitchOperation               = "turn.model-switch"
+	desktopAttachmentHeader                   = "X-LinkSense-Desktop-Attachments"
+	desktopAttachmentVersion                  = 1
+	desktopConversationReferenceHeader        = "X-LinkSense-Desktop-Conversation-Reference"
+	desktopConversationReferenceVersion       = 1
+	desktopAppVersionHeader                   = "X-LinkSense-Desktop-App-Version"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
@@ -198,6 +208,10 @@ func (connection *deviceConnection) Status() DeviceConnectionStatus {
 			status.ExecutionReady = false
 		}
 	}
+	if status.ConversationReferenceReadReady &&
+		(!status.ExecutionReady || !connection.conversationReferenceReadNegotiated) {
+		status.ConversationReferenceReadReady = false
+	}
 	if status.ComputerReady {
 		if !status.ExecutionReady || !computerNegotiated || connection.computer == nil ||
 			connection.computerEligible == nil || !connection.computerEligible() ||
@@ -213,7 +227,9 @@ func (connection *deviceConnection) setStatus(state DeviceConnectionState, code 
 	connection.status.State, connection.status.ErrorCode = state, code
 	connection.status.ExecutionReady = false
 	connection.status.ComputerReady = false
+	connection.status.ConversationReferenceReadReady = false
 	connection.computerNegotiated = false
+	connection.conversationReferenceReadNegotiated = false
 	connection.mu.Unlock()
 }
 
@@ -222,7 +238,9 @@ func (connection *deviceConnection) setOnline(executionReady bool) {
 	connection.status.State, connection.status.ErrorCode = DeviceOnline, ""
 	connection.status.ExecutionReady = executionReady
 	connection.status.ComputerReady = false
+	connection.status.ConversationReferenceReadReady = false
 	connection.computerNegotiated = false
+	connection.conversationReferenceReadNegotiated = false
 	connection.mu.Unlock()
 }
 
@@ -241,11 +259,20 @@ func (connection *deviceConnection) setComputerNegotiated(negotiated bool) {
 	connection.mu.Unlock()
 }
 
+func (connection *deviceConnection) setConversationReferenceReadNegotiated(negotiated bool) {
+	connection.mu.Lock()
+	connection.conversationReferenceReadNegotiated = negotiated
+	connection.status.ConversationReferenceReadReady = negotiated
+	connection.mu.Unlock()
+}
+
 func (connection *deviceConnection) clearExecutionReady() {
 	connection.mu.Lock()
 	connection.status.ExecutionReady = false
 	connection.status.ComputerReady = false
+	connection.status.ConversationReferenceReadReady = false
 	connection.computerNegotiated = false
+	connection.conversationReferenceReadNegotiated = false
 	connection.mu.Unlock()
 }
 
@@ -319,6 +346,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	offerComputerStatus := offerExecution && connection.computer != nil
 	offerConversationReference := offerExecution && runtime.GOOS == "darwin"
+	offerConversationReferenceRead := offerExecution && runtime.GOOS == "darwin"
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
 		if runtime.GOOS == "darwin" {
@@ -329,6 +357,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
 		if runtime.GOOS == "darwin" {
 			operations += "," + desktopModelSwitchOperation
+		}
+		if offerConversationReferenceRead {
+			// Read-only access to an explicitly granted task reference. The
+			// operation carries no native shell UI and remains unavailable on
+			// older APIs that do not echo it.
+			operations += "," + desktopConversationReferenceReadOperation
 		}
 		if connection.computer != nil {
 			// Only the installed Mac product host offers the read-only wait,
@@ -385,6 +419,10 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		!hasM1BComputerOperation(ready.ToolOperations)) {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
+	// A ready frame must never enable an operation this host did not offer.
+	if slices.Contains(ready.ToolOperations, desktopConversationReferenceReadOperation) && !offerConversationReferenceRead {
+		return true, "DESKTOP_PROTOCOL_ERROR"
+	}
 	// The quote echo is accepted only for the exact opt-in this socket offered.
 	// An old server omits it, so plain execution remains available without the
 	// structured local quote capability.
@@ -421,6 +459,8 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	// Execution readiness exists only for an accepted execution_protocol_version
 	// with a live link; a presence-only server stays online without it.
 	connection.setOnline(link != nil)
+	connection.setConversationReferenceReadNegotiated(link != nil && offerConversationReferenceRead &&
+		slices.Contains(ready.ToolOperations, desktopConversationReferenceReadOperation))
 	// Control frames belong to this exact hello generation. The session is
 	// published before readiness so a status read can never see ComputerReady
 	// for a socket that cannot carry computer.control, and it is withdrawn

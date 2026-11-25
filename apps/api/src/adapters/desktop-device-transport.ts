@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import dayjs from "dayjs";
 import {
   desktopCommandCapacity,
+  desktopConversationReferenceReadOperation,
   desktopExecutionCancelSchema,
   desktopExecutionLifetimeFor,
   desktopExecutionCommandSchema,
@@ -185,7 +186,8 @@ export class DesktopDeviceTransport {
     };
     try {
       if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments,
-        conversationReferences, toolOperations.includes(desktopModelSwitchOperation)) &&
+        conversationReferences, toolOperations.includes(desktopModelSwitchOperation),
+        toolOperations.includes(desktopConversationReferenceReadOperation)) &&
         this.sockets.get(connectionId) === connection) return detach;
       detach();
       return null;
@@ -209,6 +211,10 @@ export class DesktopDeviceTransport {
 
   supportsConversationReference(binding: DesktopExecutionBinding): Promise<boolean> {
     return this.coordinator.supportsConversationReference(binding);
+  }
+
+  supportsConversationReferenceRead(binding: DesktopExecutionBinding): Promise<boolean> {
+    return this.coordinator.supportsConversationReferenceRead(binding);
   }
 
   supportsModelSwitch(binding: DesktopExecutionBinding): Promise<boolean> {

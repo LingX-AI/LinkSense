@@ -138,7 +138,12 @@ export interface RunnerEventSink {
     conversationId: string;
     turnId: string;
   }): Promise<unknown>;
-  readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
+  readConversationReference?(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").ReadConversationReferenceInput;
+    signal?: AbortSignal;
+  }): Promise<unknown>;
   browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
   computerExecute?(input: {
     conversationId: string;
@@ -480,8 +485,16 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     if (!response.ok) throw webSiteErrorFromApi(response.status, body);
     return body;
   }
-  async readConversationReference(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown> {
-    const response = await this.request("/internal/conversation-references/read", input, this.workspaceManager.ownerFor(input.conversationId));
+  async readConversationReference(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").ReadConversationReferenceInput;
+    signal?: AbortSignal;
+  }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request(
+      "/internal/conversation-references/read", body, this.workspaceManager.ownerFor(input.conversationId), signal,
+    );
     if (!response.ok) throw new ConversationReferenceRequestError(response.status);
     return parseResponseBody(response);
   }

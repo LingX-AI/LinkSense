@@ -155,6 +155,11 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "pending_request_ids",
   ],
   conversation_pending_request_steered: ["conversation_id", "turn_id"],
+  conversation_continued: [
+    "source_conversation_id",
+    "source_target",
+    "execution_target",
+  ],
   conversation_turn_completed: ["conversation_id"],
   conversation_turn_failed: ["conversation_id"],
   conversation_turn_interrupted: ["conversation_id"],

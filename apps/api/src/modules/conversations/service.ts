@@ -1,5 +1,5 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
-import { assertPairedDesktopDevice } from "./execution-target.js";
+import { assertPairedDesktopDevice, conversationContinuationId, lockContinuationSource, readContinuationSource } from "./execution-target.js";
 import { lockDesktopConversation, type DesktopStartProjectionFence } from "../desktop-credentials/run-authority.js";
 import { snapshotRecoveredDesktopRunLease } from "../desktop-credentials/run-leases.js";
 import { endLocalComputerSessions } from "../local-computer/repository.js";
@@ -67,7 +67,7 @@ import {
   resolveConversationWorkspaceEntry,
   resolveConversationWorkspaceRoot,
 } from "../../lib/user-runtime-paths.js";
-import type { AuditContext, AuditService } from "../audit/service.js";
+import { AuditService, type AuditContext } from "../audit/service.js";
 import type { KnowledgeStore } from "../knowledge/types.js";
 import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
 import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
@@ -132,6 +132,7 @@ import {
   type ReasoningEffort,
   type OfficeAnnotationInput,
   type OfficeAnnotationDisplay,
+  conversationContinuationResultSchema,
   type InteractiveApplicationMessageSource,
   type PresentationAnnotation,
   type PresentationAnnotationInput,
@@ -157,6 +158,7 @@ import type { PrivacyMaskingSettingsService } from "../privacy-masking/service.j
 import {
   buildOfficeAnnotationRunnerContext,
   inspectOfficeAnnotationPrompt,
+  taskReferencesDisplayFromPersistedPrompt,
   OFFICE_ANNOTATION_PROMPT_MARKER,
 } from "./annotation-prompt.js";
 import {
@@ -719,6 +721,12 @@ const turnStartIntentSchema = z.strictObject({
       message: "plan_revision_requires_plan_mode",
     });
   }
+});
+
+const continuationReceiptMetadataSchema = z.strictObject({
+  source_conversation_id: z.uuid(),
+  source_target: conversationExecutionTargetSchema,
+  execution_target: conversationExecutionTargetSchema,
 });
 
 type TurnStartIntent = z.infer<typeof turnStartIntentSchema>;
@@ -3427,6 +3435,155 @@ export class ConversationService {
         conversation,
         conversation.lastTurnStatus ?? "idle",
       );
+    });
+  }
+
+  async continueConversation(
+    ownerId: string,
+    sourceConversationId: string,
+    input: {
+      requestId: string;
+      executionTarget: ConversationExecutionTarget;
+      desktopDeviceId: string | null;
+      fallbackLocale?: Locale;
+    },
+    context: AuditContext,
+  ) {
+    // UUIDs are case-insensitive; normalize before scoping the deterministic key.
+    const normalizedOwnerId = z.uuid().parse(ownerId).toLowerCase();
+    const normalizedSourceId = z.uuid().parse(sourceConversationId).toLowerCase();
+    const normalizedRequestId = z.uuid().parse(input.requestId).toLowerCase();
+    const execution = conversationExecutionSelectionSchema.parse({
+      execution_target: input.executionTarget,
+      desktop_device_id: input.desktopDeviceId === null
+        ? null
+        : z.uuid().parse(input.desktopDeviceId).toLowerCase(),
+    });
+    const destinationId = conversationContinuationId(
+      normalizedOwnerId,
+      normalizedSourceId,
+      normalizedRequestId,
+    );
+    return this.withActiveUserRuntimeLease(normalizedOwnerId, async () => {
+      const lock = await this.acquireConversationLock(normalizedSourceId);
+      try {
+        // Read the receipt only under the source lock: the destination row and
+        // its audit receipt commit in one transaction, so unlocked reads can
+        // straddle that commit and falsely conflict.
+        const committed = await this.readContinuationReplay(
+          normalizedOwnerId,
+          destinationId,
+          normalizedSourceId,
+          execution,
+        );
+        if (committed) return committed;
+        // Reject an ineligible source before any workspace or runtime work.
+        const source = await readContinuationSource(
+          this.prisma,
+          normalizedOwnerId,
+          normalizedSourceId,
+          execution.execution_target,
+        );
+        if (execution.execution_target === "local") {
+          const deviceId = z.uuid().parse(execution.desktop_device_id);
+          await assertPairedDesktopDevice(
+            this.prisma,
+            normalizedOwnerId,
+            deviceId,
+            "darwin",
+          );
+          // Direct POSTs must not trust the Web readiness hint. This is a
+          // creation-time check, not a reservation: a disconnect after commit
+          // is still rejected when the first turn is admitted.
+          await this.runner.assertDesktopDeviceAvailable(deviceId, true);
+        }
+        const created = await this.createConversation(
+          normalizedOwnerId,
+          input.fallbackLocale,
+          undefined,
+          {
+            conversationId: destinationId,
+            execution,
+            continuation: {
+              sourceConversationId: normalizedSourceId,
+              audit: context,
+            },
+          },
+        );
+        return conversationContinuationResultSchema.parse({
+          conversation: projectConversation(
+            created,
+            created.lastTurnStatus ?? "idle",
+          ),
+          source: { id: source.id, title: source.title },
+        });
+      } finally {
+        await this.redis
+          .releaseConversationLock(normalizedSourceId, lock)
+          .catch(() => undefined);
+      }
+    });
+  }
+
+  private async readContinuationReplay(
+    ownerId: string,
+    destinationId: string,
+    sourceConversationId: string,
+    execution: ConversationExecutionSelection,
+  ) {
+    const [existing, receipts] = await Promise.all([
+      this.prisma.conversation.findUnique({ where: { id: destinationId } }),
+      this.prisma.auditLog.findMany({
+        where: {
+          actorId: ownerId,
+          action: "conversation_continued",
+          targetType: "conversation",
+          targetId: destinationId,
+          result: "success",
+        },
+        orderBy: { createdAt: "asc" },
+        take: 2,
+      }),
+    ]);
+    if (!existing && receipts.length === 0) return null;
+    // A pre-created row or a surviving receipt is not itself an accepted
+    // continuation; only the exact committed destination plus its audit proves it.
+    if (!existing || existing.ownerId !== ownerId || receipts.length !== 1) {
+      throw new AppError("CONFLICT");
+    }
+    const metadata = continuationReceiptMetadataSchema.safeParse(
+      receipts[0]?.metadataJson,
+    );
+    if (
+      !metadata.success ||
+      metadata.data.source_conversation_id.toLowerCase() !== sourceConversationId ||
+      metadata.data.execution_target !== execution.execution_target
+    ) {
+      throw new AppError("CONFLICT");
+    }
+    const source = await this.prisma.conversation.findFirst({
+      where: { id: sourceConversationId, ownerId },
+      select: { id: true, title: true, executionTarget: true },
+    });
+    if (!source) throw new AppError("CONVERSATION_NOT_FOUND");
+    if (source.title.length < 1 || source.title.length > 240) {
+      throw new AppError("CONFLICT");
+    }
+    if ((source.executionTarget ?? "cloud") !== metadata.data.source_target) {
+      throw new AppError("CONFLICT");
+    }
+    if (
+      (existing.executionTarget ?? "cloud") !== execution.execution_target ||
+      (existing.desktopDeviceId ?? null) !== (execution.desktop_device_id ?? null)
+    ) {
+      throw new AppError("CONFLICT");
+    }
+    return conversationContinuationResultSchema.parse({
+      conversation: projectConversation(
+        existing,
+        existing.lastTurnStatus ?? "idle",
+      ),
+      source: { id: source.id, title: source.title },
     });
   }
 
@@ -7743,13 +7900,14 @@ export class ConversationService {
       projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
       execution?: ConversationExecutionSelection;
+      continuation?: { sourceConversationId: string; audit: AuditContext };
     },
     prewarmedConversationId?: string,
   ) {
     const execution = options?.execution ?? conversationExecutionSelectionSchema.parse({});
     const local = execution.execution_target === "local";
     if (local) {
-      await assertPairedDesktopDevice(this.prisma, ownerId, z.uuid().parse(execution.desktop_device_id));
+      await assertPairedDesktopDevice(this.prisma, ownerId, z.uuid().parse(execution.desktop_device_id), options?.continuation ? "darwin" : undefined);
       prewarmedConversationId = undefined;
     }
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
@@ -7841,7 +7999,10 @@ export class ConversationService {
         where: { runtimePrincipalId: ownerId }, select: { preferredLocale: true },
       });
       return await this.prisma.$transaction(async (tx) => {
-        if (local) await assertPairedDesktopDevice(tx, ownerId, z.uuid().parse(execution.desktop_device_id));
+        if (local) await assertPairedDesktopDevice(tx, ownerId, z.uuid().parse(execution.desktop_device_id), options?.continuation ? "darwin" : undefined);
+        const continuationSource = options?.continuation
+          ? await lockContinuationSource(tx, ownerId, options.continuation.sourceConversationId, execution.execution_target)
+          : null;
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
@@ -7924,6 +8085,23 @@ export class ConversationService {
             occurredAt: created.createdAt,
           },
         });
+        if (options?.continuation && continuationSource) {
+          // The receipt commits with the destination row. A failed audit write
+          // rolls both back instead of leaving an unaudited task.
+          await new AuditService(tx).write({
+            ...options.continuation.audit,
+            actorId: ownerId,
+            action: "conversation_continued",
+            targetType: "conversation",
+            targetId: created.id,
+            result: "success",
+            metadata: {
+              source_conversation_id: options.continuation.sourceConversationId,
+              source_target: continuationSource.executionTarget,
+              execution_target: execution.execution_target,
+            },
+          });
+        }
         return created;
       });
     } catch (error) {
@@ -8041,6 +8219,8 @@ export class ConversationService {
     preservesStagedAttachments: boolean;
     /** Local structured quote whose persisted reference must be re-admitted. */
     localConversationReference: boolean;
+    /** Local ordinary task whose explicit reference sources must be re-admitted. */
+    localTaskReferences: boolean;
     pendingRequestId: string | null;
     regeneration: RegenerationSource | null;
     attachments: TurnStartIntentAttachment[];
@@ -8126,6 +8306,18 @@ export class ConversationService {
           annotation,
           officeAnnotationFingerprint(annotation),
         );
+        if (current.inputText !== input.prepared.inputText ||
+            JSON.stringify(current.display) !== JSON.stringify(display)) {
+          throw new AppError("CONFLICT");
+        }
+      }
+      if (input.localTaskReferences) {
+        const display = input.prepared.messageDisplay;
+        if (display?.kind !== "task_references") throw new AppError("CONFLICT");
+        // The explicit source set is re-read under the same transaction that
+        // writes the destination. Only the freshly prepared server prompt and
+        // canonical display may be admitted; raw prompt metadata is never enough.
+        const current = await prepareTaskReferences(tx, input.conversationId, display);
         if (current.inputText !== input.prepared.inputText ||
             JSON.stringify(current.display) !== JSON.stringify(display)) {
           throw new AppError("CONFLICT");
@@ -9710,21 +9902,25 @@ export class ConversationService {
       const conversation = await this.assertOwner(ownerId, conversationId);
       const desktop = conversation.executionTarget === "local";
       const submittedAnnotation = submissionOfficeAnnotation(submission);
-      // A direct default-mode turn is the only supported local
-      // conversation_reference. Queueing, redo, plan, goals, attachments-only
-      // paths, and every other office annotation stay closed before a write.
+      const directDefaultTurn = !submission.goal && !regeneration &&
+        !planReviewAction && !pendingId && !submission.expectedCodexThreadId &&
+        (submission.collaborationMode ?? conversation.collaborationMode) === "default";
+      // A direct default-mode turn is the only supported local structured
+      // annotation. Queueing, redo, plan, goals, attachments-only paths, and
+      // every other office annotation stay closed before a write.
       const localConversationReference = desktop &&
         submittedAnnotation?.kind === "conversation_reference" &&
         Boolean(conversation.sideChatParentId) &&
         !conversation.applicationId &&
-        !submission.goal &&
-        !regeneration &&
-        !planReviewAction &&
-        !pendingId &&
-        !submission.expectedCodexThreadId &&
-        (submission.collaborationMode ?? conversation.collaborationMode) === "default";
+        directDefaultTurn;
+      const localTaskReferences = desktop &&
+        submittedAnnotation?.kind === "task_references" &&
+        !conversation.sideChatParentId &&
+        !conversation.applicationId &&
+        conversation.archiveStatus === "active" &&
+        directDefaultTurn;
       if (desktop && (conversation.applicationId || submission.goal || regeneration || planReviewAction ||
-          (submittedAnnotation && !localConversationReference) ||
+          (submittedAnnotation && !localConversationReference && !localTaskReferences) ||
           submission.expectedCodexThreadId || pendingId)) {
         throw new AppError("RUNNER_UNAVAILABLE");
       }
@@ -10066,13 +10262,16 @@ export class ConversationService {
       try {
         if (desktop) {
           if (input.collaborationMode !== "default" || input.priorityCapabilityIds.length ||
-              (input.messageDisplay && !localConversationReference)) {
+              (input.messageDisplay && !localConversationReference && !localTaskReferences)) {
             throw new AppError("RUNNER_UNAVAILABLE");
           }
           if (files.some(file => !file.workspaceRelativePath || !file.workspaceRootRelPath)) {
             throw new AppError("ATTACHMENT_UPLOAD_INVALID");
           }
-          await this.runner.assertDesktopAvailable(ownerId, conversationId, files.length > 0, localConversationReference);
+          await this.runner.assertDesktopAvailable(
+            ownerId, conversationId, files.length > 0, localConversationReference,
+            ...(localTaskReferences ? [false, true] as const : []),
+          );
           runtime = conversation;
           modelRuntime = submission.modelPreference
             ? await this.modelRuntimeForSelection(ownerId, conversationId, submission.modelPreference.modelId, submission.modelPreference.reasoningEffort)
@@ -10086,6 +10285,9 @@ export class ConversationService {
                 !conversationReferenceContextFromPersistedPrompt(input.inputText, display)) {
               throw new AppError("RUNNER_UNAVAILABLE");
             }
+          }
+          if (localTaskReferences && input.messageDisplay?.kind !== "task_references") {
+            throw new AppError("RUNNER_UNAVAILABLE");
           }
           if ((localConversationReference || persistedConversationReference) &&
               modelRuntime.provider.protocolMode === "chat_completions_bridge") {
@@ -10107,7 +10309,10 @@ export class ConversationService {
             throw new AppError("MODEL_SELECTION_INVALID");
           }
           if (checkedModelTransitionSource) {
-            await this.runner.assertDesktopAvailable(ownerId, conversationId, files.length > 0, localConversationReference, true);
+            await this.runner.assertDesktopAvailable(
+              ownerId, conversationId, files.length > 0, localConversationReference,
+              true, localTaskReferences,
+            );
           }
         } else {
         const authorizationPromise = this.preflight.resolve({
@@ -10234,6 +10439,7 @@ export class ConversationService {
             prepared: input,
             preservesStagedAttachments,
             localConversationReference,
+            localTaskReferences,
             pendingRequestId: pendingId ?? null,
             regeneration: regeneration ?? null,
             attachments: files.map(snapshotTurnStartAttachment),
@@ -10390,6 +10596,7 @@ export class ConversationService {
             startIntent.ownerId,
             startIntent.knowledgeBaseIdsJson,
           ),
+          localTaskReferences,
         );
         if (desktop && files.length > 0) {
           // Keep the prepared snapshot fenced from recovery and file changes
@@ -11886,8 +12093,23 @@ function buildRunnerStartInputFromIntent(
   selectedKnowledgeBases: NonNullable<
     RunnerStartInput["context"]["selectedKnowledgeBases"]
   >,
+  localTaskReferences = false,
 ): RunnerStartInput {
-  const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
+  const trustedTaskReferences = localTaskReferences &&
+    intent.messageDisplayJson?.kind === "task_references"
+    ? taskReferencesDisplayFromPersistedPrompt(
+        intent.inputText,
+        intent.messageDisplayJson,
+      )
+    : null;
+  if (localTaskReferences && !trustedTaskReferences) {
+    // A forged or rewritten prompt must never become an admitted local read.
+    throw new AppError("CONFLICT");
+  }
+  const runnerContext = buildOfficeAnnotationRunnerContext(
+    intent.inputText,
+    trustedTaskReferences ?? undefined,
+  );
   const isCompact = intent.taskKind === "compact";
   const instructions = turnInstructionsForIntent(intent);
   const conversationReferenceContext = !isCompact &&
@@ -11897,6 +12119,7 @@ function buildRunnerStartInputFromIntent(
   return {
     conversationId: intent.conversationId,
     ...(conversationReferenceContext ? { conversationReferenceContext } : {}),
+    ...(trustedTaskReferences ? { requiresConversationReferenceRead: true as const } : {}),
     appServerProcessLimit:
       executionConcurrency.runner_app_server_process_limit,
     collaborationMode: intent.collaborationMode,

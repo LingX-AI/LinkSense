@@ -577,6 +577,57 @@ func TestDeviceBridgeOffersAndEchoesConversationReferenceOnTheExactSocket(t *tes
 	})
 }
 
+func TestDeviceBridgeOffersConversationReferenceReadOnlyOnMac(t *testing.T) {
+	credential := deviceFixtureCredential()
+	offer := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		offer <- r.Header.Get(desktopToolOperationsHeader)
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, _, err := socket.Read(ctx); err != nil {
+			return
+		}
+		if sendDeviceExecutionReady(ctx, socket, credential.DeviceID, "30000000-0000-4000-8000-000000000031") != nil {
+			return
+		}
+		for {
+			_, data, err := socket.Read(ctx)
+			if err != nil {
+				return
+			}
+			if string(data) == `{"type":"ping"}` && socket.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`)) != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	origin, _ := url.Parse(server.URL)
+	supervisor, _, _ := newFixtureRuntime(t)
+	connection := newFixtureDeviceConnection(t, origin, credential)
+	connection.runtime = supervisor
+	go connection.run()
+	defer connection.cancel()
+	select {
+	case value := <-offer:
+		offered := strings.Contains(value, desktopConversationReferenceReadOperation)
+		if offered != (runtime.GOOS == "darwin") {
+			t.Fatalf("conversation-reference read offer on %s = %t: %q", runtime.GOOS, offered, value)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the device did not dial")
+	}
+	waitDeviceStatus(t, connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ExecutionReady
+	})
+	connection.cancel()
+	waitDeviceDone(t, connection)
+}
+
 func TestDeviceBridgeExecutionReadyFailsClosedWhenTheRuntimeStops(t *testing.T) {
 	credential := deviceFixtureCredential()
 	runtime, pipe, messages := newFixtureRuntime(t)
@@ -695,11 +746,12 @@ func TestDeviceConnectionStatusHidesExecutionReadinessAfterLoss(t *testing.T) {
 		connection.runtime = runtime
 		connection.link.Store(&runtimeLink{pipe: pipe, frames: make(chan json.RawMessage)})
 		connection.setOnline(true)
-		if !connection.Status().ExecutionReady {
+		connection.setConversationReferenceReadNegotiated(true)
+		if !connection.Status().ExecutionReady || !connection.Status().ConversationReferenceReadReady {
 			t.Fatal("the live runtime link was not reported as ready")
 		}
 		account.clear()
-		if connection.Status().ExecutionReady {
+		if connection.Status().ExecutionReady || connection.Status().ConversationReferenceReadReady {
 			t.Fatal("an invalidated account kept reporting execution readiness")
 		}
 	})
@@ -711,8 +763,9 @@ func TestDeviceConnectionStatusHidesExecutionReadinessAfterLoss(t *testing.T) {
 		connection.runtime = runtime
 		connection.link.Store(&runtimeLink{pipe: pipe, frames: make(chan json.RawMessage)})
 		connection.setOnline(true)
+		connection.setConversationReferenceReadNegotiated(true)
 		close(pipe.done)
-		if connection.Status().ExecutionReady {
+		if connection.Status().ExecutionReady || connection.Status().ConversationReferenceReadReady {
 			t.Fatal("a stopped runtime generation kept reporting execution readiness")
 		}
 	})
@@ -1512,17 +1565,139 @@ func TestDeviceConnectionStatusClearsExecutionReadyWhenCanceled(t *testing.T) {
 	connection.runtime = runtime
 	connection.link.Store(&runtimeLink{pipe: pipe, frames: make(chan json.RawMessage)})
 	connection.setOnline(true)
+	connection.setConversationReferenceReadNegotiated(true)
 	live := connection.Status()
-	if live.State != DeviceOnline || !live.ExecutionReady || live.DeviceID != credential.DeviceID {
+	if live.State != DeviceOnline || !live.ExecutionReady || !live.ConversationReferenceReadReady || live.DeviceID != credential.DeviceID {
 		t.Fatalf("a live execution connection was not ready: %+v", live)
 	}
 	connection.cancel()
 	status := connection.Status()
-	if status.ExecutionReady {
+	if status.ExecutionReady || status.ConversationReferenceReadReady {
 		t.Fatalf("a canceled connection reported execution readiness: %+v", status)
 	}
 	// The same valid account keeps its state; only readiness fails closed.
 	if status.State != DeviceOnline || status.DeviceID != credential.DeviceID || status.Name != credential.Name {
 		t.Fatalf("cancellation changed the valid account status: %+v", status)
+	}
+}
+
+func sendDeviceToolReady(ctx context.Context, socket *websocket.Conn, deviceID, connectionID string, operations []string) error {
+	execution, tools, attachment := desktopExecutionVersion, desktopToolVersion, desktopAttachmentVersion
+	data, _ := json.Marshal(deviceReady{
+		Type: "ready", DeviceID: deviceID, ConnectionID: connectionID,
+		ProtocolVersion: 1, HeartbeatIntervalMS: 15_000,
+		ExecutionVersion: &execution, ToolVersion: &tools, AttachmentVersion: &attachment,
+		ToolOperations: operations,
+	})
+	return socket.Write(ctx, websocket.MessageText, data)
+}
+
+func TestDeviceBridgeConversationReferenceReadReadyFollowsTheNegotiatedLiveLink(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the conversation-reference read operation is macOS-only")
+	}
+	credential := deviceFixtureCredential()
+	runtimeSupervisor, pipe, _ := newFixtureRuntime(t)
+	offered := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		offered <- r.Header.Get(desktopToolOperationsHeader)
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		if _, _, err := socket.Read(ctx); err != nil {
+			return
+		}
+		if sendDeviceToolReady(ctx, socket, credential.DeviceID,
+			"30000000-0000-4000-8000-000000000041",
+			[]string{"web.search", desktopConversationReferenceReadOperation}) != nil {
+			return
+		}
+		for {
+			_, data, err := socket.Read(ctx)
+			if err != nil {
+				return
+			}
+			if string(data) == `{"type":"ping"}` && socket.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`)) != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	origin, _ := url.Parse(server.URL)
+	connection := newFixtureDeviceConnection(t, origin, credential)
+	connection.runtime = runtimeSupervisor
+	go connection.run()
+	defer func() {
+		connection.cancel()
+		waitDeviceDone(t, connection)
+	}()
+	select {
+	case value := <-offered:
+		if !strings.Contains(value, desktopConversationReferenceReadOperation) {
+			t.Fatalf("the host did not offer the read operation: %q", value)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the device did not dial")
+	}
+	waitDeviceStatus(t, connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ExecutionReady && status.ConversationReferenceReadReady
+	})
+	// A read is ready only on the exact runtime generation that is still live.
+	runtimeSupervisor.ready.Store(false)
+	runtimeSupervisor.pipe.Store(nil)
+	close(pipe.done)
+	waitDeviceStatus(t, connection, func(status DeviceConnectionStatus) bool {
+		return !status.ExecutionReady && !status.ConversationReferenceReadReady
+	})
+}
+
+func TestDeviceBridgeDoesNotEnableConversationReferenceReadWithoutTheReadyOperation(t *testing.T) {
+	credential := deviceFixtureCredential()
+	runtimeSupervisor, _, _ := newFixtureRuntime(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		if _, _, err := socket.Read(ctx); err != nil {
+			return
+		}
+		// An older server still negotiates execution but omits the additive
+		// operation list, so the host must not claim the read is ready.
+		if sendDeviceExecutionReady(ctx, socket, credential.DeviceID,
+			"30000000-0000-4000-8000-000000000042") != nil {
+			return
+		}
+		for {
+			_, data, err := socket.Read(ctx)
+			if err != nil {
+				return
+			}
+			if string(data) == `{"type":"ping"}` && socket.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`)) != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	origin, _ := url.Parse(server.URL)
+	connection := newFixtureDeviceConnection(t, origin, credential)
+	connection.runtime = runtimeSupervisor
+	go connection.run()
+	defer func() {
+		connection.cancel()
+		waitDeviceDone(t, connection)
+	}()
+	waitDeviceStatus(t, connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ExecutionReady
+	})
+	if connection.Status().ConversationReferenceReadReady {
+		t.Fatal("an older server that never echoed the read operation enabled it")
 	}
 }

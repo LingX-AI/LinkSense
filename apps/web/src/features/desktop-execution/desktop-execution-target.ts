@@ -118,6 +118,68 @@ export function desktopExecutionFreshDeviceCheck(
   return status.deviceId === expectedDeviceId ? "ready" : "changed"
 }
 
+export type DesktopExecutionContinuationDeviceCheck =
+  | Readonly<{ kind: "ready"; deviceId: string }>
+  | Readonly<{
+      kind: "unavailable" | "changed" | "reference_unavailable"
+    }>
+
+/**
+ * Starting a new local task from a cloud task additionally needs the exact
+ * negotiated reference read. Execution readiness alone cannot seed the source
+ * reference, so an old Mac fails closed here. The first read supplies the
+ * expected device; a retry must still see the same device.
+ */
+export function desktopExecutionContinuationDeviceCheck(
+  expectedDeviceId: string | undefined,
+  status: DesktopDeviceStatus
+): DesktopExecutionContinuationDeviceCheck {
+  if (
+    status.state !== "online" ||
+    status.executionReady !== true ||
+    !status.deviceId
+  ) {
+    return { kind: "unavailable" }
+  }
+  if (status.conversationReferenceReadReady !== true) {
+    return { kind: "reference_unavailable" }
+  }
+  return expectedDeviceId && status.deviceId !== expectedDeviceId
+    ? { kind: "changed" }
+    : { kind: "ready", deviceId: status.deviceId }
+}
+
+export function desktopContinuationDestination(
+  sourceTarget: ConversationExecutionTarget
+): ConversationExecutionTarget {
+  return sourceTarget === "local" ? "cloud" : "local"
+}
+
+/** The continuation entry belongs only to a normal main Mac task view. */
+export function shouldOfferDesktopContinuation(input: {
+  isNew: boolean
+  showConversationActions: boolean
+  hasUser: boolean
+  isMacDesktopHost: boolean
+  embedded: boolean
+  development: boolean
+  readOnly: boolean
+  archived: boolean
+  application: boolean
+}): boolean {
+  return (
+    !input.isNew &&
+    input.showConversationActions &&
+    input.hasUser &&
+    input.isMacDesktopHost &&
+    !input.embedded &&
+    !input.development &&
+    !input.readOnly &&
+    !input.archived &&
+    !input.application
+  )
+}
+
 /** The picker belongs only to a fresh task in the main macOS window. */
 export function shouldOfferDesktopExecutionTarget(input: {
   isNew: boolean

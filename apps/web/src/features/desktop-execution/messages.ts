@@ -24,6 +24,21 @@ type DesktopExecutionMessages = {
   deviceChanged: string
   deviceUnavailable: string
   manageDevices: string
+  continueInCloud: string
+  continueOnThisMac: string
+  continuationTitle: string
+  continuationDescription: string
+  continuationOriginalAndFiles: string
+  continuationReferenceNote: string
+  continuationAuditAndReturn: string
+  continuationDestinationCloud: string
+  continuationDestinationLocal: string
+  continuationConfirm: string
+  continuationPending: string
+  continuationFailed: string
+  continuationUnsupported: string
+  continuationReferenceUnavailable: string
+  continuationInvalidResponse: string
 }
 
 export const desktopExecutionMessages: Record<
@@ -42,7 +57,8 @@ export const desktopExecutionMessages: Record<
     cloudTargetUnavailable: "云电脑当前不可用，暂时无法新建云端任务。",
     local: "本地电脑",
     localDescription: "在这台 Mac 上运行任务。",
-    localComputerUnavailable: "这台 Mac 的本地任务当前不可用，暂时无法新建本地任务。",
+    localComputerUnavailable:
+      "这台 Mac 的本地任务当前不可用，暂时无法新建本地任务。",
     noTargetAvailable: "云电脑和本地电脑当前都不可用，暂时无法新建任务。",
     targetBadge: "运行位置：{{target}}",
     deviceChecking: "正在检查这台 Mac 是否可用…",
@@ -55,6 +71,28 @@ export const desktopExecutionMessages: Record<
     deviceChanged: "所选设备或任务页面已变化。请重试。",
     deviceUnavailable: "这台 Mac 当前无法运行本地任务。请检查设备状态后重试。",
     manageDevices: "管理设备",
+    continueInCloud: "在云电脑中继续",
+    continueOnThisMac: "在这台 Mac 上继续",
+    continuationTitle: "在{{destination}}继续这个任务？",
+    continuationDescription:
+      "将在{{destination}}创建独立的新任务。当前任务保持原样。",
+    continuationOriginalAndFiles:
+      "原任务及其文件和产物仍保留在这里，不会同步到新任务。",
+    continuationReferenceNote:
+      "新任务从空白开始。如需让它读取你可见的文字，请把原任务作为引用发送。",
+    continuationAuditAndReturn:
+      "此次切换会写入审计日志。你可以随时返回原任务。",
+    continuationDestinationCloud: "云电脑中",
+    continuationDestinationLocal: "这台 Mac 上",
+    continuationConfirm: "在{{destination}}继续",
+    continuationPending: "正在创建新任务…",
+    continuationFailed: "无法创建新任务。你的草稿和原任务均未更改。请重试。",
+    continuationUnsupported:
+      "此 LinkSense 版本不支持在其他运行位置继续任务。请更新 LinkSense 后重试。",
+    continuationReferenceUnavailable:
+      "这台 Mac 暂时无法读取原任务作为引用。请更新 Mac 上的 LinkSense 后重试。",
+    continuationInvalidResponse:
+      "服务器返回的任务与此请求不匹配，因此未打开。你的草稿和原任务均未更改。",
   },
   "en-US": {
     defaultTarget: "Default run location",
@@ -90,6 +128,29 @@ export const desktopExecutionMessages: Record<
     deviceUnavailable:
       "This Mac can’t run local tasks right now. Check the device status and try again.",
     manageDevices: "Manage devices",
+    continueInCloud: "Continue on the cloud computer",
+    continueOnThisMac: "Continue on this Mac",
+    continuationTitle: "Continue this task on {{destination}}?",
+    continuationDescription:
+      "A separate task will be created on {{destination}}. The current task stays exactly as it is.",
+    continuationOriginalAndFiles:
+      "The original task, its files, and its artifacts stay available here. They are not synchronized to the new task.",
+    continuationReferenceNote:
+      "The new task starts empty. Send the original task as a reference if you want it to read the text visible to you.",
+    continuationAuditAndReturn:
+      "The move is recorded in the audit log. You can return to the original task at any time.",
+    continuationDestinationCloud: "the cloud computer",
+    continuationDestinationLocal: "this Mac",
+    continuationConfirm: "Continue on {{destination}}",
+    continuationPending: "Creating new task…",
+    continuationFailed:
+      "Couldn’t create the new task. Your draft and the original task are unchanged. Try again.",
+    continuationUnsupported:
+      "This LinkSense version can’t continue tasks in another run location. Update LinkSense and try again.",
+    continuationReferenceUnavailable:
+      "This Mac can’t read the original task as a reference yet. Update LinkSense on the Mac, then try again.",
+    continuationInvalidResponse:
+      "The server returned a task that didn’t match this request, so it wasn’t opened. Your draft and the original task are unchanged.",
   },
   "es-ES": {
     defaultTarget: "Ubicación de ejecución predeterminada",
@@ -128,6 +189,29 @@ export const desktopExecutionMessages: Record<
     deviceUnavailable:
       "Este Mac no puede ejecutar tareas locales ahora mismo. Comprueba el estado del dispositivo e inténtalo de nuevo.",
     manageDevices: "Gestionar dispositivos",
+    continueInCloud: "Continuar en el equipo en la nube",
+    continueOnThisMac: "Continuar en este Mac",
+    continuationTitle: "¿Continuar esta tarea con {{destination}}?",
+    continuationDescription:
+      "Se creará una tarea independiente con {{destination}}. La tarea actual no cambiará.",
+    continuationOriginalAndFiles:
+      "La tarea original, sus archivos y sus artefactos siguen disponibles aquí. No se sincronizan con la tarea nueva.",
+    continuationReferenceNote:
+      "La tarea nueva empieza vacía. Envía la tarea original como referencia si quieres que lea el texto que ves.",
+    continuationAuditAndReturn:
+      "El cambio se registra en el registro de auditoría. Puedes volver a la tarea original en cualquier momento.",
+    continuationDestinationCloud: "el equipo en la nube",
+    continuationDestinationLocal: "este Mac",
+    continuationConfirm: "Continuar con {{destination}}",
+    continuationPending: "Creando la tarea nueva…",
+    continuationFailed:
+      "No se pudo crear la tarea nueva. Tu borrador y la tarea original no han cambiado. Inténtalo de nuevo.",
+    continuationUnsupported:
+      "Esta versión de LinkSense no puede continuar tareas en otra ubicación de ejecución. Actualiza LinkSense e inténtalo de nuevo.",
+    continuationReferenceUnavailable:
+      "Este Mac aún no puede leer la tarea original como referencia. Actualiza LinkSense en el Mac e inténtalo de nuevo.",
+    continuationInvalidResponse:
+      "El servidor devolvió una tarea que no coincide con esta solicitud, así que no se abrió. Tu borrador y la tarea original no han cambiado.",
   },
   "pt-BR": {
     defaultTarget: "Local de execução padrão",
@@ -166,6 +250,29 @@ export const desktopExecutionMessages: Record<
     deviceUnavailable:
       "Este Mac não consegue executar tarefas locais agora. Verifique o status do dispositivo e tente novamente.",
     manageDevices: "Gerenciar dispositivos",
+    continueInCloud: "Continuar no computador na nuvem",
+    continueOnThisMac: "Continuar neste Mac",
+    continuationTitle: "Continuar esta tarefa com {{destination}}?",
+    continuationDescription:
+      "Uma tarefa separada será criada com {{destination}}. A tarefa atual permanece exatamente como está.",
+    continuationOriginalAndFiles:
+      "A tarefa original, seus arquivos e artefatos continuam disponíveis aqui. Eles não são sincronizados com a nova tarefa.",
+    continuationReferenceNote:
+      "A nova tarefa começa vazia. Envie a tarefa original como referência se quiser que ela leia o texto visível para você.",
+    continuationAuditAndReturn:
+      "A mudança é registrada no log de auditoria. Você pode voltar à tarefa original a qualquer momento.",
+    continuationDestinationCloud: "o computador na nuvem",
+    continuationDestinationLocal: "este Mac",
+    continuationConfirm: "Continuar com {{destination}}",
+    continuationPending: "Criando nova tarefa…",
+    continuationFailed:
+      "Não foi possível criar a nova tarefa. Seu rascunho e a tarefa original não foram alterados. Tente novamente.",
+    continuationUnsupported:
+      "Esta versão do LinkSense não consegue continuar tarefas em outro local de execução. Atualize o LinkSense e tente novamente.",
+    continuationReferenceUnavailable:
+      "Este Mac ainda não consegue ler a tarefa original como referência. Atualize o LinkSense no Mac e tente novamente.",
+    continuationInvalidResponse:
+      "O servidor retornou uma tarefa que não corresponde a esta solicitação, então ela não foi aberta. Seu rascunho e a tarefa original não foram alterados.",
   },
   "fr-FR": {
     defaultTarget: "Emplacement d’exécution par défaut",
@@ -202,6 +309,29 @@ export const desktopExecutionMessages: Record<
     deviceUnavailable:
       "Ce Mac ne peut pas exécuter de tâches locales pour le moment. Vérifiez l’état de l’appareil et réessayez.",
     manageDevices: "Gérer les appareils",
+    continueInCloud: "Continuer sur l’ordinateur cloud",
+    continueOnThisMac: "Continuer sur ce Mac",
+    continuationTitle: "Continuer cette tâche avec {{destination}} ?",
+    continuationDescription:
+      "Une tâche distincte sera créée avec {{destination}}. La tâche actuelle reste inchangée.",
+    continuationOriginalAndFiles:
+      "La tâche d’origine, ses fichiers et ses artefacts restent disponibles ici. Ils ne sont pas synchronisés avec la nouvelle tâche.",
+    continuationReferenceNote:
+      "La nouvelle tâche commence vide. Envoyez la tâche d’origine comme référence si vous voulez qu’elle lise le texte que vous voyez.",
+    continuationAuditAndReturn:
+      "Ce changement est enregistré dans le journal d’audit. Vous pouvez revenir à la tâche d’origine à tout moment.",
+    continuationDestinationCloud: "l’ordinateur cloud",
+    continuationDestinationLocal: "ce Mac",
+    continuationConfirm: "Continuer avec {{destination}}",
+    continuationPending: "Création de la nouvelle tâche…",
+    continuationFailed:
+      "Impossible de créer la nouvelle tâche. Votre brouillon et la tâche d’origine sont inchangés. Réessayez.",
+    continuationUnsupported:
+      "Cette version de LinkSense ne peut pas poursuivre des tâches dans un autre emplacement d’exécution. Mettez LinkSense à jour et réessayez.",
+    continuationReferenceUnavailable:
+      "Ce Mac ne peut pas encore lire la tâche d’origine comme référence. Mettez LinkSense à jour sur le Mac, puis réessayez.",
+    continuationInvalidResponse:
+      "Le serveur a renvoyé une tâche qui ne correspond pas à cette demande ; elle n’a donc pas été ouverte. Votre brouillon et la tâche d’origine sont inchangés.",
   },
   "ja-JP": {
     defaultTarget: "デフォルトの実行場所",
@@ -240,5 +370,28 @@ export const desktopExecutionMessages: Record<
     deviceUnavailable:
       "この Mac は現在ローカルタスクを実行できません。デバイスの状態を確認して再試行してください。",
     manageDevices: "デバイスを管理",
+    continueInCloud: "クラウド PC で続行",
+    continueOnThisMac: "この Mac で続行",
+    continuationTitle: "{{destination}} でこのタスクを続行しますか？",
+    continuationDescription:
+      "{{destination}} に別のタスクを作成します。現在のタスクは変更されません。",
+    continuationOriginalAndFiles:
+      "元のタスクとそのファイル、成果物はここに残ります。新しいタスクには同期されません。",
+    continuationReferenceNote:
+      "新しいタスクは空の状態で始まります。表示されているテキストを読ませたい場合は、元のタスクを参照として送信してください。",
+    continuationAuditAndReturn:
+      "この移動は監査ログに記録されます。元のタスクにはいつでも戻れます。",
+    continuationDestinationCloud: "クラウド PC",
+    continuationDestinationLocal: "この Mac",
+    continuationConfirm: "{{destination}} で続行",
+    continuationPending: "新しいタスクを作成しています…",
+    continuationFailed:
+      "新しいタスクを作成できませんでした。下書きと元のタスクは変更されていません。再試行してください。",
+    continuationUnsupported:
+      "このバージョンの LinkSense では、別の実行場所でタスクを続行できません。LinkSense を更新して再試行してください。",
+    continuationReferenceUnavailable:
+      "この Mac ではまだ元のタスクを参照として読み取れません。Mac の LinkSense を更新して再試行してください。",
+    continuationInvalidResponse:
+      "サーバーから返されたタスクがこのリクエストと一致しないため、開きませんでした。下書きと元のタスクは変更されていません。",
   },
 }

@@ -24,6 +24,7 @@ const nativeDeviceStatusSchema = z
     deviceId: z.uuid().optional(),
     executionReady: z.boolean().optional(),
     computerReady: z.boolean().optional(),
+    conversationReferenceReadReady: z.boolean().optional(),
   })
   .passthrough()
 
@@ -43,6 +44,11 @@ export type DesktopDeviceStatus = {
    * the Web UI omits every control without probing TCC.
    */
   computerReady?: boolean
+  /**
+   * True only when this exact negotiated connection can read a conversation
+   * reference. A missing field comes from an older host and means false.
+   */
+  conversationReferenceReadReady?: boolean
 }
 
 export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
@@ -52,6 +58,8 @@ export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
     state: parsed.state,
     executionReady: parsed.executionReady === true,
     computerReady: parsed.computerReady === true,
+    conversationReferenceReadReady:
+      parsed.conversationReferenceReadReady === true,
   }
 }
 

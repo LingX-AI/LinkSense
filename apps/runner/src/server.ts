@@ -1556,10 +1556,15 @@ export function buildRunnerServer(
     const body = readConversationReferenceInputSchema.safeParse(request.body);
     if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
     if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
-    try { return await pool.readConversationReference(conversationId.data, token, body.data); }
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once("close", abort);
+    try { return await pool.readConversationReference(conversationId.data, token, body.data, controller.signal); }
     catch (error) {
       const status = error instanceof ConversationReferenceRequestError ? error.statusCode : 503;
       return reply.code(status).send({ code: "CONVERSATION_REFERENCE_UNAVAILABLE", retryable: status >= 500 });
+    } finally {
+      reply.raw.off("close", abort);
     }
   });
 

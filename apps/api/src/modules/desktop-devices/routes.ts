@@ -35,6 +35,7 @@ import {
   desktopNegotiatedOperationSchema,
   desktopComputerExecuteOperation,
   desktopComputerWaitOperation,
+  desktopConversationReferenceReadOperation,
   desktopToolProtocolVersion,
   type DesktopNegotiatedOperation,
 } from "@linksense/shared";
@@ -222,6 +223,7 @@ export async function registerDesktopDeviceRoutes(
                     // together with computer.execute; an old Mac/API list is
                     // otherwise unchanged.
                     ? options.computerExecute === true && offered.has(desktopComputerExecuteOperation)
+                    : operation === desktopConversationReferenceReadOperation ? true
                     : options.knowledgeTools)));
     const supportsComputerStatus = supportsTools && options.computerExecute === true &&
       offered?.has(desktopComputerExecuteOperation) === true &&

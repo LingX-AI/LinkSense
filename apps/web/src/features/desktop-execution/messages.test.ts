@@ -39,9 +39,26 @@ describe("desktop execution messages", () => {
 
   it("keeps interpolation tokens consistent", () => {
     for (const locale of supportedLocales) {
-      expect(
-        interpolationTokens(desktopExecutionMessages[locale].targetBadge)
-      ).toEqual(["{{target}}"])
+      const messages = desktopExecutionMessages[locale]
+      expect(interpolationTokens(messages.targetBadge)).toEqual(["{{target}}"])
+      for (const key of [
+        "continuationTitle",
+        "continuationDescription",
+        "continuationConfirm",
+      ] as const) {
+        expect(interpolationTokens(messages[key]), `${locale}.${key}`).toEqual([
+          "{{destination}}",
+        ])
+      }
+      for (const key of [
+        "continuationOriginalAndFiles",
+        "continuationReferenceNote",
+        "continuationAuditAndReturn",
+      ] as const) {
+        expect(interpolationTokens(messages[key]), `${locale}.${key}`).toEqual(
+          []
+        )
+      }
     }
   })
 
@@ -65,6 +82,7 @@ describe("desktop execution messages", () => {
       "deviceOffline",
       "defaultTarget",
       "defaultTargetSaveFailed",
+      "continuationFailed",
     ] as const) {
       expect(fallback.t(`desktopExecution.${key}`, { lng: "en-US" })).toBe(
         desktopExecutionMessages["zh-CN"][key]

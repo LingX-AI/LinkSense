@@ -364,6 +364,184 @@ describe("conversation create route", () => {
   });
 });
 
+describe("conversation continuation route", () => {
+  const device = "10000000-0000-4000-8000-000000000009";
+
+  it("continues a cloud source through the authenticated owner and returns the source reference", async () => {
+    const { app, continueConversation } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      headers: { "user-agent": "Browser" },
+      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { source: { id: CONVERSATION_ID, title: "Source task" } },
+    });
+    expect(continueConversation).toHaveBeenCalledWith(
+      OWNER_ID,
+      CONVERSATION_ID,
+      {
+        requestId: IDEMPOTENCY_KEY,
+        executionTarget: "cloud",
+        desktopDeviceId: null,
+        fallbackLocale: "zh-CN",
+      },
+      expect.objectContaining({ userAgent: "Browser" }),
+    );
+  });
+
+  it("passes an explicit paired Mac for a local continuation", async () => {
+    const { app, continueConversation } = await conversationRouteFixture(null, false, {
+      desktopLocalExecutionEnabled: true,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload: {
+        request_id: IDEMPOTENCY_KEY,
+        execution_target: "local",
+        desktop_device_id: device,
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(continueConversation).toHaveBeenCalledWith(
+      OWNER_ID,
+      CONVERSATION_ID,
+      expect.objectContaining({
+        executionTarget: "local",
+        desktopDeviceId: device,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it.each([
+    { request_id: IDEMPOTENCY_KEY },
+    { execution_target: "cloud" },
+    { request_id: "not-a-uuid", execution_target: "cloud" },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "hybrid" },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "local" },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", desktop_device_id: device },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", owner_id: OWNER_ID },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", project_id: PROJECT_ID },
+    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", prewarmed_conversation_id: PROJECT_ID },
+  ])("rejects a non-explicit or over-specified body %j before calling the service", async (payload) => {
+    const { app, continueConversation } = await conversationRouteFixture(null, false, {
+      desktopLocalExecutionEnabled: true,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(continueConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps cloud creation independent from the cloud continuation rollout flag", async () => {
+    const { app, create, config } = await conversationRouteFixture(null, false, {
+      desktopCloudTargetEnabled: false,
+    });
+    expect(config.desktopCloudTargetEnabled).toBe(false);
+
+    const creation = await app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: {},
+    });
+    expect(creation.statusCode, creation.body).toBe(201);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it("rejects a disabled cloud continuation without falling back or calling the service", async () => {
+    const logLines: Record<string, unknown>[] = [];
+    const { app, continueConversation } = await conversationRouteFixture(null, false, {
+      desktopCloudTargetEnabled: false,
+      logLines,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
+    });
+
+    expect(response.statusCode, response.body).toBe(503);
+    expect(response.json()).toMatchObject({ error_code: "RUNNER_UNAVAILABLE" });
+    expect(continueConversation).not.toHaveBeenCalled();
+    expect(logLines).toContainEqual(expect.objectContaining({
+      event: "desktop_conversation_continuation_denied",
+      target: "cloud",
+      reason_code: "desktop_cloud_target_disabled",
+    }));
+  });
+
+  it("rejects a disabled local continuation without falling back or calling the service", async () => {
+    const logLines: Record<string, unknown>[] = [];
+    const { app, continueConversation } = await conversationRouteFixture(null, false, {
+      desktopLocalExecutionEnabled: false,
+      logLines,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload: {
+        request_id: IDEMPOTENCY_KEY,
+        execution_target: "local",
+        desktop_device_id: device,
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(503);
+    expect(continueConversation).not.toHaveBeenCalled();
+    expect(logLines).toContainEqual(expect.objectContaining({
+      event: "desktop_conversation_continuation_denied",
+      target: "local",
+      reason_code: "desktop_local_execution_disabled",
+    }));
+    expect(JSON.stringify(logLines)).not.toContain(device);
+  });
+
+  it("requires authentication before validating or dispatching", async () => {
+    const { app, continueConversation } = await conversationRouteFixture(null, false, {
+      authenticated: false,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(continueConversation).not.toHaveBeenCalled();
+  });
+
+  it("maps service rejection without exposing internal details", async () => {
+    const { app, continueConversation } = await conversationRouteFixture();
+    continueConversation.mockRejectedValueOnce(new AppError("CONFLICT"));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/continuations`,
+      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
+    });
+
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json()).toMatchObject({ error_code: "CONFLICT" });
+  });
+});
+
 describe("conversation archived clear route", () => {
   it("clears only the authenticated owner's archived tasks", async () => {
     const { app, clearArchived } = await conversationRouteFixture();
@@ -1566,6 +1744,10 @@ async function conversationRouteFixture(
   const get = vi.fn(async () => ({ conversation: { id: CONVERSATION_ID }, messages: [] }));
   const getReferencedSources = vi.fn(async () => ({ items: [{ url: "https://example.test/guide", title: "Guide" }] }));
   const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
+  const continueConversation = vi.fn(async () => ({
+    conversation: { id: TURN_ID, owner_id: OWNER_ID, title: "Continued task" },
+    source: { id: CONVERSATION_ID, title: "Source task" },
+  }));
   const clearArchived = vi.fn(async () => ({ deleted_count: 2, failed_tasks: [] }));
   const reorder = vi.fn(async (_ownerId: string, input: {
     group: "pinned" | "recent";
@@ -1828,6 +2010,7 @@ async function conversationRouteFixture(
         list,
         get,
         create,
+        continueConversation,
         clearArchived,
         reorder,
         patch,
@@ -1870,6 +2053,7 @@ async function conversationRouteFixture(
     list,
     get,
     create,
+    continueConversation,
     clearArchived,
     reorder,
     patch,

@@ -30,7 +30,7 @@ type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<InspectComma
 export class DesktopRunner {
   constructor(
     private readonly findConversation: (scope: ConversationScope) => Promise<{ desktopDeviceId: string | null; runtimeGeneration: string } | null>,
-    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments" | "supportsConversationReference" | "supportsModelSwitch">,
+    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments" | "supportsConversationReference" | "supportsConversationReferenceRead" | "supportsModelSwitch">,
     private readonly leases: Pick<DesktopRunLeases, "issue" | "discardUndelivered">,
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
     private readonly attachments: Pick<DesktopAttachments, "manifest">,
@@ -44,11 +44,19 @@ export class DesktopRunner {
     }) => Promise<void>,
   ) {}
 
-  async assertAvailable(scope: ConversationScope, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false): Promise<void> {
+  async assertAvailable(scope: ConversationScope, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false, needsConversationReferenceRead = false): Promise<void> {
     const { binding } = await this.resolve(scope);
     if (needsModelSwitch) await this.assertModelSwitchSupport(binding);
     if (needsConversationReference) await this.assertConversationReferenceSupport(binding);
+    if (needsConversationReferenceRead) await this.assertConversationReferenceReadSupport(binding);
     if (needsAttachments) await this.assertAttachmentSupport(binding);
+  }
+
+  /** Creation-time readiness only; no device reservation or lease is taken. */
+  async assertDeviceAvailable(deviceId: string, needsConversationReferenceRead = false): Promise<void> {
+    const binding = await this.transport.connection(deviceId);
+    if (!binding) throw new AppError("RUNNER_UNAVAILABLE");
+    if (needsConversationReferenceRead) await this.assertConversationReferenceReadSupport(binding);
   }
 
   async start(input: RunnerStartInput, connectionId?: string): Promise<DesktopExecutionStartReceipt> {
@@ -75,6 +83,11 @@ export class DesktopRunner {
       // the run lease or any device dispatch.
       if (input.modelProvider.protocolMode === "chat_completions_bridge") throw new AppError("MODEL_SELECTION_INVALID");
       await this.assertConversationReferenceSupport(binding);
+    }
+    if (input.requiresConversationReferenceRead) {
+      // The current handoff must still be the generation that negotiated the
+      // explicit reference read; an old or replaced Mac never gets a command.
+      await this.assertConversationReferenceReadSupport(binding);
     }
     if (context.selectedKnowledgeBases?.length && !await this.transport.supportsKnowledge(binding)) {
       throw new DesktopCommandUndeliveredError();
@@ -121,6 +134,10 @@ export class DesktopRunner {
 
   private async assertConversationReferenceSupport(binding: DesktopExecutionBinding): Promise<void> {
     if (!await this.transport.supportsConversationReference(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
+  }
+
+  private async assertConversationReferenceReadSupport(binding: DesktopExecutionBinding): Promise<void> {
+    if (!await this.transport.supportsConversationReferenceRead(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
   }
 
   private async assertModelSwitchSupport(binding: DesktopExecutionBinding): Promise<void> {

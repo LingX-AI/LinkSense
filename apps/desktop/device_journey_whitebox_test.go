@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,10 @@ const (
 	deviceJourneyAccessToken           = "browser-test-access-token-0000000000000000"
 	deviceJourneyPairName              = "Work laptop"
 	deviceJourneyFixtureTime           = "2026-07-11T08:00:00Z"
+	deviceJourneyCloudTaskID           = "91000000-0000-4000-8000-000000000001"
+	deviceJourneyCloudTaskTitle        = "Cloud fixture task"
+	deviceJourneySourceDraft           = "Source draft stays on the cloud task"
+	deviceJourneyContinuationPrompt    = "Continue the Mac leg"
 )
 
 // deviceJourneyWhitebox is the narrow dispatch hook shared with whiteboxAPI.
@@ -86,27 +91,48 @@ type deviceJourneyTurnCall struct {
 type deviceJourneyHello struct {
 	token     string
 	execution string
+	tools     string
+}
+
+// deviceJourneyContinuationCall is one POST to the continuation route, kept
+// even when it is rejected so an extra or malformed request fails the test.
+type deviceJourneyContinuationCall struct {
+	method        string
+	sourceID      string
+	raw           string
+	body          map[string]any
+	authorized    bool
+	status        int
+	destinationID string
 }
 
 type deviceJourneyFixture struct {
-	mu        sync.Mutex
-	closed    bool
-	done      chan struct{}
-	sockets   map[*websocket.Conn]struct{}
-	pairings  []deviceJourneyPairingCall
-	pairs     []deviceJourneyPairCall
-	creates   []deviceJourneyCreateCall
-	prewarms  []map[string]any
-	turns     []deviceJourneyTurnCall
-	hellos    []deviceJourneyHello
-	conversa  map[string]map[string]any
-	pairState struct {
+	mu         sync.Mutex
+	closed     bool
+	done       chan struct{}
+	sockets    map[*websocket.Conn]struct{}
+	pairings   []deviceJourneyPairingCall
+	pairs      []deviceJourneyPairCall
+	creates    []deviceJourneyCreateCall
+	prewarms   []map[string]any
+	turns      []deviceJourneyTurnCall
+	turnBodies []map[string]any
+	hellos     []deviceJourneyHello
+	conversa   map[string]map[string]any
+
+	continuationAttempts int
+	continuations        []deviceJourneyContinuationCall
+	unexpected           []string
+	pairState            struct {
 		name, platform, arch, appVersion string
 	}
 
-	// execution makes the fake API negotiate execution protocol v2. reject and
-	// revoked model a lost socket and a server-side credential revocation.
+	// execution makes the fake API negotiate execution protocol v2. tools makes
+	// it additionally negotiate the exact conversation-reference read operation
+	// offered by this Mac. reject and revoked model a lost socket and a
+	// server-side credential revocation.
 	execution atomic.Bool
+	tools     atomic.Bool
 	reject    atomic.Bool
 	revoked   atomic.Bool
 
@@ -173,9 +199,14 @@ func (f *deviceJourneyFixture) writeHeaders(w http.ResponseWriter, r *http.Reque
 }
 
 func (f *deviceJourneyFixture) writeData(w http.ResponseWriter, r *http.Request, data any) {
+	f.writeDataStatus(w, r, http.StatusOK, data)
+}
+
+func (f *deviceJourneyFixture) writeDataStatus(w http.ResponseWriter, r *http.Request, status int, data any) {
 	if !f.writeHeaders(w, r) {
 		return
 	}
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": data})
 }
 
@@ -372,21 +403,26 @@ func (f *deviceJourneyFixture) serveConversations(w http.ResponseWriter, r *http
 		return
 	}
 	if len(parts) == 2 && parts[1] == "turns" && r.Method == http.MethodPost {
-		var body struct {
-			InputText string `json:"input_text"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		var body map[string]any
+		if len(raw) == 0 || json.Unmarshal(raw, &body) != nil {
 			f.writeError(w, r, http.StatusBadRequest, "VALIDATION_ERROR")
 			return
 		}
+		inputText, _ := body["input_text"].(string)
 		f.mu.Lock()
-		f.turns = append(f.turns, deviceJourneyTurnCall{conversationID: parts[0], inputText: body.InputText})
+		f.turns = append(f.turns, deviceJourneyTurnCall{conversationID: parts[0], inputText: inputText})
+		f.turnBodies = append(f.turnBodies, body)
 		f.mu.Unlock()
 		f.writeData(w, r, map[string]any{
 			"turn_id":  deviceJourneyTurnID,
 			"accepted": true,
 			"status":   "starting",
 		})
+		return
+	}
+	if len(parts) == 2 && parts[1] == "continuations" {
+		f.serveContinuation(w, r, parts[0])
 		return
 	}
 	if len(parts) == 2 && parts[1] == "events" && r.Method == http.MethodGet {
@@ -403,6 +439,11 @@ func (f *deviceJourneyFixture) serveConversations(w http.ResponseWriter, r *http
 		}
 		f.writeData(w, r, conversation)
 		return
+	}
+	// A mutating request this fixture did not serve is an unexpected write, not
+	// a legacy-fixture success. Record it so the continuation test fails loudly.
+	if r.Method != http.MethodGet {
+		f.recordUnexpectedWrite(r)
 	}
 	f.writeError(w, r, http.StatusNotFound, "NOT_FOUND")
 }
@@ -445,6 +486,132 @@ func (f *deviceJourneyFixture) serveConversationCreate(w http.ResponseWriter, r 
 	f.conversa[id] = conversation
 	f.mu.Unlock()
 	f.writeData(w, r, conversation)
+}
+
+// serveContinuation serves the frozen continuation contract. It records every
+// attempt, including rejected ones, so the test can prove exactly one
+// authenticated POST reached each continuation and no extra write slipped in.
+func (f *deviceJourneyFixture) serveContinuation(w http.ResponseWriter, r *http.Request, sourceID string) {
+	authorized := deviceJourneyAuthorized(r)
+	f.mu.Lock()
+	f.continuationAttempts++
+	f.mu.Unlock()
+	call := deviceJourneyContinuationCall{method: r.Method, sourceID: sourceID, authorized: authorized}
+	fail := func(status int, code string) {
+		call.status = status
+		f.mu.Lock()
+		f.continuations = append(f.continuations, call)
+		f.mu.Unlock()
+		f.writeError(w, r, status, code)
+	}
+	if r.Method != http.MethodPost {
+		fail(http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	if !authorized {
+		fail(http.StatusUnauthorized, "AUTH_REQUIRED")
+		return
+	}
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 16<<10))
+	call.raw = string(raw)
+	var input struct {
+		ExecutionTarget string  `json:"execution_target"`
+		DesktopDeviceID *string `json:"desktop_device_id"`
+		RequestID       string  `json:"request_id"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body map[string]any
+	if err := decoder.Decode(&input); err != nil || json.Unmarshal(raw, &body) != nil ||
+		len(body) != 3 || !validUUID(input.RequestID) {
+		fail(http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+		return
+	}
+	call.body = body
+	credential := deviceFixtureCredential()
+	switch input.ExecutionTarget {
+	case "local":
+		if input.DesktopDeviceID == nil || *input.DesktopDeviceID != credential.DeviceID {
+			fail(http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+			return
+		}
+	case "cloud":
+		if input.DesktopDeviceID != nil {
+			fail(http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+			return
+		}
+	default:
+		fail(http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+		return
+	}
+	f.mu.Lock()
+	source := f.conversa[sourceID]
+	sourceTitle, sourceTarget := "", "cloud"
+	if source != nil {
+		sourceTitle, _ = source["title"].(string)
+		if target, ok := source["execution_target"].(string); ok {
+			sourceTarget = target
+		}
+	}
+	f.mu.Unlock()
+	if source == nil || sourceTitle == "" {
+		fail(http.StatusNotFound, "CONVERSATION_NOT_FOUND")
+		return
+	}
+	// The entry always moves the task to the other run location.
+	if sourceTarget == input.ExecutionTarget {
+		fail(http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+		return
+	}
+	var destinationDevice any
+	if input.DesktopDeviceID != nil {
+		destinationDevice = *input.DesktopDeviceID
+	}
+	f.mu.Lock()
+	index := len(f.continuations) + 1
+	destinationID := fmt.Sprintf("a1000000-0000-4000-8000-%012d", index)
+	destination := deviceJourneyConversation(
+		destinationID, fmt.Sprintf("Fixture continuation %d", index),
+		input.ExecutionTarget, destinationDevice,
+	)
+	f.conversa[destinationID] = destination
+	call.status = http.StatusCreated
+	call.destinationID = destinationID
+	f.continuations = append(f.continuations, call)
+	f.mu.Unlock()
+	f.writeDataStatus(w, r, http.StatusCreated, map[string]any{
+		"conversation": destination,
+		"source":       map[string]any{"id": sourceID, "title": sourceTitle},
+	})
+}
+
+func deviceJourneyConversation(id, title, target string, desktopDeviceID any) map[string]any {
+	return map[string]any{
+		"id": id, "owner_id": deviceFixtureCredential().OwnerID,
+		"title": title, "title_source": "fallback",
+		"archive_status": "active", "archived_at": nil, "pinned_at": nil,
+		"project_id": nil, "sort_order": nil, "codex_thread_id": nil,
+		"agents_template_version": nil, "collaboration_mode": "default",
+		"last_turn_status": nil, "execution_status": "idle", "last_run_at": nil,
+		"has_unread_completion": false, "has_automation": false,
+		"selected_knowledge_base_ids": []any{}, "application": nil,
+		"created_at": deviceJourneyFixtureTime, "updated_at": deviceJourneyFixtureTime,
+		"execution_target": target, "desktop_device_id": desktopDeviceID,
+	}
+}
+
+func (f *deviceJourneyFixture) seedConversation(conversation map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if id, ok := conversation["id"].(string); ok {
+		f.conversa[id] = conversation
+	}
+}
+
+func (f *deviceJourneyFixture) recordUnexpectedWrite(r *http.Request) {
+	f.mu.Lock()
+	f.unexpected = append(f.unexpected, r.Method+" "+r.URL.Path)
+	f.mu.Unlock()
 }
 
 func (f *deviceJourneyFixture) serveEvents(w http.ResponseWriter, r *http.Request) {
@@ -499,6 +666,7 @@ func (f *deviceJourneyFixture) serveSocket(w http.ResponseWriter, r *http.Reques
 	f.hellos = append(f.hellos, deviceJourneyHello{
 		token:     hello.Token,
 		execution: r.Header.Get(desktopExecutionHeader),
+		tools:     r.Header.Get(desktopToolOperationsHeader),
 	})
 	f.mu.Unlock()
 	if f.revoked.Load() {
@@ -517,6 +685,13 @@ func (f *deviceJourneyFixture) serveSocket(w http.ResponseWriter, r *http.Reques
 	if f.execution.Load() && r.Header.Get(desktopExecutionHeader) == strconv.Itoa(desktopExecutionVersion) {
 		ready["execution_protocol_version"] = desktopExecutionVersion
 		ready["attachment_protocol_version"] = desktopAttachmentVersion
+		// Model the real API's supported-operation intersection: this fixture
+		// supports exactly the reference read the continuation leg needs, and
+		// only when the Mac offered it on this socket.
+		if f.tools.Load() && slices.Contains(strings.Split(r.Header.Get(desktopToolOperationsHeader), ","), desktopConversationReferenceReadOperation) {
+			ready["tool_protocol_version"] = desktopToolVersion
+			ready["tool_operations"] = []string{desktopConversationReferenceReadOperation}
+		}
 	}
 	encoded, _ := json.Marshal(ready)
 	if socket.Write(ctx, websocket.MessageText, encoded) != nil {
@@ -631,6 +806,51 @@ func (f *deviceJourneyFixture) helloAt(index int) deviceJourneyHello {
 	return f.hellos[index]
 }
 
+func (f *deviceJourneyFixture) turnBodyAt(index int) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.turnBodies[index]
+}
+
+func (f *deviceJourneyFixture) continuationAttemptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.continuationAttempts
+}
+
+func (f *deviceJourneyFixture) continuationCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.continuations)
+}
+
+func (f *deviceJourneyFixture) continuationAt(index int) deviceJourneyContinuationCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.continuations[index]
+}
+
+func (f *deviceJourneyFixture) unexpectedWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.unexpected...)
+}
+
+// reservationPrewarmCount counts cloud reservations, which a continuation must
+// never create. Refreshes of an already open cloud task are ordinary page
+// behavior and are allowed.
+func (f *deviceJourneyFixture) reservationPrewarmCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := 0
+	for _, body := range f.prewarms {
+		if _, ok := body["conversation_id"]; !ok {
+			count++
+		}
+	}
+	return count
+}
+
 // deviceJourneyRuntime is the test-only counterpart of the supervised runner:
 // a published, ready runtime pipe whose messages the test can inspect. The
 // production bridge performs the real WebSocket negotiation and attach.
@@ -688,6 +908,26 @@ func (r *deviceJourneyRuntime) waitMessage(t *testing.T, kind string) runtimePip
 			}
 		case <-deadline:
 			t.Fatalf("runtime pipe did not receive %q", kind)
+		}
+	}
+}
+
+// waitLinkOpen skips an earlier generation so a reconnect after enabling tool
+// negotiation is inspected instead of the link that preceded it.
+func (r *deviceJourneyRuntime) waitLinkOpen(t *testing.T, match func(runtimePipeMessage) bool) runtimePipeMessage {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case message, ok := <-r.messages:
+			if !ok {
+				t.Fatal("runtime pipe closed before the negotiated link.open")
+			}
+			if message.Type == "link.open" && match(message) {
+				return message
+			}
+		case <-deadline:
+			t.Fatal("runtime link.open never carried the negotiated conversation-reference read")
 		}
 	}
 }
@@ -1214,5 +1454,321 @@ func TestNativeDeviceJourneySettingsPairExecutionReadyAndTaskTargets(t *testing.
 	if preserved, err := page.Eval(`localStorage.getItem(` + storageSentinelKey + `) === "keep" &&
 		sessionStorage.getItem(` + storageSentinelKey + `) === "keep"`); err != nil || preserved != true {
 		t.Fatalf("the journey changed unrelated test storage: preserved=%v err=%v", preserved, err)
+	}
+}
+
+// The continuation controls are visible labels in the shared task header, so
+// the whitebox finds them the way a user does instead of by implementation
+// class names.
+func deviceJourneyOpenTaskActions(t *testing.T, page *mygo.Page) {
+	t.Helper()
+	whiteboxWait(t, page, `document.querySelector('[role="banner"] button[aria-label="Actions"]') !== null`)
+	if _, err := page.Eval(`(() => {
+		const button = document.querySelector('[role="banner"] button[aria-label="Actions"]');
+		if (!button) throw new Error("task actions missing");
+		button.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func deviceJourneyOpenContinuation(t *testing.T, page *mygo.Page, label, title string) {
+	t.Helper()
+	deviceJourneyOpenTaskActions(t, page)
+	whiteboxWait(t, page, `Array.from(document.querySelectorAll('[role="menuitem"]')).some((item) =>
+		(item.textContent || "").includes(`+deviceJourneyJSString(label)+`))`)
+	if _, err := page.Eval(`(() => {
+		const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find((candidate) =>
+			(candidate.textContent || "").includes(` + deviceJourneyJSString(label) + `));
+		if (!item) throw new Error("continuation entry missing");
+		item.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `document.querySelector('[role="dialog"]')?.innerText.includes(`+deviceJourneyJSString(title)+`) === true`)
+}
+
+func deviceJourneyClickDialogButton(t *testing.T, page *mygo.Page, label string) {
+	t.Helper()
+	if _, err := page.Eval(`(() => {
+		const dialog = document.querySelector('[role="dialog"]');
+		if (!dialog) throw new Error("confirmation dialog missing");
+		const button = Array.from(dialog.querySelectorAll('button')).find((candidate) =>
+			(candidate.textContent || "").trim() === ` + deviceJourneyJSString(label) + `);
+		if (!button) throw new Error("confirmation button missing");
+		button.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// deviceJourneyDraftKey mirrors localConversationDraftStorageKey; UUID owners
+// and tasks need no escaping.
+func deviceJourneyDraftKey(ownerID, conversationID string) string {
+	return "linksense.conversation-draft.v1:" + ownerID + ":" + conversationID
+}
+
+// TestNativeDeviceContinuationWhitebox is the narrow native regression for the
+// Mac continuation leg. It proves the bridge negotiates exactly the
+// conversation_reference.read tool operation on the live socket, then uses the
+// real shared UI task actions -> confirmation -> frozen continuation endpoint
+// and the seeded source reference for the first local turn.
+func TestNativeDeviceContinuationWhitebox(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the conversation-reference read operation is macOS-only")
+	}
+	nativeWhiteboxSession(t, true)
+	desktop := nativeWhitebox.desktop
+	credential := deviceFixtureCredential()
+	desktop.closeDevice()
+
+	// A real signed-in Mac resumes the pairing stored by an earlier launch.
+	// Seed that credential instead of repeating the settings pairing journey.
+	pairing, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := desktop.session.store.Set(serverCredentialKey(desktop.server, "device"), pairing); err != nil {
+		t.Fatal(err)
+	}
+
+	journeyRuntime := newDeviceJourneyRuntime(t)
+	desktop.localRuntime = journeyRuntime.supervisor
+	fixture := newDeviceJourneyFixture()
+	fixture.execution.Store(true)
+	sourceTask := deviceJourneyConversation(
+		deviceJourneyCloudTaskID, deviceJourneyCloudTaskTitle, "cloud", nil,
+	)
+	sourceTask["last_turn_status"] = "completed"
+	sourceTask["last_run_at"] = deviceJourneyFixtureTime
+	fixture.seedConversation(sourceTask)
+	deviceJourneyWhitebox.Store(fixture)
+	t.Cleanup(func() {
+		desktop.closeDevice()
+		deviceJourneyWhitebox.Store(nil)
+		fixture.close()
+		_ = nativeWhitebox.store.Delete(serverCredentialKey(desktop.server, "device"))
+		desktop.localRuntime = nil
+		journeyRuntime.close()
+	})
+
+	desktop.openMainWindowInSession(mygo.NewEphemeralSession())
+	win := desktop.mainWindow()
+	defer win.Destroy()
+	page := win.Page()
+	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+
+	// Execution readiness alone must not claim the reference capability.
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then((status) =>
+		status.state === "online" && status.executionReady === true && status.deviceId === `+deviceJourneyJSString(credential.DeviceID)+`)`)
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then((status) => status.conversationReferenceReadReady !== true)`)
+
+	// Reconnect once the fake API supports the operation. The bridge may report
+	// the reference capability only for the exact tool_operations it negotiated
+	// on this live socket.
+	fixture.tools.Store(true)
+	deviceJourneyCancelConnection(t, desktop)
+	if _, err := page.Eval(`mygo.call("Desktop.ResumeDevice", ` + deviceJourneyJSString(credential.OwnerID) + `)`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then((status) =>
+		status.state === "online" && status.executionReady === true &&
+		status.conversationReferenceReadReady === true && status.deviceId === `+deviceJourneyJSString(credential.DeviceID)+`)`)
+	link := journeyRuntime.waitLinkOpen(t, func(message runtimePipeMessage) bool {
+		return slices.Equal(message.ToolOperations, []string{desktopConversationReferenceReadOperation})
+	})
+	if link.LinkID != deviceJourneyConnectionID || link.OwnerID != credential.OwnerID {
+		t.Fatalf("runtime link.open = link %q owner %q", link.LinkID, link.OwnerID)
+	}
+	offered := 0
+	for _, operation := range strings.Split(fixture.helloAt(0).tools, ",") {
+		if operation == desktopConversationReferenceReadOperation {
+			offered++
+		}
+	}
+	if offered != 1 {
+		t.Fatalf("the Mac offered conversation_reference.read %d times: %q", offered, fixture.helloAt(0).tools)
+	}
+
+	// Keep a real source draft; the continuation must leave it untouched.
+	sourceDraftKey := deviceJourneyDraftKey(credential.OwnerID, deviceJourneyCloudTaskID)
+	if _, err := page.Eval(`localStorage.setItem(` + deviceJourneyJSString(sourceDraftKey) + `, JSON.stringify({
+		version: 1, input: ` + deviceJourneyJSString(deviceJourneySourceDraft) + `,
+		capability_ids: [], knowledge_base_ids: []
+	}))`); err != nil {
+		t.Fatal(err)
+	}
+	if err := page.LoadURL("/conversations/" + deviceJourneyCloudTaskID); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `location.pathname === "/conversations/`+deviceJourneyCloudTaskID+`" &&
+		document.querySelector('[role="banner"] h1')?.textContent.trim() === `+deviceJourneyJSString(deviceJourneyCloudTaskTitle))
+	whiteboxWait(t, page, `document.querySelector('textarea[aria-label="Task composer"]')?.value === `+deviceJourneyJSString(deviceJourneySourceDraft))
+	deviceJourneyForeground(t, page)
+
+	baseCreates, _, baseTurns := fixture.taskWrites()
+	baseReservations := fixture.reservationPrewarmCount()
+	baseContinuations := fixture.continuationCount()
+	assertWriteDelta := func(stage string, creates, turns, continuations int) {
+		t.Helper()
+		gotCreates, _, gotTurns := fixture.taskWrites()
+		gotContinuations := fixture.continuationCount()
+		gotReservations := fixture.reservationPrewarmCount()
+		if gotCreates != baseCreates+creates || gotTurns != baseTurns+turns ||
+			gotContinuations != baseContinuations+continuations ||
+			gotReservations != baseReservations {
+			t.Fatalf("%s wrote create=%d turn=%d continuation=%d reservation=%d; want %d, %d, %d, 0",
+				stage, gotCreates-baseCreates, gotTurns-baseTurns,
+				gotContinuations-baseContinuations, gotReservations-baseReservations,
+				creates, turns, continuations)
+		}
+	}
+	if writes := fixture.unexpectedWrites(); len(writes) != 0 {
+		t.Fatalf("unexpected writes before continuation: %v", writes)
+	}
+
+	// Cancel is a real UI action and must never post.
+	deviceJourneyOpenContinuation(t, page, "Continue on this Mac", "Continue this task on this Mac?")
+	if attempts := fixture.continuationAttemptCount(); attempts != 0 {
+		t.Fatalf("opening the confirmation posted %d continuation requests", attempts)
+	}
+	deviceJourneyClickDialogButton(t, page, "Cancel")
+	whiteboxWait(t, page, `document.querySelector('[role="dialog"]') === null`)
+	time.Sleep(300 * time.Millisecond)
+	if attempts := fixture.continuationAttemptCount(); attempts != 0 {
+		t.Fatalf("cancelling posted %d continuation requests", attempts)
+	}
+	assertWriteDelta("cancelling the continuation", 0, 0, 0)
+
+	// Confirm posts exactly one authenticated continuation for the explicit
+	// local target and the fixture device; it is not a normal create or turn.
+	deviceJourneyOpenContinuation(t, page, "Continue on this Mac", "Continue this task on this Mac?")
+	deviceJourneyClickDialogButton(t, page, "Continue on this Mac")
+	deviceJourneyWaitFor(t, 15*time.Second, "one continuation POST", func() bool {
+		return fixture.continuationCount() == 1
+	})
+	continuation := fixture.continuationAt(0)
+	if continuation.method != http.MethodPost || !continuation.authorized || continuation.status != http.StatusCreated {
+		t.Fatalf("continuation request = %s authorized=%v status=%d",
+			continuation.method, continuation.authorized, continuation.status)
+	}
+	if continuation.sourceID != deviceJourneyCloudTaskID {
+		t.Fatalf("continuation source = %q", continuation.sourceID)
+	}
+	if len(continuation.body) != 3 || continuation.raw == "" {
+		t.Fatalf("continuation body = %s", continuation.raw)
+	}
+	if continuation.body["execution_target"] != "local" ||
+		continuation.body["desktop_device_id"] != credential.DeviceID {
+		t.Fatalf("continuation target/device = %v/%v",
+			continuation.body["execution_target"], continuation.body["desktop_device_id"])
+	}
+	requestID, _ := continuation.body["request_id"].(string)
+	if !validUUID(requestID) {
+		t.Fatalf("continuation request_id = %q", requestID)
+	}
+	assertWriteDelta("confirming the continuation", 0, 0, 1)
+	whiteboxWait(t, page, `location.pathname === "/conversations/`+continuation.destinationID+`"`)
+
+	// The local destination starts empty with exactly one visible source
+	// reference; the source keeps its draft and no message or attachment is
+	// copied over.
+	whiteboxWait(t, page, `document.querySelector('[role="banner"] h1')?.textContent.trim() === `+deviceJourneyJSString("Fixture continuation 1"))
+	whiteboxWait(t, page, `document.querySelector('[aria-label="Run location: This Mac"]') !== null`)
+	whiteboxWait(t, page, `!document.body.innerText.includes(`+deviceJourneyJSString(deviceJourneySourceDraft)+`)`)
+	whiteboxWait(t, page, `(() => {
+		const field = document.querySelector('textarea[aria-label="Task composer"]');
+		const region = document.querySelector('[aria-label="Referenced tasks"]');
+		if (!field || !region || field.value !== "") return false;
+		const chips = Array.from(region.querySelectorAll('button'));
+		return chips.length === 1 && chips[0].getAttribute("aria-label") === `+deviceJourneyJSString("Remove reference: "+deviceJourneyCloudTaskTitle)+`;
+	})()`)
+	whiteboxWait(t, page, `Array.from(document.querySelectorAll('[aria-label]'))
+		.filter((node) => (node.getAttribute("aria-label") || "").startsWith("Remove attachment")).length === 0`)
+	destinationDraftKey := deviceJourneyDraftKey(credential.OwnerID, continuation.destinationID)
+	whiteboxWait(t, page, `(() => {
+		const raw = localStorage.getItem(`+deviceJourneyJSString(destinationDraftKey)+`);
+		if (!raw) return false;
+		const draft = JSON.parse(raw);
+		return draft.input === "" && Array.isArray(draft.task_references) &&
+			draft.task_references.length === 1 &&
+			draft.task_references[0].id === `+deviceJourneyJSString(deviceJourneyCloudTaskID)+` &&
+			draft.task_references[0].title === `+deviceJourneyJSString(deviceJourneyCloudTaskTitle)+`;
+	})()`)
+	whiteboxWait(t, page, `(() => {
+		const raw = localStorage.getItem(`+deviceJourneyJSString(sourceDraftKey)+`);
+		if (!raw) return false;
+		const draft = JSON.parse(raw);
+		return draft.input === `+deviceJourneyJSString(deviceJourneySourceDraft)+`;
+	})()`)
+	if writes := fixture.unexpectedWrites(); len(writes) != 0 {
+		t.Fatalf("continuation wrote unexpected requests: %v", writes)
+	}
+
+	// Sending to the destination carries the existing task_references
+	// annotation with the exact request text and only the source id.
+	deviceJourneySetPrompt(t, page, deviceJourneyContinuationPrompt)
+	deviceJourneySubmit(t, page)
+	deviceJourneyWaitFor(t, 15*time.Second, "one destination turn", func() bool {
+		_, _, turns := fixture.taskWrites()
+		return turns == baseTurns+1
+	})
+	turn := fixture.turnAt(baseTurns)
+	if turn.conversationID != continuation.destinationID {
+		t.Fatalf("turn conversation = %q", turn.conversationID)
+	}
+	turnBody := fixture.turnBodyAt(baseTurns)
+	display, _ := turnBody["message_display"].(map[string]any)
+	if len(display) != 3 || display["kind"] != "task_references" || display["request"] != deviceJourneyContinuationPrompt {
+		t.Fatalf("turn message_display = %v", turnBody["message_display"])
+	}
+	ids, _ := display["conversation_ids"].([]any)
+	if len(ids) != 1 || ids[0] != deviceJourneyCloudTaskID {
+		t.Fatalf("turn conversation_ids = %v", display["conversation_ids"])
+	}
+	for _, forbidden := range []string{"input_text", "attachments", "files", "messages", "history"} {
+		if _, ok := turnBody[forbidden]; ok {
+			t.Fatalf("turn body carried %q: %v", forbidden, turnBody)
+		}
+	}
+	assertWriteDelta("sending to the destination", 0, 1, 1)
+
+	// Reverse leg: the Mac is offline, but an explicit continuation to the
+	// cloud still posts with a null device and lands on the cloud destination.
+	fixture.reject.Store(true)
+	fixture.disconnect(websocket.StatusCode(4500))
+	whiteboxWait(t, page, `mygo.call("Desktop.DeviceStatus").then((status) => status.executionReady !== true)`)
+	deviceJourneyForeground(t, page)
+	deviceJourneyOpenContinuation(t, page, "Continue on the cloud computer", "Continue this task on the cloud computer?")
+	deviceJourneyClickDialogButton(t, page, "Continue on the cloud computer")
+	deviceJourneyWaitFor(t, 15*time.Second, "reverse continuation POST", func() bool {
+		return fixture.continuationCount() == 2
+	})
+	reverse := fixture.continuationAt(1)
+	if reverse.method != http.MethodPost || !reverse.authorized || reverse.status != http.StatusCreated || len(reverse.body) != 3 {
+		t.Fatalf("reverse continuation request = %s authorized=%v status=%d body=%s",
+			reverse.method, reverse.authorized, reverse.status, reverse.raw)
+	}
+	if reverse.sourceID != continuation.destinationID {
+		t.Fatalf("reverse continuation source = %q", reverse.sourceID)
+	}
+	if reverse.body["execution_target"] != "cloud" {
+		t.Fatalf("reverse continuation target = %v", reverse.body["execution_target"])
+	}
+	if value, ok := reverse.body["desktop_device_id"]; !ok || value != nil {
+		t.Fatalf("reverse continuation desktop_device_id = %v (present %v)", value, ok)
+	}
+	reverseRequestID, _ := reverse.body["request_id"].(string)
+	if !validUUID(reverseRequestID) {
+		t.Fatalf("reverse continuation request_id = %q", reverseRequestID)
+	}
+	whiteboxWait(t, page, `location.pathname === "/conversations/`+reverse.destinationID+`"`)
+	whiteboxWait(t, page, `document.querySelector('[aria-label="Run location: Cloud computer"]') !== null`)
+	whiteboxWait(t, page, `document.querySelector('[aria-label="Referenced tasks"]')?.querySelectorAll('button').length === 1 &&
+		document.querySelector('[aria-label="Referenced tasks"] button')?.getAttribute("aria-label") === `+deviceJourneyJSString("Remove reference: Fixture continuation 1"))
+	time.Sleep(300 * time.Millisecond)
+	assertWriteDelta("after the reverse continuation", 0, 1, 2)
+	if writes := fixture.unexpectedWrites(); len(writes) != 0 {
+		t.Fatalf("continuation journey wrote unexpected requests: %v", writes)
 	}
 }

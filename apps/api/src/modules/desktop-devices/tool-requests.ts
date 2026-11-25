@@ -1,9 +1,10 @@
 import {
   computerExecuteResultSchema,
-  desktopConnectionTextPageBytes, desktopExecutionMaxFrameBytes, desktopToolErrorSchema, desktopToolResultSchema,
+  desktopConnectionTextPageBytes, desktopConversationReferenceReadOperation, desktopExecutionMaxFrameBytes,
+  desktopToolErrorSchema, desktopToolResultSchema,
   isWorkspaceInput, browserUseFailure, browserUseReadOnly,
   type ComputerExecuteResult, type ComputerFailureCode, type DesktopConnectionRequestBody, type DesktopToolRequest,
-  type DesktopToolResult, type WorkspaceResult,
+  type DesktopToolResult, type ReadConversationReferenceInput, type ReadConversationReferenceResult, type WorkspaceResult,
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
@@ -43,6 +44,8 @@ type ToolRequestServices = {
   computerWait?: boolean;
   /** True only for the exact link that negotiated the native status attestation. */
   computerStatus?: boolean;
+  /** Trusted API-side implementation of the existing reference owner/turn check. */
+  readConversationReference?: (scope: DesktopRunScope, input: ReadConversationReferenceInput, signal: AbortSignal) => Promise<ReadConversationReferenceResult>;
   /**
    * Explicit trusted fixture seam, default closed and never set by
    * configuration or the product composition. The joined fixture lane predates
@@ -76,6 +79,7 @@ export async function executeDesktopTool(
   const computerClassification = frame.operation === "computer.execute"
     ? classifyComputerAuditRequest(frame.body.kind) : undefined;
   const wait = readKind === "wait";
+  const conversationRead = frame.operation === desktopConversationReferenceReadOperation;
   const readFailure = (error: ComputerFailureCode): DesktopToolResult => ({
     type: "tool.result", id: frame.id, operation: "computer.execute", ok: true,
     data: { kind: "failure", error },
@@ -90,6 +94,7 @@ export async function executeDesktopTool(
     // A wait is a read: a settled duplicate is a clean bounded failure, never
     // mutation uncertainty, and it is never executed or replayed.
     if (wait) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    if (conversationRead) return { ...base, ok: false, error_code: "RUNNER_UNAVAILABLE" };
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
   let readPublication: DesktopComputerReadPublication | undefined;
@@ -134,6 +139,9 @@ export async function executeDesktopTool(
       const executed = computerExecuteResultSchema.safeParse(data);
       computerMutationMayHaveRun = frame.body.kind === "act" && executed.success &&
         (executed.data.kind !== "failure" || executed.data.error === "RUNNER_OPERATION_UNCERTAIN");
+    } else if (frame.operation === desktopConversationReferenceReadOperation) {
+      if (!services.readConversationReference) throw new AppError("RUNNER_UNAVAILABLE");
+      data = await services.readConversationReference(scope, frame.body, signal);
     } else if (artifact) {
       if (!services.artifacts) throw new AppError("RUNNER_UNAVAILABLE");
       data = await services.artifacts.prepare(scope, frame.body, signal, authorize, frame.operation !== "artifact.prepare");
@@ -148,7 +156,7 @@ export async function executeDesktopTool(
     if (Buffer.byteLength(JSON.stringify(result)) > desktopExecutionMaxFrameBytes) {
       result = frame.operation === "browser.execute"
         ? { ...base, operation: frame.operation, ok: true, data: { result: browserUseFailure("BROWSER_USE_COMMAND_FAILED") } }
-        : { ...base, ok: false, error_code: artifact ? "RUNNER_UNAVAILABLE"
+        : { ...base, ok: false, error_code: artifact || conversationRead ? "RUNNER_UNAVAILABLE"
           : frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID"
           : frame.operation === "computer.execute" ? "RUNNER_UNAVAILABLE"
           : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
@@ -158,6 +166,16 @@ export async function executeDesktopTool(
       // Keep the existing failed-attempt audit below, but as a clean bounded
       // read outcome instead of mutation uncertainty.
       result = readFailure(readFailureCode(error, signal));
+    } else if (conversationRead) {
+      // A reference read has no effect to reconcile. Authorization denials stay
+      // denied and every other failure is a bounded retryable read failure.
+      const errorCode = error instanceof AppError ? error.code : undefined;
+      const code = desktopToolErrorSchema.safeParse(errorCode);
+      result = {
+        ...base, ok: false,
+        error_code: code.success ? code.data : errorCode === "AUTH_REQUIRED" || errorCode === "ACCESS_DENIED"
+          ? "FORBIDDEN" : "RUNNER_UNAVAILABLE",
+      };
     } else {
       const errorCode = error instanceof AppError ? error.code : undefined;
       const code = desktopToolErrorSchema.safeParse(errorCode);
@@ -185,6 +203,7 @@ export async function executeDesktopTool(
       targetType: frame.operation === "web.search" ? "web_search" : frame.operation === "browser.execute" ? "browser_use"
         : frame.operation === "connection.execute" ? "connection"
         : frame.operation === "computer.execute" ? "local_computer"
+        : frame.operation === desktopConversationReferenceReadOperation ? "conversation_reference"
         : artifact ? "conversation_file" : "knowledge_base",
       result: reason ? "failed" : "success",
       metadata: {
@@ -214,6 +233,7 @@ export async function executeDesktopTool(
     // A read never becomes mutation uncertainty and never claims a completed
     // read through a rejected audit.
     if (readKind || statusRequest) return readFailure(signal.aborted ? "COMPUTER_TIMEOUT" : "COMPUTER_UNAVAILABLE");
+    if (conversationRead) return { ...base, ok: false, error_code: signal.aborted ? "FORBIDDEN" : "RUNNER_UNAVAILABLE" };
     return { ...base, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
   }
   // One fail-closed publication gate. A read success may reach the device only
@@ -404,7 +424,10 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" | "artifact.website" | "computer.execute" }>,
+  frame: Exclude<DesktopToolRequest, {
+    operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" |
+      "artifact.website" | "computer.execute" | typeof desktopConversationReferenceReadOperation;
+  }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {

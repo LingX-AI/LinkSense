@@ -1,4 +1,4 @@
-import { maximumConversationReferenceOffset, readConversationReferenceInputSchema, readConversationReferenceModeSchema, readConversationReferenceResultSchema } from "@linksense/shared";
+import { conversationReferenceReadTimeoutMs, maximumConversationReferenceOffset, readConversationReferenceInputSchema, readConversationReferenceModeSchema, readConversationReferenceResultSchema } from "@linksense/shared";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { failureToolResult, successToolResult, withRequestTimeout, type CoreMcpModuleDefinition } from "../core-service-module.js";
@@ -17,7 +17,7 @@ export const conversationReferenceCoreMcpModule: CoreMcpModuleDefinition = {
         const request = readConversationReferenceInputSchema.parse(input.argumentsValue);
         const response = await fetcher(z.url().parse(environment.LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT), {
           method: "POST", headers: { authorization: `Bearer ${z.string().min(32).parse(environment.LINKSENSE_CURRENT_USER_TOKEN)}`, "content-type": "application/json" },
-          body: JSON.stringify(request), signal: withRequestTimeout(input.signal, 15_000),
+          body: JSON.stringify(request), signal: withRequestTimeout(input.signal, conversationReferenceReadTimeoutMs),
         });
         if (!response.ok) return failureToolResult({ code: response.status < 500 ? "CONVERSATION_REFERENCE_UNAVAILABLE" : "CONVERSATION_REFERENCE_READ_FAILED", retryable: response.status >= 500 });
         return successToolResult(readConversationReferenceResultSchema.parse(await response.json()));

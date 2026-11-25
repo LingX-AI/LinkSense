@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { conversationExecutionSelectionSchema } from "./desktop-protocol.js";
+import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema } from "./desktop-protocol.js";
 import { INTERACTIVE_APPLICATION_FILE_SOURCE } from "./interactive-applications.js";
 import { conversationReferenceInputSchema, conversationReferenceDisplaySchema } from "./conversation-side-chat.js";
 import { taskReferencesInputSchema, taskReferencesDisplaySchema } from "./conversation-references.js";
@@ -147,6 +147,22 @@ export const conversationSchema = z.strictObject({
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
+
+// A continuation always names its target explicitly. Unlike ordinary creation,
+// omitting execution_target must not silently mean cloud.
+export const conversationContinuationInputSchema = conversationExecutionSelectionSchema.safeExtend({
+  request_id: uuidSchema,
+  execution_target: conversationExecutionTargetSchema,
+});
+export const conversationContinuationResultSchema = z.strictObject({
+  conversation: conversationSchema,
+  source: z.strictObject({
+    id: uuidSchema,
+    title: z.string().min(1).max(240),
+  }),
+});
+export type ConversationContinuationInput = z.infer<typeof conversationContinuationInputSchema>;
+export type ConversationContinuationResult = z.infer<typeof conversationContinuationResultSchema>;
 
 export const completionNotificationSourceSchema = z.enum([
   "task",

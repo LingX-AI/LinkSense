@@ -42,6 +42,7 @@ import {
   type ApplicationTurnConfiguration,
   type ExecutionCapability,
 } from "../src/modules/conversations/service.js";
+import { conversationContinuationId } from "../src/modules/conversations/execution-target.js";
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
 import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
 import type { DesktopProjectionFence } from "../src/modules/desktop-credentials/run-authority.js";
@@ -55,6 +56,10 @@ const TURN_ID = "30000000-0000-4000-8000-000000000011";
 const USER_INPUT_REQUEST_ID = "30000000-0000-4000-8000-000000000012";
 const PLAN_REVIEW_ID = "30000000-0000-4000-8000-000000000013";
 const PLAN_MESSAGE_ID = "30000000-0000-4000-8000-000000000014";
+const PROJECT_ID = "50000000-0000-4000-8000-000000000001";
+const CONTINUATION_REQUEST_ID = "40000000-0000-4000-8000-000000000011";
+const CONTINUATION_DEVICE_ID = "10000000-0000-4000-8000-000000000009";
+const SECOND_CONTINUATION_DEVICE_ID = "10000000-0000-4000-8000-000000000010";
 const SECOND_PENDING_ID = "30000000-0000-4000-8000-000000000010";
 const MESSAGE_ID = "30000000-0000-4000-8000-000000000002";
 const REGENERATION_ID = "30000000-0000-4000-8000-000000000003";
@@ -6206,6 +6211,678 @@ describe("ConversationService ownership and draft lifecycle", () => {
         runtimeGeneration: "80000000-0000-4000-8000-000000000002",
       },
     });
+  });
+});
+
+type ContinuationTestPrisma = {
+  $queryRaw: {
+    mockImplementation(
+      implementation: (query: { sql?: string }) => Promise<unknown[]>,
+    ): void;
+  };
+  conversation: {
+    findFirst: {
+      mockImplementation(
+        implementation: (
+          input?: { where?: Record<string, unknown> },
+        ) => Promise<Record<string, unknown> | null>,
+      ): void;
+    };
+    findUnique: {
+      mockImplementation(
+        implementation: (
+          input: { where: { id: string } },
+        ) => Promise<Record<string, unknown> | null>,
+      ): void;
+    };
+    create: {
+      mockImplementation(
+        implementation: (input: {
+          data: Record<string, unknown>;
+        }) => Promise<Record<string, unknown>>,
+      ): void;
+    };
+  };
+};
+
+function continuationHarness(
+  fixture: Awaited<ReturnType<typeof conversationFixture>>,
+  options: {
+    source?: Record<string, unknown>;
+    precheckSource?: Record<string, unknown> | null;
+    lockedSource?: Record<string, unknown> | null;
+    device?: "ok" | "missing" | "stale";
+  } = {},
+) {
+  const source = conversationRow({
+    title: "Source task",
+    codexThreadId: "source-thread-1",
+    ...options.source,
+  });
+  const precheck = options.precheckSource === undefined
+    ? source
+    : options.precheckSource;
+  let locked = options.lockedSource === undefined
+    ? source
+    : options.lockedSource;
+  const device = options.device ?? "ok";
+  const created = new Map<string, ReturnType<typeof conversationRow>>();
+  const receipts = new Map<string, Record<string, unknown>>();
+  fixture.defaultTransaction.auditLog.create.mockImplementation(async (input?: { data?: Record<string, unknown> }) => {
+    const data = input?.data;
+    if (data?.action === "conversation_continued") receipts.set(String(data.targetId), data);
+    return {};
+  });
+  fixture.prisma.auditLog.findMany.mockImplementation(async ({ where }: { where?: Record<string, unknown> } = {}) => {
+    const row = receipts.get(String(where?.targetId));
+    return row ? [{ ...row, createdAt: NOW }] : [];
+  });
+  const query = (input: { sql?: string } | readonly string[]) => {
+    const sql = Array.isArray(input)
+      ? input.join("")
+      : ((input as { sql?: string }).sql ?? "");
+    if (sql.includes('"sideChatParentId"')) return locked ? [locked] : [];
+    if (sql.includes("deviceEpoch")) {
+      return device === "missing"
+        ? []
+        : [{
+            deviceEpoch: device === "stale" ? new Date(0) : NOW,
+            ownerEpoch: NOW,
+          }];
+    }
+    return [];
+  };
+  const prisma = fixture.prisma as unknown as ContinuationTestPrisma;
+  prisma.$queryRaw.mockImplementation(async (input) => query(input));
+  (
+    fixture.defaultTransaction as unknown as {
+      $queryRaw: ContinuationTestPrisma["$queryRaw"];
+    }
+  ).$queryRaw.mockImplementation(async (input) => query(input));
+  prisma.conversation.findFirst.mockImplementation(async (input = {}) => {
+    const id = input.where?.id;
+    if (id === CONVERSATION_ID) return precheck;
+    if (id === source.id) return { id: source.id, title: source.title };
+    return null;
+  });
+  prisma.conversation.findUnique.mockImplementation(async ({ where }) =>
+    created.get(where.id) ?? null,
+  );
+  prisma.conversation.create.mockImplementation(async ({ data }) => {
+    const row = conversationRow(data);
+    created.set(row.id, row);
+    return row;
+  });
+  return {
+    source,
+    created,
+    continueOn(
+      executionTarget: "cloud" | "local",
+      desktopDeviceId: string | null,
+      requestId = CONTINUATION_REQUEST_ID,
+    ) {
+      return fixture.service.continueConversation(
+        OWNER_ID,
+        CONVERSATION_ID,
+        { requestId, executionTarget, desktopDeviceId },
+        { actorId: OWNER_ID, ipAddress: null, userAgent: null },
+      );
+    },
+    setLockedSource(value: Record<string, unknown> | null) {
+      locked = value;
+    },
+  };
+}
+
+describe("ConversationService execution-target continuation", () => {
+  it("starts a fresh cloud destination from a local source and audits only identity metadata", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: {
+        executionTarget: "local",
+        desktopDeviceId: CONTINUATION_DEVICE_ID,
+      },
+    });
+    const destinationId = conversationContinuationId(
+      OWNER_ID,
+      CONVERSATION_ID,
+      CONTINUATION_REQUEST_ID,
+    );
+
+    const result = await harness.continueOn("cloud", null);
+
+    expect(result).toMatchObject({
+      conversation: {
+        id: destinationId,
+        owner_id: OWNER_ID,
+        execution_target: "cloud",
+        desktop_device_id: null,
+        codex_thread_id: null,
+        project_id: null,
+        collaboration_mode: "default",
+        title_source: "fallback",
+        application: null,
+      },
+      source: { id: CONVERSATION_ID, title: "Source task" },
+    });
+    const destination = fixture.prisma.conversation.create.mock.calls[0]?.[0]
+      .data;
+    expect(destination).toMatchObject({
+      id: destinationId,
+      ownerId: OWNER_ID,
+      executionTarget: "cloud",
+      desktopDeviceId: null,
+      projectId: null,
+      codexThreadId: null,
+      collaborationMode: "default",
+      pinnedAt: null,
+      applicationId: null,
+      titleSource: "fallback",
+    });
+    expect(destination?.workspaceRelPath).toBe(`${OWNER_ID}/home/workspace`);
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurn.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationTurn.create).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationFile.createMany).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+    expect(fixture.redis.claimConversationPrewarm).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueFormRecommendation).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorId: OWNER_ID,
+        action: "conversation_continued",
+        targetType: "conversation",
+        targetId: destinationId,
+        result: "success",
+        metadataJson: {
+          source_conversation_id: CONVERSATION_ID,
+          source_target: "local",
+          execution_target: "cloud",
+        },
+        ipAddress: null,
+        userAgent: null,
+      }),
+    });
+  });
+
+  it("starts a fresh local destination from a cloud source without inheriting source resources", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { projectId: PROJECT_ID },
+    });
+    const destinationId = conversationContinuationId(
+      OWNER_ID,
+      CONVERSATION_ID,
+      CONTINUATION_REQUEST_ID,
+    );
+
+    const result = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+
+    expect(result.conversation).toMatchObject({
+      id: destinationId,
+      execution_target: "local",
+      desktop_device_id: CONTINUATION_DEVICE_ID,
+      project_id: null,
+      codex_thread_id: null,
+    });
+    const destination = fixture.prisma.conversation.create.mock.calls[0]?.[0]
+      .data;
+    expect(destination?.workspaceRelPath).toBe(
+      `${OWNER_ID}/services/${destinationId}/home/workspace`,
+    );
+    expect(destination).toMatchObject({
+      projectId: null,
+      applicationId: null,
+      pinnedAt: null,
+      collaborationMode: "default",
+    });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadataJson: {
+          source_conversation_id: CONVERSATION_ID,
+          source_target: "cloud",
+          execution_target: "local",
+        },
+      }),
+    });
+  });
+
+  it("returns the accepted destination and source on an exact retry without new work or audit", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+
+    const first = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+    const second = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+
+    expect(second).toEqual(first);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.conversationTurn.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a changed target or device for the same request without mutating the accepted destination", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+
+    await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+    await expect(harness.continueOn("local", SECOND_CONTINUATION_DEVICE_ID))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
+  it("serializes concurrent retries into exactly one destination and one audit", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { executionTarget: "local", desktopDeviceId: CONTINUATION_DEVICE_ID },
+    });
+    const waiters = new Map<string, () => void>();
+    let tail = Promise.resolve();
+    let sequence = 0;
+    fixture.redis.acquireConversationLock.mockImplementation(async () => {
+      const token = `continuation-lock-${sequence++}`;
+      const prior = tail;
+      tail = new Promise<void>((resolvePromise) => {
+        waiters.set(token, resolvePromise);
+      });
+      await prior;
+      return token;
+    });
+    fixture.redis.releaseConversationLock.mockImplementation(
+      (
+        async (_conversationId: string, token: string) => {
+          waiters.get(token)?.();
+        }
+      ) as never,
+    );
+
+    const [first, second] = await Promise.all([
+      harness.continueOn("cloud", null),
+      harness.continueOn("cloud", null),
+    ]);
+
+    expect(second.conversation.id).toBe(first.conversation.id);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays an overlapping same-request confirmation instead of straddling its commit", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+    const destinationId = conversationContinuationId(
+      OWNER_ID,
+      CONVERSATION_ID,
+      CONTINUATION_REQUEST_ID,
+    );
+
+    // The source-keyed Redis lock serializes both confirmations.
+    const waiters = new Map<string, () => void>();
+    let tail = Promise.resolve();
+    let sequence = 0;
+    let releaseFirstCommit = () => {};
+    let releasedFirstCommit = false;
+    const releaseFirstCommitOnce = () => {
+      if (releasedFirstCommit) return;
+      releasedFirstCommit = true;
+      releaseFirstCommit();
+    };
+    fixture.redis.acquireConversationLock.mockImplementation(async () => {
+      const token = `continuation-lock-${sequence++}`;
+      const prior = tail;
+      tail = new Promise<void>((resolvePromise) => {
+        waiters.set(token, resolvePromise);
+      });
+      // Whichever happens first in the overlapping request (its unlocked
+      // destination read, or its wait for this lock) lets the first commit run.
+      if (sequence > 1) releaseFirstCommitOnce();
+      await prior;
+      return token;
+    });
+    fixture.redis.releaseConversationLock.mockImplementation(
+      (
+        async (_conversationId: string, token: string) => {
+          waiters.get(token)?.();
+        }
+      ) as never,
+    );
+
+    // Hold the first confirmation inside its transaction, before the
+    // destination row is written, so the second read can land on either side.
+    let firstCommitStarted = () => {};
+    const firstCommitStartedPromise = new Promise<void>((resolvePromise) => {
+      firstCommitStarted = resolvePromise;
+    });
+    const firstCommitGate = new Promise<void>((resolvePromise) => {
+      releaseFirstCommit = resolvePromise;
+    });
+    const persistDestination =
+      fixture.prisma.conversation.create.getMockImplementation();
+    if (!persistDestination) throw new Error("missing destination fixture");
+    fixture.prisma.conversation.create.mockImplementation(async (input) => {
+      firstCommitStarted();
+      await firstCommitGate;
+      return persistDestination(input);
+    });
+
+    // The destination row and the receipt commit together. This read models
+    // the later READ COMMITTED statement whose snapshot lands after the commit.
+    let receiptCommitted = () => {};
+    const receiptCommittedPromise = new Promise<void>((resolvePromise) => {
+      receiptCommitted = resolvePromise;
+    });
+    const recordReceipt =
+      fixture.defaultTransaction.auditLog.create.getMockImplementation();
+    if (!recordReceipt) throw new Error("missing receipt fixture");
+    fixture.defaultTransaction.auditLog.create.mockImplementation(async (input) => {
+      const written = await recordReceipt(input);
+      receiptCommitted();
+      return written;
+    });
+
+    let overlapping = false;
+    const receiptReads = fixture.prisma.auditLog.findMany as unknown as {
+      getMockImplementation():
+        | ((input: { where?: Record<string, unknown> }) => Promise<Array<Record<string, unknown>>>)
+        | undefined;
+      mockImplementation(
+        implementation: (input: { where?: Record<string, unknown> }) => Promise<Array<Record<string, unknown>>>,
+      ): unknown;
+    };
+    const readReceipts = receiptReads.getMockImplementation();
+    if (!readReceipts) throw new Error("missing receipt read fixture");
+    receiptReads.mockImplementation(async (input) => {
+      if (overlapping) await receiptCommittedPromise;
+      return readReceipts(input);
+    });
+
+    const destinationReads =
+      fixture.prisma.conversation.findUnique as unknown as {
+        getMockImplementation():
+          | ((input: { where: { id: string } }) => Promise<Record<string, unknown> | null>)
+          | undefined;
+        mockImplementation(
+          implementation: (input: { where: { id: string } }) => Promise<Record<string, unknown> | null>,
+        ): unknown;
+      };
+    const readDestination = destinationReads.getMockImplementation();
+    if (!readDestination) throw new Error("missing destination read fixture");
+    destinationReads.mockImplementation(async (input) => {
+      const row = await readDestination(input);
+      // The unlocked destination read has snapshotted the absence.
+      if (overlapping && input.where.id === destinationId) {
+        releaseFirstCommitOnce();
+      }
+      return row;
+    });
+
+    const firstPromise = harness.continueOn("local", CONTINUATION_DEVICE_ID);
+    await firstCommitStartedPromise;
+    overlapping = true;
+    const secondPromise = harness
+      .continueOn("local", CONTINUATION_DEVICE_ID)
+      .then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      );
+
+    const first = await firstPromise;
+    const second = await secondPromise;
+    if (second.status !== "fulfilled") throw second.error;
+
+    expect(second.value).toEqual(first);
+    expect(second.value.conversation.id).toBe(destinationId);
+    expect(fixture.redis.acquireConversationLock).toHaveBeenCalledTimes(2);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(fixture.prisma.conversationTurn.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rechecks source eligibility under the transaction lock before committing the row and audit", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { executionTarget: "local", desktopDeviceId: CONTINUATION_DEVICE_ID },
+    });
+    harness.setLockedSource(
+      conversationRow({ title: "Source task", archiveStatus: "archived" }),
+    );
+
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", null, "CONVERSATION_NOT_FOUND"],
+    ["archived", conversationRow({ archiveStatus: "archived" }), "CONFLICT"],
+    ["side chat", conversationRow({ sideChatParentId: SECOND_CONVERSATION_ID }), "CONVERSATION_NOT_FOUND"],
+    ["managed application", conversationRow({ applicationId: APPLICATION_ID }), "CONVERSATION_NOT_FOUND"],
+  ])("rejects a %s source before preparing a destination", async (_label, source, code) => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      precheckSource: source,
+    });
+
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("rejects a builder source before preparing a destination", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+    fixture.prisma.applicationDevelopment.findFirst.mockResolvedValueOnce({
+      id: SECOND_CONVERSATION_ID,
+    });
+
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a same-target continuation", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "stale"] as const)(
+    "rejects a %s local device before preparing a destination",
+    async (device) => {
+      const fixture = await conversationFixture();
+      const harness = continuationHarness(fixture, { device });
+
+      await expect(harness.continueOn("local", CONTINUATION_DEVICE_ID))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+      expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+      expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["disconnected", "RUNNER_UNAVAILABLE"],
+    ["old or unnegotiated", "DESKTOP_UPDATE_REQUIRED"],
+  ])("rejects a %s Mac before creating a local continuation", async (_label, code) => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+    fixture.runner.assertDesktopDeviceAvailable.mockRejectedValueOnce(
+      new AppError(code as "RUNNER_UNAVAILABLE" | "DESKTOP_UPDATE_REQUIRED"),
+    );
+
+    await expect(harness.continueOn("local", CONTINUATION_DEVICE_ID))
+      .rejects.toMatchObject({ code });
+
+    expect(fixture.runner.assertDesktopDeviceAvailable).toHaveBeenCalledWith(
+      CONTINUATION_DEVICE_ID, true,
+    );
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("accepts a historical cloud source row without new continuation metadata", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { executionTarget: undefined, desktopDeviceId: undefined },
+    });
+
+    const result = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+
+    expect(result.conversation).toMatchObject({ execution_target: "local" });
+    expect(harness.created.size).toBe(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadataJson: expect.objectContaining({ source_target: "cloud" }),
+      }),
+    });
+  });
+
+  it("propagates an audit transaction failure instead of returning an unaudited destination", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { executionTarget: "local", desktopDeviceId: CONTINUATION_DEVICE_ID },
+    });
+    fixture.defaultTransaction.auditLog.create.mockRejectedValueOnce(
+      new Error("audit unavailable"),
+    );
+
+    await expect(harness.continueOn("cloud", null)).rejects.toThrow(
+      "audit unavailable",
+    );
+
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not accept a seeded destination row without the committed receipt", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+    const destinationId = conversationContinuationId(
+      OWNER_ID,
+      CONVERSATION_ID,
+      CONTINUATION_REQUEST_ID,
+    );
+    harness.created.set(destinationId, conversationRow({
+      id: destinationId,
+      executionTarget: "local",
+      desktopDeviceId: CONTINUATION_DEVICE_ID,
+    }));
+
+    await expect(harness.continueOn("local", CONTINUATION_DEVICE_ID))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate a committed destination that was later deleted and keeps its receipt", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+
+    const first = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+    harness.created.delete(first.conversation.id);
+
+    await expect(harness.continueOn("local", CONTINUATION_DEVICE_ID))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a later archived or renamed destination without reseeding it", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+
+    const first = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+    const current = harness.created.get(first.conversation.id);
+    if (!current) throw new Error("destination was not created");
+    harness.created.set(first.conversation.id, {
+      ...current,
+      title: "Renamed after acceptance",
+      archiveStatus: "archived",
+    });
+
+    const replay = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+
+    expect(replay.conversation).toMatchObject({
+      id: first.conversation.id,
+      title: "Renamed after acceptance",
+      archive_status: "archived",
+    });
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a source title that cannot satisfy the frozen response schema before workspace work", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture, {
+      source: { title: "" },
+    });
+
+    await expect(harness.continueOn("cloud", null))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.auditLog.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("normalizes URL and body UUID case before scoping the deterministic receipt", async () => {
+    const fixture = await conversationFixture();
+    const harness = continuationHarness(fixture);
+    const lowerDestination = conversationContinuationId(
+      OWNER_ID,
+      CONVERSATION_ID,
+      CONTINUATION_REQUEST_ID,
+    );
+    const upperDestination = conversationContinuationId(
+      OWNER_ID.toUpperCase(),
+      CONVERSATION_ID.toUpperCase(),
+      CONTINUATION_REQUEST_ID.toUpperCase(),
+    );
+    expect(upperDestination).toBe(lowerDestination);
+
+    const first = await fixture.service.continueConversation(
+      OWNER_ID,
+      CONVERSATION_ID.toUpperCase(),
+      {
+        requestId: CONTINUATION_REQUEST_ID.toUpperCase(),
+        executionTarget: "local",
+        desktopDeviceId: CONTINUATION_DEVICE_ID.toUpperCase(),
+      },
+      { actorId: OWNER_ID, ipAddress: null, userAgent: null },
+    );
+    const second = await harness.continueOn("local", CONTINUATION_DEVICE_ID);
+
+    expect(first.conversation.id).toBe(lowerDestination);
+    expect(second.conversation.id).toBe(lowerDestination);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+    expect(fixture.defaultTransaction.auditLog.create).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -13405,6 +14082,172 @@ describe("conversation side chats", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("starts one local ordinary task with explicit task references through the Mac read gate", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const sourceIds = [SECOND_CONVERSATION_ID, PLAN_MESSAGE_ID];
+    const sources = [
+      { id: SECOND_CONVERSATION_ID, title: "Research" },
+      { id: PLAN_MESSAGE_ID, title: "Plan notes" },
+    ] as unknown as ReturnType<typeof conversationRow>[];
+    const conversation = conversationRow({
+      executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findMany.mockResolvedValue(sources);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.defaultTransaction.conversation.findMany.mockResolvedValue(sources);
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    const transaction = transactionFixture();
+    transaction.conversationTurn.create.mockImplementationOnce(
+      async ({ data }) => turnRow({
+        ...data, submitMode: "normal", codexThreadId: "codex-thread-1", codexTurnId: "codex-turn-1",
+      }),
+    );
+    transaction.conversationMessage.create.mockResolvedValueOnce({ id: MESSAGE_ID });
+    useStartProjectionTransaction(fixture, transaction);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: {
+        kind: "task_references",
+        request: "Compare these sources",
+        conversation_ids: sourceIds,
+      },
+      priorityCapabilityIds: [], idempotencyKey: "local-task-references", submitMode: "normal",
+    }, {})).resolves.toMatchObject({ status: "running" });
+
+    expect(fixture.runner.assertDesktopAvailable).toHaveBeenCalledWith(
+      OWNER_ID, CONVERSATION_ID, false, false, false, true,
+    );
+    expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
+    const startInput = fixture.runner.startTurn.mock.calls[0]?.[0] as RunnerStartInput & {
+      requiresConversationReferenceRead?: true;
+      conversationReferenceContext?: unknown;
+    };
+    expect(startInput.requiresConversationReferenceRead).toBe(true);
+    expect(startInput.conversationReferenceContext).toBeUndefined();
+    expect(startInput.context.officeSelectionContext).toBeUndefined();
+    expect(startInput.context.userInput).toContain("Compare these sources");
+    expect(startInput.context.userInput).toContain("read_referenced_conversation");
+    for (const source of sources) {
+      expect(startInput.context.userInput).toContain(source.id);
+      expect(startInput.context.userInput).toContain(source.title);
+    }
+    expect(startInput.context.userInput).toContain("untrusted IDs and titles");
+    expect(fixture.prisma.conversationTurnStartIntent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: expect.stringContaining("Compare these sources"),
+        messageDisplayJson: expect.objectContaining({
+          kind: "task_references", conversation_ids: sourceIds,
+        }),
+      }),
+    });
+  });
+
+  it("rejects an old local Mac before task-reference admission or dispatch", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const source = { id: SECOND_CONVERSATION_ID, title: "Research" } as unknown as ReturnType<typeof conversationRow>;
+    const conversation = conversationRow({
+      executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findMany.mockResolvedValue([source]);
+    fixture.runner.assertDesktopAvailable.mockRejectedValueOnce(
+      new AppError("DESKTOP_UPDATE_REQUIRED"),
+    );
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: {
+        kind: "task_references",
+        request: "Compare",
+        conversation_ids: [SECOND_CONVERSATION_ID],
+      },
+      priorityCapabilityIds: [], idempotencyKey: "local-task-references-old-mac", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "DESKTOP_UPDATE_REQUIRED" });
+
+    expect(fixture.runner.assertDesktopAvailable).toHaveBeenCalledWith(
+      OWNER_ID, CONVERSATION_ID, false, false, false, true,
+    );
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown or foreign task reference before local admission", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const conversation = conversationRow({
+      executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findMany.mockResolvedValue([
+      { id: SECOND_CONVERSATION_ID, title: "Owned" },
+    ] as unknown as ReturnType<typeof conversationRow>[]);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: {
+        kind: "task_references",
+        request: "Compare",
+        conversation_ids: [SECOND_CONVERSATION_ID, PLAN_MESSAGE_ID],
+      },
+      priorityCapabilityIds: [], idempotencyKey: "local-task-references-foreign", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.assertDesktopAvailable).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rechecks explicit local task references under admission before writing", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const conversation = conversationRow({
+      executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    const source = { id: SECOND_CONVERSATION_ID, title: "Research" };
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.prisma.conversation.findMany
+      .mockResolvedValueOnce([source] as unknown as ReturnType<typeof conversationRow>[])
+      .mockResolvedValueOnce([]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValue(conversation);
+    fixture.defaultTransaction.conversation.findMany.mockResolvedValue([]);
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input: unknown[]) => {
+      const query = input[0] as { sql?: string } | string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+      return sql.includes("FROM conversations c") && sql.includes("desktop_devices")
+        ? [{ revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: null }]
+        : [];
+    });
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: {
+        kind: "task_references",
+        request: "Compare",
+        conversation_ids: [SECOND_CONVERSATION_ID],
+      },
+      priorityCapabilityIds: [], idempotencyKey: "local-task-references-recheck", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
   it("starts one local side-chat quote turn with the question separate from a bounded snapshot", async () => {
     const fixture = await conversationFixture();
     const deviceId = "10000000-0000-4000-8000-000000000009";
@@ -13909,6 +14752,7 @@ async function conversationFixture() {
   let storedPlanReview: ReturnType<typeof planReviewRow> | null = null;
   let preparedRuntimeGeneration = "80000000-0000-4000-8000-000000000001";
   const prisma = {
+    auditLog: { findMany: vi.fn(async () => [] as Array<Record<string, unknown>>) },
     applicationDevelopment: { findMany: vi.fn(async () => [] as { conversationId: string }[]), findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => null) },
     application: { findMany: vi.fn<(input: { where: { id?: unknown } }) => Promise<{ id: string }[]>>(async () => []), findFirst: vi.fn(async (): Promise<{ id: string } | null> => null) },
     project: { findFirst: vi.fn<() => Promise<{ id: string } | null>>(async () => null) },
@@ -13926,7 +14770,10 @@ async function conversationFixture() {
       findUnique: vi.fn(
         async () => conversationRow() as Record<string, unknown> | null,
       ),
-      findMany: vi.fn(async () => [] as ReturnType<typeof conversationRow>[]),
+      findMany: vi.fn(async (_input?: { where?: Record<string, unknown> }) => {
+        void _input;
+        return [] as ReturnType<typeof conversationRow>[];
+      }),
       count: vi.fn(async () => 0),
       create: vi.fn<
         (input: {
@@ -14209,6 +15056,7 @@ async function conversationFixture() {
     reconcile: vi.fn(async () => ({ thread: {}, goal: null })),
     isDesktopConversation: vi.fn(async () => false),
     assertDesktopAvailable: vi.fn(async () => undefined),
+    assertDesktopDeviceAvailable: vi.fn(async () => undefined),
     desktopProjectionFence: vi.fn<() => Promise<DesktopProjectionFence & { connectionId: string }>>(),
     inspectStartOperation: vi.fn<() => Promise<RunnerStartOperation | null>>(
       async () => null,
@@ -14354,6 +15202,9 @@ async function conversationFixture() {
   );
   defaultTransaction.conversation.findFirst.mockImplementation((input) =>
     prisma.conversation.findFirst(input),
+  );
+  defaultTransaction.conversation.findMany.mockImplementation((input) =>
+    prisma.conversation.findMany(input),
   );
   defaultTransaction.conversation.create.mockImplementation((input) =>
     prisma.conversation.create(input),
@@ -14904,6 +15755,10 @@ function transactionFixture() {
       findUnique: vi.fn<() => Promise<Record<string, unknown> | null>>(
         async () => conversationRow(),
       ),
+      findMany: vi.fn(async (_input?: { where?: Record<string, unknown> }) => {
+        void _input;
+        return [] as ReturnType<typeof conversationRow>[];
+      }),
       create: vi.fn<
         (input: {
           data: Record<string, unknown>;
@@ -14992,7 +15847,10 @@ function transactionFixture() {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       upsert: vi.fn(async () => ({})),
     },
-    auditLog: { create: vi.fn(async () => ({})) },
+    auditLog: { create: vi.fn(async (_input?: { data?: Record<string, unknown> }) => {
+      void _input;
+      return {};
+    }) },
   };
 }
 

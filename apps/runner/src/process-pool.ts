@@ -5147,11 +5147,20 @@ export class AppServerProcessPool {
     });
   }
 
-  async readConversationReference(conversationId: string, token: string, input: import("@linksense/shared").ReadConversationReferenceInput): Promise<unknown> {
+  async readConversationReference(
+    conversationId: string,
+    token: string,
+    input: import("@linksense/shared").ReadConversationReferenceInput,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     if (!this.options.eventSink.readConversationReference) throw new ConversationReferenceRequestError(503);
-    return this.options.eventSink.readConversationReference({ conversationId, turnId: managed.activeProjectionTurnId, input });
+    const result = await this.options.eventSink.readConversationReference({
+      conversationId, turnId: managed.activeProjectionTurnId, input, ...(signal ? { signal } : {}),
+    });
+    signal?.throwIfAborted();
+    return result;
   }
 
   async requestMonitoringStop(conversationId: string, token: string): Promise<unknown> {

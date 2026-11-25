@@ -362,6 +362,7 @@ export const auditMessages = {
     "conversation_artifact_registered": "Arquivo gerado pela tarefa registrado",
     "conversation_attachment_uploaded": "Anexo da tarefa enviado",
     "conversation_context_compaction_started": "Compactação do contexto da tarefa iniciada",
+    "conversation_continued": "Tarefa continuada",
     "conversation_created": "Tarefa criada",
     "conversation_deleted": "Tarefa excluída",
     "conversation_forked": "Tarefa ramificada",

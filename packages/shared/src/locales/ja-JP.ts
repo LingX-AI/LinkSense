@@ -362,6 +362,7 @@ export const auditMessages = {
     conversation_artifact_registered: "タスクの成果物を登録",
     conversation_attachment_uploaded: "タスクの添付ファイルをアップロード",
     conversation_context_compaction_started: "タスクのコンテキスト圧縮を開始",
+    conversation_continued: "タスクを継続",
     conversation_created: "タスクを作成",
     conversation_deleted: "タスクを削除",
     conversation_forked: "タスクを分岐",

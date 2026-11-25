@@ -7,7 +7,7 @@ import {
   DESKTOP_APP_VERSION_HEADER,
   DESKTOP_ATTACHMENT_PROTOCOL_HEADER, DESKTOP_CONVERSATION_REFERENCE_PROTOCOL_HEADER, DESKTOP_EXECUTION_PROTOCOL_HEADER, DESKTOP_TOOL_OPERATIONS_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER, desktopAttachmentProtocolVersion, desktopConversationReferenceProtocolVersion,
-  desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
+  desktopConversationReferenceReadOperation, desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, desktopToolProtocolVersion, type DesktopExecutionAck,
   type DesktopExecutionCallback, type DesktopExecutionCommand,
 } from "@linksense/shared";
@@ -387,6 +387,7 @@ describe("desktop execution transport", () => {
     const binding = await execution.connection(device.id);
     if (!binding) throw new Error("Mac did not negotiate execution");
     expect(await execution.supportsConversationReference(binding)).toBe(conversationReferences);
+    expect(await execution.supportsConversationReferenceRead(binding)).toBe(false);
     const command = quoteStart();
     if (!conversationReferences) {
       await expect(execution.send(binding, command)).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
@@ -472,13 +473,18 @@ describe("desktop execution transport", () => {
     }
   });
 
-  it("retains old presence, never sends to a replaced connection, and distinguishes a lost response", async () => {
+  it("fences negotiated reference reads on replacement and keeps legacy presence usable", async () => {
     const first = await fixture();
     const second = await fixture(first.repository);
     const { device, token } = await paired(first.app);
-    const mac = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const mac = await connect(first.app, token, desktopExecutionProtocolVersion, false, `web.search,${desktopConversationReferenceReadOperation}`);
+    const ready = desktopExecutionDeviceReadySchema.parse(mac.ready);
+    expect(ready.tool_operations).toEqual(["web.search", desktopConversationReferenceReadOperation]);
     const binding = await second.execution.connection(device.id);
     if (!binding) throw new Error("Mac did not negotiate execution");
+    expect(binding.connectionId).toBe(ready.connection_id);
+    expect(await second.execution.supportsConversationReferenceRead(binding)).toBe(true);
+    expect(await second.execution.supportsConversationReference(binding)).toBe(false);
     const command = inspection();
     const frame = readFrame(mac.socket);
     const receipt = second.execution.send(binding, command);
@@ -489,6 +495,7 @@ describe("desktop execution transport", () => {
     expect((await closed)[0]).toBe(4409);
     expect(desktopDeviceServerFrameSchema.parse(legacy.ready).type).toBe("ready");
     expect(await second.execution.connection(device.id)).toBeNull();
+    expect(await second.execution.supportsConversationReferenceRead(binding)).toBe(false);
     await lost;
     await expect(second.execution.send(binding, inspection())).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
     const pong = nextFrame(legacy.socket);

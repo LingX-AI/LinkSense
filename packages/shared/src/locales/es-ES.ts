@@ -362,6 +362,7 @@ export const auditMessages = {
     "conversation_artifact_registered": "Archivo generado de la tarea registrado",
     "conversation_attachment_uploaded": "Adjunto de la tarea subido",
     "conversation_context_compaction_started": "Compactación del contexto de la tarea iniciada",
+    "conversation_continued": "Tarea continuada",
     "conversation_created": "Tarea creada",
     "conversation_deleted": "Tarea eliminada",
     "conversation_forked": "Tarea bifurcada",

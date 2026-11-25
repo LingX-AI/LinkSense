@@ -262,6 +262,8 @@ export type RunnerStartInput = {
   appServerProcessLimit: number;
   /** Server-derived bounded quote context; never accepted from a device or raw prompt. */
   conversationReferenceContext?: ConversationReferenceContext;
+  /** Internal Mac capability gate; never serialized to the cloud runner. */
+  requiresConversationReferenceRead?: true;
   operationKind?: "turn" | "compact";
   eventProjectionTurnId?: string;
   ownerId: string;
@@ -434,8 +436,12 @@ export class RunnerClient {
     return await this.resolveWorkspace?.(ownerId, conversationId) === "local";
   }
 
-  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false): Promise<void> {
-    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference, needsModelSwitch);
+  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false, needsConversationReferenceRead = false): Promise<void> {
+    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference, needsModelSwitch, needsConversationReferenceRead);
+  }
+
+  assertDesktopDeviceAvailable(deviceId: string, needsConversationReferenceRead = false): Promise<void> {
+    return this.desktopRunner().assertDeviceAvailable(deviceId, needsConversationReferenceRead);
   }
 
   drainDesktopTurn(scope: Parameters<DesktopRunner["drain"]>[0]): ReturnType<DesktopRunner["drain"]> {
@@ -496,9 +502,9 @@ export class RunnerClient {
     assertCapabilityGeneration(input.capabilityGeneration);
     assertCapabilityGeneration(input.mcpGeneration);
     const { conversationId, ...startBody } = input;
-    // The local quote context is a server-derived device field, never a cloud
-    // runner start-body field.
+    // Local-only device fields are never cloud runner start-body fields.
     delete startBody.conversationReferenceContext;
+    delete startBody.requiresConversationReferenceRead;
     const startPath = `/conversations/${conversationId}/turns/start`;
     const operationPath = `${startPath}/${input.projectionTurnId}`;
     let operation: RunnerStartOperation;

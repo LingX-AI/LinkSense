@@ -21,6 +21,7 @@ import {
   desktopArtifactPathDigestHeader,
   desktopArtifactPathDigestInput,
   desktopArtifactReceiptSchema,
+  desktopConversationReferenceReadOperation,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
@@ -41,7 +42,7 @@ import {
 import { Queue } from "bullmq";
 import Fastify, { type FastifyRequest } from "fastify";
 import JSZip from "jszip";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
@@ -319,8 +320,10 @@ export async function verifyDesktopExecutionProjection(input: {
     await connect(false);
     const legacyTools = await connect(true, true);
     await legacyTools.recoveryJob?.remove();
+    await assert.rejects(runner.assertDesktopDeviceAvailable(deviceId, true), { code: "DESKTOP_UPDATE_REQUIRED" });
     const initial = await connect(true, true, true);
     await initial.recoveryJob?.remove();
+    await runner.assertDesktopDeviceAvailable(deviceId, true);
     await events.recoverRunningTurns();
 
     // P2-01: with a live Mac attached to the owner, the upgraded cloud
@@ -414,11 +417,36 @@ export async function verifyDesktopExecutionProjection(input: {
     } });
     const conversationId = conversation.id;
     const runtimeGeneration = conversation.runtimeGeneration;
+    const referenceTitle = `Fixture reference ${randomUUID()}`;
+    const referenceText = `Fixture reference body ${randomUUID()}`;
+    const referenceThread = randomUUID();
+    const referenceSource = await prisma.conversation.create({ data: {
+      ownerId, title: referenceTitle, titleSource: "manual", archiveStatus: "archived", archivedAt: new Date(),
+      workspaceRelPath: `${ownerId}/services/${randomUUID()}/home/workspace`,
+      runtimeGeneration: randomUUID(), executionTarget: "cloud", codexThreadId: referenceThread,
+    } });
+    const referenceSourceTurn = await prisma.conversationTurn.create({ data: {
+      conversationId: referenceSource.id, submittedBy: ownerId, sequenceNo: 1,
+      codexThreadId: referenceThread, codexTurnId: randomUUID(), status: "completed",
+      submitMode: "normal", capabilityGeneration, capabilitiesJson: [], startedAt: new Date(),
+      completedAt: new Date(),
+    } });
+    await prisma.conversationMessage.create({ data: {
+      conversationId: referenceSource.id, turnId: referenceSourceTurn.id, sequenceNo: 1,
+      role: "assistant", contentText: referenceText,
+    } });
     await prisma.conversationTurnStartIntent.create({ data: {
       projectionTurnId: turnId, ownerId, conversationId, runtimeGeneration, capabilityGeneration,
       inputText: "Confirm this Mac can publish", capabilitiesJson: [], attachmentsJson: [],
       knowledgeBaseIdsJson: [knowledge.owned.base.id, knowledge.foreign.base.id],
       submitMode: "normal", runnerStatus: "prepared",
+      // The real start projection commits this grant sidecar with the running
+      // row; the read below starts before both exist.
+      messageDisplayJson: {
+        kind: "task_references", request: "Read the explicitly selected reference",
+        conversation_ids: [referenceSource.id],
+        sources: [{ id: referenceSource.id, title: referenceTitle }],
+      },
     } });
     assert.equal((await redis.acquireTurnSlot(conversationId, turnId, ownerId)).acquired, true);
 
@@ -438,6 +466,7 @@ export async function verifyDesktopExecutionProjection(input: {
         ownerId, conversationId, projectionTurnId: turnId, expectedRuntimeGeneration: runtimeGeneration,
         appServerProcessLimit: 1, capabilityGeneration, mcpGeneration: capabilityGeneration,
         codexThreadId: threadId, collaborationMode: "default", mcpServers: [], capabilities: [], environment: {},
+        requiresConversationReferenceRead: true,
         context: { userInput: "Confirm this Mac can publish", attachments: [], priorityPlugins: [], prioritySkills: [] },
         model: "fixture-model", reasoningEffort: "low",
         modelProvider: {
@@ -466,18 +495,60 @@ export async function verifyDesktopExecutionProjection(input: {
     const earlyResult = desktopToolResultSchema.parse(await exchange(initial.socket, earlyConnector));
     assert(earlyResult.ok && earlyResult.operation === "connection.execute" && earlyResult.data.kind === "connections",
       "a valid Mac connector read failed while the turn was still prepared");
-    const inspect = desktopExecutionCommandSchema.parse(await exchange(initial.socket, {
-      type: "execution.callback", id: randomUUID(), operation: "start.settled", ...callbackScope,
-      run_token: start.body.credentials.run_token,
-      body: { conversationId, projectionTurnId: turnId, runtimeGeneration },
-    } satisfies DesktopExecutionCallback));
-    commandScope(inspect);
-    assert.equal(inspect.operation, "turn.inspect");
-    const settlement = desktopExecutionAckSchema.parse(await exchange(initial.socket, {
-      type: "command.result", id: inspect.id, operation: inspect.operation, ok: true,
-      result: { ...receiptBase, status: "succeeded", result: { codexThreadId: threadId, codexTurnId: nativeTurnId } },
-    }));
-    assert(settlement.ok && settlement.operation === "start.settled" && settlement.data.settled);
+    const referenceRequest = {
+      ...earlyConnector, id: randomUUID(), operation: desktopConversationReferenceReadOperation,
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor(desktopConversationReferenceReadOperation)).toISOString(),
+      body: { conversation_id: referenceSource.id, cursor: "0", offset: 0 },
+    } satisfies DesktopToolRequest;
+    // Start the read while the accepted turn exists only as a prepared start
+    // intent. The read must wait for the running projection and its sidecar,
+    // then deliver after the projection transaction commits.
+    type SocketFrame = { type?: string; id?: string; operation?: string; [key: string]: unknown };
+    const buffered: SocketFrame[] = [];
+    const onFrame = (data: RawData) => { buffered.push(JSON.parse(String(data)) as SocketFrame); };
+    initial.socket.on("message", onFrame);
+    const waitFrame = async (predicate: (frame: SocketFrame) => boolean): Promise<SocketFrame> => {
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const index = buffered.findIndex(predicate);
+        if (index >= 0) return buffered.splice(index, 1)[0]!;
+        if (Date.now() >= deadline) throw new Error("timed out waiting for a desktop frame");
+        await delay(10);
+      }
+    };
+    let reference: Extract<Awaited<ReturnType<typeof desktopToolResultSchema.parse>>, { operation: typeof desktopConversationReferenceReadOperation }>;
+    try {
+      send(initial.socket, referenceRequest);
+      const claimKey = `linksense:desktop-tool:${turnId}:${referenceRequest.id}`;
+      for (let poll = 0; poll < 200 && !await redis.client.get(claimKey); poll++) await delay(5);
+      assert.equal(await redis.client.get(claimKey), "1", "the reference read did not reach the authorized tool claim");
+      await delay(50);
+      assert(!buffered.some(frame => frame.id === referenceRequest.id),
+        "the reference read returned before the running projection committed");
+      const settleId = randomUUID();
+      send(initial.socket, {
+        type: "execution.callback", id: settleId, operation: "start.settled", ...callbackScope,
+        run_token: start.body.credentials.run_token,
+        body: { conversationId, projectionTurnId: turnId, runtimeGeneration },
+      } satisfies DesktopExecutionCallback);
+      const inspect = desktopExecutionCommandSchema.parse(await waitFrame(frame =>
+        frame.type === "command" && frame.operation === "turn.inspect"));
+      commandScope(inspect);
+      send(initial.socket, {
+        type: "command.result", id: inspect.id, operation: inspect.operation, ok: true,
+        result: { ...receiptBase, status: "succeeded", result: { codexThreadId: threadId, codexTurnId: nativeTurnId } },
+      });
+      const settlement = desktopExecutionAckSchema.parse(await waitFrame(frame =>
+        frame.type === "execution.ack" && frame.id === settleId));
+      assert(settlement.ok && settlement.operation === "start.settled" && settlement.data.settled);
+      const result = desktopToolResultSchema.parse(await waitFrame(frame => frame.id === referenceRequest.id));
+      assert(result.ok && result.operation === desktopConversationReferenceReadOperation);
+      reference = result;
+    } finally {
+      initial.socket.off("message", onFrame);
+    }
+    assert.equal(reference.data.title, referenceTitle);
+    assert.deepEqual(reference.data.messages.map(row => row.text), [referenceText]);
 
     const tool: DesktopToolRequest = {
       type: "tool.request", id: randomUUID(), operation: "web.search", ...callbackScope,
@@ -485,6 +556,10 @@ export async function verifyDesktopExecutionProjection(input: {
       run_token: start.body.credentials.run_token, body: { query: "fixture search" },
     };
     const invokeTool = async (frame: DesktopToolRequest = tool) => desktopToolResultSchema.parse(await exchange(initial.socket, frame));
+    const invokeReference = (frame: typeof referenceRequest, body = frame.body) => invokeTool({
+      ...frame, id: randomUUID(), body,
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor(frame.operation)).toISOString(),
+    });
     const unauthorized = await invokeTool({ ...tool, turn_id: randomUUID() });
     assert(!unauthorized.ok && unauthorized.error_code === "FORBIDDEN");
     const expired = await invokeTool({ ...tool, expires_at: new Date(Date.now() - 1).toISOString() });
@@ -503,6 +578,90 @@ export async function verifyDesktopExecutionProjection(input: {
       result: "success", actorId: ownerId,
       metadataJson: { operation: "web.search", conversation_id: conversationId, turn_id: turnId, device_id: deviceId },
     }]);
+    const unmatchedReference = await invokeReference(referenceRequest, { conversation_id: randomUUID(), cursor: "0", offset: 0 });
+    assert(!unmatchedReference.ok && unmatchedReference.error_code === "FORBIDDEN");
+    const referenceAudits = await prisma.auditLog.findMany({
+      where: {
+        action: "desktop_tool_requested", targetType: "conversation_reference",
+        metadataJson: { path: ["turn_id"], equals: turnId },
+      },
+      orderBy: { result: "desc" },
+      select: { result: true, targetId: true, metadataJson: true },
+    });
+    const referenceMetadata = {
+      operation: desktopConversationReferenceReadOperation, conversation_id: conversationId, turn_id: turnId, device_id: deviceId,
+    };
+    assert.deepEqual(referenceAudits, [
+      { result: "success", targetId: referenceRequest.id, metadataJson: referenceMetadata },
+      { result: "failure", targetId: unmatchedReference.id, metadataJson: { ...referenceMetadata, reason_code: "FORBIDDEN" } },
+    ]);
+
+    // A committed running turn without its grant sidecar is a bounded denial,
+    // never a wait and never a second grant source.
+    await prisma.conversationEvent.deleteMany({
+      where: { conversationId, turnId, eventType: "conversation.message.display_context" },
+    });
+    const noGrantReference = await invokeReference(referenceRequest);
+    assert(!noGrantReference.ok && noGrantReference.error_code === "FORBIDDEN");
+    assert.equal(await prisma.conversationTurn.count({ where: {
+      id: turnId, conversationId, submittedBy: ownerId, status: "running",
+    } }), 1);
+
+    // Refusal cases run through the same authenticated socket and run lease,
+    // with only the start projection deliberately absent or unusable.
+    const pendingReference = async () => {
+      const pendingConversation = await prisma.conversation.create({ data: {
+        ownerId, title: `Pending reference ${randomUUID()}`, titleSource: "manual", archiveStatus: "active",
+        workspaceRelPath: `${ownerId}/home/workspaces/${randomUUID()}`, runtimeGeneration: randomUUID(),
+        executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: randomUUID(),
+      } });
+      const pendingTurnId = randomUUID();
+      await prisma.conversationTurnStartIntent.create({ data: {
+        projectionTurnId: pendingTurnId, ownerId, conversationId: pendingConversation.id,
+        runtimeGeneration: pendingConversation.runtimeGeneration, capabilityGeneration,
+        inputText: "Pending reference read", capabilitiesJson: [], attachmentsJson: [],
+        submitMode: "normal", runnerStatus: "prepared",
+        // The pending intent carries the same server-authored display the real
+        // start projection would commit, so the fence permits waiting on this
+        // source; it still never authorizes reading history without the sidecar.
+        messageDisplayJson: {
+          kind: "task_references", request: "Pending reference read",
+          conversation_ids: [referenceSource.id],
+          sources: [{ id: referenceSource.id, title: referenceTitle }],
+        },
+      } });
+      const credentials = await leases.issue({ deviceId, connectionId: initial.connectionId }, {
+        ownerId, conversationId: pendingConversation.id, projectionTurnId: pendingTurnId,
+        expectedRuntimeGeneration: pendingConversation.runtimeGeneration, model: "fixture-model",
+        modelProvider: {
+          revision: 1, baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(),
+          protocolMode: "native_responses",
+        },
+      });
+      const frame = {
+        type: "tool.request", id: randomUUID(), operation: desktopConversationReferenceReadOperation,
+        conversation_id: pendingConversation.id, turn_id: pendingTurnId,
+        runtime_generation: pendingConversation.runtimeGeneration,
+        expires_at: new Date(Date.now() + desktopToolLifetimeFor(desktopConversationReferenceReadOperation)).toISOString(),
+        run_token: credentials.run_token,
+        body: { conversation_id: referenceSource.id, cursor: "0", offset: 0 },
+      } satisfies DesktopToolRequest;
+      return { frame, pendingTurnId };
+    };
+    const timedOut = await pendingReference();
+    const timeoutStarted = Date.now();
+    const timeoutRead = await invokeTool(timedOut.frame);
+    assert(!timeoutRead.ok && timeoutRead.error_code === "RUNNER_UNAVAILABLE");
+    assert(Date.now() - timeoutStarted >= 1_500, "a pending projection read did not wait for the bounded projection window");
+    await prisma.conversationTurnStartIntent.update({
+      where: { projectionTurnId: timedOut.pendingTurnId }, data: { runnerStatus: "release_pending" },
+    });
+    const releasedRead = await invokeReference(timedOut.frame);
+    assert(!releasedRead.ok && releasedRead.error_code === "FORBIDDEN");
+    await prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId: timedOut.pendingTurnId } });
+    const missingStartRead = await invokeReference(timedOut.frame);
+    assert(!missingStartRead.ok && missingStartRead.error_code === "FORBIDDEN");
+
     const knowledgeScope = {
       type: "tool.request", ...callbackScope, run_token: tool.run_token,
       expires_at: new Date(Date.now() + desktopToolLifetimeFor("knowledge.search")).toISOString(),

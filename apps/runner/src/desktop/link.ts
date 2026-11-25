@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import {
-  desktopCommandCapacity,
+  desktopCommandCapacity, desktopConversationReferenceReadOperation,
   desktopExecutionCallbackSchema, desktopExecutionLifetimeFor, desktopExecutionMaxInFlight,
   desktopExecutionResultSchema, desktopModelSwitchOperation, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
@@ -146,6 +146,11 @@ export class DesktopLink {
   async requestTool(run: DesktopRuntimeRun, input: DesktopToolInvocation, signal: AbortSignal): Promise<DesktopToolResult> {
     const id = randomUUID()
     const { operation } = input
+    // A reference read has no effect to reconcile: a lost result is a bounded
+    // unavailable read, never mutation uncertainty.
+    const lost = operation === desktopConversationReferenceReadOperation
+      ? "RUNNER_UNAVAILABLE" as const
+      : "RUNNER_OPERATION_UNCERTAIN" as const
     const failure = (error_code: "FORBIDDEN" | "RUNNER_UNAVAILABLE" | "RUNNER_OPERATION_UNCERTAIN"): DesktopToolResult =>
       ({ type: "tool.result", id, operation, ok: false, error_code })
     if (run.scope.owner_id !== this.ownerId) return failure("FORBIDDEN")
@@ -168,14 +173,14 @@ export class DesktopLink {
     lifetime.throwIfAborted()
     try {
       const result = await this.sendCallback(frame, lifetime)
-      return result.type === "tool.result" ? result : failure("RUNNER_OPERATION_UNCERTAIN")
+      return result.type === "tool.result" ? result : failure(lost)
     } catch {
       if (!this.lifetime.signal.aborted) {
         this.track(this.write({ type: "link.frame", link_id: this.id, frame: {
           type: "tool.cancel", id: frame.id, operation: frame.operation, conversation_id, runtime_generation, turn_id,
         } }))
       }
-      return failure("RUNNER_OPERATION_UNCERTAIN")
+      return failure(lost)
     }
   }
 

@@ -19,6 +19,7 @@ import {
 import { WEB_SEARCH_MAX_TIMEOUT_MS, webSearchFailureCodeSchema, webSearchRequestSchema, webSearchSuccessSchema } from "./web-search.js";
 import { desktopConnectionRequestBodySchema, desktopConnectionResultSchema } from "./workspace-connections.js";
 import { conversationReferenceContextSchema } from "./conversation-side-chat.js";
+import { conversationReferenceReadTimeoutMs, readConversationReferenceInputSchema, readConversationReferenceResultSchema } from "./conversation-references.js";
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
@@ -88,7 +89,8 @@ const desktopAttachmentManifestSchema = z.array(desktopAttachmentSchema).min(1).
 );
 export type DesktopAttachment = z.infer<typeof desktopAttachmentSchema>;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain", "user-input.respond"]);
-export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website"]);
+export const desktopConversationReferenceReadOperation = "conversation_reference.read" as const;
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown", "connection.execute", "browser.execute", "artifact.prepare", "artifact.multipart", "artifact.website", desktopConversationReferenceReadOperation]);
 export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
 /**
  * M1b computer operation. It is a negotiated tool request but deliberately not
@@ -130,6 +132,7 @@ export function supportsDesktopUserInput(
       operations.includes(desktopComputerExecuteOperation);
 }
 export function desktopToolLifetimeFor(operation: DesktopToolRequestOperation): number {
+  if (operation === desktopConversationReferenceReadOperation) return conversationReferenceReadTimeoutMs;
   if (operation === desktopComputerExecuteOperation) return desktopComputerExecuteLifetimeMs;
   if (operation === "artifact.prepare" || operation === "artifact.multipart" || operation === "artifact.website") return 10_000;
   if (operation === "connection.execute") return 58_000;
@@ -364,6 +367,7 @@ export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
   request.extend({ operation: z.literal("artifact.prepare"), body: desktopArtifactPrepareSchema }),
   request.extend({ operation: z.literal("artifact.multipart"), body: desktopArtifactPrepareSchema }),
   request.extend({ operation: z.literal("artifact.website"), body: desktopWebsiteArtifactPrepareSchema }),
+  request.extend({ operation: z.literal(desktopConversationReferenceReadOperation), body: readConversationReferenceInputSchema }),
   // Quiescence is control-only and can never be requested as a tool.
   request.extend({ operation: z.literal("computer.execute"), body: computerExecuteInputSchema }),
 ]);
@@ -405,6 +409,7 @@ export const desktopToolErrorSchema = z.union([
     "KNOWLEDGE_SEARCH_UNAVAILABLE", "KNOWLEDGE_NO_AVAILABLE_BASES",
     "KNOWLEDGE_MAINTENANCE_UNAVAILABLE", "KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY", "FILE_LIMIT_EXCEEDED",
     "KNOWLEDGE_BASE_NOT_FOUND", "KNOWLEDGE_BASE_ACCESS_DENIED", "KNOWLEDGE_BASE_DISABLED", "KNOWLEDGE_DOCUMENT_NOT_FOUND",
+    "CONVERSATION_NOT_FOUND",
   ]),
 ]);
 export const desktopToolResultSchema = z.union([
@@ -417,6 +422,7 @@ export const desktopToolResultSchema = z.union([
   toolResult.extend({ operation: z.literal("artifact.prepare"), data: desktopArtifactSingleGrantSchema }),
   toolResult.extend({ operation: z.literal("artifact.multipart"), data: desktopArtifactUploadGrantSchema }),
   toolResult.extend({ operation: z.literal("artifact.website"), data: desktopArtifactUploadGrantSchema }),
+  toolResult.extend({ operation: z.literal(desktopConversationReferenceReadOperation), data: readConversationReferenceResultSchema }),
   toolResult.extend({ operation: z.literal("computer.execute"), data: computerExecuteResultSchema }),
   toolResult.extend({ operation: desktopToolRequestOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);

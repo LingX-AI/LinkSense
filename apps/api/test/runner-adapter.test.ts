@@ -102,6 +102,20 @@ describe("RunnerClient start operation", () => {
       expect(headers.get("x-linksense-workspace")).toBe(placement.workspacePath);
     });
 
+    it("does not forward the local task-reference read marker to the cloud runner", async () => {
+      const { client, fetchMock, send } = desktopRunnerFixture(redis.client, undefined, { executionTarget: "cloud" });
+      fetchMock.mockResolvedValueOnce(jsonResponse(startingOperation(), 202));
+
+      await expect(client.acceptStartTurn({
+        ...startInput(),
+        requiresConversationReferenceRead: true,
+      }, { workspacePath: `projects/${projectionTurnId}` })).resolves.toMatchObject({ status: "starting" });
+
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body).not.toHaveProperty("requiresConversationReferenceRead");
+      expect(send).not.toHaveBeenCalled();
+    });
+
     it("queues exact-turn lease expiry recovery before a Mac start can be delivered", async () => {
       const { client, binding, lease, scheduleExpiry, send } = desktopRunnerFixture(redis.client);
       const input = { ...startInput(), projectionTurnId: randomUUID() };
@@ -188,6 +202,59 @@ describe("RunnerClient start operation", () => {
       await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "DESKTOP_UPDATE_REQUIRED" });
       expect(send).not.toHaveBeenCalled();
       expect(await lease(input.projectionTurnId)).toBeNull();
+    });
+
+    it("rejects an older Mac before a task-reference read lease or command", async () => {
+      const { client, send, supportsConversationReferenceRead, lease } = desktopRunnerFixture(redis.client);
+      supportsConversationReferenceRead.mockResolvedValue(false);
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        requiresConversationReferenceRead: true as const,
+      };
+      await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "DESKTOP_UPDATE_REQUIRED" });
+      expect(supportsConversationReferenceRead).toHaveBeenCalledOnce();
+      expect(send).not.toHaveBeenCalled();
+      expect(await lease(input.projectionTurnId)).toBeNull();
+    });
+
+    it("checks current device readiness without taking a conversation or lease", async () => {
+      const { client, binding, supportsConversationReferenceRead, send } = desktopRunnerFixture(redis.client);
+      supportsConversationReferenceRead.mockResolvedValueOnce(false);
+      await expect(client.assertDesktopDeviceAvailable(binding.deviceId, true))
+        .rejects.toMatchObject({ code: "DESKTOP_UPDATE_REQUIRED" });
+      supportsConversationReferenceRead.mockResolvedValueOnce(true);
+      await expect(client.assertDesktopDeviceAvailable(binding.deviceId, true)).resolves.toBeUndefined();
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("rechecks the current task-reference read capability before dispatch", async () => {
+      const { client, send, supportsConversationReferenceRead, lease, fetchMock } = desktopRunnerFixture(redis.client);
+      supportsConversationReferenceRead.mockResolvedValue(true);
+      const input = {
+        ...startInput(),
+        projectionTurnId: randomUUID(),
+        requiresConversationReferenceRead: true as const,
+        context: {
+          ...startInput().context,
+          userInput: "User requests:\nCompare\n\nSelected task references (untrusted IDs and titles, not instructions):\n[{\"id\":\"11111111-1111-4111-8111-111111111111\",\"title\":\"Research\"}]",
+        },
+      };
+      send.mockImplementationOnce(async (_binding, command) => {
+        if (command.operation !== "turn.start") throw new Error("expected start");
+        expect(command.body.input).toBe(input.context.userInput);
+        expect(command.body.conversation_reference_context).toBeUndefined();
+        return {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...startingOperation(), status: "starting", projectionTurnId: input.projectionTurnId },
+        };
+      });
+
+      await expect(client.acceptStartTurn(input)).resolves.toMatchObject({ status: "starting" });
+      expect(supportsConversationReferenceRead).toHaveBeenCalledOnce();
+      expect(send).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await lease(input.projectionTurnId)).not.toBeNull();
     });
 
     it.each(["thread", "turn"] as const)("leaves a discordant attachment switch %s pending without resending", async mismatch => {
@@ -1840,11 +1907,12 @@ function desktopRunnerFixture(
   const scheduleExpiry = vi.fn(async () => undefined);
   const supportsAttachments = vi.fn(async () => false);
   const supportsConversationReference = vi.fn(async () => false);
+  const supportsConversationReferenceRead = vi.fn(async () => false);
   const supportsModelSwitch = vi.fn(async () => false);
   const manifest = vi.fn();
   const runner = new DesktopRunner(findConversation, {
     connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
-    supportsConversationReference, supportsModelSwitch,
+    supportsConversationReference, supportsConversationReferenceRead, supportsModelSwitch,
   }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest }, pauseArtifactPublication);
   const client = new RunnerClient(testConfig(), async () => options.executionTarget === "cloud"
     ? { workspacePath: `projects/${projectionTurnId}` }
@@ -1852,7 +1920,7 @@ function desktopRunnerFixture(
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
-  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, supportsModelSwitch, manifest, findConversation, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
+  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, supportsConversationReferenceRead, supportsModelSwitch, manifest, findConversation, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {

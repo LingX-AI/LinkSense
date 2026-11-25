@@ -5,6 +5,7 @@ import {
   conversationShareCreateSchema,
   sideChatSelectionSchema,
   conversationCollaborationModeSchema,
+  conversationContinuationInputSchema,
   conversationCreateInputSchema,
   conversationHistoryQuerySchema,
   conversationSourcesSchema,
@@ -249,6 +250,43 @@ export const conversationRoutes: FastifyPluginAsync<{
         services.system.defaultLocale,
       ),
     });
+    return reply.code(201).send(ok(result, request.id));
+  });
+
+  app.post("/:id/continuations", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    const body = conversationContinuationInputSchema.parse(request.body);
+    const denied =
+      body.execution_target === "local"
+        ? !services.config.desktopLocalExecutionEnabled
+        : !services.config.desktopCloudTargetEnabled;
+    if (denied) {
+      request.log.warn({
+        event: "desktop_conversation_continuation_denied",
+        target: body.execution_target,
+        reason_code:
+          body.execution_target === "local"
+            ? "desktop_local_execution_disabled"
+            : "desktop_cloud_target_disabled",
+      });
+      throw new AppError("RUNNER_UNAVAILABLE");
+    }
+    const result = await services.conversations.continueConversation(
+      user.id,
+      id,
+      {
+        requestId: body.request_id,
+        executionTarget: body.execution_target,
+        desktopDeviceId: body.desktop_device_id,
+        fallbackLocale: resolveLocale(
+          request,
+          user.preferredLocale,
+          services.system.defaultLocale,
+        ),
+      },
+      auditContext(request),
+    );
     return reply.code(201).send(ok(result, request.id));
   });
 

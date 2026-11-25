@@ -41,9 +41,11 @@ import {
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
+  CloudIcon,
   EllipsisIcon,
   FolderIcon,
   InfoIcon,
+  LaptopIcon,
   MessagesSquareIcon,
   SearchIcon,
   Trash2Icon,
@@ -65,6 +67,8 @@ import {
   APPLICATION_BUILDER_SKILL_NAME,
   builtInCapabilityId,
   coreMcpServerKey,
+  conversationContinuationInputSchema,
+  conversationContinuationResultSchema,
   desktopApprovalRequestSchema,
   type ConversationCollaborationMode,
   type ConversationExecutionTarget,
@@ -76,10 +80,19 @@ import { z } from "zod"
 import { toast } from "sonner"
 import dayjs from "dayjs"
 
-import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import {
+  ApiError,
+  apiRequest,
+  downloadApiFile,
+  isDefinitiveAuthenticationError,
+  refreshSession,
+} from "@/api/client"
+import {
+  getAccessToken,
   getLoginSessionBoundary,
   isLoginSessionCurrent,
+  setAccessToken,
+  subscribeToLoginSession,
   type LoginSessionBoundary,
 } from "@/api/session"
 import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
@@ -101,8 +114,11 @@ import {
 import { DesktopExecutionTargetPicker } from "@/features/desktop-execution/desktop-execution-target-picker"
 import { DesktopComputerUseCard } from "@/features/desktop-computer-use/desktop-computer-use-card"
 import {
+  desktopContinuationDestination,
+  desktopExecutionContinuationDeviceCheck,
   desktopExecutionFreshDeviceCheck,
   desktopExecutionLocalDeviceId,
+  shouldOfferDesktopContinuation,
   shouldOfferDesktopExecutionTarget,
 } from "@/features/desktop-execution/desktop-execution-target"
 import { useDesktopExecutionDevice } from "@/features/desktop-execution/use-desktop-execution-device"
@@ -811,6 +827,23 @@ export function ConversationPage({
   const [renameOpen, setRenameOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [continuation, setContinuation] = useState<{
+    target: ConversationExecutionTarget
+    requestId: string
+  } | null>(null)
+  const [continuationError, setContinuationError] = useState<string | null>(
+    null
+  )
+  const continuationIntentRef = useRef<{
+    requestId: string
+    deviceId?: string
+    pending: boolean
+  } | null>(null)
+  const resetContinuation = useCallback(() => {
+    continuationIntentRef.current = null
+    setContinuation(null)
+    setContinuationError(null)
+  }, [])
   const [renameValue, setRenameValue] = useState("")
   const [pendingActionId, setPendingActionId] = useState<string>()
   const [pendingTurnSubmission, setPendingTurnSubmission] =
@@ -960,7 +993,7 @@ export function ConversationPage({
   const [taskReferenceSelection, setTaskReferenceSelection] = useState<{
     scope: string | undefined
     items: { id: string; title: string }[]
-  }>({ scope: conversationId, items: [] })
+  }>({ scope: undefined, items: [] })
   const taskReferences =
     taskReferenceSelection.scope === conversationId
       ? taskReferenceSelection.items
@@ -1011,7 +1044,14 @@ export function ConversationPage({
     }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
+    if (continuationIntentRef.current) resetContinuation()
+    const unsubscribe = isMacDesktopHost()
+      ? subscribeToLoginSession(() => {
+          if (continuationIntentRef.current) resetContinuation()
+        })
+      : undefined
     return () => {
+      unsubscribe?.()
       // Unmounting (for example, leaving the task page for Settings) must
       // supersede pending work such as an awaited native readiness read, so
       // it cannot create a conversation after this page is gone.
@@ -1022,6 +1062,7 @@ export function ConversationPage({
     desktopDefaultTargetKey,
     location.key,
     newTaskResetVersion,
+    resetContinuation,
     user?.id,
   ])
 
@@ -1759,9 +1800,7 @@ export function ConversationPage({
     !reconnectExhausted
   )
   const localStreamUnconfirmed = Boolean(
-    reconnectExhausted &&
-    running &&
-    conversation?.execution_target === "local"
+    reconnectExhausted && running && conversation?.execution_target === "local"
   )
   const turnStoppable = visuallyRunning || localStreamUnconfirmed
   const runningMessageAction = sideChatReference
@@ -1957,32 +1996,57 @@ export function ConversationPage({
   ])
 
   useEffect(() => {
-    if (!user) return
-    const persistDraft = () => {
+    // On a task switch the input is hydrated before the selections commit.
+    if (
+      !user ||
+      (!isNew &&
+        !isNewTaskPromotion &&
+        taskReferenceSelection.scope !== conversationId)
+    )
+      return
+    const persistDraft = (skipUnchanged = false) => {
       if (hydratedDraftScopeRef.current !== localDraftScope) return
       if (
         composerSubmissionInFlightRef.current ||
         waitingForDesktopAttachmentStart
       )
         return
+      const draft = {
+        input: composerValue.getSnapshot(),
+        capabilityIds: selectedCapabilityIds,
+        knowledgeBaseIds: selectedKnowledgeBaseIds,
+        taskReferences,
+      }
+      // Hydration isn't an edit: don't reserialize an unchanged saved draft.
+      if (
+        skipUnchanged &&
+        localConversationDraftMatches(
+          readLocalConversationDraft(
+            window.localStorage,
+            user.id,
+            localDraftScope
+          ),
+          draft
+        )
+      )
+        return
       writeLocalConversationDraft(
         window.localStorage,
         user.id,
         localDraftScope,
-        {
-          input: composerValue.getSnapshot(),
-          capabilityIds: selectedCapabilityIds,
-          knowledgeBaseIds: selectedKnowledgeBaseIds,
-          taskReferences,
-        }
+        draft
       )
     }
-    persistDraft()
+    persistDraft(true)
     return composerValue.subscribe(persistDraft)
   }, [
+    conversationId,
+    isNew,
+    isNewTaskPromotion,
     localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
+    taskReferenceSelection.scope,
     taskReferences,
     user,
     composerValue,
@@ -6137,6 +6201,246 @@ export function ConversationPage({
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
+  const assertContinuationTargetAllowed = (
+    origin: ConversationCreationOrigin
+  ) => {
+    assertConversationCreationOriginCurrent(origin)
+    const policy = desktopExecutionPolicy.readLatest()
+    if (origin.executionTarget === "local" && !policy.localComputer) {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_LOCAL_COMPUTER_DISABLED",
+        messageKey: "desktopExecution.localComputerUnavailable",
+      })
+    }
+    if (origin.executionTarget === "cloud" && !policy.cloudTarget) {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_CLOUD_TARGET_DISABLED",
+        messageKey: "desktopExecution.cloudTargetUnavailable",
+      })
+    }
+  }
+
+  const continuationErrorMessage = (nextError: unknown) => {
+    if (
+      nextError instanceof ApiError &&
+      nextError.status === 404 &&
+      (nextError.errorCode === "NOT_FOUND" ||
+        nextError.errorCode === "API_RESPONSE_INVALID")
+    ) {
+      return t("desktopExecution.continuationUnsupported")
+    }
+    const message = getErrorMessage(nextError, t)
+    return message === t("errors.unknown")
+      ? t("desktopExecution.continuationFailed")
+      : message
+  }
+
+  const readContinuationDevice = async (
+    origin: ConversationCreationOrigin,
+    expectedDeviceId: string | undefined
+  ) => {
+    assertContinuationTargetAllowed(origin)
+    let status
+    try {
+      status = await readDesktopDeviceStatus()
+    } catch {
+      throw new ApiError({
+        status: 503,
+        errorCode: "DESKTOP_EXECUTION_DEVICE_STATUS_UNAVAILABLE",
+        messageKey: "desktopExecution.deviceStatusUnavailable",
+      })
+    }
+    const check = desktopExecutionContinuationDeviceCheck(
+      expectedDeviceId,
+      status
+    )
+    if (check.kind === "changed") {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_DEVICE_CHANGED",
+        messageKey: "desktopExecution.deviceChanged",
+      })
+    }
+    if (check.kind === "reference_unavailable") {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_REFERENCE_UNAVAILABLE",
+        messageKey: "desktopExecution.continuationReferenceUnavailable",
+      })
+    }
+    if (check.kind !== "ready") {
+      throw new ApiError({
+        status: 409,
+        errorCode: "DESKTOP_EXECUTION_DEVICE_UNAVAILABLE",
+        messageKey: "desktopExecution.deviceUnavailable",
+      })
+    }
+    return check.deviceId
+  }
+
+  const continuationMutation = useMutation({
+    mutationFn: async (
+      origin: ConversationCreationOrigin &
+        Readonly<{
+          requestId: string
+          expectedDeviceId: string | undefined
+        }>
+    ) => {
+      assertContinuationTargetAllowed(origin)
+      const intent = continuationIntentRef.current
+      const { executionTarget: target, executionOwnerId: ownerId } = origin
+      if (!ownerId || intent?.requestId !== origin.requestId) {
+        throw new ApiError({
+          status: 409,
+          errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+          messageKey: "desktopExecution.deviceChanged",
+        })
+      }
+      const parsedSourceId = z.uuid().safeParse(origin.routeConversationId)
+      if (!parsedSourceId.success) {
+        throw new ApiError({ status: 404, errorCode: "CONVERSATION_NOT_FOUND" })
+      }
+      const sourceId = parsedSourceId.data
+      const deviceId =
+        target === "local"
+          ? await readContinuationDevice(origin, origin.expectedDeviceId)
+          : null
+      assertConversationCreationOriginCurrent(origin)
+      if (deviceId) intent.deviceId = deviceId
+      const body = conversationContinuationInputSchema.parse({
+        execution_target: target,
+        desktop_device_id: deviceId,
+        request_id: origin.requestId,
+      })
+      const post = () =>
+        apiRequest(`/conversations/${sourceId}/continuations`, {
+          method: "POST",
+          body,
+          schema: conversationContinuationResultSchema,
+          skipRefresh: true,
+          beforeAttempt: () => assertContinuationTargetAllowed(origin),
+          loginSessionBoundary: origin.loginSessionBoundary,
+        })
+      const accessToken = getAccessToken()
+      // The client's attempt guard is synchronous; this retry needs a fresh
+      // native read without changing the device in the original POST body.
+      const result = await post().catch(async (error: unknown) => {
+        if (!isDefinitiveAuthenticationError(error)) throw error
+        assertContinuationTargetAllowed(origin)
+        try {
+          await refreshSession(accessToken, origin.loginSessionBoundary)
+          if (deviceId) await readContinuationDevice(origin, deviceId)
+          return await post()
+        } catch (retryError) {
+          if (
+            isConversationCreationOriginCurrent(origin) &&
+            isDefinitiveAuthenticationError(retryError)
+          ) {
+            setAccessToken(null)
+          }
+          throw retryError
+        }
+      })
+      assertConversationCreationOriginCurrent(origin)
+      if (
+        result.conversation.id.toLowerCase() === sourceId.toLowerCase() ||
+        result.conversation.owner_id !== ownerId ||
+        result.conversation.execution_target !== target ||
+        result.conversation.desktop_device_id !== deviceId ||
+        result.source.id !== sourceId
+      ) {
+        throw new ApiError({
+          status: 502,
+          errorCode: "DESKTOP_EXECUTION_RESPONSE_MISMATCH",
+          messageKey: "desktopExecution.continuationInvalidResponse",
+        })
+      }
+      return {
+        destination: conversationSchema.parse(result.conversation),
+        source: result.source,
+        ownerId,
+      }
+    },
+    onSuccess: ({ destination, source, ownerId }, origin) => {
+      if (
+        !isConversationCreationOriginCurrent(origin) ||
+        continuationIntentRef.current?.requestId !== origin.requestId
+      )
+        return
+      // A deduplicated reply can point to a task with a draft already saved.
+      if (
+        readLocalConversationDraft(
+          window.localStorage,
+          ownerId,
+          destination.id
+        ) === EMPTY_LOCAL_CONVERSATION_DRAFT
+      ) {
+        writeLocalConversationDraft(
+          window.localStorage,
+          ownerId,
+          destination.id,
+          {
+            input: "",
+            capabilityIds: [],
+            knowledgeBaseIds: [],
+            taskReferences: [source],
+          }
+        )
+      }
+      queryClient.setQueryData(["conversation", destination.id], destination)
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] })
+      resetContinuation()
+      navigate(conversationPath(destination))
+    },
+    onError: (nextError, origin) => {
+      const intent = continuationIntentRef.current
+      if (
+        !isConversationCreationOriginCurrent(origin) ||
+        intent?.requestId !== origin.requestId
+      )
+        return
+      intent.pending = false
+      setContinuationError(continuationErrorMessage(nextError))
+    },
+  })
+  const continuationPending =
+    continuationMutation.isPending &&
+    continuationMutation.variables.requestId === continuation?.requestId
+
+  const openContinuation = (target: ConversationExecutionTarget) => {
+    if (continuationIntentRef.current?.pending) return
+    const requestId = createRandomUuid()
+    continuationIntentRef.current = { requestId, pending: false }
+    setContinuationError(null)
+    setContinuation({ target, requestId })
+  }
+
+  const closeContinuation = () => {
+    if (!continuationIntentRef.current?.pending) resetContinuation()
+  }
+
+  const confirmContinuation = () => {
+    const intent = continuationIntentRef.current
+    if (
+      !continuation ||
+      intent?.requestId !== continuation.requestId ||
+      intent.pending
+    )
+      return
+    intent.pending = true
+    setContinuationError(null)
+    // TanStack can pause before mutationFn and replace it on a later render.
+    continuationMutation.mutate({
+      ...captureConversationCreationOrigin(),
+      gated: true,
+      executionTarget: continuation.target,
+      requestId: intent.requestId,
+      expectedDeviceId: intent.deviceId,
+    })
+  }
+
   const startContextCompaction = () => {
     if (
       contextCompactionMutation.isPending ||
@@ -6167,8 +6471,7 @@ export function ConversationPage({
   const desktopExecutionTargetBlockMessage = (): string | null => {
     // Existing tasks are routed by the backend and are not gated here.
     if (!desktopExecutionTargetGated) return null
-    if (desktopNoTargetAvailable)
-      return t("desktopExecution.noTargetAvailable")
+    if (desktopNoTargetAvailable) return t("desktopExecution.noTargetAvailable")
     if (executionTarget === "cloud")
       return desktopCloudTargetEnabled
         ? null
@@ -6731,6 +7034,26 @@ export function ConversationPage({
   const developmentRole = development
     ? "development"
     : displayConversation.application_development_role
+  const sourceExecutionTarget = displayConversation.execution_target ?? "cloud"
+  const continuationDestination =
+    continuation?.target ??
+    desktopContinuationDestination(sourceExecutionTarget)
+  const continuationOffered = shouldOfferDesktopContinuation({
+    isNew,
+    showConversationActions,
+    hasUser: Boolean(user),
+    isMacDesktopHost: isMacDesktopHost(),
+    embedded,
+    development: Boolean(developmentRole),
+    readOnly,
+    archived: Boolean(displayConversation.archived),
+    application: Boolean(displayConversation.application),
+  })
+  const continuationDestinationLabel = t(
+    continuationDestination === "local"
+      ? "desktopExecution.continuationDestinationLocal"
+      : "desktopExecution.continuationDestinationCloud"
+  )
   const persistedGoalHasReconciled = Boolean(
     currentOptimisticGoal &&
     threadGoalRevision(displayConversation.goal) !==
@@ -7186,9 +7509,7 @@ export function ConversationPage({
         disabled={interrupting}
         onClick={handleInterrupt}
       >
-        {t(
-          interrupting ? "conversation.interrupting" : "conversation.stop"
-        )}
+        {t(interrupting ? "conversation.interrupting" : "conversation.stop")}
       </Button>
     ) : null
 
@@ -7458,6 +7779,27 @@ export function ConversationPage({
                         : "conversation.pin"
                     )}
                   </DropdownMenuItem>
+                  {continuationOffered && (
+                    <DropdownMenuItem
+                      disabled={continuationPending}
+                      onClick={() =>
+                        openContinuation(
+                          desktopContinuationDestination(sourceExecutionTarget)
+                        )
+                      }
+                    >
+                      {sourceExecutionTarget === "local" ? (
+                        <CloudIcon className="size-4" aria-hidden="true" />
+                      ) : (
+                        <LaptopIcon className="size-4" aria-hidden="true" />
+                      )}{" "}
+                      {t(
+                        sourceExecutionTarget === "local"
+                          ? "desktopExecution.continueInCloud"
+                          : "desktopExecution.continueOnThisMac"
+                      )}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     disabled={patchConversationMutation.isPending}
                     onClick={() =>
@@ -8139,6 +8481,34 @@ export function ConversationPage({
         pending={patchConversationMutation.isPending}
         onSubmit={(title) => patchConversationMutation.mutate({ title })}
       />
+
+      <ConfirmDialog
+        open={continuation !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) closeContinuation()
+        }}
+        title={t("desktopExecution.continuationTitle", {
+          destination: continuationDestinationLabel,
+        })}
+        description={t("desktopExecution.continuationDescription", {
+          destination: continuationDestinationLabel,
+        })}
+        confirmLabel={t("desktopExecution.continuationConfirm", {
+          destination: continuationDestinationLabel,
+        })}
+        pendingLabel={t("desktopExecution.continuationPending")}
+        pending={continuationPending}
+        onConfirm={confirmContinuation}
+      >
+        <ul className="grid list-disc gap-2 pl-5 text-[length:var(--app-font-13)] leading-5 text-muted-foreground">
+          <li>{t("desktopExecution.continuationOriginalAndFiles")}</li>
+          <li>{t("desktopExecution.continuationReferenceNote")}</li>
+          <li>{t("desktopExecution.continuationAuditAndReturn")}</li>
+        </ul>
+        {continuationError && (
+          <StatusBanner variant="error">{continuationError}</StatusBanner>
+        )}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleteOpen}

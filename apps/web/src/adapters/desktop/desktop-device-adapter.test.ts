@@ -49,6 +49,7 @@ describe("desktop device native status", () => {
       deviceId: ownerId,
       executionReady: true,
       computerReady: false,
+      conversationReferenceReadReady: false,
     })
   })
 
@@ -58,6 +59,7 @@ describe("desktop device native status", () => {
       deviceId: undefined,
       executionReady: false,
       computerReady: false,
+      conversationReferenceReadReady: false,
     })
   })
 
@@ -74,6 +76,7 @@ describe("desktop device native status", () => {
       deviceId: ownerId,
       executionReady: true,
       computerReady: true,
+      conversationReferenceReadReady: false,
     })
     expect(
       parseDesktopDeviceStatus({
@@ -81,6 +84,24 @@ describe("desktop device native status", () => {
         deviceId: ownerId,
         executionReady: true,
       }).computerReady
+    ).toBe(false)
+  })
+
+  it("reads the negotiated conversation-reference flag and fails closed when absent", () => {
+    expect(
+      parseDesktopDeviceStatus({
+        state: "online",
+        deviceId: ownerId,
+        executionReady: true,
+        conversationReferenceReadReady: true,
+      }).conversationReferenceReadReady
+    ).toBe(true)
+    expect(
+      parseDesktopDeviceStatus({
+        state: "online",
+        deviceId: ownerId,
+        executionReady: true,
+      }).conversationReferenceReadReady
     ).toBe(false)
   })
 
@@ -95,6 +116,7 @@ describe("desktop device native status", () => {
       deviceId: ownerId,
       executionReady: true,
       computerReady: false,
+      conversationReferenceReadReady: false,
     })
     expect(native.deviceStatus).toHaveBeenCalledOnce()
   })
@@ -120,6 +142,7 @@ describe("desktop device native pairing and resume", () => {
       deviceId: undefined,
       executionReady: false,
       computerReady: false,
+      conversationReferenceReadReady: false,
     })
     expect(native.pairDevice).toHaveBeenCalledExactlyOnceWith(code, "Work Mac")
   })

@@ -141,6 +141,13 @@ export interface DeviceConnectionStatus {
    * that negotiates no computer operation reports false without an error.
    */
   computerReady?: boolean;
+  /**
+   * ConversationReferenceReadReady reports that this exact trusted socket
+   * negotiated conversation_reference.read and the live runtime generation
+   * for it is still available. It is unrelated to the structured side-chat
+   * quote flag; old servers and old clients simply omit it.
+   */
+  conversationReferenceReadReady?: boolean;
 }
 
 export interface HostInfo {
