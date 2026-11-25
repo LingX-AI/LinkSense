@@ -234,6 +234,7 @@ type controlFixtureSocket struct {
 	incoming     chan string
 	closed       chan struct{}
 	send         func([]byte) error
+	ping         func(context.Context) error
 	close        func()
 }
 
@@ -280,6 +281,7 @@ func newControlFixtureServer(t *testing.T, credential deviceCredential, operatio
 			defer writeCancel()
 			return socket.Write(writeCtx, websocket.MessageText, frame)
 		}
+		fixture.ping = socket.Ping
 		fixture.close = func() { _ = socket.Close(websocket.StatusNormalClosure, "fixture disconnect") }
 		defer close(fixture.closed)
 		sockets <- fixture
@@ -481,6 +483,18 @@ func controlFrameBody(t *testing.T, frame map[string]any) map[string]any {
 		t.Fatalf("control frame had no body: %+v", frame)
 	}
 	return body
+}
+
+// awaitFixtureReadBarrier proves the client's single read loop consumed every
+// frame written before it: the fixture sends a protocol Ping, which the client
+// answers only after dispatching the preceding text frame.
+func awaitFixtureReadBarrier(t *testing.T, fixture *controlFixtureSocket) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := fixture.ping(ctx); err != nil {
+		t.Fatalf("the client did not reach the fixture read barrier: %v", err)
+	}
 }
 
 func sendControlAck(t *testing.T, fixture *controlFixtureSocket, id, state, sessionID, selectionID, generation string, expires time.Time) {
@@ -2360,6 +2374,108 @@ func TestComputerControlStopShortcutStaysArmedWhilePausedAndStopsOnce(t *testing
 	if picks := platform.picks.Load(); picks != 1 {
 		t.Fatalf("the global stop opened %d additional pickers", picks-1)
 	}
+}
+
+// TestComputerControlStopShortcutSupersedesInflightResumeBeforeItsAck pins the
+// resume window: a settled Pause leaves Stop armed for the paused id while a
+// Resume waits for its reply. The Stop chord must supersede that wait with one
+// exact stop frame and close local input before any acknowledgement. The late
+// Resume success must not install its fresh id, reopen input or rebind the exact
+// executor.
+func TestComputerControlStopShortcutSupersedesInflightResumeBeforeItsAck(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	executor := &controlTestExecutor{}
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	fixture := newShortcutFixture()
+	actionDone := make(chan string, 4)
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(selectionID string) {
+		harness.desktop.emergencyStopComputer(selectionID)
+		actionDone <- selectionID
+	})
+	harness.desktop.computerShortcut = shortcut
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
+	pausedID := selectActiveTarget(t, harness, platform)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// A settled Pause keeps Stop armed for the paused selection id.
+	pauseResults := controlAsync(ctx, harness.desktop, "pause")
+	pauseFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
+		controlSession, pausedID, controlGeneration, harness.grantExpiry)
+	if result := awaitControl(t, pauseResults); result.err != nil || result.status.State != computerControlStatePaused {
+		t.Fatalf("pause did not settle: %+v", result)
+	}
+
+	// The held Resume is the exact fresh-id request; the paused id stays current
+	// and Stop stays armed for it, not for the id the server has not granted.
+	resumeResults := controlAsync(ctx, harness.desktop, "resume")
+	resumeFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	resumeBody := controlFrameBody(t, resumeFrame)
+	resumeID, _ := resumeBody["new_selection_id"].(string)
+	if resumeBody["action"] != "resume" || resumeBody["selection_id"] != pausedID ||
+		!validUUID(resumeID) || resumeID == pausedID {
+		t.Fatalf("resume was not the exact fresh-id request: %+v", resumeBody)
+	}
+	if selection := executor.selection(); selection.SelectionID != pausedID {
+		t.Fatalf("the in-flight resume changed the current selection early: %+v", selection)
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("the in-flight resume released Stop")
+	}
+
+	// The armed Stop supersedes the resume wait: one exact frame, and input is
+	// closed before either reply is acknowledged.
+	fixture.press(computerEmergencyStopAccelerator)
+	stopFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	stopBody := controlFrameBody(t, stopFrame)
+	if stopBody["action"] != "stop" || stopBody["selection_id"] != pausedID ||
+		stopBody["conversation_id"] != controlConversation || stopBody["turn_id"] != controlTurn {
+		t.Fatalf("the global stop was not bound to the paused selection: %+v", stopBody)
+	}
+	if harness.control.gate.open() {
+		t.Fatal("the global stop left local input open before its ack")
+	}
+	// Stop canceled the resume wait itself: the failure is cancellation, not a
+	// timeout and not the withheld success written below.
+	if result := awaitControl(t, resumeResults); result.err != errComputerCanceled {
+		t.Fatalf("the superseded resume returned %+v", result)
+	}
+
+	// The late success is written only now; the fixture pong proves the client's
+	// read loop already handled it before these binding assertions.
+	sendControlAck(t, harness.socket, resumeFrame["id"].(string), computerControlStateActive,
+		controlSession, resumeID, controlGeneration, harness.grantExpiry)
+	awaitFixtureReadBarrier(t, harness.socket)
+	if harness.control.gate.open() {
+		t.Fatal("the late resume ack reopened input")
+	}
+	if selection := executor.selection(); selection.SelectionID != pausedID {
+		t.Fatalf("the late resume ack installed its fresh id: %+v", selection)
+	}
+	if selects := executor.selectCount(); selects != 1 {
+		t.Fatalf("the late resume ack rebound the exact executor: %d", selects)
+	}
+
+	// The one stop acknowledgement completes it; input stays closed and no
+	// further control or runtime frame follows either reply.
+	sendControlAck(t, harness.socket, stopFrame["id"].(string), computerControlStateStopped,
+		controlSession, pausedID, controlGeneration, time.Now())
+	awaitShortcutCompletion(t, actionDone, pausedID, "Stop")
+	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+	if harness.control.gate.open() {
+		t.Fatal("the stop ack reopened input")
+	}
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+	expectNoRuntimeMessage(t, harness.messages, 80*time.Millisecond)
 }
 
 // TestComputerControlPauseShortcutStaysOnItsArmedSelection pins the gap
