@@ -406,6 +406,17 @@ func expectNoRuntimeControlFrame(t *testing.T, messages <-chan runtimePipeMessag
 	}
 }
 
+func expectNoRuntimeMessage(t *testing.T, messages <-chan runtimePipeMessage, wait time.Duration) {
+	t.Helper()
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	select {
+	case message := <-messages:
+		t.Fatalf("an unexpected runtime message followed the stop: %+v", message)
+	case <-deadline.C:
+	}
+}
+
 func waitControlStatus(t *testing.T, connection *deviceConnection, ready func(DeviceConnectionStatus) bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1026,6 +1037,11 @@ func TestComputerControlSelectionExpiryStopsWithoutServerRetry(t *testing.T) {
 	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
 		return executor, nil
 	}
+	fixture := newShortcutFixture()
+	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
+	harness.desktop.computerShortcut = shortcut
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	results := controlAsync(ctx, harness.desktop, "select")
@@ -1042,6 +1058,9 @@ func TestComputerControlSelectionExpiryStopsWithoutServerRetry(t *testing.T) {
 			// The elapsed-grant read reports stopped before the release
 			// goroutine closes the executor; wait for that exact teardown.
 			executor.awaitClosed(t)
+			if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+				t.Fatal("an expired selection kept a global shortcut bound")
+			}
 			expectNoControlFrame(t, harness.socket, 100*time.Millisecond)
 			return
 		}
@@ -1425,7 +1444,19 @@ func TestComputerControlEmergencyStopOfflineClosesTheExactGateWithoutSending(t *
 	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
 		return executor, nil
 	}
+	fixture := newShortcutFixture()
+	stopDone := make(chan struct{})
+	shortcut := newShortcutUnderTest(fixture, func() {}, func() {
+		defer close(stopDone)
+		harness.control.emergencyStop(harness.desktop)
+	})
+	harness.desktop.computerShortcut = shortcut
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
 	selectActiveTarget(t, harness, platform)
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("the active selection did not arm Stop")
+	}
 	selection := executor.selection()
 
 	actDone := make(chan struct{})
@@ -1450,11 +1481,9 @@ func TestComputerControlEmergencyStopOfflineClosesTheExactGateWithoutSending(t *
 	}
 	harness.connection.clearControlSession(session)
 
-	stopDone := make(chan struct{})
-	go func() {
-		defer close(stopDone)
-		harness.control.emergencyStop(harness.desktop)
-	}()
+	// The global Stop gesture must close local input even though no control
+	// admission remains to carry the frame.
+	fixture.press(computerEmergencyStopAccelerator)
 
 	// Admission closes the exact local boundary before any server result, and
 	// the retired executor stays open until its real act terminal.
@@ -1685,7 +1714,7 @@ func TestShellMenusExposeLocalizedEmergencyPause(t *testing.T) {
 				t.Fatalf("%s pause label %q is not localized in %s", name, item.Label, locale)
 			}
 		}
-		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != "Cmd+Shift+Esc" {
+		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != computerEmergencyPauseAccelerator {
 			t.Fatalf("pause accelerator is %q", accelerator)
 		}
 	}
@@ -1712,8 +1741,12 @@ func TestShellMenusExposeLocalizedStopComputerControlBesidePause(t *testing.T) {
 			if item.Label != tx.StopComputerControl() {
 				t.Fatalf("%s stop label %q is not localized in %s", name, item.Label, locale)
 			}
-			if item.Accelerator != "" {
-				t.Fatalf("%s stop shortcut is %q, want none", name, item.Accelerator)
+			wantAccelerator := ""
+			if name == "app" {
+				wantAccelerator = computerEmergencyStopAccelerator
+			}
+			if item.Accelerator != wantAccelerator {
+				t.Fatalf("%s stop shortcut is %q, want %q", name, item.Accelerator, wantAccelerator)
 			}
 			items := submenuOf(menu)
 			pauseIndex, stopIndex := -1, -1
@@ -1729,7 +1762,7 @@ func TestShellMenusExposeLocalizedStopComputerControlBesidePause(t *testing.T) {
 				t.Fatalf("%s stop is not directly beside pause in %s", name, locale)
 			}
 		}
-		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != "Cmd+Shift+Esc" {
+		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != computerEmergencyPauseAccelerator {
 			t.Fatalf("pause accelerator is %q", accelerator)
 		}
 	}
@@ -2166,6 +2199,11 @@ func TestComputerControlCannotCancelAnotherScopesPicker(t *testing.T) {
 	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
 		return &controlTestExecutor{}, nil
 	}
+	fixture := newShortcutFixture()
+	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
+	harness.desktop.computerShortcut = shortcut
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	results := controlAsync(ctx, harness.desktop, "select")
@@ -2175,6 +2213,9 @@ func TestComputerControlCannotCancelAnotherScopesPicker(t *testing.T) {
 	}
 	if platform.picks.Load() != 1 {
 		t.Fatal("the picker did not open")
+	}
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("an unselected picker armed a global shortcut")
 	}
 
 	otherConversation := "40000000-0000-4000-8000-000000000992"
@@ -2194,11 +2235,14 @@ func TestComputerControlCannotCancelAnotherScopesPicker(t *testing.T) {
 	if result := awaitControl(t, results); result.err != nil || result.status.State != computerControlStateActive {
 		t.Fatalf("the picker's select failed after an unrelated action: %+v", result)
 	}
+	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("the acknowledged picker selection did not arm both shortcuts")
+	}
 }
 
-func TestComputerControlArmsEmergencyShortcutOnlyWhileActive(t *testing.T) {
+func TestComputerControlArmsEmergencyShortcutsOnlyWhileStoppable(t *testing.T) {
 	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture, func() {})
+	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
 	platform := &controlTestPlatform{
@@ -2207,9 +2251,15 @@ func TestComputerControlArmsEmergencyShortcutOnlyWhileActive(t *testing.T) {
 	}
 	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
 	harness.desktop.computerShortcut = shortcut
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("an idle host armed a global shortcut")
+	}
 	selectActiveTarget(t, harness, platform)
-	if !fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("an active background selection did not arm the emergency shortcut")
+	if !fixture.isBound(computerEmergencyPauseAccelerator) {
+		t.Fatal("an active background selection did not arm Pause")
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("an active background selection did not arm Stop")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2221,8 +2271,82 @@ func TestComputerControlArmsEmergencyShortcutOnlyWhileActive(t *testing.T) {
 	if result := awaitControl(t, results); result.err != nil {
 		t.Fatal(result.err)
 	}
-	if fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a stopped selection kept the emergency shortcut bound")
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a stopped selection kept a global shortcut bound")
+	}
+}
+
+func TestComputerControlStopShortcutStaysArmedWhilePausedAndStopsOnce(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	executor := &controlTestExecutor{closedDone: make(chan struct{})}
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	fixture := newShortcutFixture()
+	shortcut := newShortcutUnderTest(fixture,
+		func() { harness.desktop.emergencyPauseComputer() },
+		func() { harness.desktop.emergencyStopComputer() })
+	harness.desktop.computerShortcut = shortcut
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
+	selectionID := selectActiveTarget(t, harness, platform)
+	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("the active selection did not arm both shortcuts")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pauseResults := controlAsync(ctx, harness.desktop, "pause")
+	pauseFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	// Input closes before the pause acknowledgement. Pause is no longer armed,
+	// but Stop must remain available for the same installed selection.
+	if fixture.isBound(computerEmergencyPauseAccelerator) {
+		t.Fatal("a pause with input already closed kept Pause armed")
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("an in-flight pause released Stop")
+	}
+	sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
+		controlSession, selectionID, controlGeneration, harness.grantExpiry)
+	if result := awaitControl(t, pauseResults); result.err != nil || result.status.State != computerControlStatePaused {
+		t.Fatalf("pause did not finish: %+v", result)
+	}
+	if fixture.isBound(computerEmergencyPauseAccelerator) {
+		t.Fatal("a paused selection kept Pause armed")
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a paused selection released Stop")
+	}
+
+	fixture.press(computerEmergencyStopAccelerator)
+	stopFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	body := controlFrameBody(t, stopFrame)
+	if body["action"] != "stop" || body["selection_id"] != selectionID ||
+		body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
+		t.Fatalf("the global stop was not bound to the paused selection: %+v", body)
+	}
+	// Admission closes the exact local boundary before the stop frame, while
+	// the executor remains installed until its real act terminal. Retirement may
+	// already have released the executor by now, so assert the closed boundary
+	// instead of one particular stale-call error.
+	if harness.control.gate.open() {
+		t.Fatal("the global stop left local input open")
+	}
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a retiring selection kept a global shortcut bound")
+	}
+	sendControlAck(t, harness.socket, stopFrame["id"].(string), computerControlStateStopped,
+		controlSession, selectionID, controlGeneration, time.Now())
+	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+	executor.awaitClosed(t)
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+	expectNoRuntimeMessage(t, harness.messages, 80*time.Millisecond)
+	if picks := platform.picks.Load(); picks != 1 {
+		t.Fatalf("the global stop opened %d additional pickers", picks-1)
 	}
 }
 
@@ -3997,10 +4121,11 @@ func TestComputerGateRenewRequiresExactIdleOpenInput(t *testing.T) {
 
 // TestComputerShortcutDerivesFromTheLiveSelectionState proves a delayed
 // arming or disarming decision from an older transition cannot override the
-// live selection: the binding follows input-open state under the state lock.
+// live selection: Pause follows input-open state and Stop follows the installed
+// stoppable selection under the state lock.
 func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture, func() {})
+	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
 	executor := &controlTestExecutor{actStarted: make(chan struct{}, 1), actRelease: make(chan struct{})}
@@ -4014,8 +4139,8 @@ func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
 	harness.desktop.computerShortcut = shortcut
 	selectionID := selectActiveTarget(t, harness, platform)
-	if !fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("an active background selection did not arm the shortcut")
+	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("an active background selection did not arm both shortcuts")
 	}
 
 	selection := executor.selection()
@@ -4036,10 +4161,13 @@ func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	pauseResults := controlAsync(ctx, harness.desktop, "pause")
 	pauseFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
 	// The pause closed input before its network wait. Replaying the earlier
-	// selection's arming decision must not bind the shortcut now.
+	// selection's arming decision must not keep Pause now, while Stop stays.
 	harness.control.syncEmergencyShortcut()
-	if fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a delayed arm bound the shortcut with input closed")
+	if fixture.isBound(computerEmergencyPauseAccelerator) {
+		t.Fatal("a delayed arm bound Pause with input closed")
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a delayed disarm released Stop for the stoppable selection")
 	}
 	sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
 		controlSession, selectionID, controlGeneration, harness.grantExpiry)
@@ -4052,8 +4180,11 @@ func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	if result := awaitControl(t, pauseResults); result.err != nil || result.status.State != computerControlStatePaused {
 		t.Fatalf("pause did not finish: %+v", result)
 	}
-	if fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a paused selection kept the shortcut bound")
+	if fixture.isBound(computerEmergencyPauseAccelerator) {
+		t.Fatal("a paused selection kept Pause bound")
+	}
+	if !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a paused selection released Stop")
 	}
 
 	resumeResults := controlAsync(ctx, harness.desktop, "resume")
@@ -4064,13 +4195,13 @@ func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	if result := awaitControl(t, resumeResults); result.err != nil || result.status.State != computerControlStateActive {
 		t.Fatalf("resume did not reactivate: %+v", result)
 	}
-	if !fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a resumed active selection did not rebind the shortcut")
+	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a resumed active selection did not rebind both shortcuts")
 	}
 	// A repeated stale decision still derives true from the live selection.
 	harness.control.syncEmergencyShortcut()
-	if !fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a stale disarm released the live selection's shortcut")
+	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a stale disarm released the live selection's shortcuts")
 	}
 
 	stopResults := controlAsync(ctx, harness.desktop, "stop")
@@ -4080,12 +4211,12 @@ func TestComputerShortcutDerivesFromTheLiveSelectionState(t *testing.T) {
 	if result := awaitControl(t, stopResults); result.err != nil {
 		t.Fatal(result.err)
 	}
-	if fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a stopped selection kept the shortcut bound")
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a stopped selection kept a shortcut bound")
 	}
 	// A delayed arm from the ended selection must not bind again.
 	harness.control.syncEmergencyShortcut()
-	if fixture.isBound(computerEmergencyAccelerator) {
-		t.Fatal("a stale arm rebound the shortcut after stop")
+	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+		t.Fatal("a stale arm rebound a shortcut after stop")
 	}
 }

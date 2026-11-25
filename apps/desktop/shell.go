@@ -89,12 +89,16 @@ func (d *Desktop) installShell(dataRoot string) {
 		log.Print("DESKTOP_PREFERENCES_SAVE_FAILED")
 	}
 	d.preferencesWritable = canSave
-	// The background emergency pause exists only where this build can construct
-	// the signed computer driver, only while a selection is active, and only
-	// while the app is backgrounded. The menu/tray items below stay the
-	// app-local fallback, and the global binding is released whenever the app is
-	// active or quitting so one press can never fire both paths.
-	shortcut := newComputerEmergencyShortcut(func() { d.emergencyPauseComputer() })
+	// The background emergency controls exist only where this build can
+	// construct the signed computer driver, only while a selection can still be
+	// paused or stopped, and only while the app is backgrounded. The menu/tray
+	// items below stay the app-local fallback, and both global bindings are
+	// released whenever the app is active or quitting so one press can never
+	// fire both paths.
+	shortcut := newComputerEmergencyShortcut(
+		func() { d.emergencyPauseComputer() },
+		func() { d.emergencyStopComputer() },
+	)
 	d.computerShortcut = shortcut
 	if desktopComputerShortcutEligible(d) {
 		shortcut.setEligible(true)
@@ -168,8 +172,8 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 			{ID: "view-crash-reports", Label: tx.ViewCrashReports(), Click: viewCrashReports},
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
-			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: "Cmd+Shift+Esc", Click: pauseComputer},
-			{ID: "stop-computer", Label: tx.StopComputerControl(), Click: stopComputer},
+			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: computerEmergencyPauseAccelerator, Click: pauseComputer},
+			{ID: "stop-computer", Label: tx.StopComputerControl(), Accelerator: computerEmergencyStopAccelerator, Click: stopComputer},
 			mygo.Separator(),
 			{Role: mygo.RoleServices},
 			mygo.Separator(),

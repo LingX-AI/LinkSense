@@ -52,9 +52,9 @@ type Desktop struct {
 	// builds that cannot construct the signed driver, which keeps the device
 	// operation and the binding unavailable.
 	computer computerControlService
-	// computerShortcut is the optional background Cmd+Shift+Esc binding. It is
-	// installed only on macOS and released on quit; the menu accelerator remains
-	// the app-local fallback.
+	// computerShortcut is the optional background Pause/Stop binding. It is
+	// installed only on macOS and released on quit; the app-menu accelerators
+	// remain the app-local fallback.
 	computerShortcut *computerEmergencyShortcut
 	// downloads is bounded page-local state for the explicit Mac Finder action.
 	downloads artifactDownloadTracker

@@ -70,9 +70,9 @@ type computerControl struct {
 	// target is the immutable host-picked window that produced selection. Only
 	// an explicit renewal replays its bundle; the page can never name it.
 	target computerSelectedTarget
-	// shortcutMu serializes the derived emergency-shortcut binding, so a late
-	// update from an old transition cannot apply after a newer one. The native
-	// register/unregister call never runs under mu.
+	// shortcutMu serializes the derived Pause/Stop arms, so a late update from
+	// an old transition cannot apply after a newer one. Native shortcut
+	// registration/unregistration never runs under this lock (or mu).
 	shortcutMu sync.Mutex
 	// terminal is the exact conversation/turn and socket generation that last
 	// stopped, so only that scope sees `stopped`; every other scope sees idle.
@@ -1444,12 +1444,14 @@ func (c *computerControl) observeRuntimeFrame(connection *deviceConnection, fram
 	}
 }
 
-// syncEmergencyShortcut derives the global binding from the live selection
-// state instead of replaying a transition's stale decision: the shortcut is
-// armed only while an active selection's installed gate still admits input.
-// shortcutMu serializes the check and the native update, so a late reset,
-// pause, expiry or terminal from an older scope can never disarm a newer one,
-// and the UI thread never waits on mu while register/unregister runs.
+// syncEmergencyShortcut derives both global bindings from the live selection
+// state instead of replaying a transition's stale decision: Pause is armed only
+// while an active selection's installed gate still admits input, and Stop while
+// an installed selection is active or paused and not already retiring. The
+// controller records only these desired arms under shortcutMu, so a late reset,
+// pause, expiry or terminal from an older scope cannot overwrite a newer one;
+// the actual native update is scheduled on the UI thread by the shortcut owner
+// and never waits here.
 func (c *computerControl) syncEmergencyShortcut() {
 	if c == nil || c.desktop == nil {
 		return
@@ -1457,9 +1459,11 @@ func (c *computerControl) syncEmergencyShortcut() {
 	c.shortcutMu.Lock()
 	defer c.shortcutMu.Unlock()
 	c.mu.Lock()
-	armed := c.state == computerControlStateActive && c.gate != nil && c.gate.open()
+	pause := c.state == computerControlStateActive && c.gate != nil && c.gate.open()
+	stop := c.retiring == nil && c.executor != nil &&
+		(c.state == computerControlStateActive || c.state == computerControlStatePaused)
 	c.mu.Unlock()
-	c.desktop.setComputerEmergencyShortcut(armed)
+	c.desktop.setComputerEmergencyShortcuts(pause, stop)
 }
 
 func (c *computerControl) emergencyPause(desktop *Desktop) {

@@ -941,18 +941,23 @@ is separate from the macOS Accessibility grant.
   selection remains non-open, and no new selection is admitted until the real
   terminal. Stop never queues a retry.
 
-The emergency control is **Pause Computer Control** (`Cmd+Shift+Esc`) in the
-LinkSense app menu and menu-bar menu. `Cmd+Shift+Esc` is a MyGo global shortcut
-only while a computer-control selection is active and LinkSense is in the
-background. When the app becomes active or the selection ends, the global
-binding is released, so the menu accelerator is the only path and one press
-cannot fire twice. It acts on the host's current selection without page ids,
-closes input immediately, runs off the UI thread, and never exposes native
-detail. Without an active selection, or when the signed driver cannot be built,
-only the app-local menu item remains.
-
-The same two menus also expose **Stop Computer Control**, which reuses the
-existing control Stop behavior without a shortcut or a second page action.
+The emergency controls are **Pause Computer Control** (`Cmd+Shift+Esc`) and
+**Stop Computer Control** (`Ctrl+Shift+Esc`) in the LinkSense app menu; the
+menu-bar menu keeps both as clickable actions. Those chords are MyGo global
+shortcuts only while a computer-control selection is installed and LinkSense is
+in the background: Pause only while its input gate is still open, and Stop while
+the exact selection is active or paused, including an in-flight pause, resume or
+renewal. Neither chord is registered while a selection is idle, still unselected
+in the picker, or retiring, nor when the signed driver cannot be built. When the
+app becomes active or quits, LinkSense releases its global registrations; the
+app-menu accelerators remain available. Focus and selection changes are applied
+on the UI thread, so an older focus or selection change is not replayed. The
+operating system's key delivery is outside LinkSense's control.
+Stop reuses the existing control Stop behavior: it acts on the host's current
+selection without page ids, closes input immediately, runs off the UI thread,
+and never cancels or replays the Codex turn. If either registration fails, the
+other chord and the menus remain available, and that chord is tried again only
+on a later focus or selection change.
 
 #### Late results, window changes and recovery
 
