@@ -761,6 +761,7 @@ type ManagedProcess = {
 type QueuedCodexNotification = {
   notification: JsonRpcNotification;
   preparation: ManagedProcess["internalModelTransitionCompaction"];
+  localModelUsage?: CodexNotificationProjectionContext["localModelUsage"];
 };
 
 type CachedSubAgentRuntime = {
@@ -5640,6 +5641,7 @@ export class AppServerProcessPool {
             managed,
             entries.map(entry => entry.notification),
             entries[0]?.preparation ?? null,
+            entries[0]?.localModelUsage,
           ),
           { maxCount: RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT, maxBytes: RUNNER_EVENT_BATCH_TARGET_BYTES },
         ),
@@ -5713,7 +5715,12 @@ export class AppServerProcessPool {
         }
         void managed.notificationQueue
           .enqueue(
-            { notification, preparation },
+            {
+              notification, preparation,
+              ...(notification.method === "thread/tokenUsage/updated" ? {
+                localModelUsage: modelGatewayLease.localModelUsage?.(),
+              } : {}),
+            },
             preparation ? null : runnerTextDeltaBatchKey(notification),
             Buffer.byteLength(JSON.stringify(notification)),
           )
@@ -6122,6 +6129,7 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     notifications: readonly JsonRpcNotification[],
     preparation: ManagedProcess["internalModelTransitionCompaction"] = null,
+    localModelUsage?: CodexNotificationProjectionContext["localModelUsage"],
   ): Promise<void> {
     const notification = notifications[0];
     if (!notification) return;
@@ -6278,6 +6286,7 @@ export class AppServerProcessPool {
     const projectionContext = {
       ...this.correlateNativeStopHook(managed, notification),
       subAgentLabelsByThreadId: managed.subAgentLabelsByThreadId,
+      ...(localModelUsage ? { localModelUsage } : {}),
     } satisfies CodexNotificationProjectionContext;
     const events = notifications.flatMap(entry => mapCodexNotification(
       entry,

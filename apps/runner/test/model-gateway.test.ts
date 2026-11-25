@@ -16,6 +16,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import type { RunnerMemoryUsageCapture } from "@linksense/shared";
 
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
+import type { SensitiveDataRelay } from "../src/model-gateway/sensitive-data.js";
 import { parseSseStream } from "../src/model-gateway/sse.js";
 
 type JsonObject = Record<string, unknown>;
@@ -35,6 +36,140 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it("holds a request with sensitive tool output until a local model is selected", async () => {
+    const projection = "10000000-0000-4000-8000-000000000002";
+    const toolResult = { type: "function_call_output", call_id: "call_test", output: "SENSITIVE_FIXTURE" };
+    const cloudCall = { type: "function_call", call_id: "call_test", name: "read_fixture", arguments: "{}" };
+    const localRuntime = {
+      model: "local-a", baseUrl: "http://local.example.test/v1", apiKey: "local-key",
+      reasoningEffort: "medium", protocolMode: "native_responses", revision: 2, pricing: leaseMetering.pricing,
+    } as const;
+    const relay = vi.fn<SensitiveDataRelay>(async (_ownerId, request) => {
+      if (request.kind === "transport") return { action: "http" };
+      if (request.kind === "selection") return { action: "local", runtime: localRuntime };
+      return { action: request.context?.includes("SENSITIVE_FIXTURE") ? "waiting" : "forward" };
+    });
+    const upstream = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({ id: "fixture", status: "completed", output: [] }));
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: projection, revision: 1, upstreamBaseUrl: "https://cloud.example.test/v1",
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    lease.setTurnCorrelation({ turnId: projection, codexTurnId: "native", modelTransitionNonce: null });
+
+    expect(await rejectedWebSocketStatus(gateway, lease.token)).toBe(426);
+    expect(upstream).not.toHaveBeenCalled();
+    await (await requestGateway(gateway, lease.token, { model: "cloud-a", input: "ordinary task" })).json();
+    const result = await requestGateway(gateway, lease.token, {
+      model: "cloud-a", input: [
+        { type: "reasoning", encrypted_content: "provider-held-state" }, cloudCall, toolResult,
+      ],
+    });
+    expect(result.status).toBe(200);
+    await result.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: localRuntime.model, pricing: localRuntime.pricing });
+    expect(upstream.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://cloud.example.test/v1/responses", "http://local.example.test/v1/responses",
+    ]);
+    expect(JSON.parse(String(upstream.mock.calls[1]?.[1]?.body))).toMatchObject({
+      model: "local-a", input: [cloudCall, toolResult], reasoning: { effort: "medium" },
+    });
+    expect(relay.mock.calls.map(([, request]) => request.kind)).toEqual([
+      "transport", "inspect", "inspect", "selection",
+    ]);
+  });
+
+  it("never sends requests upstream when the routing service fails or no local model can proceed", async () => {
+    const upstream = vi.fn<typeof fetch>();
+    const relay = vi.fn<SensitiveDataRelay>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ action: "blocked" });
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "privacy-fixture", revision: 1, upstreamBaseUrl: "https://cloud.example.test/v1",
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    const request = { model: "cloud-a", input: "fixture" };
+    expect((await requestGateway(gateway, lease.token, request)).status).toBe(503);
+    const blocked = await requestGateway(gateway, lease.token, request);
+    expect(blocked.status).toBe(422);
+    expect(await blocked.json()).toMatchObject({ error: { code: "sensitive_data_protection_blocked" } });
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("uses the newly approved local route and its pricing on the following turn", async () => {
+    const firstTurn = "10000000-0000-4000-8000-000000000002";
+    const secondTurn = "10000000-0000-4000-8000-000000000003";
+    const firstRuntime = {
+      model: "local-a",
+      baseUrl: "http://first.example.test/v1",
+      apiKey: "local-a-key",
+      reasoningEffort: "medium",
+      protocolMode: "native_responses",
+      revision: 1,
+      pricing: leaseMetering.pricing,
+    } as const;
+    const secondRuntime = {
+      ...firstRuntime,
+      model: "local-b",
+      baseUrl: "http://second.example.test/v1",
+      apiKey: "local-b-key",
+      pricing: { ...leaseMetering.pricing, input_price_per_million: "2" },
+    };
+    const relay: SensitiveDataRelay = async (_ownerId, request) => ({
+      action: "local",
+      runtime: request.turn_id === secondTurn ? secondRuntime : firstRuntime,
+    });
+    const upstream = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({ id: "fixture", status: "completed", output: [] }),
+    );
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "local-switch", revision: 1,
+      upstreamBaseUrl: "https://cloud.example.test/v1", apiKey: "cloud-key",
+      protocolMode: "native_responses", model: "cloud-a",
+    });
+
+    lease.setTurnCorrelation({ turnId: firstTurn, codexTurnId: "first", modelTransitionNonce: null });
+    const first = await requestGateway(gateway, lease.token, { model: "cloud-a", input: "first turn" });
+    expect(first.status).toBe(200);
+    await first.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: "local-a", pricing: firstRuntime.pricing });
+
+    lease.setTurnCorrelation({ turnId: secondTurn, codexTurnId: "second", modelTransitionNonce: null });
+    const second = await requestGateway(gateway, lease.token, { model: "cloud-a", input: "second turn" });
+    expect(second.status).toBe(200);
+    await second.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: "local-b", pricing: secondRuntime.pricing });
+    expect(upstream.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://first.example.test/v1/responses",
+      "http://second.example.test/v1/responses",
+    ]);
+    expect(JSON.parse(String(upstream.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "local-b" });
+  });
+
+  it("stops reuse of an external WebSocket after sensitive data protection is enabled", async () => {
+    let protectedMode = false;
+    const upstreamMessage = vi.fn();
+    const upstream = await startWebSocketUpstream({
+      onConnection(socket) { socket.on("message", upstreamMessage); },
+    });
+    const gateway = await startGateway({
+      sensitiveDataRelay: async () => ({ action: protectedMode ? "http" : "forward" }),
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "privacy-activation", revision: 1, upstreamBaseUrl: upstream.baseUrl,
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    const { socket } = await connectGatewayWebSocket(gateway, lease.token);
+    protectedMode = true;
+    const closed = new Promise<number>((resolve) => socket.once("close", resolve));
+    socket.send(JSON.stringify({ type: "response.create", model: "cloud-a", input: "private fixture" }));
+    expect(await closed).toBe(1012);
+    expect(upstreamMessage).not.toHaveBeenCalled();
+  });
+
   it.each([404, 405, 401, 503])("bounds WebSocket path adaptation on HTTP %i without sending model input", async (rejectUpgradeStatus) => {
     const onUpgrade = vi.fn();
     const onConnection = vi.fn();
@@ -2814,6 +2949,7 @@ async function startGateway(
     upstreamHeaderTimeoutMs?: number;
     upstreamIdleTimeoutMs?: number;
     onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+    sensitiveDataRelay?: SensitiveDataRelay;
   } = {},
 ): Promise<ModelGateway> {
   const { logger = pino({ enabled: false }), ...gatewayOptions } = options;

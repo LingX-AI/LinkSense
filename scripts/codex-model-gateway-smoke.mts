@@ -28,7 +28,9 @@ import {
 type JsonObject = Record<string, unknown>;
 type ResponseStreamEvent = { event: string; data: JsonObject };
 
-const modes: ModelProviderProtocolMode[] = [
+const sensitiveData = process.argv.includes("--sensitive-data");
+const sensitiveFixture = "PRIVATE_TOOL_OUTPUT_42289";
+const modes: ModelProviderProtocolMode[] = sensitiveData ? ["responses_tool_compat"] : [
   "native_responses",
   "responses_tool_compat",
   "chat_completions_bridge",
@@ -112,7 +114,21 @@ if (!upstreamAddress || typeof upstreamAddress === "string") {
   throw new Error("smoke upstream did not bind a TCP port");
 }
 const upstreamBaseUrl = `http://127.0.0.1:${upstreamAddress.port}/v1`;
-const gateway = new ModelGateway({ logger });
+const gateway = new ModelGateway({
+  logger,
+  sensitiveDataRelay: sensitiveData ? async (_ownerId, input) => {
+    if (input.kind === "transport") return { action: "http" };
+    if (input.kind === "inspect") {
+      return { action: input.context?.includes(sensitiveFixture) ? "waiting" : "forward" };
+    }
+    return { action: "local", runtime: {
+      model: "local-smoke", revision: 2,
+      baseUrl: `http://127.0.0.1:${upstreamAddress.port}/trusted/v1`,
+      protocolMode: "chat_completions_bridge", reasoningEffort: "low", apiKey: "trusted-smoke",
+      pricing: { input_price_per_million: "0", cached_input_price_per_million: "0", output_price_per_million: "0" },
+    } };
+  } : undefined,
+});
 await gateway.start();
 
 try {
@@ -134,6 +150,7 @@ try {
       mkdir(codexHome, { recursive: true }),
       mkdir(workspace, { recursive: true }),
     ]);
+    if (sensitiveData) await writeFile(path.join(workspace, "sensitive-fixture.txt"), sensitiveFixture);
     await writeFile(
       path.join(codexHome, "config.toml"),
       [
@@ -279,12 +296,23 @@ try {
     }
   }
 
-  assertUpstreamRequests(requests, webSocketUpgradeAttempts);
+  if (sensitiveData) {
+    const [external, local] = requests;
+    if (requests.length !== 2 || webSocketUpgradeAttempts.length !== 0 ||
+      external?.path !== "/v1/responses" || JSON.stringify(external.body).includes(sensitiveFixture) ||
+      local?.path !== "/trusted/v1/chat/completions" || local.body.model !== "local-smoke" ||
+      !JSON.stringify(local.body).includes(sensitiveFixture)) {
+      throw new Error("Protected inference must send the tool result only to the chosen local model");
+    }
+  } else {
+    assertUpstreamRequests(requests, webSocketUpgradeAttempts);
+  }
   console.log(
     JSON.stringify({
       status: "ok",
       codexVersion: codexVersionOutput,
       forcedWebSocketFallback: forceWebSocketFallback,
+      sensitiveData,
       modes: results,
       upstreamRequestCount: requests.length,
     }),
@@ -303,7 +331,8 @@ async function handleUpstream(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
-  if (request.headers.authorization !== "Bearer smoke-upstream-key") {
+  const local = sensitiveData && request.url === "/trusted/v1/chat/completions";
+  if (request.headers.authorization !== (local ? "Bearer trusted-smoke" : "Bearer smoke-upstream-key")) {
     response.writeHead(401, { "content-type": "application/json" });
     response.end('{"error":"unauthorized"}');
     return;
@@ -322,6 +351,13 @@ async function handleUpstream(
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
   });
+  if (local) {
+    response.end(`data: ${JSON.stringify({
+      id: "chat-local-smoke", model: "local-smoke",
+      choices: [{ index: 0, delta: { content: marker } }],
+    })}\n\ndata: [DONE]\n\n`);
+    return;
+  }
   if (activeMode === "chat_completions_bridge") {
     if (modeRequestCount === 1) {
       const toolName = findChatExecCommandTool(body);
@@ -842,6 +878,7 @@ function findChatExecCommandTool(body: JsonObject): string {
 }
 
 function commandFor(mode: ModelProviderProtocolMode): string {
+  if (sensitiveData) return `printf '${mode}\\n' >> gateway-tool.txt && cat sensitive-fixture.txt`;
   return `printf '${mode}\\n' > gateway-tool.txt`;
 }
 

@@ -546,6 +546,39 @@ describe("WorkspaceManager", () => {
     )
   })
 
+  it("keeps an owner's detection prompt across restarts and model preference updates", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const preference = { selection: "default", default_model_id: "local-fixture" } as const
+    const existing = await manager.getPersonalization(ownerA)
+    await writeFile(
+      path.join(manager.ownerPathsFor(ownerA).control, "personalization.json"),
+      JSON.stringify({ version: 1, ...existing, sensitive_data: preference }),
+    )
+    expect((await manager.getPersonalization(ownerA)).sensitive_data).toEqual({
+      ...preference, detection_prompt: null,
+    })
+    const prompt = "Protect unpublished project names."
+    await manager.updatePersonalization(ownerA, {
+      sensitive_data: { ...preference, detection_prompt: prompt },
+    })
+    const restarted = new WorkspaceManager(root)
+    const remembered = { ...preference, default_model_id: "another-local-fixture" }
+    await restarted.updatePersonalization(ownerA, { sensitive_data: remembered })
+    await restarted.updatePersonalization(ownerA, { show_reasoning: false })
+    expect(await restarted.getPersonalization(ownerA)).toMatchObject({
+      sensitive_data: { ...remembered, detection_prompt: prompt },
+      show_reasoning: false,
+    })
+    expect((await restarted.getPersonalization(ownerB)).sensitive_data).toBeUndefined()
+    await restarted.updatePersonalization(ownerA, {
+      sensitive_data: { ...remembered, detection_prompt: null },
+    })
+    expect((await restarted.getPersonalization(ownerA)).sensitive_data).toEqual({
+      ...remembered, detection_prompt: null,
+    })
+  })
+
   it("defaults missing reasoning settings to visible and preserves saved opt-outs independently per owner", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)

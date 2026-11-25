@@ -290,6 +290,7 @@ export class WorkspaceManager {
     await this.ensureOwnerStorage(paths)
     return this.withPersonalizationOperation(ownerId, async () => {
       const current = await this.readOrCreatePersonalization(paths)
+      const preference = update.sensitive_data
       const next = personalizationStateSchema.parse({
         version: 1,
         revision: randomUUID(),
@@ -299,6 +300,14 @@ export class WorkspaceManager {
           update.memories_enabled ?? current.memories_enabled,
         show_reasoning: update.show_reasoning ?? current.show_reasoning,
         task_auto_naming: update.task_auto_naming ?? current.task_auto_naming,
+        sensitive_data: preference
+          ? {
+              ...preference,
+              detection_prompt: preference.detection_prompt === undefined
+                ? current.sensitive_data?.detection_prompt ?? null
+                : preference.detection_prompt,
+            }
+          : current.sensitive_data,
       })
       await this.writePersonalizationState(paths, next)
       return projectPersonalizationSnapshot(next)
@@ -839,6 +848,7 @@ function projectPersonalizationSnapshot(
     memories_enabled: state.memories_enabled,
     show_reasoning: state.show_reasoning,
     task_auto_naming: state.task_auto_naming,
+    ...(state.sensitive_data ? { sensitive_data: state.sensitive_data } : {}),
   }
 }
 
