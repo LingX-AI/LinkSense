@@ -513,6 +513,7 @@ export function SettingsProfilePage() {
 
 export function SettingsPersonalizationPage() {
   const { t } = useTranslation()
+  const location = useLocation()
   const [customInstructionsDraft, setCustomInstructions] = useState<
     string | null
   >(null)
@@ -875,7 +876,12 @@ export function SettingsPersonalizationPage() {
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (blocker.state === "blocked") blocker.proceed()
+                if (blocker.state !== "blocked") return
+                // A search/hash-only navigation keeps this route mounted, so
+                // the confirmed discard must also drop the in-memory draft.
+                if (blocker.location.pathname === location.pathname)
+                  setCustomInstructions(savedCustomInstructionsOverride)
+                blocker.proceed()
               }}
             >
               {t("settings.discardChanges")}
