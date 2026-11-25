@@ -458,3 +458,85 @@ func TestNativeShellRestoresPreferenceAndQuits(t *testing.T) {
 		})
 	}
 }
+
+// TestNativeMenuRolesUseTheAppLanguage proves the app catalogs replace MyGo's
+// English labels for the menu roles of the three languages MyGo does not
+// translate, keeping MyGo's shortcuts. MYGO_LOCALE chooses the language of
+// one disposable child process and is never saved; the child asserts on
+// Desktop.shellMenus directly. The fixed-scale test above owns zoom roles.
+func TestNativeMenuRolesUseTheAppLanguage(t *testing.T) {
+	const fixturePath = "LINKSENSE_TEST_MENU_LOCALE"
+	if locale := os.Getenv(fixturePath); locale != "" {
+		name := mygo.App.Name()
+		want := map[string]struct{ file, undo, quit string }{
+			"es-ES": {"Archivo", "Deshacer", "Salir de " + name},
+			"fr-FR": {"Fichier", "Annuler", "Quitter " + name},
+			"pt-BR": {"Arquivo", "Desfazer", "Encerrar " + name},
+		}[locale]
+		if want.file == "" {
+			t.Fatalf("no expected menu labels for %q", locale)
+		}
+		app, _ := (&Desktop{}).shellMenus(locales.In(locale))
+		var file, undo, quit *mygo.MenuItem
+		for _, menu := range app.Items() {
+			switch menu.Role {
+			case mygo.RoleFileMenu:
+				file = menu
+			case mygo.RoleEditMenu:
+				for _, item := range menu.Submenu {
+					if item.Role == mygo.RoleUndo {
+						undo = item
+					}
+				}
+			case mygo.RoleAppMenu:
+				for _, item := range menu.Submenu {
+					if item.Role == mygo.RoleQuit {
+						quit = item
+					}
+				}
+			}
+		}
+		if file == nil {
+			t.Fatal("the File menu is missing")
+		}
+		if file.Label != want.file {
+			t.Errorf("File menu label = %q, want %q", file.Label, want.file)
+		}
+		if undo == nil {
+			t.Fatal("the Undo menu item is missing")
+		}
+		if undo.Label != want.undo || undo.Accelerator != "CmdOrCtrl+Z" {
+			t.Errorf("Undo = %q %q, want %q with CmdOrCtrl+Z", undo.Label, undo.Accelerator, want.undo)
+		}
+		if quit == nil {
+			t.Fatal("the Quit menu item is missing")
+		}
+		if quit.Label != want.quit || quit.Accelerator != "Cmd+Q" {
+			t.Errorf("Quit = %q %q, want %q with Cmd+Q", quit.Label, quit.Accelerator, want.quit)
+		}
+		return
+	}
+
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, locale := range []string{"es-ES", "fr-FR", "pt-BR"} {
+		t.Run(locale, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, binary, "-test.v", "-test.run=^TestNativeMenuRolesUseTheAppLanguage$")
+			env := make([]string, 0, len(os.Environ())+2)
+			for _, entry := range os.Environ() {
+				if strings.HasPrefix(entry, "MYGO_LOCALE=") || strings.HasPrefix(entry, fixturePath+"=") {
+					continue
+				}
+				env = append(env, entry)
+			}
+			cmd.Env = append(env, "MYGO_LOCALE="+locale, fixturePath+"="+locale)
+			if result, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%s menu labels: %v\n%s", locale, err, result)
+			}
+		})
+	}
+}

@@ -779,10 +779,24 @@ test("desktop native locales have matching nonempty keys", async () => {
   const directory = path.resolve(import.meta.dirname, "../apps/desktop/locales");
   const locales = ["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"];
   const catalogs = await Promise.all(locales.map(async locale =>
-    JSON.parse(await readFile(path.join(directory, `${locale}.json`), "utf8"))));
-  const keys = Object.keys(catalogs[0]).sort();
-  for (const catalog of catalogs) {
-    assert.deepEqual(Object.keys(catalog).sort(), keys);
-    for (const value of Object.values(catalog)) assert.ok(typeof value === "string" && value.trim());
+    [locale, JSON.parse(await readFile(path.join(directory, `${locale}.json`), "utf8"))]));
+  const firstParty = catalog => Object.keys(catalog).filter(key => !key.startsWith("mygo.")).sort();
+  const mygoOverrides = catalog => Object.keys(catalog).filter(key => key.startsWith("mygo.")).sort();
+  const keys = firstParty(catalogs[0][1]);
+  const overrides = [];
+  for (const [locale, catalog] of catalogs) {
+    assert.deepEqual(firstParty(catalog), keys, `${locale} first-party keys`);
+    const mygo = mygoOverrides(catalog);
+    if (mygo.length > 0) overrides.push([locale, mygo]);
+    for (const [key, value] of Object.entries(catalog)) {
+      assert.ok(typeof value === "string" && value.trim(), `${locale} ${key}`);
+    }
+  }
+  // MyGo ships en, ja, zh-Hans and zh-Hant; only the other three app
+  // languages replace its menu role labels. Their override key sets must
+  // match, so no language silently loses one.
+  assert.deepEqual(overrides.map(([locale]) => locale).sort(), ["es-ES", "fr-FR", "pt-BR"]);
+  for (const [locale, mygo] of overrides.slice(1)) {
+    assert.deepEqual(mygo, overrides[0][1], `${locale} mygo.* keys`);
   }
 });
