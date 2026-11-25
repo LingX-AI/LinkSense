@@ -8,7 +8,7 @@ import {
   desktopExecutionAckSchema, desktopExecutionCommandSchema, desktopModelSwitchOperation, type DesktopExecutionCommand,
 } from "@linksense/shared"
 
-import { DesktopWorkerProvider } from "../src/controller/desktop-worker-provider.js"
+import { DesktopWorkerProvider, desktopWorkerSecret } from "../src/controller/desktop-worker-provider.js"
 import { DesktopLink } from "../src/desktop/link.js"
 import { DesktopTurns } from "../src/desktop/turns.js"
 import { desktopWorkerCallbacks } from "../src/desktop/worker-callbacks.js"
@@ -265,6 +265,560 @@ it("settles a journal left before native submission without starting a worker", 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+it("defers a failed direct start receipt until its owning worker retires", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-direct-retire-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken: "a".repeat(64) }, logger)
+  const workerLost = vi.fn()
+  const turns = new DesktopTurns(provider, runtimeRoot, "https://server.example.test", workerLost, logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const signal = AbortSignal.timeout(10_000)
+  const worker = {
+    id: randomUUID(), ownerId: scope.owner_id, serviceSessionId: scope.conversation_id,
+    storageKey: scope.conversation_id, name: "fixture", endpoint: "http://127.0.0.1:1", state: "running" as const,
+  }
+  const acquire = vi.spyOn(provider, "acquire").mockResolvedValue(worker)
+  const startedTurns: string[] = []
+  const releaseStarted = deferred<void>()
+  const releaseGate = deferred<void>()
+  let releaseCompleted = false
+  vi.spyOn(provider, "release").mockImplementation(async () => {
+    releaseStarted.resolve()
+    await releaseGate.promise
+    releaseCompleted = true
+  })
+  const paths = provider.pathsFor(scope.owner_id, scope.conversation_id)
+  const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+    fixedOwnerId: scope.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+  }))
+  vi.spyOn(provider, "request").mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId) throw new Error("start body has no turn")
+    startedTurns.push(turnId)
+    // Production persists the failed sealed journal before the failed wire reply.
+    const starting = await store.createStarting(scope.conversation_id, turnId, scope.owner_id)
+    if (!starting) throw new Error("fixture start journal was not created")
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    return Response.json({
+      conversationId: scope.conversation_id, projectionTurnId: turnId, status: "failed",
+      errorCode: "RUNNER_TURN_START_SEALED", createdAt: expiresAt, updatedAt: expiresAt,
+    })
+  })
+  const start = (turnId: string) => desktopExecutionCommandSchema.parse({
+    ...scope, turn_id: turnId, type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+    body: {
+      native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+      credentials: {
+        turn_id: turnId, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  })
+  const inspect = () => desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: expiresAt,
+  })
+  try {
+    await prepareCapabilitySnapshot(runtimeRoot)
+    const result = await turns.execute(start(scope.turn_id), signal)
+    await releaseStarted.promise
+
+    expect(result).toMatchObject({ ok: true, result: { status: "starting", projectionTurnId: scope.turn_id } })
+    const run = turns.scopedRun(scope.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    expect(await turns.execute(inspect(), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(releaseCompleted).toBe(false)
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+
+    releaseGate.resolve()
+    await vi.waitFor(() => expect(turns.scopedRun(scope.conversation_id)).toBeUndefined())
+    expect(releaseCompleted).toBe(true)
+    expect(await turns.execute(inspect(), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    releaseGate.resolve()
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("settles a failed start callback only after the owning worker retires", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-callback-retire-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken: "a".repeat(64) }, logger)
+  const workerLost = vi.fn()
+  const turns = new DesktopTurns(provider, runtimeRoot, "https://server.example.test", workerLost, logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const signal = AbortSignal.timeout(10_000)
+  const worker = {
+    id: randomUUID(), ownerId: scope.owner_id, serviceSessionId: scope.conversation_id,
+    storageKey: scope.conversation_id, name: "fixture", endpoint: "http://127.0.0.1:1", state: "running" as const,
+  }
+  const acquire = vi.spyOn(provider, "acquire").mockResolvedValue(worker)
+  const startedTurns: string[] = []
+  const releaseStarted = deferred<void>()
+  const releaseGate = deferred<void>()
+  let releaseStartedResolved = false
+  let releaseStartedBeforeAck = true
+  let releaseCompleted = false
+  vi.spyOn(provider, "release").mockImplementation(async () => {
+    releaseStartedResolved = true
+    releaseStarted.resolve()
+    await releaseGate.promise
+    releaseCompleted = true
+  })
+  vi.spyOn(provider, "request").mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId) throw new Error("start body has no turn")
+    startedTurns.push(turnId)
+    return Response.json({
+      conversationId: scope.conversation_id, projectionTurnId: turnId, status: "starting", createdAt: expiresAt, updatedAt: expiresAt,
+    })
+  })
+  const start = (turnId: string) => desktopExecutionCommandSchema.parse({
+    ...scope, turn_id: turnId, type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+    body: {
+      native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+      credentials: {
+        turn_id: turnId, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  })
+  const inspect = () => desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: expiresAt,
+  })
+  const state: { current?: { link: DesktopLink; turns: DesktopTurns } } = {}
+  let callbacks: ReturnType<typeof desktopWorkerCallbacks> | undefined
+  let link: DesktopLink | undefined
+  let inspectedInCallback: Awaited<ReturnType<DesktopTurns["execute"]>> | undefined
+  try {
+    await prepareCapabilitySnapshot(runtimeRoot)
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    const paths = provider.pathsFor(scope.owner_id, scope.conversation_id)
+    const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+      fixedOwnerId: scope.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+    }))
+    const starting = await store.createStarting(scope.conversation_id, scope.turn_id, scope.owner_id)
+    if (!starting) throw new Error("fixture start journal was not created")
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+
+    callbacks = desktopWorkerCallbacks("a".repeat(64), () => state.current, "https://server.example.test")
+    const address = await callbacks.listen({ host: "127.0.0.1", port: 0 })
+    const created = new DesktopLink(randomUUID(), scope.owner_id, turns, async output => {
+      const frame = output.frame
+      if (frame.type !== "execution.callback" || frame.operation !== "start.settled") return
+      inspectedInCallback = await turns.execute(inspect(), signal)
+      releaseStartedBeforeAck = releaseStartedResolved
+      created.receive(desktopExecutionAckSchema.parse({
+        type: "execution.ack", id: frame.id, operation: "start.settled", ok: true, data: { settled: false },
+      }))
+    }, vi.fn())
+    link = created
+    state.current = { link: created, turns }
+    const response = await fetch(`${address}/internal/runner/start-settled`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${desktopWorkerSecret(scope.owner_id, "a".repeat(64), scope.conversation_id, {
+          turnId: scope.turn_id, runtimeGeneration: scope.runtime_generation,
+        })}`,
+        "content-type": "application/json",
+        "x-linksense-owner-id": scope.owner_id,
+        "x-linksense-service-session": scope.conversation_id,
+      },
+      body: JSON.stringify({ conversationId: scope.conversation_id, projectionTurnId: scope.turn_id,
+        runtimeGeneration: scope.runtime_generation }),
+      signal: AbortSignal.timeout(5_000),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ data: { settled: false } })
+    await releaseStarted.promise
+
+    expect(inspectedInCallback).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(releaseStartedBeforeAck).toBe(false)
+    expect(releaseCompleted).toBe(false)
+    const run = turns.scopedRun(scope.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    expect(await turns.execute(inspect(), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+
+    releaseGate.resolve()
+    await vi.waitFor(() => expect(turns.scopedRun(scope.conversation_id)).toBeUndefined())
+    expect(releaseCompleted).toBe(true)
+    expect(await turns.execute(inspect(), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    releaseGate.resolve()
+    await callbacks?.close()
+    if (link) await link.close()
+    else await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("defers a seal receipt while a late same-turn start still owns the workspace", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-seal-retire-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken: "a".repeat(64) }, logger)
+  const acquire = vi.spyOn(provider, "acquire")
+  const turns = new DesktopTurns(provider, runtimeRoot, "https://server.example.test", vi.fn(), logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const signal = AbortSignal.timeout(10_000)
+  const seal = desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.seal", id: randomUUID(), expires_at: expiresAt,
+  })
+  const start = desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+    body: {
+      native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+      credentials: {
+        turn_id: scope.turn_id, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  })
+  const inspect = desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: expiresAt,
+  })
+  const sealEntered = deferred<void>()
+  const sealGate = deferred<void>()
+  const original = StartOperationStore.prototype.createSealed
+  const sealed = vi.spyOn(StartOperationStore.prototype, "createSealed").mockImplementation(
+    async function (this: StartOperationStore, ...args: Parameters<StartOperationStore["createSealed"]>) {
+      sealEntered.resolve()
+      await sealGate.promise
+      return original.apply(this, args)
+    })
+  try {
+    const paths = provider.pathsFor(scope.owner_id, scope.conversation_id)
+    await provider.prepareOwnerFilesystem(paths)
+    await prepareConversationControl(paths, scope.conversation_id, "workspace", undefined, scope.runtime_generation)
+    const sealing = turns.execute(seal, signal)
+    await sealEntered.promise
+    // This reserves its session synchronously and waits for the pending seal.
+    const starting = turns.execute(start, signal)
+    sealGate.resolve()
+
+    expect(await sealing).toMatchObject({
+      ok: true, result: { status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN", projectionTurnId: scope.turn_id },
+    })
+    expect(await starting).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(acquire).not.toHaveBeenCalled()
+    const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+      fixedOwnerId: scope.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+    }))
+    expect(await store.read(scope.conversation_id, scope.turn_id)).toMatchObject({
+      status: "failed", errorCode: "RUNNER_TURN_START_SEALED",
+    })
+    expect(await turns.execute(inspect, signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+  } finally {
+    sealGate.resolve()
+    sealed.mockRestore()
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("keeps Stop scoped while a failed owner retires and seals a turn stopped before its start", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-stop-scope-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken: "a".repeat(64) }, logger)
+  const workerLost = vi.fn()
+  const turns = new DesktopTurns(provider, runtimeRoot, "https://server.example.test", workerLost, logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const freshTurnId = randomUUID()
+  const laterTurnId = randomUUID()
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const signal = AbortSignal.timeout(10_000)
+  const startedTurns: string[] = []
+  const interruptAttempts: string[] = []
+  const worker = {
+    id: randomUUID(), ownerId: scope.owner_id, serviceSessionId: scope.conversation_id,
+    storageKey: scope.conversation_id, name: "fixture", endpoint: "http://127.0.0.1:1", state: "running" as const,
+  }
+  const acquire = vi.spyOn(provider, "acquire").mockResolvedValue(worker)
+  const releases = [
+    { started: deferred<void>(), gate: deferred<void>() },
+    { started: deferred<void>(), gate: deferred<void>() },
+  ] as const
+  let releaseCalls = 0
+  let releaseDepth = 0
+  vi.spyOn(provider, "release").mockImplementation(async () => {
+    const release = releases[releaseCalls]
+    if (!release) throw new Error("unexpected worker release")
+    releaseCalls += 1
+    releaseDepth += 1
+    release.started.resolve()
+    try {
+      await release.gate.promise
+    } finally {
+      releaseDepth -= 1
+    }
+  })
+  vi.spyOn(provider, "request").mockImplementation((_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Promise.resolve(Response.json({ status: "available" }))
+    if (route.endsWith("/interrupt")) {
+      interruptAttempts.push(route)
+      // Match DesktopWorkerProvider.request: a worker in release is unavailable synchronously.
+      if (releaseDepth > 0) throw new Error("desktop worker is unavailable")
+      return Promise.resolve(Response.json({ code: "TURN_INTERRUPT_REQUESTED" }))
+    }
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId) throw new Error("start body has no turn")
+    startedTurns.push(turnId)
+    return Promise.resolve(Response.json({
+      conversationId: scope.conversation_id, projectionTurnId: turnId, status: "starting", createdAt: expiresAt, updatedAt: expiresAt,
+    }))
+  })
+  const start = (turnId: string) => desktopExecutionCommandSchema.parse({
+    ...scope, turn_id: turnId, type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+    body: {
+      native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+      credentials: {
+        turn_id: turnId, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  })
+  const stop = (turnId: string, runtimeGeneration = scope.runtime_generation, ownerId = scope.owner_id) => desktopExecutionCommandSchema.parse({
+    ...scope, owner_id: ownerId, turn_id: turnId, runtime_generation: runtimeGeneration,
+    type: "command", operation: "turn.interrupt", id: randomUUID(), expires_at: expiresAt,
+  })
+  const inspect = () => desktopExecutionCommandSchema.parse({
+    ...scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: expiresAt,
+  })
+  try {
+    await prepareCapabilitySnapshot(runtimeRoot)
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    const paths = provider.pathsFor(scope.owner_id, scope.conversation_id)
+    const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+      fixedOwnerId: scope.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+    }))
+    const starting = await store.createStarting(scope.conversation_id, scope.turn_id, scope.owner_id)
+    if (!starting) throw new Error("fixture start journal was not created")
+    expect(await turns.execute(stop(scope.turn_id), signal)).toMatchObject({
+      ok: true, result: { code: "TURN_INTERRUPT_REQUESTED" },
+    })
+    expect(releaseCalls).toBe(0)
+    expect(interruptAttempts).toEqual([`/conversations/${scope.conversation_id}/turns/start/${scope.turn_id}/interrupt`])
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const run = turns.scopedRun(scope.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    turns.finishAfterAcknowledgement(run)
+    await releases[0].started.promise
+
+    expect(await turns.execute(stop(scope.turn_id), signal)).toMatchObject({
+      ok: true, result: { code: "TURN_INTERRUPT_NOT_ACTIVE" },
+    })
+    expect(interruptAttempts).toHaveLength(1)
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    expect(await turns.execute(inspect(), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    expect(await turns.execute(stop(freshTurnId), signal)).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+    expect(await store.read(scope.conversation_id, freshTurnId)).toBeNull()
+    expect(await turns.execute(stop(scope.turn_id, randomUUID()), signal)).toMatchObject({
+      ok: false, error_code: "RUNNER_UNAVAILABLE",
+    })
+    expect(await turns.execute(stop(scope.turn_id, scope.runtime_generation, randomUUID()), signal)).toMatchObject({
+      ok: false, error_code: "RUNNER_UNAVAILABLE",
+    })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+    expect(interruptAttempts).toHaveLength(1)
+
+    releases[0].gate.resolve()
+    await vi.waitFor(() => expect(turns.scopedRun(scope.conversation_id)).toBeUndefined())
+    expect(await turns.execute(inspect(), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: scope.turn_id },
+    })
+    expect(await turns.execute(stop(freshTurnId), signal)).toMatchObject({
+      ok: true, result: { code: "TURN_INTERRUPT_REQUESTED" },
+    })
+    expect(await store.read(scope.conversation_id, freshTurnId)).toMatchObject({
+      status: "failed", errorCode: "RUNNER_TURN_START_SEALED",
+      ownerId: scope.owner_id, runtimeGeneration: scope.runtime_generation,
+    })
+    expect(await turns.execute(start(freshTurnId), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: freshTurnId },
+    })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+
+    expect(await turns.execute(start(laterTurnId), signal)).toMatchObject({
+      ok: true, result: { status: "starting", projectionTurnId: laterTurnId },
+    })
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(startedTurns).toEqual([scope.turn_id, laterTurnId])
+
+    const laterStarting = await store.createStarting(scope.conversation_id, laterTurnId, scope.owner_id)
+    if (!laterStarting) throw new Error("fixture later start journal was not created")
+    const laterRun = turns.scopedRun(scope.conversation_id)
+    if (!laterRun) throw new Error("fixture later start has no run")
+    turns.finishAfterAcknowledgement(laterRun)
+    await releases[1].started.promise
+
+    expect(await turns.execute(stop(laterTurnId), signal)).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+    expect(interruptAttempts.at(-1)).toBe(`/conversations/${scope.conversation_id}/turns/start/${laterTurnId}/interrupt`)
+    await store.update(laterStarting, { status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN" })
+    expect(await turns.inspectRun(laterRun)).toMatchObject({ status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN" })
+    expect(await turns.execute(stop(laterTurnId), signal)).toMatchObject({ ok: false, error_code: "RUNNER_UNAVAILABLE" })
+    expect(interruptAttempts).toHaveLength(3)
+    expect(interruptAttempts.at(-1)).toBe(`/conversations/${scope.conversation_id}/turns/start/${laterTurnId}/interrupt`)
+
+    releases[1].gate.resolve()
+    await vi.waitFor(() => expect(turns.scopedRun(scope.conversation_id)).toBeUndefined())
+    expect(releaseCalls).toBe(2)
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    for (const release of releases) release.gate.resolve()
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("does not mask another turn's failed or uncertain receipt behind a retiring owner", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-retire-scope-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken: "a".repeat(64) }, logger)
+  const workerLost = vi.fn()
+  const turns = new DesktopTurns(provider, runtimeRoot, "https://server.example.test", workerLost, logger)
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const staleTurnId = randomUUID()
+  const uncertainTurnId = randomUUID()
+  const expiresAt = new Date(Date.now() + 30_000).toISOString()
+  const signal = AbortSignal.timeout(10_000)
+  const startedTurns: string[] = []
+  const worker = {
+    id: randomUUID(), ownerId: scope.owner_id, serviceSessionId: scope.conversation_id,
+    storageKey: scope.conversation_id, name: "fixture", endpoint: "http://127.0.0.1:1", state: "running" as const,
+  }
+  const acquire = vi.spyOn(provider, "acquire").mockResolvedValue(worker)
+  const releaseStarted = deferred<void>()
+  const releaseGate = deferred<void>()
+  vi.spyOn(provider, "release").mockImplementation(async () => {
+    releaseStarted.resolve()
+    await releaseGate.promise
+  })
+  vi.spyOn(provider, "request").mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId) throw new Error("start body has no turn")
+    startedTurns.push(turnId)
+    return Response.json({
+      conversationId: scope.conversation_id, projectionTurnId: turnId, status: "starting", createdAt: expiresAt, updatedAt: expiresAt,
+    })
+  })
+  const start = (turnId: string, runtimeGeneration = scope.runtime_generation, ownerId = scope.owner_id) => desktopExecutionCommandSchema.parse({
+    ...scope, owner_id: ownerId, turn_id: turnId, runtime_generation: runtimeGeneration,
+    type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+    body: {
+      native_thread_id: null, input: "Fixture", reasoning_effort: "low",
+      credentials: {
+        turn_id: turnId, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      },
+    },
+  })
+  const inspect = (turnId: string, runtimeGeneration = scope.runtime_generation, ownerId = scope.owner_id) => desktopExecutionCommandSchema.parse({
+    ...scope, owner_id: ownerId, turn_id: turnId, runtime_generation: runtimeGeneration,
+    type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: expiresAt,
+  })
+  try {
+    await prepareCapabilitySnapshot(runtimeRoot)
+    expect(await turns.execute(start(scope.turn_id), signal)).toMatchObject({ ok: true, result: { status: "starting" } })
+    const paths = provider.pathsFor(scope.owner_id, scope.conversation_id)
+    const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+      fixedOwnerId: scope.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+    }))
+    const active = await store.createStarting(scope.conversation_id, scope.turn_id, scope.owner_id)
+    if (!active) throw new Error("fixture start journal was not created")
+    expect(await turns.execute(inspect(scope.turn_id), signal)).toMatchObject({
+      ok: true, result: { status: "starting", projectionTurnId: scope.turn_id },
+    })
+    await store.update(active, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const run = turns.scopedRun(scope.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    turns.finishAfterAcknowledgement(run)
+    await releaseStarted.promise
+
+    expect(await store.createSealed(scope.conversation_id, staleTurnId, scope.owner_id, scope.runtime_generation)).not.toBeNull()
+    expect(await turns.execute(inspect(staleTurnId), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: staleTurnId },
+    })
+    expect(await turns.execute(start(staleTurnId), signal)).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: staleTurnId },
+    })
+    const uncertain = await store.createStarting(scope.conversation_id, uncertainTurnId, scope.owner_id)
+    if (!uncertain) throw new Error("fixture uncertain journal was not created")
+    const correlated = await store.updateCorrelation(uncertain, {
+      codexThreadId: randomUUID(), baselineTurnIds: [], preparedAt: expiresAt,
+    })
+    await store.update(correlated, { status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN" })
+    expect(await turns.execute(inspect(uncertainTurnId), signal)).toMatchObject({
+      ok: true, result: { status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN", projectionTurnId: uncertainTurnId },
+    })
+    expect(await turns.execute(inspect(scope.turn_id, randomUUID()), signal)).toMatchObject({
+      ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+    })
+    expect(await turns.execute(inspect(scope.turn_id, scope.runtime_generation, randomUUID()), signal)).toMatchObject({
+      ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+    })
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(startedTurns).toEqual([scope.turn_id])
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    releaseGate.resolve()
+    await turns.shutdown()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+async function prepareCapabilitySnapshot(runtimeRoot: string): Promise<void> {
+  const generation = "0".repeat(64)
+  const bundle = path.join(runtimeRoot, "capabilities")
+  for (const name of ["skills", "plugins", "plugin-sources"]) await mkdir(path.join(bundle, name), { recursive: true })
+  await writeFile(path.join(bundle, "capability-snapshot.json"), JSON.stringify({
+    version: 1, id: `${generation}-${randomUUID()}`, generation, contentDigest: generation, sourceDigest: generation, pluginNames: [],
+  }))
+}
 
 it.each(["empty", "staged", "published state", "wrong generation", "corrupt generation"])(
   "preserves the generation boundary after interrupted control initialization (%s)", async state => {

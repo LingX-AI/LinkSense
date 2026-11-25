@@ -18,13 +18,23 @@ import { deferred } from "./deferred.js"
 const logger = pino({ enabled: false })
 const origin = "https://server.example.test"
 
-async function fixture(onTestFinished: (cleanup: () => Promise<void>) => void) {
+async function fixture(
+  onTestFinished: (cleanup: () => Promise<void>) => void,
+  options: { tolerateTurnsShutdownFailure?: boolean } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-input-"))
   const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot: root, controlToken: "a".repeat(64) }, logger)
   const workerLost = vi.fn()
   const turns = new DesktopTurns(provider, root, origin, workerLost, logger)
   onTestFinished(async () => {
-    try { await turns.shutdown(); await provider.shutdown() } finally { await rm(root, { recursive: true, force: true }) }
+    try {
+      try {
+        await turns.shutdown()
+      } catch (error) {
+        if (!options.tolerateTurnsShutdownFailure) throw error
+      }
+      await provider.shutdown()
+    } finally { await rm(root, { recursive: true, force: true }) }
   })
   const generation = "0".repeat(64)
   const bundle = path.join(root, "capabilities")
@@ -71,7 +81,7 @@ async function fixture(onTestFinished: (cleanup: () => Promise<void>) => void) {
     } })
   const stop = desktopExecutionCommandSchema.parse({ ...scope, type: "command", id: randomUUID(), expires_at, operation: "turn.interrupt" })
   const run = (signal = AbortSignal.timeout(5_000)) => turns.execute(command, signal, { attachmentsReady: ready })
-  return { turns, provider, paths, command, fetcher, manifest, data, acquire, ready, request, response, run, stop }
+  return { turns, provider, paths, command, fetcher, manifest, data, acquire, ready, request, response, run, stop, workerLost }
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -184,6 +194,327 @@ it("keeps a real worker admission POST alive after reading its request body", as
   expect(confirmation.status).toBe(200)
   expect(await confirmation.json()).toEqual({ confirmed: true, expiresAt: Date.parse(command.expires_at) })
   expect(ready).toHaveBeenCalledTimes(2)
+})
+
+it("keeps an attached failed start pending until its worker and files retire", async ({ onTestFinished }) => {
+  const { turns, provider, paths, command, fetcher, ready, request, response, acquire, workerLost } = await fixture(onTestFinished)
+  fetcher.mockResolvedValue(response())
+  await provider.prepareOwnerFilesystem(paths)
+  await prepareConversationControl(paths, command.conversation_id, "workspace", undefined, command.runtime_generation)
+  const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+    fixedOwnerId: command.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+  }))
+  const startRequested = deferred<void>()
+  request.mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId || !await store.createStarting(command.conversation_id, turnId, command.owner_id)) {
+      throw new Error("fixture start journal was not created")
+    }
+    startRequested.resolve()
+    return Response.json({
+      conversationId: command.conversation_id, projectionTurnId: turnId, status: "starting",
+      createdAt: command.expires_at, updatedAt: command.expires_at,
+    })
+  })
+  const releaseStarted = deferred<void>()
+  const releaseGate = deferred<void>()
+  let releaseCompleted = false
+  vi.spyOn(provider, "release").mockImplementation(async () => {
+    releaseStarted.resolve()
+    await releaseGate.promise
+    releaseCompleted = true
+  })
+  const started = turns.execute(command, AbortSignal.timeout(10_000), { attachmentsReady: ready })
+  try {
+    await startRequested.promise
+    const starting = await store.read(command.conversation_id, command.turn_id)
+    if (!starting) throw new Error("fixture start journal missing")
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const run = turns.scopedRun(command.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    expect(run.confirmAttachments).toBeTypeOf("function")
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const parent = path.join(paths.home, "workspace", "attachments")
+    const published = await readdir(parent)
+    expect(published).toHaveLength(1)
+
+    let directResult: unknown
+    void started.then(result => { directResult = result }).catch(() => undefined)
+    await releaseStarted.promise
+    await new Promise(resolve => setImmediate(resolve))
+    expect(directResult).toBeUndefined()
+    expect(releaseCompleted).toBe(false)
+    expect(await readdir(parent)).toEqual(published)
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const inspect = desktopExecutionCommandSchema.parse({
+      ...run.scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: command.expires_at,
+    })
+    expect(await turns.execute(inspect, AbortSignal.timeout(1_000))).toMatchObject({
+      ok: true, result: { status: "starting" },
+    })
+    expect(await turns.execute({ ...command, id: randomUUID() }, AbortSignal.timeout(1_000))).toMatchObject({
+      ok: true, result: { status: "starting" },
+    })
+
+    releaseGate.resolve()
+    expect(await started).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: command.turn_id },
+    })
+    expect(releaseCompleted).toBe(true)
+    expect(await readdir(parent)).toEqual([])
+    expect(turns.scopedRun(command.conversation_id)).toBeUndefined()
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(workerLost).not.toHaveBeenCalled()
+  } finally {
+    releaseGate.resolve()
+    await started.catch(() => undefined)
+  }
+})
+
+it("acknowledges an attached failed start locally before its primary response is read", async ({ onTestFinished }) => {
+  const requestHttp = globalThis.fetch
+  const { turns, provider, paths, command, fetcher, ready, request, response, acquire, workerLost } = await fixture(onTestFinished)
+  fetcher.mockResolvedValue(response())
+  await provider.prepareOwnerFilesystem(paths)
+  await prepareConversationControl(paths, command.conversation_id, "workspace", undefined, command.runtime_generation)
+  const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+    fixedOwnerId: command.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+  }))
+  const startRequested = deferred<void>()
+  const startResponse = deferred<ReadableStreamDefaultController<Uint8Array>>()
+  let responseClosed = false
+  const encoder = new TextEncoder()
+  request.mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId || !await store.createStarting(command.conversation_id, turnId, command.owner_id)) {
+      throw new Error("fixture start journal was not created")
+    }
+    startRequested.resolve()
+    // Production keeps the response body open until the worker fetch resolves.
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) { startResponse.resolve(controller) },
+    }), { status: 200, headers: { "content-type": "application/json" } })
+  })
+  const releaseStarted = deferred<void>()
+  const releaseGate = deferred<void>()
+  let releaseStartedResolved = false
+  let releaseCompleted = false
+  const release = vi.spyOn(provider, "release").mockImplementation(async () => {
+    releaseStartedResolved = true
+    releaseStarted.resolve()
+    // Match DesktopWorkerProvider.release: abort the in-flight worker response.
+    if (!responseClosed) {
+      responseClosed = true
+      ;(await startResponse.promise).error(new Error("fixture release aborted the start response"))
+    }
+    await releaseGate.promise
+    releaseCompleted = true
+  })
+  const started = turns.execute(command, AbortSignal.timeout(10_000), { attachmentsReady: ready })
+  const gatewayGate = deferred<void>()
+  const frames: unknown[] = []
+  const linkRef: { current?: DesktopLink } = {}
+  const state: { current?: { link: DesktopLink; turns: DesktopTurns } } = {}
+  const write = vi.fn(async output => {
+    if (output.type !== "link.frame" || output.frame.type !== "execution.callback") return
+    const frame = output.frame
+    frames.push(frame)
+    if (frame.operation !== "start.settled") return
+    await gatewayGate.promise
+    linkRef.current?.receive({ type: "execution.ack", id: frame.id, operation: "start.settled", ok: true, data: { settled: false } })
+  })
+  const link = new DesktopLink(randomUUID(), command.owner_id, turns, write, vi.fn())
+  linkRef.current = link
+  state.current = { link, turns }
+  const callbacks = desktopWorkerCallbacks("a".repeat(64), () => state.current, origin)
+  const resolveStartResponse = async () => {
+    const controller = await startResponse.promise
+    if (responseClosed) throw new Error("fixture start response was already aborted")
+    responseClosed = true
+    controller.enqueue(encoder.encode(JSON.stringify({
+      conversationId: command.conversation_id, projectionTurnId: command.turn_id, status: "starting",
+      createdAt: command.expires_at, updatedAt: command.expires_at,
+    })))
+    controller.close()
+  }
+  try {
+    const address = await callbacks.listen({ host: "127.0.0.1", port: 0 })
+    await startRequested.promise
+    const starting = await store.read(command.conversation_id, command.turn_id)
+    if (!starting) throw new Error("fixture start journal missing")
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const run = turns.scopedRun(command.conversation_id)
+    if (!run) throw new Error("fixture start has no run")
+    const parent = path.join(paths.home, "workspace", "attachments")
+    const published = await readdir(parent)
+
+    const settling = requestHttp(`${address}/internal/runner/start-settled`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${desktopWorkerSecret(command.owner_id, "a".repeat(64), command.conversation_id, {
+          turnId: command.turn_id, runtimeGeneration: command.runtime_generation,
+        })}`,
+        "content-type": "application/json",
+        "x-linksense-owner-id": command.owner_id,
+        "x-linksense-service-session": command.conversation_id,
+      },
+      body: JSON.stringify({
+        conversationId: command.conversation_id, projectionTurnId: command.turn_id,
+        runtimeGeneration: command.runtime_generation,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    })
+    const settled = await settling
+    expect(settled.status).toBe(200)
+    expect(await settled.json()).toEqual({ data: { settled: false } })
+    expect(frames).toEqual([])
+    let directResult: unknown
+    void started.then(result => { directResult = result }).catch(() => undefined)
+    await new Promise(resolve => setImmediate(resolve))
+    await new Promise(resolve => setImmediate(resolve))
+    expect(releaseStartedResolved).toBe(false)
+    expect(directResult).toBeUndefined()
+    expect(await readdir(parent)).toEqual(published)
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    const inspect = desktopExecutionCommandSchema.parse({
+      ...run.scope, type: "command", operation: "turn.inspect", id: randomUUID(), expires_at: command.expires_at,
+    })
+    expect(await turns.execute(inspect, AbortSignal.timeout(1_000))).toMatchObject({
+      ok: true, result: { status: "starting" },
+    })
+    expect(await turns.execute({ ...command, id: randomUUID() }, AbortSignal.timeout(1_000))).toMatchObject({
+      ok: true, result: { status: "starting" },
+    })
+
+    await resolveStartResponse()
+    await releaseStarted.promise
+    expect(releaseCompleted).toBe(false)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(directResult).toBeUndefined()
+    expect(await readdir(parent)).toEqual(published)
+    expect(await turns.inspectRun(run)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    expect(await turns.execute(inspect, AbortSignal.timeout(1_000))).toMatchObject({
+      ok: true, result: { status: "starting" },
+    })
+
+    releaseGate.resolve()
+    expect(await started).toMatchObject({
+      ok: true, result: { status: "failed", errorCode: "RUNNER_TURN_START_SEALED", projectionTurnId: command.turn_id },
+    })
+    expect(releaseCompleted).toBe(true)
+    expect(await readdir(parent)).toEqual([])
+    expect(turns.scopedRun(command.conversation_id)).toBeUndefined()
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledOnce()
+    expect(workerLost).not.toHaveBeenCalled()
+    expect(frames).toEqual([])
+  } finally {
+    gatewayGate.resolve()
+    releaseGate.resolve()
+    await callbacks.close()
+    await link?.close()
+    await started.catch(() => undefined)
+  }
+})
+
+it("fails an attached failed start closed when retirement rejects", async ({ onTestFinished }) => {
+  const { turns, provider, paths, command, fetcher, ready, request, response, workerLost } =
+    await fixture(onTestFinished, { tolerateTurnsShutdownFailure: true })
+  fetcher.mockResolvedValue(response())
+  await provider.prepareOwnerFilesystem(paths)
+  await prepareConversationControl(paths, command.conversation_id, "workspace", undefined, command.runtime_generation)
+  const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+    fixedOwnerId: command.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+  }))
+  const startRequested = deferred<void>()
+  request.mockImplementation(async (_worker, route, _signal, body) => {
+    if (route === "/health/ready") return Response.json({ status: "available" })
+    if (!route.endsWith("/turns/start")) throw new Error(`unexpected route ${route}`)
+    const turnId = (body as { projectionTurnId?: string } | undefined)?.projectionTurnId
+    if (!turnId || !await store.createStarting(command.conversation_id, turnId, command.owner_id)) {
+      throw new Error("fixture start journal was not created")
+    }
+    startRequested.resolve()
+    return Response.json({
+      conversationId: command.conversation_id, projectionTurnId: turnId, status: "starting",
+      createdAt: command.expires_at, updatedAt: command.expires_at,
+    })
+  })
+  vi.spyOn(provider, "release").mockRejectedValue(new Error("fixture retirement failed"))
+  const started = turns.execute(command, AbortSignal.timeout(10_000), { attachmentsReady: ready })
+  try {
+    await startRequested.promise
+    const starting = await store.read(command.conversation_id, command.turn_id)
+    if (!starting) throw new Error("fixture start journal missing")
+    await store.update(starting, { status: "failed", errorCode: "RUNNER_TURN_START_SEALED" })
+    expect(await started).toMatchObject({ ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" })
+    expect(workerLost).toHaveBeenCalledOnce()
+    expect(await readdir(path.join(paths.home, "workspace", "attachments"))).toHaveLength(1)
+  } finally {
+    await started.catch(() => undefined)
+  }
+})
+
+it("relays a successful attached start.settled callback unchanged", async ({ onTestFinished }) => {
+  const requestHttp = globalThis.fetch
+  const { turns, provider, paths, command, fetcher, response, run } = await fixture(onTestFinished)
+  fetcher.mockResolvedValue(response())
+  await provider.prepareOwnerFilesystem(paths)
+  await prepareConversationControl(paths, command.conversation_id, "workspace", undefined, command.runtime_generation)
+  const started = await run()
+  if (!started.ok || started.operation !== "turn.start" || started.result.status !== "succeeded") {
+    throw new Error("fixture attachment start did not succeed")
+  }
+  const store = new StartOperationStore(new WorkspaceManager(paths.root, undefined, {
+    fixedOwnerId: command.owner_id, fixedHomeRoot: paths.home, fixedControlRoot: paths.control,
+  }))
+  const starting = await store.createStarting(command.conversation_id, command.turn_id, command.owner_id)
+  if (!starting) throw new Error("fixture start journal was not created")
+  const { codexThreadId, codexTurnId } = started.result.result
+  await store.update(starting, { status: "succeeded", result: { codexThreadId, codexTurnId } })
+  const frames: unknown[] = []
+  const linkRef: { current?: DesktopLink } = {}
+  const state: { current?: { link: DesktopLink; turns: DesktopTurns } } = {}
+  const write = vi.fn(async output => {
+    if (output.type !== "link.frame" || output.frame.type !== "execution.callback") return
+    const frame = output.frame
+    frames.push(frame)
+    linkRef.current?.receive({ type: "execution.ack", id: frame.id, operation: "start.settled", ok: true, data: { settled: true } })
+  })
+  const link = new DesktopLink(randomUUID(), command.owner_id, turns, write, vi.fn())
+  linkRef.current = link
+  state.current = { link, turns }
+  const callbacks = desktopWorkerCallbacks("a".repeat(64), () => state.current, origin)
+  try {
+    const address = await callbacks.listen({ host: "127.0.0.1", port: 0 })
+    const response = await requestHttp(`${address}/internal/runner/start-settled`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${desktopWorkerSecret(command.owner_id, "a".repeat(64), command.conversation_id, {
+          turnId: command.turn_id, runtimeGeneration: command.runtime_generation,
+        })}`,
+        "content-type": "application/json",
+        "x-linksense-owner-id": command.owner_id,
+        "x-linksense-service-session": command.conversation_id,
+      },
+      body: JSON.stringify({
+        conversationId: command.conversation_id, projectionTurnId: command.turn_id,
+        runtimeGeneration: command.runtime_generation,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ data: { settled: true } })
+    expect(frames).toHaveLength(1)
+    expect(frames[0]).toMatchObject({ type: "execution.callback", operation: "start.settled" })
+  } finally {
+    await callbacks.close()
+    await link?.close()
+  }
 })
 
 it.each([

@@ -118,6 +118,10 @@ export function desktopWorkerCallbacks(
     }
     const status = await turns.inspectRun(run)
     if (status?.status === "failed") {
+      // The attachment primary delivery owns the failed result and releases the
+      // API conversation lock only after it reads this response. A finish hook
+      // here would abort that read, so acknowledge locally without one.
+      if (run.confirmAttachments) return { data: { settled: false } }
       reply.raw.once("finish", () => turns.finishAfterAcknowledgement(run))
     }
     const receipt = await link.callback(run, "start.settled", body)

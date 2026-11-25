@@ -102,7 +102,8 @@ export class DesktopTurns {
         if (session) {
           uncertain = sameTurn !== undefined
           const prior = await this.readJournal(command, sameTurn?.run !== undefined)
-          if (prior) return { ...envelope, operation: command.operation, ok: true, result: prior }
+          if (prior) return { ...envelope, operation: command.operation, ok: true,
+            result: this.wireStartReceipt(prior, command) }
           throw new Error("desktop conversation already has an active delivery")
         }
         const result = await this.start(command, signal, () => { uncertain = true }, callbacks?.attachmentsReady)
@@ -114,14 +115,16 @@ export class DesktopTurns {
         const result = session || this.recovering.has(command.conversation_id)
           ? await this.readJournal(command, sameTurn?.run !== undefined, undefined, transition)
           : await this.withRecovery(command.conversation_id, () => this.readJournal(command, false, signal, transition))
-        return { ...envelope, operation: command.operation, ok: true, result }
+        return { ...envelope, operation: command.operation, ok: true,
+          result: result && this.wireStartReceipt(result, command) }
       }
       if (command.operation === "turn.seal") {
         uncertain = true
         // Never interrupt a native start that won the race against recovery.
         if (session || this.recovering.has(command.conversation_id)) throw new Error("desktop start is not yet sealable")
         const result = await this.sealUnstarted(command)
-        return { ...envelope, operation: command.operation, ok: true, result }
+        return { ...envelope, operation: command.operation, ok: true,
+          result: this.wireStartReceipt(result, command, "uncertain") }
       }
       if (command.operation === "turn.drain") {
         const deliver = callbacks?.deliver
@@ -163,6 +166,14 @@ export class DesktopTurns {
           ...envelope, operation: command.operation, ok: true,
           result: { code: result.status === "failed" && result.errorCode === "RUNNER_TURN_START_SEALED"
             ? RUNNER_TURN_INTERRUPT_REQUESTED : RUNNER_TURN_INTERRUPT_NOT_ACTIVE },
+        }
+      }
+      // A failed start is already sealed; its worker may be inside release and reject requests.
+      if (sameTurn.release) {
+        const settled = await this.readJournal(command, false)
+        if (settled?.status === "failed") {
+          return { ...envelope, operation: command.operation, ok: true,
+            result: { code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE } }
         }
       }
       // Stop must promptly cancel local transfers that belong to this turn.
@@ -232,6 +243,30 @@ export class DesktopTurns {
     } finally {
       this.recovering.delete(conversationId)
     }
+  }
+
+  /**
+   * A failed start still owns its worker and files until releaseOnce deletes
+   * the session. Keep only the wire receipt nonterminal so the API cannot
+   * release the durable intent and admit the next turn into that cleanup.
+   * The current session for the exact command scope is the effective lease.
+   * Seal uses the existing uncertain receipt because the API seal path rejects
+   * starting while still treating uncertain as pending.
+   */
+  private wireStartReceipt(
+    receipt: StartReceipt, command: Scope, deferred: "starting" | "uncertain" = "starting",
+  ): StartReceipt {
+    const session = this.sessions.get(command.conversation_id)
+    if (receipt.status !== "failed" || !session ||
+        session.scope.owner_id !== command.owner_id ||
+        session.scope.conversation_id !== command.conversation_id ||
+        session.scope.runtime_generation !== command.runtime_generation ||
+        session.scope.turn_id !== command.turn_id) return receipt
+    const { conversationId, projectionTurnId, createdAt, updatedAt } = receipt
+    return deferred === "uncertain"
+      ? { conversationId, projectionTurnId, createdAt, updatedAt,
+          status: "uncertain", errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN" }
+      : { conversationId, projectionTurnId, createdAt, updatedAt, status: "starting" }
   }
 
   /** Normal completion releases the worker only after its ordered terminal batch was acknowledged. */
@@ -381,8 +416,21 @@ export class DesktopTurns {
         }
         throw error
       }
-      if (result.status === "failed") this.finishAfterAcknowledgement(run)
-      return result
+      if (result.status === "failed") {
+        if (materialized) {
+          // The attachment primary delivery owns this failure and returns only
+          // after retirement, so the API can discard the undelivered credential.
+          try {
+            await this.finish(run)
+          } catch (error) {
+            this.workerLost()
+            throw error
+          }
+        } else {
+          this.finishAfterAcknowledgement(run)
+        }
+      }
+      return this.wireStartReceipt(result, scope)
     } catch (error) {
       if (session.interrupted && !session.run) return await this.sealUnstarted(scope)
       if (absentFromJournal && command.body.attachments?.length && !session.run && !signal.aborted) throw new DesktopAttachmentError()
