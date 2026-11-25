@@ -2017,7 +2017,12 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(24)
+    expect(settingsNavigationLinks).toHaveLength(26)
+    expect(
+      within(settingsSidebar)
+        .getAllByRole("link", { name: "敏感数据处理" })
+        .map((link) => link.getAttribute("href"))
+    ).toEqual(["/settings/sensitive-data", "/admin/sensitive-data"])
     settingsNavigationLinks.forEach((link) => {
       expect(
         link.querySelectorAll(":scope > span:not([data-design-icon])")
