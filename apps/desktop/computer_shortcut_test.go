@@ -97,7 +97,12 @@ func (scheduler *shortcutInlineScheduler) schedule(reconcile func()) {
 	reconcile()
 }
 
-func newShortcutUnderTest(fixture *shortcutFixture, pausePress, stopPress func()) *computerEmergencyShortcut {
+const (
+	shortcutSelectionA = "80000000-0000-4000-8000-000000000a01"
+	shortcutSelectionB = "80000000-0000-4000-8000-000000000a02"
+)
+
+func newShortcutUnderTest(fixture *shortcutFixture, pausePress, stopPress func(string)) *computerEmergencyShortcut {
 	shortcut := newComputerEmergencyShortcut(pausePress, stopPress)
 	shortcut.register = fixture.register
 	shortcut.unregister = fixture.unregister
@@ -161,13 +166,49 @@ func expectNoShortcutPress(t *testing.T, pressed <-chan struct{}, name string) {
 	}
 }
 
+func awaitShortcutSelection(t *testing.T, pressed <-chan string, want, name string) {
+	t.Helper()
+	select {
+	case selectionID := <-pressed:
+		if selectionID != want {
+			t.Fatalf("the %s shortcut dispatched for selection %q, want %q", name, selectionID, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("the %s shortcut did not press", name)
+	}
+}
+
+func expectNoShortcutSelection(t *testing.T, pressed <-chan string, name string) {
+	t.Helper()
+	select {
+	case selectionID := <-pressed:
+		t.Fatalf("an obsolete %s shortcut dispatched for %q", name, selectionID)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// awaitShortcutCompletion waits for one action goroutine to return. The channel
+// carries the selection the action ran for, so a stale no-op and a real press
+// are both observable without closing a shared channel twice.
+func awaitShortcutCompletion(t *testing.T, completed <-chan string, want, name string) {
+	t.Helper()
+	select {
+	case selectionID := <-completed:
+		if selectionID != want {
+			t.Fatalf("the %s action completed for selection %q, want %q", name, selectionID, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the %s action did not complete", name)
+	}
+}
+
 func TestComputerShortcutBindsPauseAndStopOnlyWhileEligibleAndBackgrounded(t *testing.T) {
 	fixture := newShortcutFixture()
 	paused := make(chan struct{}, 4)
 	stopped := make(chan struct{}, 4)
-	shortcut := newShortcutUnderTest(fixture, func() { paused <- struct{}{} }, func() { stopped <- struct{}{} })
+	shortcut := newShortcutUnderTest(fixture, func(string) { paused <- struct{}{} }, func(string) { stopped <- struct{}{} })
 
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	shortcut.setForeground(false)
 	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("an ineligible app bound a global shortcut")
@@ -206,14 +247,14 @@ func TestComputerShortcutBindsPauseAndStopOnlyWhileEligibleAndBackgrounded(t *te
 	}
 
 	// Stop is independent of the input-open Pause arm.
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", shortcutSelectionA)
 	if fixture.isBound(computerEmergencyPauseAccelerator) {
 		t.Fatal("Pause stayed armed without an input-open selection")
 	}
 	if !fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("Stop was released while the selection was still stoppable")
 	}
-	shortcut.setDesired(true, false)
+	shortcut.setDesired(shortcutSelectionA, "")
 	if !fixture.isBound(computerEmergencyPauseAccelerator) {
 		t.Fatal("Pause was not armed for an input-open selection")
 	}
@@ -224,12 +265,12 @@ func TestComputerShortcutBindsPauseAndStopOnlyWhileEligibleAndBackgrounded(t *te
 
 func TestComputerShortcutFailureOfOneBindingLeavesTheOtherAndQuitIntact(t *testing.T) {
 	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) {})
 	fixture.setFail(computerEmergencyStopAccelerator, true)
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	if !fixture.isBound(computerEmergencyPauseAccelerator) {
 		t.Fatal("a failed Stop registration also prevented Pause from binding")
 	}
@@ -287,12 +328,12 @@ func TestComputerShortcutFailureOfOneBindingLeavesTheOtherAndQuitIntact(t *testi
 
 func TestComputerShortcutPauseFailureStillBindsStop(t *testing.T) {
 	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) {})
 	fixture.setFail(computerEmergencyPauseAccelerator, true)
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	if fixture.isBound(computerEmergencyPauseAccelerator) {
 		t.Fatal("a failed Pause registration reported bound")
 	}
@@ -312,14 +353,14 @@ func TestComputerShortcutPauseFailureStillBindsStop(t *testing.T) {
 func TestComputerShortcutDelayedReconcileUsesTheLatestArms(t *testing.T) {
 	fixture := newShortcutFixture()
 	scheduler := &shortcutScheduler{}
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) {})
 	shortcut.schedule = scheduler.schedule
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
 	scheduler.runAll(t)
-	shortcut.setDesired(true, true)
-	shortcut.setDesired(false, false)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
+	shortcut.setDesired("", "")
 	scheduler.next(t)()
 	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("a delayed stale arm bound a shortcut after the live arms were cleared")
@@ -329,7 +370,7 @@ func TestComputerShortcutDelayedReconcileUsesTheLatestArms(t *testing.T) {
 		t.Fatal("the cleared shortcut bound on a second delayed reconcile")
 	}
 
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	scheduler.next(t)()
 	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("the latest armed state did not bind both shortcuts")
@@ -337,8 +378,8 @@ func TestComputerShortcutDelayedReconcileUsesTheLatestArms(t *testing.T) {
 
 	// A delayed disarm invalidates the old registration; rearming before the
 	// queued reconcile replaces it with a live one.
-	shortcut.setDesired(false, false)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired("", "")
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	scheduler.next(t)()
 	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("a stale delayed disarm released the newly rearmed shortcuts")
@@ -351,7 +392,7 @@ func TestComputerShortcutDelayedReconcileUsesTheLatestArms(t *testing.T) {
 	// Repeating the same arms is not a new lifecycle state and must not queue
 	// another native reconcile.
 	before := scheduler.pendingCount()
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	if after := scheduler.pendingCount(); after != before {
 		t.Fatalf("unchanged arms queued %d reconciles", after-before)
 	}
@@ -363,12 +404,12 @@ func TestComputerShortcutFocusReleasesSynchronouslyWithoutRebindingFromQueuedWor
 	paused := make(chan struct{}, 4)
 	stopped := make(chan struct{}, 4)
 	shortcut := newShortcutUnderTest(fixture,
-		func() { paused <- struct{}{} }, func() { stopped <- struct{}{} })
+		func(string) { paused <- struct{}{} }, func(string) { stopped <- struct{}{} })
 	shortcut.schedule = scheduler.schedule
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	scheduler.next(t)()
 	oldPause := fixture.callback(computerEmergencyPauseAccelerator)
 	oldStop := fixture.callback(computerEmergencyStopAccelerator)
@@ -379,8 +420,8 @@ func TestComputerShortcutFocusReleasesSynchronouslyWithoutRebindingFromQueuedWor
 	// Leave delayed arm changes queued, then release on the foreground hook.
 	// The release must complete before the hook returns, and the queued work
 	// must not provide a second path while the app is active.
-	shortcut.setDesired(false, true)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired("", shortcutSelectionA)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	pending := scheduler.pendingCount()
 	if pending == 0 {
 		t.Fatal("the fixture did not queue the delayed arm changes")
@@ -416,12 +457,12 @@ func TestComputerShortcutRearmBeforeQueuedReconcileReplacesStaleRegistration(t *
 	fixture := newShortcutFixture()
 	scheduler := &shortcutScheduler{}
 	stopped := make(chan struct{}, 4)
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() { stopped <- struct{}{} })
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) { stopped <- struct{}{} })
 	shortcut.schedule = scheduler.schedule
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", shortcutSelectionA)
 	scheduler.next(t)()
 	oldStop := fixture.callback(computerEmergencyStopAccelerator)
 	if oldStop == nil {
@@ -430,8 +471,8 @@ func TestComputerShortcutRearmBeforeQueuedReconcileReplacesStaleRegistration(t *
 
 	// Disarm and rearm before the queued release runs. The old registration is
 	// still native, but its logical lease ended with the disarm.
-	shortcut.setDesired(false, false)
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", "")
+	shortcut.setDesired("", shortcutSelectionA)
 	oldStop()
 	expectNoShortcutPress(t, stopped, "Stop")
 
@@ -453,7 +494,7 @@ func TestComputerShortcutRearmBeforeQueuedReconcileReplacesStaleRegistration(t *
 
 	// An idle selection has no registration, and a retained callback cannot
 	// replay the earlier Stop.
-	shortcut.setDesired(false, false)
+	shortcut.setDesired("", "")
 	scheduler.runAll(t)
 	if fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("an idle selection kept Stop bound")
@@ -466,12 +507,12 @@ func TestComputerShortcutDisarmAndRearmDuringRegistrationInvalidatesTheInFlightA
 	fixture := newShortcutFixture()
 	scheduler := &shortcutScheduler{}
 	stopped := make(chan struct{}, 4)
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() { stopped <- struct{}{} })
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) { stopped <- struct{}{} })
 	shortcut.schedule = scheduler.schedule
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", shortcutSelectionA)
 	registration := scheduler.next(t)
 
 	// The first Stop registration is in flight while the controller, which
@@ -482,8 +523,8 @@ func TestComputerShortcutDisarmAndRearmDuringRegistrationInvalidatesTheInFlightA
 	shortcut.register = func(accelerator string, press func()) error {
 		if accelerator == computerEmergencyStopAccelerator && inFlight == nil {
 			inFlight = press
-			shortcut.setDesired(false, false)
-			shortcut.setDesired(false, true)
+			shortcut.setDesired("", "")
+			shortcut.setDesired("", shortcutSelectionA)
 		}
 		return fixture.register(accelerator, press)
 	}
@@ -537,13 +578,13 @@ func TestComputerShortcutStaleCallbackCannotFireAfterDisarmOrRearm(t *testing.T)
 	scheduler := &shortcutScheduler{}
 	paused := make(chan struct{}, 4)
 	stopped := make(chan struct{}, 4)
-	shortcut := newShortcutUnderTest(fixture, func() { paused <- struct{}{} }, func() { stopped <- struct{}{} })
+	shortcut := newShortcutUnderTest(fixture, func(string) { paused <- struct{}{} }, func(string) { stopped <- struct{}{} })
 	shortcut.schedule = scheduler.schedule
 
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
 	scheduler.runAll(t)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	scheduler.next(t)()
 	oldPause := fixture.callback(computerEmergencyPauseAccelerator)
 	oldStop := fixture.callback(computerEmergencyStopAccelerator)
@@ -553,7 +594,7 @@ func TestComputerShortcutStaleCallbackCannotFireAfterDisarmOrRearm(t *testing.T)
 
 	// The callback checks the live desired eligibility, not only the binding
 	// that registered it. Pause is disarmed before its delayed reconcile.
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", shortcutSelectionA)
 	if oldPause != nil {
 		oldPause()
 	}
@@ -569,7 +610,7 @@ func TestComputerShortcutStaleCallbackCannotFireAfterDisarmOrRearm(t *testing.T)
 	// obsolete registration. The Pause rearm then gets a fresh generation too.
 	shortcut.quitBinding()
 	shortcut.restore()
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	scheduler.next(t)()
 	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("the rearmed shortcuts did not bind")
@@ -588,10 +629,10 @@ func TestComputerShortcutStaleCallbackCannotFireAfterDisarmOrRearm(t *testing.T)
 func TestComputerShortcutPressNeverBlocksTheMainThread(t *testing.T) {
 	fixture := newShortcutFixture()
 	release := make(chan struct{})
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() { <-release })
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) { <-release })
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(false, true)
+	shortcut.setDesired("", shortcutSelectionA)
 
 	done := make(chan struct{})
 	go func() {
@@ -608,10 +649,10 @@ func TestComputerShortcutPressNeverBlocksTheMainThread(t *testing.T) {
 
 func TestComputerShortcutQuitReleasesAndCanceledQuitRestores(t *testing.T) {
 	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture, func() {}, func() {})
+	shortcut := newShortcutUnderTest(fixture, func(string) {}, func(string) {})
 	shortcut.setEligible(true)
 	shortcut.setForeground(false)
-	shortcut.setDesired(true, true)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
 	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("the shortcuts were not bound before quit")
 	}
@@ -631,4 +672,63 @@ func TestComputerShortcutQuitReleasesAndCanceledQuitRestores(t *testing.T) {
 	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
 		t.Fatal("a foreground app bound a shortcut during restore")
 	}
+}
+
+// TestComputerShortcutSelectionChangeInvalidatesKeptRegistrations proves a
+// nonempty A -> B arm change with the same logical boolean arms retargets both
+// chords immediately: the retained callbacks dispatch nothing, and exactly one
+// replacement per chord is installed for the exact new selection.
+func TestComputerShortcutSelectionChangeInvalidatesKeptRegistrations(t *testing.T) {
+	fixture := newShortcutFixture()
+	scheduler := &shortcutScheduler{}
+	pressed := make(chan string, 8)
+	shortcut := newShortcutUnderTest(fixture,
+		func(selectionID string) { pressed <- selectionID },
+		func(selectionID string) { pressed <- selectionID })
+	shortcut.schedule = scheduler.schedule
+	shortcut.setEligible(true)
+	shortcut.setForeground(false)
+	shortcut.setDesired(shortcutSelectionA, shortcutSelectionA)
+	scheduler.next(t)()
+	oldPause := fixture.callback(computerEmergencyPauseAccelerator)
+	oldStop := fixture.callback(computerEmergencyStopAccelerator)
+	if oldPause == nil || oldStop == nil {
+		t.Fatal("the fixture did not retain both registered callbacks")
+	}
+	for _, accelerator := range []string{computerEmergencyPauseAccelerator, computerEmergencyStopAccelerator} {
+		if attempts := fixture.attemptCount(accelerator); attempts != 1 {
+			t.Fatalf("%s made %d initial registration attempts", accelerator, attempts)
+		}
+	}
+
+	// Both arms stay nonempty, so a boolean-only owner would see no change even
+	// though they now name a different selection.
+	shortcut.setDesired(shortcutSelectionB, shortcutSelectionB)
+	oldPause()
+	oldStop()
+	expectNoShortcutSelection(t, pressed, "Pause")
+	expectNoShortcutSelection(t, pressed, "Stop")
+
+	scheduler.runAll(t)
+	for _, accelerator := range []string{computerEmergencyPauseAccelerator, computerEmergencyStopAccelerator} {
+		if attempts := fixture.attemptCount(accelerator); attempts != 2 {
+			t.Fatalf("%s made %d registration attempts, want exactly one replacement", accelerator, attempts)
+		}
+		if !fixture.isBound(accelerator) {
+			t.Fatalf("%s was not bound to the replacement selection", accelerator)
+		}
+	}
+	newPause := fixture.callback(computerEmergencyPauseAccelerator)
+	newStop := fixture.callback(computerEmergencyStopAccelerator)
+	if newPause == nil || newStop == nil {
+		t.Fatal("the fixture did not retain the replacement callbacks")
+	}
+	newPause()
+	awaitShortcutSelection(t, pressed, shortcutSelectionB, "Pause")
+	newStop()
+	awaitShortcutSelection(t, pressed, shortcutSelectionB, "Stop")
+	oldPause()
+	oldStop()
+	expectNoShortcutSelection(t, pressed, "Pause")
+	expectNoShortcutSelection(t, pressed, "Stop")
 }

@@ -96,9 +96,7 @@ func (d *Desktop) installShell(dataRoot string) {
 	// released whenever the app is active or quitting so one press can never
 	// fire both paths.
 	shortcut := newComputerEmergencyShortcut(
-		func() { d.emergencyPauseComputer() },
-		func() { d.emergencyStopComputer() },
-	)
+		d.emergencyPauseComputer, d.emergencyStopComputer)
 	d.computerShortcut = shortcut
 	if desktopComputerShortcutEligible(d) {
 		shortcut.setEligible(true)
@@ -142,9 +140,10 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	openSettings := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/settings/general") }
 	newTask := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/conversations/new") }
 	// Emergency pause and stop must not block the main thread on the
-	// acknowledgement.
-	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
-	stopComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyStopComputer() }
+	// acknowledgement. The native menu and tray act on the host's current
+	// selection, so they pass the empty selection id reserved for that path.
+	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer("") }
+	stopComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyStopComputer("") }
 	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
 	goBack := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(false) }
 	goForward := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(true) }

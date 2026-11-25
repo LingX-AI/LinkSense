@@ -953,11 +953,20 @@ app becomes active or quits, LinkSense releases its global registrations; the
 app-menu accelerators remain available. Focus and selection changes are applied
 on the UI thread, so an older focus or selection change is not replayed. The
 operating system's key delivery is outside LinkSense's control.
-Stop reuses the existing control Stop behavior: it acts on the host's current
-selection without page ids, closes input immediately, runs off the UI thread,
-and never cancels or replays the Codex turn. If either registration fails, the
-other chord and the menus remain available, and that chord is tried again only
-on a later focus or selection change.
+Each global chord is bound to the exact installed selection it was armed for,
+including through a same-selection renewal. A resume keeps the old paused
+selection current while it is in flight and installs a fresh selection id only
+on a successful acknowledgement, so a Stop armed for that paused id can still
+supersede the in-flight resume, while a press still queued for it after the new
+id installs is inert. If the armed selection has already been stopped, expired
+or replaced when the press reaches the controller, the chord does nothing: it
+never falls back to the host's current picker or a newer selection, even one for
+the same conversation and turn, and it sends no extra stop or cancel. The
+app-menu and menu-bar items keep acting on the host's current selection without
+page ids. Both paths close input immediately, run off the UI thread, and never
+cancel or replay the Codex turn. If either registration fails, the other chord
+and the menus remain available, and that chord is tried again only on a later
+focus or selection change.
 
 #### Late results, window changes and recovery
 

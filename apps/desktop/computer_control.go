@@ -158,8 +158,11 @@ type computerControlService interface {
 	status(desktop *Desktop, conversationID, turnID string) ComputerControlStatus
 	prepareConnection(connection *deviceConnection)
 	connectionEnded(connection *deviceConnection, session *deviceControlSession)
-	emergencyPause(desktop *Desktop)
-	emergencyStop(desktop *Desktop)
+	// emergencyPause and emergencyStop are the one native path per action. An
+	// empty selectionID is the menu/tray wildcard; a background chord passes
+	// the exact selection id its registration was armed for.
+	emergencyPause(desktop *Desktop, selectionID string)
+	emergencyStop(desktop *Desktop, selectionID string)
 }
 
 // ComputerControl is the closed M1b control binding. It is available only to
@@ -192,25 +195,26 @@ func (d *Desktop) ComputerControl(ctx context.Context, conversationID, turnID, a
 	return d.computer.control(ctx, d, conversationID, turnID, action)
 }
 
-// emergencyPauseComputer is the shell's menu/shortcut affordance. It acts on
-// the host's current selection without page ids, closes local input
-// immediately, and never surfaces native detail.
-func (d *Desktop) emergencyPauseComputer() {
+// emergencyPauseComputer is the one Pause affordance for the menu, tray and
+// background chord. An empty selectionID acts on the host's current selection;
+// the chord passes the exact selection it was armed for. It closes local input
+// immediately and never surfaces native detail.
+func (d *Desktop) emergencyPauseComputer(selectionID string) {
 	if d == nil || d.computer == nil {
 		return
 	}
-	d.computer.emergencyPause(d)
+	d.computer.emergencyPause(d, selectionID)
 }
 
-// emergencyStopComputer is the shell menu's Stop affordance. Like the pause
-// item it carries no page ids: the host resolves its current picker or exact
-// selection under the stop admission lock, so the gesture can never land on a
-// replacement chosen from a stale snapshot.
-func (d *Desktop) emergencyStopComputer() {
+// emergencyStopComputer is the one Stop affordance for the menu, tray and
+// background chord. An empty selectionID resolves the host's current picker or
+// selection under the stop admission lock; the chord passes its exact armed
+// selection and never falls back to a newer one.
+func (d *Desktop) emergencyStopComputer(selectionID string) {
 	if d == nil || d.computer == nil {
 		return
 	}
-	d.computer.emergencyStop(d)
+	d.computer.emergencyStop(d, selectionID)
 }
 
 // computerControlAck is one strictly validated success result.

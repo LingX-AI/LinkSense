@@ -5,7 +5,10 @@ package main
 // Pause (Cmd+Shift+Esc) is a global shortcut only while an installed selection
 // still has its input gate open. Stop (Ctrl+Shift+Esc) is global while an
 // installed selection is active or paused, including a pause, resume or renewal
-// still in flight, but not while it is retiring. Both are registered only while
+// still in flight, but not while it is retiring. Each registration reserves the
+// controller-owned selection id it was armed for, and the asynchronous press
+// must still match that exact selection when the controller admits it; a
+// replacement or pending picker is never touched. Both are registered only while
 // another app has focus: when LinkSense becomes active its global registrations
 // are released, leaving the native menu accelerators available. Registration
 // requires a build/host that can construct the signed driver; otherwise the
@@ -25,15 +28,23 @@ const (
 
 type computerShortcutBinding struct {
 	accelerator string
-	action      func()
-	wanted      bool
-	bound       bool
-	// stale marks a registration attempt whose logical arm was cleared after
-	// the attempt was reserved: both an in-flight native Register and an
-	// installed registration are invalid until a new attempt replaces them.
-	// It covers the attempt from reservation through native completion and
-	// installed ownership. Only starting an attempt clears it; native
-	// completion and release never do.
+	action      func(string)
+	// desiredID is the exact controller selection this arm belongs to; empty
+	// means the arm is off. A renewal keeps the selection id, so the installed
+	// registration stays valid; a resume installs a fresh id, and any other
+	// replacement also disarms it.
+	desiredID string
+	// reservedID is the exact selection captured by the current registration
+	// attempt and passed to action when the chord fires. It is never empty for
+	// an armed binding and never falls back to a wildcard.
+	reservedID string
+	bound      bool
+	// stale marks a registration attempt whose logical arm was cleared or
+	// retargeted after the attempt was reserved: both an in-flight native
+	// Register and an installed registration are invalid until a new attempt
+	// replaces them. It covers the attempt from reservation through native
+	// completion and installed ownership. Only starting an attempt clears it;
+	// native completion and release never do.
 	stale bool
 	// generation identifies the current registration attempt, allocated under
 	// the lock before the native call. A callback retained by an older
@@ -64,7 +75,7 @@ type computerEmergencyShortcut struct {
 	revision   uint64
 }
 
-func newComputerEmergencyShortcut(pressPause, pressStop func()) *computerEmergencyShortcut {
+func newComputerEmergencyShortcut(pressPause, pressStop func(string)) *computerEmergencyShortcut {
 	return &computerEmergencyShortcut{
 		register:   mygo.GlobalShortcut.Register,
 		unregister: mygo.GlobalShortcut.Unregister,
@@ -95,18 +106,20 @@ func (shortcut *computerEmergencyShortcut) setForeground(foreground bool) {
 	})
 }
 
-// setDesired records what the live controller state can currently stop or
-// pause, then schedules one reconcile when an arm changes. The reconcile reads
-// these latest flags instead of replaying the booleans captured by this call.
-func (shortcut *computerEmergencyShortcut) setDesired(pause, stop bool) {
+// setDesired records the exact selection each live arm belongs to, then
+// schedules one reconcile when either arm changes. A changed selection id is a
+// new arm even when it is still nonempty, so a retained callback from the old
+// selection can never act on the replacement. The reconcile reads these latest
+// ids instead of replaying the values captured by this call.
+func (shortcut *computerEmergencyShortcut) setDesired(pause, stop string) {
 	if shortcut == nil {
 		return
 	}
 	changed := shortcut.change(func() bool {
-		if shortcut.pause.wanted == pause && shortcut.stop.wanted == stop {
+		if shortcut.pause.desiredID == pause && shortcut.stop.desiredID == stop {
 			return false
 		}
-		shortcut.pause.wanted, shortcut.stop.wanted = pause, stop
+		shortcut.pause.desiredID, shortcut.stop.desiredID = pause, stop
 		return true
 	})
 	if changed {
@@ -114,7 +127,7 @@ func (shortcut *computerEmergencyShortcut) setDesired(pause, stop bool) {
 	}
 }
 
-func (d *Desktop) setComputerEmergencyShortcuts(pause, stop bool) {
+func (d *Desktop) setComputerEmergencyShortcuts(pause, stop string) {
 	if d == nil || d.computerShortcut == nil {
 		return
 	}
@@ -162,20 +175,20 @@ func (shortcut *computerEmergencyShortcut) change(change func() bool) bool {
 	changed := change()
 	if changed {
 		shortcut.revision++
-		shortcut.invalidateDisarmedLocked()
+		shortcut.invalidateLocked()
 	}
 	shortcut.mu.Unlock()
 	return changed
 }
 
-// invalidateDisarmedLocked revokes any registration identity whose logical arm
-// is now off, whether it is installed or still in flight in a native Register
-// call. The native completion may then observe the mark and release what it
-// acquired; a callback retained by the attempt cannot act on a replacement
-// selected meanwhile.
-func (shortcut *computerEmergencyShortcut) invalidateDisarmedLocked() {
+// invalidateLocked revokes any registration identity whose logical arm is now
+// off or names a different selection, whether it is installed or still in
+// flight in a native Register call. The native completion may then observe the
+// mark and release what it acquired; a callback retained by the attempt cannot
+// act on a replacement selected meanwhile.
+func (shortcut *computerEmergencyShortcut) invalidateLocked() {
 	for _, binding := range [2]*computerShortcutBinding{&shortcut.pause, &shortcut.stop} {
-		if !shortcut.desiredLocked(binding) {
+		if !shortcut.desiredLocked(binding) || binding.reservedID != binding.desiredID {
 			binding.stale = true
 		}
 	}
@@ -222,6 +235,7 @@ func (shortcut *computerEmergencyShortcut) reconcileBinding(binding *computerSho
 		binding.attempted = revision
 		binding.generation++
 		generation := binding.generation
+		binding.reservedID = binding.desiredID
 		binding.stale = false
 		shortcut.mu.Unlock()
 		press := func() { shortcut.fire(binding, generation) }
@@ -264,18 +278,22 @@ func (shortcut *computerEmergencyShortcut) releaseBinding(binding *computerShort
 }
 
 func (shortcut *computerEmergencyShortcut) desiredLocked(binding *computerShortcutBinding) bool {
-	return binding.wanted && shortcut.eligible && !shortcut.foreground && !shortcut.quit
+	return binding.desiredID != "" && shortcut.eligible && !shortcut.foreground && !shortcut.quit
 }
 
 // fire runs on the main thread. The pause or stop itself waits on the
-// authenticated socket, so it is always dispatched off the UI thread.
+// authenticated socket, so it is always dispatched off the UI thread. The
+// reserved selection id travels with the press; the controller rechecks it
+// under its admission lock, so this asynchronous hop can never fall through to
+// a newer selection or a pending picker.
 func (shortcut *computerEmergencyShortcut) fire(binding *computerShortcutBinding, generation uint64) {
 	shortcut.mu.Lock()
 	enabled := binding.bound && !binding.stale && binding.generation == generation &&
 		shortcut.desiredLocked(binding)
 	action := binding.action
+	selectionID := binding.reservedID
 	shortcut.mu.Unlock()
-	if enabled && action != nil {
-		go action()
+	if enabled && action != nil && selectionID != "" {
+		go action(selectionID)
 	}
 }

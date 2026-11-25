@@ -590,7 +590,7 @@ func (c *computerControl) selectTarget(ctx context.Context, desktop *Desktop, sc
 }
 
 func (c *computerControl) pause(ctx context.Context, desktop *Desktop, scope computerControlScope) (ComputerControlStatus, error) {
-	return c.pauseScope(ctx, desktop, scope, false)
+	return c.pauseScope(ctx, desktop, scope, false, "")
 }
 
 // renew is the explicit five-minute extension of the exact live selection. It
@@ -775,19 +775,41 @@ func computerControlRefusalPreCommit(code string) bool {
 	}
 }
 
-// pauseScope is shared by the renderer action and the native emergency pause.
-// host is true only for the emergency path: it uses the host's current
-// selection instead of renderer ids, which the binding already rejected as
-// empty. A pause is acknowledged paused only after both the correlated ack and
-// the executor's terminal/refs-clear proof; a lost ack leaves local input
-// closed but does not enable resume.
-func (c *computerControl) pauseScope(ctx context.Context, desktop *Desktop, scope computerControlScope, host bool) (ComputerControlStatus, error) {
+// admitsExactLocked reports whether a background chord reserved for
+// selectionID may still act. The caller holds c.mu. Only the exact installed
+// selection matches: a pending picker, an empty id, a replacement or an
+// already-retiring selection is a no-op (its input is already closed), never a
+// wildcard fallback.
+func (c *computerControl) admitsExactLocked(selectionID string) bool {
+	if selectionID == "" || c.selecting || c.retiring != nil {
+		return false
+	}
+	return c.executor != nil && c.selection.SelectionID == selectionID
+}
+
+// pauseScope is shared by the renderer action, the native menu pause and the
+// background chord. host is true for both host paths: the menu path carries no
+// renderer ids and uses the host's current selection, while selectionID is
+// nonempty only for the background chord, whose press must still find that
+// exact installed selection under this admission lock. An empty id keeps the
+// menu's existing wildcard behavior; the chord never supplies one. A pause is
+// acknowledged paused only after both the correlated ack and the executor's
+// terminal/refs-clear proof; a lost ack leaves local input closed but does not
+// enable resume.
+func (c *computerControl) pauseScope(ctx context.Context, desktop *Desktop, scope computerControlScope, host bool, selectionID string) (ComputerControlStatus, error) {
 	connection, session := c.usableConnection(desktop)
 	if connection == nil {
 		return c.status(desktop, scope.ConversationID, scope.TurnID), errComputerUnavailable
 	}
 
 	c.mu.Lock()
+	if selectionID != "" && !c.admitsExactLocked(selectionID) {
+		// The selection this press was armed for is already replaced, retiring
+		// or behind an open picker. The background chord is inert here and must
+		// not fall back to the host's current picker or selection.
+		c.mu.Unlock()
+		return c.status(desktop, scope.ConversationID, scope.TurnID), nil
+	}
 	if c.selecting {
 		if !host && (!strings.EqualFold(c.selectingScope.ConversationID, scope.ConversationID) ||
 			!strings.EqualFold(c.selectingScope.TurnID, scope.TurnID)) {
@@ -1064,15 +1086,18 @@ func (c *computerControl) resume(ctx context.Context, desktop *Desktop, scope co
 }
 
 func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope computerControlScope) (ComputerControlStatus, error) {
-	return c.stopScope(ctx, desktop, scope, false)
+	return c.stopScope(ctx, desktop, scope, false, "")
 }
 
-// stopScope is shared by the renderer action and the native menu stop. host is
-// true only for the menu path: it carries no renderer ids, so the exact scope
-// is resolved from the live picker or selection under this same admission lock.
-// A replacement installed between a menu gesture and this lock is therefore
-// either the one current selection stopped here or a newer one that owns the
-// state; a stale pre-lock snapshot is never used.
+// stopScope is shared by the renderer action, the native menu stop and the
+// background chord. host is true for both host paths: the menu path carries no
+// renderer ids, so the exact scope is resolved from the live picker or selection
+// under this same admission lock. A replacement installed between a menu
+// gesture and this lock is therefore either the one current selection stopped
+// here or a newer one that owns the state; a stale pre-lock snapshot is never
+// used. selectionID is nonempty only for the background chord, which must still
+// find that exact selection under this lock and is inert against a replacement
+// or a pending picker; an empty id keeps the menu's wildcard behavior.
 //
 // The selection captured under this lock is the one the gesture stops. Its
 // exact executor is retired first, which closes local input synchronously, and
@@ -1081,13 +1106,20 @@ func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope comp
 // decide whether the stopped selection is reported: the one stop frame is sent
 // only when the current link and owner still match the captured selection, and
 // a stale generation never receives it.
-func (c *computerControl) stopScope(ctx context.Context, desktop *Desktop, scope computerControlScope, host bool) (ComputerControlStatus, error) {
+func (c *computerControl) stopScope(ctx context.Context, desktop *Desktop, scope computerControlScope, host bool, selectionID string) (ComputerControlStatus, error) {
 	// This lookup serves only the pending-picker stopped terminal below. The
 	// selection path ignores it: nothing captured before admission may decide
 	// the link that receives the stop frame.
 	pickerConnection, pickerSession := c.usableConnection(desktop)
 
 	c.mu.Lock()
+	if selectionID != "" && !c.admitsExactLocked(selectionID) {
+		// The selection this press was armed for is already replaced, retiring
+		// or behind a pending picker. The background chord must not cancel that
+		// picker or stop a different selection, so this press is a no-op.
+		c.mu.Unlock()
+		return c.status(desktop, scope.ConversationID, scope.TurnID), nil
+	}
 	if host {
 		switch {
 		case c.retiring != nil:
@@ -1447,11 +1479,13 @@ func (c *computerControl) observeRuntimeFrame(connection *deviceConnection, fram
 // syncEmergencyShortcut derives both global bindings from the live selection
 // state instead of replaying a transition's stale decision: Pause is armed only
 // while an active selection's installed gate still admits input, and Stop while
-// an installed selection is active or paused and not already retiring. The
-// controller records only these desired arms under shortcutMu, so a late reset,
-// pause, expiry or terminal from an older scope cannot overwrite a newer one;
-// the actual native update is scheduled on the UI thread by the shortcut owner
-// and never waits here.
+// an installed selection is active or paused and not already retiring. Each arm
+// carries that exact selection id, so a same-boolean replacement retargets and
+// invalidates the old registration instead of leaving it able to act on the new
+// selection. The controller records only these desired arms under shortcutMu,
+// so a late reset, pause, expiry or terminal from an older scope cannot
+// overwrite a newer one; the actual native update is scheduled on the UI thread
+// by the shortcut owner and never waits here.
 func (c *computerControl) syncEmergencyShortcut() {
 	if c == nil || c.desktop == nil {
 		return
@@ -1459,42 +1493,58 @@ func (c *computerControl) syncEmergencyShortcut() {
 	c.shortcutMu.Lock()
 	defer c.shortcutMu.Unlock()
 	c.mu.Lock()
-	pause := c.state == computerControlStateActive && c.gate != nil && c.gate.open()
-	stop := c.retiring == nil && c.executor != nil &&
-		(c.state == computerControlStateActive || c.state == computerControlStatePaused)
+	pause, stop := "", ""
+	selectionID := c.selection.SelectionID
+	if c.retiring == nil && c.executor != nil && selectionID != "" {
+		if c.state == computerControlStateActive && c.gate != nil && c.gate.open() {
+			pause = selectionID
+		}
+		if c.state == computerControlStateActive || c.state == computerControlStatePaused {
+			stop = selectionID
+		}
+	}
 	c.mu.Unlock()
 	c.desktop.setComputerEmergencyShortcuts(pause, stop)
 }
 
-func (c *computerControl) emergencyPause(desktop *Desktop) {
+// emergencyPause is the one native Pause path. An empty selectionID is the
+// menu/tray wildcard and acts on the host's current selection; a background
+// chord passes the exact selection id it was armed for, which the controller
+// rechecks under the pause admission lock and is inert if the selection was
+// replaced, is already retiring, or a picker is open.
+func (c *computerControl) emergencyPause(desktop *Desktop, selectionID string) {
 	if c == nil || desktop == nil {
 		return
 	}
+	// The native menu/tray reports the selection current at entry; the background
+	// chord must not read any pre-admission snapshot.
+	scope := computerControlScope{}
+	if selectionID == "" {
+		c.mu.Lock()
+		scope = computerControlScope{
+			ConversationID: c.selection.ConversationID, TurnID: c.selection.TurnID,
+		}
+		c.mu.Unlock()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), computerControlPauseAckTimeout+5*time.Second)
 	defer cancel()
-	// The host path carries the current selection's own scope only for status
-	// reporting. It does not accept an empty renderer scope; that wildcard is
-	// rejected by the binding before this method is reachable.
-	c.mu.Lock()
-	scope := computerControlScope{
-		ConversationID: c.selection.ConversationID, TurnID: c.selection.TurnID,
-	}
-	c.mu.Unlock()
-	_, _ = c.pauseScope(ctx, desktop, scope, true)
+	_, _ = c.pauseScope(ctx, desktop, scope, true, selectionID)
 }
 
-// emergencyStop is the shell menu's Stop affordance. It carries no renderer
-// ids; stopScope resolves the current picker or exact selection under the stop
-// admission lock and reuses the one existing retirement and terminal-proof
-// path. It never opens a picker, sends no stop when the link is gone, and
-// queues no retry.
-func (c *computerControl) emergencyStop(desktop *Desktop) {
+// emergencyStop is the one native Stop path. An empty selectionID is the
+// menu/tray wildcard and resolves the current picker or exact selection under
+// the stop admission lock. A background chord passes its exact armed selection;
+// a replacement, a pending picker or an already-retiring selection makes the
+// press inert, and the matching path keeps the existing post-admission link
+// lookup and local-only offline retirement. Neither path opens a picker, sends
+// a stop when the link is gone, or queues a retry.
+func (c *computerControl) emergencyStop(desktop *Desktop, selectionID string) {
 	if c == nil || desktop == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), computerControlStopAckTimeout+5*time.Second)
 	defer cancel()
-	_, _ = c.stopScope(ctx, desktop, computerControlScope{}, true)
+	_, _ = c.stopScope(ctx, desktop, computerControlScope{}, true, selectionID)
 }
 
 func newComputerControlID() string {
