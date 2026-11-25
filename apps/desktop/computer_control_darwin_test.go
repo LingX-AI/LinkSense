@@ -2304,75 +2304,128 @@ func TestComputerControlArmsEmergencyShortcutsOnlyWhileStoppable(t *testing.T) {
 }
 
 func TestComputerControlStopShortcutStaysArmedWhilePausedAndStopsOnce(t *testing.T) {
-	platform := &controlTestPlatform{
-		eligible: true,
-		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
-	}
-	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
-	executor := &controlTestExecutor{closedDone: make(chan struct{})}
-	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
-		return executor, nil
-	}
-	fixture := newShortcutFixture()
-	shortcut := newShortcutUnderTest(fixture,
-		harness.desktop.emergencyPauseComputer, harness.desktop.emergencyStopComputer)
-	harness.desktop.computerShortcut = shortcut
-	shortcut.setEligible(true)
-	shortcut.setForeground(false)
-	selectionID := selectActiveTarget(t, harness, platform)
-	if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
-		t.Fatal("the active selection did not arm both shortcuts")
-	}
+	for _, testCase := range []struct {
+		name         string
+		holdPauseAck bool
+	}{
+		{name: "Pause ack received"},
+		{name: "Pause ack still held", holdPauseAck: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			platform := &controlTestPlatform{
+				eligible: true,
+				pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+			}
+			harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+			executor := &controlTestExecutor{closedDone: make(chan struct{})}
+			platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+				return executor, nil
+			}
+			fixture := newShortcutFixture()
+			shortcut := newShortcutUnderTest(fixture,
+				harness.desktop.emergencyPauseComputer, harness.desktop.emergencyStopComputer)
+			harness.desktop.computerShortcut = shortcut
+			shortcut.setEligible(true)
+			shortcut.setForeground(false)
+			selectionID := selectActiveTarget(t, harness, platform)
+			if !fixture.isBound(computerEmergencyPauseAccelerator) || !fixture.isBound(computerEmergencyStopAccelerator) {
+				t.Fatal("the active selection did not arm both shortcuts")
+			}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	pauseResults := controlAsync(ctx, harness.desktop, "pause")
-	pauseFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
-	// Input closes before the pause acknowledgement. Pause is no longer armed,
-	// but Stop must remain available for the same installed selection.
-	if fixture.isBound(computerEmergencyPauseAccelerator) {
-		t.Fatal("a pause with input already closed kept Pause armed")
-	}
-	if !fixture.isBound(computerEmergencyStopAccelerator) {
-		t.Fatal("an in-flight pause released Stop")
-	}
-	sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
-		controlSession, selectionID, controlGeneration, harness.grantExpiry)
-	if result := awaitControl(t, pauseResults); result.err != nil || result.status.State != computerControlStatePaused {
-		t.Fatalf("pause did not finish: %+v", result)
-	}
-	if fixture.isBound(computerEmergencyPauseAccelerator) {
-		t.Fatal("a paused selection kept Pause armed")
-	}
-	if !fixture.isBound(computerEmergencyStopAccelerator) {
-		t.Fatal("a paused selection released Stop")
-	}
+			// No parent deadline: if Stop failed to cancel the pause wait, the
+			// fixture's 5-second wait must report it before the production
+			// 15-second pause timeout turns it into the same unavailable error.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			pauseResults := controlAsync(ctx, harness.desktop, "pause")
+			pauseFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+			if body := controlFrameBody(t, pauseFrame); body["action"] != "pause" ||
+				body["selection_id"] != selectionID ||
+				body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
+				t.Fatalf("pause was not bound to the active selection: %+v", body)
+			}
+			// Input closes before the pause acknowledgement. Pause is no longer
+			// armed, but Stop must remain available for the same installed
+			// selection.
+			if fixture.isBound(computerEmergencyPauseAccelerator) {
+				t.Fatal("a pause with input already closed kept Pause armed")
+			}
+			if !fixture.isBound(computerEmergencyStopAccelerator) {
+				t.Fatal("an in-flight pause released Stop")
+			}
+			if !testCase.holdPauseAck {
+				sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
+					controlSession, selectionID, controlGeneration, harness.grantExpiry)
+				if result := awaitControl(t, pauseResults); result.err != nil || result.status.State != computerControlStatePaused {
+					t.Fatalf("pause did not finish: %+v", result)
+				}
+				if fixture.isBound(computerEmergencyPauseAccelerator) {
+					t.Fatal("a paused selection kept Pause armed")
+				}
+				if !fixture.isBound(computerEmergencyStopAccelerator) {
+					t.Fatal("a paused selection released Stop")
+				}
+			}
 
-	fixture.press(computerEmergencyStopAccelerator)
-	stopFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
-	body := controlFrameBody(t, stopFrame)
-	if body["action"] != "stop" || body["selection_id"] != selectionID ||
-		body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
-		t.Fatalf("the global stop was not bound to the paused selection: %+v", body)
-	}
-	// Admission closes the exact local boundary before the stop frame, while
-	// the executor remains installed until its real act terminal. Retirement may
-	// already have released the executor by now, so assert the closed boundary
-	// instead of one particular stale-call error.
-	if harness.control.gate.open() {
-		t.Fatal("the global stop left local input open")
-	}
-	if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
-		t.Fatal("a retiring selection kept a global shortcut bound")
-	}
-	sendControlAck(t, harness.socket, stopFrame["id"].(string), computerControlStateStopped,
-		controlSession, selectionID, controlGeneration, time.Now())
-	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
-	executor.awaitClosed(t)
-	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
-	expectNoRuntimeMessage(t, harness.messages, 80*time.Millisecond)
-	if picks := platform.picks.Load(); picks != 1 {
-		t.Fatalf("the global stop opened %d additional pickers", picks-1)
+			fixture.press(computerEmergencyStopAccelerator)
+			stopFrame := nextControlFrame(t, harness.socket, computerControlRequestType)
+			body := controlFrameBody(t, stopFrame)
+			if body["action"] != "stop" || body["selection_id"] != selectionID ||
+				body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
+				t.Fatalf("the global stop was not bound to the exact selection: %+v", body)
+			}
+			// Admission closes the exact local boundary before the stop frame,
+			// while the executor remains installed until its real act terminal.
+			// Retirement may already have released the executor by now, so assert
+			// the closed boundary instead of one particular stale-call error.
+			if harness.control.gate.open() {
+				t.Fatal("the global stop left local input open")
+			}
+			if fixture.isBound(computerEmergencyPauseAccelerator) || fixture.isBound(computerEmergencyStopAccelerator) {
+				t.Fatal("a retiring selection kept a global shortcut bound")
+			}
+			if testCase.holdPauseAck {
+				// Stop canceled the pause wait itself, before any pause reply was
+				// written; the superseded pause then sees the newer epoch and
+				// reports unavailable, not canceled.
+				result := awaitControl(t, pauseResults)
+				if result.err != errComputerUnavailable {
+					t.Fatalf("the superseded pause returned %+v, want %v", result, errComputerUnavailable)
+				}
+				if result.status.State != computerControlStateRetiring &&
+					result.status.State != computerControlStateStopped {
+					t.Fatalf("the superseded pause reported %+v", result.status)
+				}
+				// The late success is written only now; the fixture pong proves the
+				// read loop already handled it. It must not install paused, reopen
+				// input or rebind the exact executor.
+				sendControlAck(t, harness.socket, pauseFrame["id"].(string), computerControlStatePaused,
+					controlSession, selectionID, controlGeneration, harness.grantExpiry)
+				awaitFixtureReadBarrier(t, harness.socket)
+				if harness.control.gate.open() {
+					t.Fatal("the late pause ack reopened input")
+				}
+				if selection := executor.selection(); selection.SelectionID != selectionID {
+					t.Fatalf("the late pause ack changed the executor binding: %+v", selection)
+				}
+				if selects := executor.selectCount(); selects != 1 {
+					t.Fatalf("the late pause ack rebound the exact executor: %d", selects)
+				}
+				if status := harness.control.status(harness.desktop, controlConversation, controlTurn); status.State != computerControlStateRetiring &&
+					status.State != computerControlStateStopped {
+					t.Fatalf("the late pause ack reported %+v", status)
+				}
+			}
+			sendControlAck(t, harness.socket, stopFrame["id"].(string), computerControlStateStopped,
+				controlSession, selectionID, controlGeneration, time.Now())
+			waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+			executor.awaitClosed(t)
+			expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+			expectNoRuntimeMessage(t, harness.messages, 80*time.Millisecond)
+			if picks := platform.picks.Load(); picks != 1 {
+				t.Fatalf("the global stop opened %d additional pickers", picks-1)
+			}
+		})
 	}
 }
 
