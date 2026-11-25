@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
@@ -9,6 +9,8 @@ import { desktopTarget, run, validateDesktopTarget } from "./desktop.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const desktop = path.join(root, "apps/desktop");
+const downloadCachePath = ".data/desktop/downloads";
+const archiveDigest = /^[0-9a-f]{64}$/u;
 const maximumBinaryBytes = 512 * 1024 * 1024;
 const relativeFile = z.string().min(1).max(240).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u).refine(value =>
   !value.startsWith("/") &&
@@ -21,7 +23,7 @@ const artifactSchema = z.strictObject({
     return url.protocol === "https:" && !url.username && !url.password &&
       !url.search && !url.hash && ["github.com", "nodejs.org"].includes(url.hostname);
   }, "untrusted_resource_origin"),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  sha256: z.string().regex(archiveDigest),
   files: z.array(z.strictObject({ source: relativeFile.nullable(), destination: relativeFile })).min(1).max(4),
 }).refine(artifact => artifact.format === "file"
   ? artifact.files.length === 1 && artifact.files[0].source === null
@@ -208,16 +210,37 @@ export async function verifyPackagedDesktopRuntime(runtime, target, versions) {
   } finally { await rm(home, { recursive: true, force: true }); }
 }
 
+export async function pruneDesktopDownloadCache(projectRoot, validatedManifest) {
+  const cache = path.join(projectRoot, downloadCachePath);
+  try {
+    // shortcut: path checks assume a stable checkout during serialized packaging; concurrent moves would need descriptor-relative deletion.
+    if (await realpath(cache) !== cache) return;
+    const pinned = new Set(Object.values(validatedManifest.platforms).flatMap(platform =>
+      platform.artifacts.map(artifact => artifact.sha256)));
+    for (const name of await readdir(cache)) {
+      if (!archiveDigest.test(name) || pinned.has(name)) continue;
+      if (await realpath(cache) !== cache) return;
+      const file = path.join(cache, name);
+      if (!(await lstat(file)).isFile()) continue;
+      if (await realpath(cache) !== cache) return;
+      await unlink(file);
+    }
+  } catch {
+    console.warn(`Warning: could not finish pruning ${downloadCachePath}; the prepared desktop runtime is unchanged.`);
+  }
+}
+
 export async function prepareDesktopResources(target) {
   validateDesktopTarget(target);
   const manifest = parseDesktopResources(JSON.parse(await readFile(path.join(desktop, "desktop-resources.json"), "utf8")));
   const pinnedCodex = JSON.parse(await readFile(path.join(root, "apps/runner/src/codex/runtime-version.json"), "utf8"));
   if (manifest.versions.codex !== pinnedCodex.version) throw new Error("Desktop and cloud Codex versions differ");
-  const cache = path.join(root, ".data/desktop/downloads");
+  const cache = path.join(root, downloadCachePath);
   await mkdir(cache, { recursive: true, mode: 0o700 });
   const stagingParent = path.join(root, ".data/desktop/staging");
   await mkdir(stagingParent, { recursive: true, mode: 0o700 });
   const staging = await mkdtemp(path.join(stagingParent, "runtime-"));
+  let prepared;
   try {
     const files = [];
     const platform = manifest.platforms[target];
@@ -264,7 +287,9 @@ export async function prepareDesktopResources(target) {
     }
     await mkdir(path.dirname(destination), { recursive: true });
     await rename(staging, destination);
-    console.log(`Prepared checksum-verified desktop runtime for ${target}`);
-    return { runtime, manifestBytes };
+    prepared = { runtime, manifestBytes };
   } finally { await rm(staging, { recursive: true, force: true }); }
+  await pruneDesktopDownloadCache(root, manifest);
+  console.log(`Prepared checksum-verified desktop runtime for ${target}`);
+  return prepared;
 }

@@ -494,6 +494,27 @@ for the expanded application. Node and Codex account for approximately
 understated installed size; download size and installed size are tracked
 separately for release review.
 
+### Local packaging cleanup
+
+Run packaging serially in a checkout: the frontend output and prepared
+runtime directories are shared. Use isolated archives for concurrent builds.
+Reuse one checksum-verified archive cache per checkout (`.data/desktop/downloads`)
+and leave its directory layout in place during packaging. After successful
+runtime preparation, `desktop:prepare` and `desktop:build` prune only direct
+regular files named with exactly 64 lowercase hex digits that no platform in
+`desktop-resources.json` still pins. Unknown entries, subdirectories, active
+`.tmp` files and symlinks stay. If the cache or an ancestor redirects it away
+from its expected location, pruning is skipped. A cleanup error warns without
+failing preparation.
+
+`apps/desktop/resources/<os>-<arch>/runtime` is the fixed input to packaging
+and runtime tests. MyGo's `apps/desktop/build/<os>-<arch>/` holds the latest
+local development output for that target, including the complete distributable
+bundle with its own runtime. Keep only the latest local development output per
+target and remove disposable acceptance-test outputs once nothing references
+them. Do not remove files from inside bundles. Verified releases and rollback
+artifacts follow the separate [release rules](#releasing-a-verified-candidate).
+
 ### macOS releases
 
 Build on an Apple silicon Mac with Xcode command-line tools, a standard

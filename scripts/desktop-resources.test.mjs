@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { desktopTarget } from "./desktop.mjs";
-import { desktopResourceDigest, desktopRuntimeVersionChecks, extractDesktopArtifact, parseDesktopResources, verifyDesktopPackageManifest, verifyDesktopResource, verifyDesktopRuntimeFiles, verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } from "./desktop-resources.mjs";
+import { desktopResourceDigest, desktopRuntimeVersionChecks, extractDesktopArtifact, parseDesktopResources, pruneDesktopDownloadCache, verifyDesktopPackageManifest, verifyDesktopResource, verifyDesktopRuntimeFiles, verifyMacosBundlePermissions, verifyPackagedDesktopRuntime } from "./desktop-resources.mjs";
+
+const downloadCache = ".data/desktop/downloads";
+const obsoleteDigest = "0".repeat(64);
+
+async function downloadCacheFixture(t) {
+  const directory = await mkdtemp(path.join(await realpath(tmpdir()), "linksense-desktop-cache-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const manifest = parseDesktopResources(JSON.parse(await readFile(new URL("../apps/desktop/desktop-resources.json", import.meta.url), "utf8")));
+  return { directory, manifest };
+}
 
 test("desktop release manifest pins every platform and its native sandbox helpers", async () => {
   const input = JSON.parse(await readFile(new URL("../apps/desktop/desktop-resources.json", import.meta.url), "utf8"));
@@ -30,6 +40,83 @@ test("desktop release manifest pins every platform and its native sandbox helper
     mutate(invalid);
     assert.throws(() => parseDesktopResources(invalid));
   }
+});
+
+test("desktop download cache prunes only unpinned digest files on repeated runs", async t => {
+  const { directory, manifest } = await downloadCacheFixture(t);
+  const cache = path.join(directory, downloadCache);
+  const { platforms } = manifest;
+  const keep = [
+    platforms["darwin/arm64"].artifacts[0].sha256,
+    platforms["darwin/amd64"].artifacts[0].sha256,
+    platforms["windows/arm64"].artifacts.find(artifact => artifact.key === "codex").sha256,
+    "unknown.txt", "A".repeat(64), "b".repeat(63), `${obsoleteDigest}.active.tmp`,
+  ];
+  const nested = path.join(cache, "1".repeat(64), "2".repeat(64));
+  await mkdir(path.dirname(nested), { recursive: true });
+  await writeFile(nested, "nested fixture");
+  for (const name of [...keep, obsoleteDigest]) await writeFile(path.join(cache, name), name);
+  const linked = path.join(cache, "3".repeat(64));
+  const target = path.join(directory, "outside-cache");
+  if (process.platform !== "win32") {
+    await writeFile(target, "link target");
+    await symlink(target, linked);
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await pruneDesktopDownloadCache(directory, manifest);
+    await assert.rejects(lstat(path.join(cache, obsoleteDigest)), { code: "ENOENT" });
+    for (const name of keep) assert.equal(await readFile(path.join(cache, name), "utf8"), name);
+    assert.equal(await readFile(nested, "utf8"), "nested fixture");
+    if (process.platform !== "win32") {
+      assert.ok((await lstat(linked)).isSymbolicLink());
+      assert.equal(await readFile(target, "utf8"), "link target");
+    }
+  }
+});
+
+if (process.platform !== "win32") {
+  test("desktop download cache skips a redirected cache or ancestor", async t => {
+    const { directory, manifest } = await downloadCacheFixture(t);
+    for (const component of [".data", ".data/desktop", downloadCache]) {
+      const name = path.basename(component);
+      const project = path.join(directory, name);
+      const link = path.join(project, component);
+      const elsewhere = path.join(directory, "elsewhere", name);
+      const redirectedCache = path.join(elsewhere, path.relative(component, downloadCache));
+      await mkdir(path.dirname(link), { recursive: true });
+      await mkdir(redirectedCache, { recursive: true });
+      await symlink(elsewhere, link, "dir");
+      const archive = path.join(redirectedCache, obsoleteDigest);
+      await writeFile(archive, "redirected fixture");
+
+      await pruneDesktopDownloadCache(project, manifest);
+      assert.equal(await readFile(archive, "utf8"), "redirected fixture");
+      assert.ok((await lstat(link)).isSymbolicLink());
+    }
+  });
+}
+
+test("desktop download cache warns once on a failed prune and can prune on the next run", async t => {
+  const { directory, manifest } = await downloadCacheFixture(t);
+  const cache = path.join(directory, downloadCache);
+  await mkdir(path.dirname(cache), { recursive: true });
+  await writeFile(cache, "not a directory");
+  const warn = t.mock.method(console, "warn", () => {});
+
+  await pruneDesktopDownloadCache(directory, manifest);
+  assert.equal(await readFile(cache, "utf8"), "not a directory");
+  assert.deepEqual(warn.mock.calls.map(call => call.arguments), [
+    ["Warning: could not finish pruning .data/desktop/downloads; the prepared desktop runtime is unchanged."],
+  ]);
+
+  await rm(cache);
+  await mkdir(cache);
+  const archive = path.join(cache, obsoleteDigest);
+  await writeFile(archive, "obsolete fixture");
+  await pruneDesktopDownloadCache(directory, manifest);
+  await assert.rejects(lstat(archive), { code: "ENOENT" });
+  assert.equal(warn.mock.callCount(), 1);
 });
 
 test("package verification compares the captured manifest and exact ad hoc executable bytes", async () => {
