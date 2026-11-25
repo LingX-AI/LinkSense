@@ -8,6 +8,7 @@ import {
   desktopExecutionDeviceReadySchema,
   desktopExecutionProtocolVersion,
   desktopExecutionResultSchema,
+  desktopModelSwitchOperation,
   desktopNegotiatedOperationSchema,
   desktopToolLifetimeFor,
   desktopToolOperationSchema,
@@ -70,7 +71,7 @@ describe("M1b computer.execute wire contract", () => {
     // command operation, so it can never become an independent operation.
     expect(desktopToolRequestOperationSchema.options).not.toContain("computer.wait");
     expect(desktopNegotiatedOperationSchema.options.filter(operation =>
-      operation !== "computer.execute" && operation !== "computer.wait"))
+      operation !== "computer.execute" && operation !== "computer.wait" && operation !== desktopModelSwitchOperation))
       .toEqual([...desktopToolOperationSchema.options, "approval.respond"]);
     expect(supportsDesktopComputerWait(["computer.execute"])).toBe(false);
     expect(supportsDesktopComputerWait(["computer.wait"])).toBe(false);

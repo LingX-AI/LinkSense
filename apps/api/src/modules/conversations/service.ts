@@ -1,6 +1,6 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { assertPairedDesktopDevice } from "./execution-target.js";
-import { lockDesktopConversation, type DesktopProjectionFence } from "../desktop-credentials/run-authority.js";
+import { lockDesktopConversation, type DesktopStartProjectionFence } from "../desktop-credentials/run-authority.js";
 import { endLocalComputerSessions } from "../local-computer/repository.js";
 import { resolveDesktopArtifactFileChanges } from "../files/desktop-artifact-references.js";
 import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
@@ -672,6 +672,7 @@ const turnStartIntentSchema = z.strictObject({
   ]),
   codexThreadId: z.string().min(1).nullable(),
   codexTurnId: z.string().min(1).nullable(),
+  desktopTransitionSourceThreadId: z.uuid().nullish().transform(value => value ?? null),
   createdAt: z.date(),
   updatedAt: z.date(),
 }).superRefine((intent, context) => {
@@ -766,6 +767,7 @@ type StartedRunnerTurn = {
   codexThreadId: string;
   codexTurnId: string;
   goal?: RunnerCodexGoal | undefined;
+  forkedFromId?: string | undefined;
 };
 
 export type ExecutionConcurrencySettingsReader = {
@@ -1018,7 +1020,7 @@ export class ConversationService {
       intent.conversationId,
       currentModel,
       codexThreadId,
-      intent.regenerationJson?.turnSequenceNo,
+      intent.regenerationJson ? { beforeSequenceNo: intent.regenerationJson.turnSequenceNo } : undefined,
     );
   }
 
@@ -1026,38 +1028,32 @@ export class ConversationService {
     conversationId: string,
     currentModel: string,
     codexThreadId: string | null,
-    beforeSequenceNo?: number,
+    { beforeSequenceNo, desktop = false }: { beforeSequenceNo?: number; desktop?: boolean } = {},
   ): Promise<ResolvedModelTransitionRuntime | null> {
     if (!codexThreadId) return null;
-    const establishedSourceTurn = await this.prisma.conversationTurn.findFirst({
-      where: {
-        conversationId,
-        codexThreadId,
-        model: { not: null },
-        status: "completed",
-        ...(beforeSequenceNo === undefined
-          ? {}
-          : { sequenceNo: { lt: beforeSequenceNo } }),
-      },
+    const threadScope = {
+      conversationId,
+      codexThreadId,
+      ...(beforeSequenceNo === undefined ? {} : { sequenceNo: { lt: beforeSequenceNo } }),
+    };
+    // Mac switches commit at native turn start. An interrupted or failed turn
+    // still owns its fork, including when completed source history was retagged.
+    const projectedSourceTurn = await this.prisma.conversationTurn.findFirst({
+      where: desktop
+        ? { ...threadScope, taskKind: "turn", codexTurnId: { not: "" } }
+        : { ...threadScope, model: { not: null }, status: "completed" },
       orderBy: { sequenceNo: "desc" },
       select: { model: true },
     });
-    const fallbackSourceTurn = establishedSourceTurn
+    const fallbackSourceTurn = desktop || projectedSourceTurn
       ? null
       : await this.prisma.conversationTurn.findFirst({
-          where: {
-            conversationId,
-            codexThreadId,
-            model: { not: null },
-            ...(beforeSequenceNo === undefined
-              ? {}
-              : { sequenceNo: { lt: beforeSequenceNo } }),
-          },
+          where: { ...threadScope, model: { not: null } },
           orderBy: { sequenceNo: "desc" },
           select: { model: true },
         });
     const sourceModel = (
-      establishedSourceTurn ?? fallbackSourceTurn
+      projectedSourceTurn ?? fallbackSourceTurn
     )?.model?.trim();
     if (!sourceModel || sourceModel === currentModel) return null;
     if (!this.modelRuntimeSettings) {
@@ -1066,9 +1062,14 @@ export class ConversationService {
     try {
       return await this.modelRuntimeSettings.resolveModelTransitionRuntime(sourceModel);
     } catch (error) {
-      // Historical turns may reference a model that has since been removed
-      // from provider settings; the transition hint is best-effort.
-      if (error instanceof AppError && error.code === "MODEL_SELECTION_INVALID") {
+      // Cloud transition hints are best-effort for historical turns whose
+      // model was removed. A Mac source must resolve before it can compact
+      // and fork, so the native path keeps the original failure.
+      if (
+        !desktop &&
+        error instanceof AppError &&
+        error.code === "MODEL_SELECTION_INVALID"
+      ) {
         return null;
       }
       throw error;
@@ -1739,7 +1740,7 @@ export class ConversationService {
   async settleStartOperation(
     ownerId: string,
     input: RunnerStartSettled,
-    desktop?: DesktopProjectionFence & { connectionId: string },
+    desktop?: DesktopStartProjectionFence,
   ): Promise<boolean> {
     bindTaskLatency({ conversationId: input.conversationId, turnId: input.projectionTurnId });
     const stored = await this.prisma.conversationTurnStartIntent.findUnique({
@@ -1759,7 +1760,7 @@ export class ConversationService {
 
   async recoverStartIntent(
     projectionTurnId: string,
-    options: { resubmitNonTerminal?: boolean; desktopConnectionId?: string; desktop?: DesktopProjectionFence & { connectionId: string } } = {},
+    options: { resubmitNonTerminal?: boolean; desktopConnectionId?: string; desktop?: DesktopStartProjectionFence } = {},
   ): Promise<"missing" | "pending" | "projected" | "released"> {
     const resubmitNonTerminal = options.resubmitNonTerminal ?? true;
     const initial = await this.prisma.conversationTurnStartIntent.findUnique({
@@ -1794,7 +1795,11 @@ export class ConversationService {
             ownerId: intent.ownerId, conversationId: intent.conversationId, turnId: intent.projectionTurnId,
           })
         : undefined);
-      const desktop = fence ? { runtimeGeneration: intent.runtimeGeneration, connectionId: fence.connectionId } : undefined;
+      const desktop = fence ? {
+        runtimeGeneration: intent.runtimeGeneration,
+        connectionId: fence.connectionId,
+        ...(intent.desktopTransitionSourceThreadId && { transitionSourceThreadId: intent.desktopTransitionSourceThreadId }),
+      } : undefined;
       const inspect = () => this.runner.inspectStartOperation(
         intent.conversationId, intent.projectionTurnId, intent.ownerId, ...(desktop ? [desktop] : []),
       );
@@ -7998,6 +8003,7 @@ export class ConversationService {
     modelRuntime: ResolvedModelRuntime;
     applicationRuntime: ApplicationTurnConfiguration | null;
     expectedCodexThreadId: string | null;
+    desktopModelSwitch?: boolean;
     prepared: PreparedTurnSubmission;
     preservesStagedAttachments: boolean;
     /** Local structured quote whose persisted reference must be re-admitted. */
@@ -8538,6 +8544,7 @@ export class ConversationService {
             auditIpAddress: input.audit.ipAddress ?? null,
             auditUserAgent: input.audit.userAgent ?? null,
             runnerStatus: "slot_pending",
+            ...(input.desktopModelSwitch && { desktopTransitionSourceThreadId: z.uuid().parse(conversation.codexThreadId) }),
           },
         }),
       );
@@ -8577,7 +8584,7 @@ export class ConversationService {
   private async recordSucceededStartIntent(
     intent: TurnStartIntent,
     startedTurn: StartedRunnerTurn,
-    desktop?: DesktopProjectionFence,
+    desktop?: DesktopStartProjectionFence,
   ): Promise<TurnStartIntent> {
     const record = async (db: PrismaClient | Prisma.TransactionClient) => db.conversationTurnStartIntent.updateMany({
       where: {
@@ -8586,6 +8593,7 @@ export class ConversationService {
         conversationId: intent.conversationId,
         runtimeGeneration: intent.runtimeGeneration,
         runnerStatus: "prepared",
+        ...(desktop && { desktopTransitionSourceThreadId: intent.desktopTransitionSourceThreadId }),
       },
       data: {
         runnerStatus: "runner_succeeded",
@@ -8597,6 +8605,7 @@ export class ConversationService {
       await this.prisma.$transaction(async tx => {
         await this.fenceDesktopStart(tx, intent, startedTurn, desktop);
         await record(tx);
+        if (startedTurn.forkedFromId) await desktop.check();
       });
     } else {
       await record(this.prisma);
@@ -8610,6 +8619,7 @@ export class ConversationService {
       succeeded.ownerId !== intent.ownerId ||
       succeeded.conversationId !== intent.conversationId ||
       succeeded.runtimeGeneration !== intent.runtimeGeneration ||
+      (desktop && succeeded.desktopTransitionSourceThreadId !== intent.desktopTransitionSourceThreadId) ||
       succeeded.runnerStatus !== "runner_succeeded" ||
       succeeded.codexThreadId !== startedTurn.codexThreadId ||
       succeeded.codexTurnId !== startedTurn.codexTurnId
@@ -8650,7 +8660,7 @@ export class ConversationService {
   private async publishStartProjection(
     intent: TurnStartIntent,
     startedTurn: StartedRunnerTurn,
-    desktop?: DesktopProjectionFence,
+    desktop?: DesktopStartProjectionFence,
   ) {
     const projection = await this.persistStartProjection(intent, startedTurn, desktop);
     await this.publishAttachedStartEvents(intent.conversationId, projection);
@@ -8671,7 +8681,7 @@ export class ConversationService {
   private async persistStartProjection(
     intent: TurnStartIntent,
     startedTurn: StartedRunnerTurn,
-    desktop?: DesktopProjectionFence,
+    desktop?: DesktopStartProjectionFence,
   ): Promise<TurnStartProjectionResult> {
     const startedGoal = goalSnapshotForStart(intent, startedTurn);
     const isCompact = intent.taskKind === "compact";
@@ -8684,6 +8694,7 @@ export class ConversationService {
           conversationId: intent.conversationId,
           runtimeGeneration: intent.runtimeGeneration,
           runnerStatus: "runner_succeeded",
+          ...(desktop && { desktopTransitionSourceThreadId: intent.desktopTransitionSourceThreadId }),
           codexThreadId: startedTurn.codexThreadId,
           codexTurnId: startedTurn.codexTurnId,
           knowledgeBaseIdsJson: { equals: intent.knowledgeBaseIdsJson },
@@ -9199,7 +9210,7 @@ export class ConversationService {
     tx: Prisma.TransactionClient,
     intent: TurnStartIntent,
     started: StartedRunnerTurn,
-    desktop: DesktopProjectionFence,
+    desktop: DesktopStartProjectionFence,
   ): Promise<void> {
     const { scope } = desktop;
     if (scope.ownerId !== intent.ownerId || scope.conversationId !== intent.conversationId ||
@@ -9207,7 +9218,12 @@ export class ConversationService {
       throw new AppError("FORBIDDEN");
     }
     const { codexThreadId } = await lockDesktopConversation(tx, scope);
-    if (codexThreadId && codexThreadId !== started.codexThreadId) throw new AppError("FORBIDDEN");
+    const source = intent.desktopTransitionSourceThreadId;
+    if (source === null
+      ? started.forkedFromId !== undefined || (codexThreadId !== null && codexThreadId !== started.codexThreadId)
+      : started.forkedFromId !== source || codexThreadId !== source || codexThreadId === started.codexThreadId) {
+      throw new AppError("FORBIDDEN");
+    }
     await desktop.check();
   }
 
@@ -9993,6 +10009,9 @@ export class ConversationService {
               conversationId,
               projectionTurnId,
               ownerId,
+              ...(active.desktopTransitionSourceThreadId ? [{
+                runtimeGeneration: active.runtimeGeneration, transitionSourceThreadId: active.desktopTransitionSourceThreadId,
+              }] : []),
             );
             assertMatchingStartOperation(active, operation);
             if (
@@ -10048,11 +10067,14 @@ export class ConversationService {
               conversationId,
               modelRuntime.model,
               conversation.codexThreadId,
-              regeneration?.turnSequenceNo,
+              { desktop: true },
             );
           if (persistedConversationReference &&
               checkedModelTransitionSource?.provider.protocolMode === "chat_completions_bridge") {
             throw new AppError("MODEL_SELECTION_INVALID");
+          }
+          if (checkedModelTransitionSource) {
+            await this.runner.assertDesktopAvailable(ownerId, conversationId, files.length > 0, localConversationReference, true);
           }
         } else {
         const authorizationPromise = this.preflight.resolve({
@@ -10175,6 +10197,7 @@ export class ConversationService {
             modelRuntime,
             applicationRuntime,
             expectedCodexThreadId: conversation.codexThreadId,
+            desktopModelSwitch: desktop && Boolean(checkedModelTransitionSource),
             prepared: input,
             preservesStagedAttachments,
             localConversationReference,

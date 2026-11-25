@@ -14,6 +14,7 @@ const threadReadSchema = z.object({
   thread: z.object({
     id: z.uuid(),
     modelProvider: z.literal(linkSenseModelProviderId),
+    forkedFromId: z.uuid().nullish(),
   }),
 })
 
@@ -35,12 +36,14 @@ export async function recoverDesktopStart(
   state: StartOperationState,
   signal: AbortSignal,
   logger: Logger,
+  transitionSourceThreadId?: string,
 ) {
   const correlation = state.correlation
   if (!correlation || (correlation.operationKind !== undefined && correlation.operationKind !== "turn")) return null
+  if (transitionSourceThreadId && transitionSourceThreadId === correlation.codexThreadId) return null
   const baseline = new Set(correlation.baselineTurnIds)
   const candidates: z.infer<typeof storedTurn>[] = []
-  for await (const page of readDesktopHistory(runtimeRoot, paths, correlation.codexThreadId, signal, logger)) {
+  for await (const page of readDesktopHistory(runtimeRoot, paths, correlation.codexThreadId, signal, logger, transitionSourceThreadId)) {
     candidates.push(...page.filter(turn => !baseline.has(turn.id)))
     if (page.some(turn => baseline.has(turn.id))) break
   }
@@ -84,6 +87,7 @@ async function* readDesktopHistory(
   codexThreadId: string,
   signal: AbortSignal,
   logger: Logger,
+  forkedFromId?: string,
 ) {
   signal.throwIfAborted()
   for (const directory of [paths.home, paths.codexHome]) {
@@ -115,6 +119,7 @@ async function* readDesktopHistory(
     const response = threadReadSchema.parse(await client.request<unknown>("thread/read", { threadId: codexThreadId }))
     signal.throwIfAborted()
     if (response.thread.id !== codexThreadId) throw new Error("desktop native thread scope mismatch")
+    if (forkedFromId !== undefined && response.thread.forkedFromId !== forkedFromId) return
     let cursor: string | null = null
     // shortcut: bound recovery IO to 128 summary turns, use indexed exact-turn reads when the native protocol exposes them.
     for (let pageIndex = 0; pageIndex < 16; pageIndex++) {

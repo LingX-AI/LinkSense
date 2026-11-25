@@ -5952,6 +5952,98 @@ trust_level = "trusted"
     ).toHaveBeenCalledOnce();
   });
 
+  it("rejects a Mac model switch when the fork does not preserve the post-compaction turn sequence", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "linksense-model-switch-fork-history-"),
+    );
+    roots.push(root);
+    const sourceThreadId = "01900000-0000-7000-8000-000000000201";
+    const targetThreadId = "01900000-0000-7000-8000-000000000202";
+    const sourceTurn: CodexTurn = {
+      id: "01900000-0000-7000-8000-000000000203",
+      status: "completed",
+      items: [],
+      error: null,
+    };
+    const compactTurn: CodexTurn = {
+      id: "01900000-0000-7000-8000-000000000204",
+      status: "completed",
+      items: [
+        {
+          id: "01900000-0000-7000-8000-000000000205",
+          type: "contextCompaction",
+        },
+      ],
+      error: null,
+    };
+    const mismatchedForkTurns = [compactTurn, sourceTurn];
+    const controlled = createControlledAppServer({
+      turnStartIds: ["01900000-0000-7000-8000-000000000206"],
+      threadResumeModel: "source-model",
+      threadReadTurns: [sourceTurn],
+      compactTurn,
+      forkThreadId: targetThreadId,
+      threadForkedFromId: sourceThreadId,
+      threadForkTurns: mismatchedForkTurns,
+    });
+    const { pool, eventSink } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      { desktopWorkspace: true, managedBrowserEnabled: false },
+    );
+    const input = {
+      ...startOperationInput(),
+      codexThreadId: sourceThreadId,
+      model: "target-model",
+      modelTransitionSource: {
+        model: "source-model",
+        provider: {
+          revision: 1,
+          baseUrl: "https://source.example.test/v1",
+          protocolMode: "native_responses" as const,
+          apiKey: "test-source-key",
+        },
+      },
+      projectionTurnId: "01900000-0000-7000-8000-000000000207",
+    };
+
+    await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
+      status: "starting",
+    });
+    await waitForFast(() =>
+      expect(eventSink.reportStartSettled).toHaveBeenCalledOnce(),
+    );
+
+    expect(controlled.methods).toContain("thread/compact/start");
+    expect(
+      controlled.methods.filter((method) => method === "thread/fork"),
+    ).toHaveLength(1);
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(eventSink.alignConversationThread).not.toHaveBeenCalledWith(
+      input.conversationId,
+      targetThreadId,
+    );
+    const operation = await pool.getStartOperation(
+      input.conversationId,
+      input.projectionTurnId,
+    );
+    expect(operation).toMatchObject({
+      status: "failed",
+      errorCode: "RUNNER_TURN_START_FAILED",
+    });
+    expect(operation?.correlation).toBeUndefined();
+
+    await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
+      status: "failed",
+    });
+    expect(
+      controlled.methods.filter((method) => method === "thread/fork"),
+    ).toHaveLength(1);
+    expect(controlled.methods).not.toContain("turn/start");
+    await pool.closeAll();
+  });
+
   it("uses the resume response model when thread/read follows the real schema without a model", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-model-fork-"));
     roots.push(root);
@@ -13816,6 +13908,7 @@ function createControlledAppServer(
     threadStartModelProvider?: string;
     forkThreadId?: string;
     forkThreadIds?: string[];
+    threadForkedFromId?: string;
     threadForkModel?: string;
     threadForkModelProvider?: string;
     threadForkTurns?: CodexTurn[];
@@ -14188,7 +14281,7 @@ function createControlledAppServer(
                 ? sourceTurns.slice(0, lastTurnIndex + 1)
                 : sourceTurns);
             stdout.write(
-              `${JSON.stringify({ id: message.id, result: { thread: { id: forkThreadId, modelProvider, turns: forkTurns }, model, modelProvider } })}\n`,
+              `${JSON.stringify({ id: message.id, result: { thread: { id: forkThreadId, ...(options.threadForkedFromId ? { forkedFromId: options.threadForkedFromId } : {}), modelProvider, turns: forkTurns }, model, modelProvider } })}\n`,
             );
           } else if (message.method === "turn/steer") {
             if (options.turnSteer === "exit") {

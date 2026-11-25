@@ -109,9 +109,11 @@ export class DesktopTurns {
         return { ...envelope, operation: command.operation, ok: true, result }
       }
       if (command.operation === "turn.inspect") {
+        const source = command.body?.transition_source_thread_id
+        const transition = source ? { source, signal } : undefined
         const result = session || this.recovering.has(command.conversation_id)
-          ? await this.readJournal(command, sameTurn?.run !== undefined)
-          : await this.withRecovery(command.conversation_id, () => this.readJournal(command, false, signal))
+          ? await this.readJournal(command, sameTurn?.run !== undefined, undefined, transition)
+          : await this.withRecovery(command.conversation_id, () => this.readJournal(command, false, signal, transition))
         return { ...envelope, operation: command.operation, ok: true, result }
       }
       if (command.operation === "turn.seal") {
@@ -434,7 +436,10 @@ export class DesktopTurns {
     return generation === null ? null : manager
   }
 
-  private async readJournal(command: Scope, supervised: boolean, signal?: AbortSignal) {
+  private async readJournal(command: Scope, supervised: boolean, signal?: AbortSignal, transition?: {
+    source: string
+    signal: AbortSignal
+  }) {
     const manager = await this.readGeneration(command)
     if (!manager) return null
     const store = new StartOperationStore(manager)
@@ -443,6 +448,23 @@ export class DesktopTurns {
     if (state.ownerId !== command.owner_id ||
       (state.runtimeGeneration !== undefined && state.runtimeGeneration !== command.runtime_generation)) {
       throw new RuntimeGenerationIntegrityError()
+    }
+    if (transition && (state.status === "succeeded" || (signal && state.correlation &&
+      (state.status === "starting" || state.status === "uncertain")))) {
+      const proof = await recoverDesktopStart(this.runtimeRoot, manager.pathsFor(command.conversation_id),
+        state, transition.signal, this.logger, transition.source)
+      transition.signal.throwIfAborted()
+      if (proof && (state.status !== "succeeded" || (
+        state.result?.codexThreadId === proof.codexThreadId && state.result.codexTurnId === proof.codexTurnId
+      ))) {
+        const succeeded = state.status === "succeeded" ? state : await store.update(state, { status: "succeeded", result: proof })
+        return { ...startReceipt(succeeded, false), status: "succeeded" as const,
+          result: { ...proof, forkedFromId: transition.source } }
+      }
+      // Do not persist a downgrade of an already succeeded operation.
+      const { conversationId, projectionTurnId, createdAt, updatedAt } = state
+      return { conversationId, projectionTurnId, createdAt, updatedAt,
+        status: "uncertain" as const, errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN" as const }
     }
     if (signal && (state.status === "starting" || state.status === "uncertain")) {
       signal.throwIfAborted()

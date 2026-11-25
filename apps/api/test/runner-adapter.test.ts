@@ -190,6 +190,104 @@ describe("RunnerClient start operation", () => {
       expect(await lease(input.projectionTurnId)).toBeNull();
     });
 
+    it.each(["thread", "turn"] as const)("leaves a discordant attachment switch %s pending without resending", async mismatch => {
+      const { client, send, supportsModelSwitch, supportsAttachments, manifest, lease, fetchMock } = desktopRunnerFixture(redis.client);
+      supportsModelSwitch.mockResolvedValue(true);
+      supportsAttachments.mockResolvedValue(true);
+      const fileId = randomUUID();
+      manifest.mockResolvedValue([{
+        id: fileId, filename: "fixture.txt", size_bytes: 1, sha256: "a".repeat(64),
+        download_grant: `${Date.now()}.${fileId}.${"b".repeat(64)}`,
+      }]);
+      const input = {
+        ...startInput(), projectionTurnId: randomUUID(), codexThreadId: randomUUID(),
+        modelTransitionSource: { model: "source", provider: modelRuntime.modelProvider },
+        context: { ...startInput().context, attachments: [{ filename: "fixture.txt", homeRelativePath: "workspace/attachments/fixture.txt" }] },
+      } satisfies RunnerStartInput;
+      const receipt = { ...succeededOperation(), status: "succeeded", projectionTurnId: input.projectionTurnId, result: {
+        codexThreadId: randomUUID(), codexTurnId: randomUUID(),
+      } } as const;
+      send.mockImplementation(async (_binding, command) => {
+        if (command.operation === "turn.start") {
+          expect(command.body.attachments?.[0]?.id).toBe(fileId);
+          return { type: "command.result", id: command.id, operation: command.operation, ok: true, result: receipt };
+        }
+        if (command.operation !== "turn.inspect") throw new Error("expected native inspection");
+        expect(command.body?.transition_source_thread_id).toBe(input.codexThreadId);
+        return {
+          type: "command.result", id: command.id, operation: command.operation, ok: true, result: {
+            ...receipt, result: { ...receipt.result, forkedFromId: input.codexThreadId,
+              ...(mismatch === "thread" ? { codexThreadId: randomUUID() } : { codexTurnId: randomUUID() }),
+            },
+          },
+        };
+      });
+
+      await expect(client.startTurn(input)).rejects.toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+      expect(send.mock.calls.map(([, command]) => command.operation)).toEqual(["turn.start", "turn.inspect"]);
+      expect(await lease(input.projectionTurnId)).not.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["immediately succeeded", "missing"],
+      ["immediately succeeded", "wrong-source"],
+      ["immediately succeeded", "source-as-target"],
+      ["starting to succeeded", "missing"],
+      ["starting to succeeded", "wrong-source"],
+      ["starting to succeeded", "source-as-target"],
+    ] as const)(
+      "rejects a %s scoped model-switch inspect with %s fork proof without replaying the start",
+      async (path, proof) => {
+        const { client, send, input, turnId, lease, fetchMock } = desktopModelSwitchFixture(
+          redis.client, path, proof,
+        );
+
+        await expect(client.startTurn(input)).rejects.toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+
+        expect(send.mock.calls.map(([, command]) => command.operation)).toEqual(["turn.start", "turn.inspect"]);
+        expect(await lease(turnId)).not.toBeNull();
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["immediately succeeded", "starting to succeeded"] as const)(
+      "accepts a %s scoped model-switch inspect only with the exact source and a distinct target",
+      async path => {
+        const { client, send, input, turnId, nativeResult, lease, fetchMock } = desktopModelSwitchFixture(
+          redis.client, path, "exact",
+        );
+
+        await expect(client.startTurn(input)).resolves.toEqual(nativeResult);
+
+        expect(send.mock.calls.map(([, command]) => command.operation)).toEqual(["turn.start", "turn.inspect"]);
+        expect(await lease(turnId)).not.toBeNull();
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it("keeps an ordinary Mac continuation success independent of fork proof", async () => {
+      const { client, send, lease, fetchMock } = desktopRunnerFixture(redis.client);
+      const turnId = randomUUID();
+      const threadId = randomUUID();
+      const nativeTurnId = randomUUID();
+      const input = { ...startInput(), projectionTurnId: turnId, codexThreadId: threadId };
+      send.mockImplementationOnce(async (_binding, command) => {
+        if (command.operation !== "turn.start") throw new Error("expected start");
+        return {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...succeededOperation(), status: "succeeded" as const, projectionTurnId: turnId, result: { codexThreadId: threadId, codexTurnId: nativeTurnId } },
+        };
+      });
+
+      await expect(client.startTurn(input)).resolves.toMatchObject({ codexThreadId: threadId, codexTurnId: nativeTurnId });
+
+      expect(send).toHaveBeenCalledOnce();
+      expect(send.mock.calls[0]?.[1].operation).toBe("turn.start");
+      expect(await lease(turnId)).not.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("rejects a Chat model before a quote lease or command", async () => {
       const { client, send, supportsConversationReference, lease } = desktopRunnerFixture(redis.client);
       supportsConversationReference.mockResolvedValue(true);
@@ -340,6 +438,32 @@ describe("RunnerClient start operation", () => {
       "GET",
     ]);
     expect(fetchMock.mock.calls.map(ownerHeader)).toEqual([ownerId, ownerId]);
+  });
+
+  it("keeps desktop fork lineage outside the strict cloud start success contract", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...succeededOperation(),
+          result: {
+            ...succeededOperation().result,
+            forkedFromId: randomUUID(),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error_code: "RUNNER_START_OPERATION_NOT_FOUND" }, 404),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new RunnerClient(testConfig()).acceptStartTurn(startInput()),
+    ).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual([
+      "POST",
+      "GET",
+    ]);
   });
 
   it("forwards the target Codex turn when starting a forked regeneration", async () => {
@@ -1716,10 +1840,11 @@ function desktopRunnerFixture(
   const scheduleExpiry = vi.fn(async () => undefined);
   const supportsAttachments = vi.fn(async () => false);
   const supportsConversationReference = vi.fn(async () => false);
+  const supportsModelSwitch = vi.fn(async () => false);
   const manifest = vi.fn();
   const runner = new DesktopRunner(findConversation, {
     connection: async () => binding, send, supportsKnowledge: async () => false, supportsAttachments,
-    supportsConversationReference,
+    supportsConversationReference, supportsModelSwitch,
   }, new DesktopRunLeases(redis, async () => true), scheduleExpiry, { manifest }, pauseArtifactPublication);
   const client = new RunnerClient(testConfig(), async () => options.executionTarget === "cloud"
     ? { workspacePath: `projects/${projectionTurnId}` }
@@ -1727,7 +1852,7 @@ function desktopRunnerFixture(
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
-  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, manifest, findConversation, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
+  return { client, binding, send, fetchMock, scheduleExpiry, supportsAttachments, supportsConversationReference, supportsModelSwitch, manifest, findConversation, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {
@@ -1758,6 +1883,66 @@ function succeededOperation() {
       codexTurnId: "turn-native-1",
     },
   };
+}
+
+type ModelSwitchPath = "immediately succeeded" | "starting to succeeded";
+type ModelSwitchProof = "missing" | "wrong-source" | "source-as-target" | "exact";
+
+function desktopModelSwitchFixture(
+  redis: Awaited<ReturnType<typeof createRedisFixture>>["client"],
+  path: ModelSwitchPath,
+  proof: ModelSwitchProof,
+) {
+  const fixture = desktopRunnerFixture(redis);
+  fixture.supportsModelSwitch.mockResolvedValue(true);
+  fixture.supportsAttachments.mockResolvedValue(true);
+  const source = randomUUID();
+  const target = proof === "source-as-target" ? source : randomUUID();
+  const turnId = randomUUID();
+  const nativeTurnId = randomUUID();
+  const fileId = randomUUID();
+  fixture.manifest.mockResolvedValue([{
+    id: fileId, filename: "fixture.txt", size_bytes: 1, sha256: "a".repeat(64),
+    download_grant: `${Date.now()}.${fileId}.${"b".repeat(64)}`,
+  }]);
+  const input: RunnerStartInput = {
+    ...startInput(),
+    projectionTurnId: turnId,
+    codexThreadId: source,
+    modelTransitionSource: { model: "source-model", provider: modelRuntime.modelProvider },
+    ...(path === "immediately succeeded"
+      ? { context: { ...startInput().context, attachments: [{
+          filename: "fixture.txt", homeRelativePath: "workspace/attachments/fixture.txt",
+        }] } }
+      : {}),
+  };
+  const nativeResult = {
+    codexThreadId: target,
+    codexTurnId: nativeTurnId,
+    ...(proof === "missing" ? {} : {
+      forkedFromId: proof === "wrong-source" ? randomUUID() : source,
+    }),
+  };
+  fixture.send.mockImplementation(async (_binding, command) => {
+    if (command.operation === "turn.start") {
+      expect(command.body.attachments?.[0]?.id).toBe(
+        path === "immediately succeeded" ? fileId : undefined,
+      );
+      return {
+        type: "command.result", id: command.id, operation: command.operation, ok: true,
+        result: path === "immediately succeeded"
+          ? { ...succeededOperation(), status: "succeeded" as const, projectionTurnId: turnId, result: { codexThreadId: target, codexTurnId: nativeTurnId } }
+          : { ...startingOperation(), status: "starting" as const, projectionTurnId: turnId },
+      };
+    }
+    if (command.operation !== "turn.inspect") throw new Error("expected native inspection");
+    expect(command.body?.transition_source_thread_id).toBe(source);
+    return {
+      type: "command.result", id: command.id, operation: command.operation, ok: true,
+      result: { ...succeededOperation(), status: "succeeded" as const, projectionTurnId: turnId, result: nativeResult },
+    };
+  });
+  return { ...fixture, input, turnId, nativeResult };
 }
 
 function uncertainOperation() {

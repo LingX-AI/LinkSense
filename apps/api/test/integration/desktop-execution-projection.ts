@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import { setTimeout as delay } from "node:timers/promises";
@@ -12,6 +14,7 @@ import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
+  desktopAttachmentProtocolVersion,
   desktopArtifactMaxParts,
   desktopArtifactPartBytes,
   desktopArtifactPath,
@@ -22,6 +25,7 @@ import {
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionProtocolVersion,
+  desktopModelSwitchOperation,
   desktopProtocolVersion,
   desktopToolMaxInFlight,
   desktopToolLifetimeFor,
@@ -38,6 +42,7 @@ import { Queue } from "bullmq";
 import Fastify, { type FastifyRequest } from "fastify";
 import JSZip from "jszip";
 import { WebSocket } from "ws";
+import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
 import { BackgroundJobs, type MaintenanceJob } from "../../src/adapters/jobs.js";
@@ -82,6 +87,7 @@ import { createDesktopConnectionFixture } from "./desktop-connection-fixture.js"
 import {
   installPackagedAttachmentTransferGate, verifyPackagedDesktopGateway, type AttachDesktopBrowserExtension,
 } from "./desktop-package-roundtrip.js";
+import { verifyPackagedDesktopModelSwitch } from "./desktop-package-model-switch.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
 import { attachDesktopBrowserFixture } from "./desktop-browser-fixture.js";
@@ -275,14 +281,16 @@ export async function verifyDesktopExecutionProjection(input: {
     }
     const browserFixture = await attachDesktopBrowserFixture({ app, address, ownerId });
     sockets.push(browserFixture.socket);
-    const connect = async (expectRecovery = true, tools = false, operations = false) => {
+    const connect = async (expectRecovery = true, tools = false, operations = false, forkReceipts = false, attachments = false) => {
       const url = new URL("/api/v1/desktop/devices/socket", address);
       url.protocol = "ws:";
+      const offered = [...desktopToolOperationSchema.options, ...(forkReceipts ? [desktopModelSwitchOperation] : [])];
       const socket = new WebSocket(url, {
         headers: {
           [DESKTOP_EXECUTION_PROTOCOL_HEADER]: operations ? String(desktopExecutionProtocolVersion) : "2",
+          ...(attachments && { [DESKTOP_ATTACHMENT_PROTOCOL_HEADER]: String(desktopAttachmentProtocolVersion) }),
           ...(tools ? { [DESKTOP_TOOL_PROTOCOL_HEADER]: operations ? String(desktopToolProtocolVersion) : "1" } : {}),
-          ...(operations ? { [DESKTOP_TOOL_OPERATIONS_HEADER]: desktopToolOperationSchema.options.join(",") } : {}),
+          ...(operations ? { [DESKTOP_TOOL_OPERATIONS_HEADER]: offered.join(",") } : {}),
         },
       });
       sockets.push(socket);
@@ -293,7 +301,8 @@ export async function verifyDesktopExecutionProjection(input: {
       }));
       assert.equal(ready.device_id, deviceId);
       assert.equal(ready.tool_protocol_version, tools ? desktopToolProtocolVersion : undefined);
-      assert.deepEqual(ready.tool_operations, operations ? desktopToolOperationSchema.options : undefined);
+      assert.deepEqual(ready.tool_operations, operations ? offered : undefined);
+      assert.equal(ready.attachment_protocol_version, attachments ? desktopAttachmentProtocolVersion : undefined);
       if (!expectRecovery) {
         await Promise.race([closed, delay(5_000, null, { ref: false }).then(() => { throw new Error("socket did not close"); })]);
         return { socket, connectionId: ready.connection_id, recoveryJob: null };
@@ -1174,13 +1183,20 @@ export async function verifyDesktopExecutionProjection(input: {
     }
     await conversations.delete(ownerId, legacyProbe.id, {});
 
+    const transition = await connect(true, true, true, true);
+    await verifyDesktopModelSwitchProjection({
+      prisma, redis, ownerId, deviceId, runner, conversations, leases, transition, execution,
+      reconnect: () => connect(true, true, true, true),
+    });
+    const lastConnection = await coordinator.executionConnection(deviceId);
+    assert(lastConnection);
     if (runtimeRoot) {
       replacement.socket.terminate();
       const websiteStore = new WebSiteRepository(prisma);
       const artifact = await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
         observeModelRequests: observer => { observeModelRequest = observer; },
-        events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
+        events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: lastConnection.connectionId,
         websites: new WebSiteService(websiteStore, storage),
         htmlPreviews: new HtmlPreviewService(new WebArtifactResources(websiteStore, storage),
           new RedisHtmlPreviewSessionStore(redis), async id => Boolean(await prisma.user.count({ where: { id, status: "active" } }))),
@@ -1367,7 +1383,61 @@ export async function verifyDesktopExecutionProjection(input: {
         started: connector.stats.started, aborted: connector.stats.aborted,
       }, { graph: 1, workspace: 2, started: 1, aborted: 1 });
       assert(connector.stats.documentPages > 1);
+      await verifyPackagedDesktopModelSwitch({
+        runtimeRoot, scratch: join(input.workspaceRoot, "model-switch"), address, server: app.server,
+        prisma, redis, coordinator, execution, conversations, events, modelProviderSettings, ownerId, deviceId, token,
+        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret],
+      });
     }
+    const oldAttachmentMac = await connect(true, true, true, false, true);
+    const model = "switch-preflight-fixture";
+    const providerSettings = await modelProviderSettings.getAdminSettings();
+    await modelProviderSettings.update(ownerId, {
+      expected_revision: providerSettings.revision, default_model: model, title_model: null, memory_extraction_model: null,
+      providers: [{
+        id: "switch-preflight", base_url: "http://127.0.0.1:1/v1", api_key: randomUUID(), protocol_mode: "native_responses",
+        models: [model, `${model}-next`].map(id => ({
+          id, kind: "chat", display_name: id, enabled: true, context_window: 32768, supports_image_input: true,
+          default_reasoning_effort: "low", supported_reasoning_efforts: ["low"],
+        })),
+      }],
+    }, {});
+    const oldMacTaskId = randomUUID();
+    const oldMacTask = await prisma.conversation.create({ data: {
+      id: oldMacTaskId, ownerId, title: "Legacy Mac attachment model-switch preflight", titleSource: "manual",
+      archiveStatus: "active", workspaceRelPath: `${ownerId}/services/${oldMacTaskId}/home/workspace`,
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: randomUUID(),
+    } });
+    assert(oldMacTask.codexThreadId);
+    await prisma.conversationTurn.create({ data: {
+      conversationId: oldMacTaskId, submittedBy: ownerId, sequenceNo: 1, status: "completed",
+      codexThreadId: oldMacTask.codexThreadId, codexTurnId: randomUUID(), submitMode: "normal",
+      model, startedAt: new Date(), completedAt: new Date(), capabilityGeneration, capabilitiesJson: [],
+    } });
+    await mkdir(join(input.workspaceRoot, oldMacTask.workspaceRelPath), { recursive: true, mode: 0o700 });
+    const staged = await files.uploadAttachment(ownerId, oldMacTaskId, {
+      filename: "fixture.txt", reportedMimeType: "text/plain", data: Buffer.from("fixture"),
+    }, {});
+    const idempotencyKey = "legacy-attachment-switch";
+    const refusedTurnId = uuidv5(`turn-start:${idempotencyKey}`, oldMacTaskId);
+    let dispatched = false;
+    const unexpectedDispatch = () => { dispatched = true; };
+    oldAttachmentMac.socket.on("message", unexpectedDispatch);
+    try {
+      await assert.rejects(conversations.acceptTurn(ownerId, oldMacTaskId, {
+        inputText: "Switch with this attachment",
+        idempotencyKey, priorityCapabilityIds: [], submitMode: "normal",
+        modelPreference: { modelId: `${model}-next`, reasoningEffort: "low" },
+      }, {}), { code: "DESKTOP_UPDATE_REQUIRED" });
+      assert.equal(dispatched, false);
+      assert.equal(await prisma.conversationTurnStartIntent.count({ where: { conversationId: oldMacTaskId } }), 0);
+      assert.equal(await redis.hasTurnSlot(oldMacTaskId, refusedTurnId, ownerId), false);
+      assert.equal(await redis.client.get(desktopRunLeaseKey(refusedTurnId)), null);
+      assert.equal(await prisma.conversationFile.count({ where: { id: staged.id, status: "staged", turnId: null } }), 1);
+    } finally {
+      oldAttachmentMac.socket.off("message", unexpectedDispatch);
+    }
+
     const revokedThread = randomUUID();
     const running = await prisma.conversation.create({ data: {
       ownerId, title: "Mac task awaiting a native outcome", titleSource: "manual", archiveStatus: "archived",
@@ -1525,6 +1595,229 @@ export async function verifyDesktopExecutionProjection(input: {
     for (const socket of sockets) socket.terminate();
     await app.close().finally(() => Promise.all([queue.close(), maintenance.close()]))
       .finally(() => fixture.close()).finally(() => minio?.close());
+  }
+}
+
+async function verifyDesktopModelSwitchProjection(input: {
+  prisma: PrismaClient;
+  redis: LinkSenseRedis;
+  ownerId: string;
+  deviceId: string;
+  runner: RunnerClient;
+  conversations: ConversationService;
+  leases: DesktopRunLeases;
+  execution: NonNullable<Awaited<ReturnType<typeof registerDesktopExecution>>>;
+  transition: { socket: WebSocket; connectionId: string };
+  reconnect: () => Promise<{ socket: WebSocket; connectionId: string }>;
+}): Promise<void> {
+  const { prisma, redis, ownerId, deviceId, runner, conversations, leases, execution } = input;
+  let connection = input.transition;
+  for (const scenario of ["revoked-before-dispatch", "settle", "reconnect", "no-proof", "wrong-source", "revoked", "expired", "changed-source", "cleared-source", "ordinary", "same-thread", "legacy-fork"] as const) {
+    const transition = scenario !== "ordinary" && scenario !== "same-thread" && scenario !== "legacy-fork";
+    const nativeSource = randomUUID(), nativeTarget = scenario === "same-thread" ? nativeSource : randomUUID();
+    const model = scenario === "ordinary" || scenario === "same-thread" ? "fixture-source" : "fixture-target";
+    const sourceNativeTurnId = randomUUID(), nativeTurnId = randomUUID(), turnId = randomUUID();
+    const { id: conversationId, runtimeGeneration } = await prisma.conversation.create({
+      data: {
+        ownerId, title: `Mac model switch ${scenario}`, titleSource: "manual", archiveStatus: "active",
+        workspaceRelPath: projectWorkspaceRelativePath(ownerId, null), runtimeGeneration: randomUUID(),
+        executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: nativeSource,
+      },
+    });
+    const source = await prisma.conversationTurn.create({ data: {
+      conversationId, submittedBy: ownerId, sequenceNo: 1, codexThreadId: nativeSource,
+      codexTurnId: sourceNativeTurnId, status: "completed", submitMode: "normal", model: "fixture-source",
+      startedAt: new Date(), completedAt: new Date(), capabilityGeneration, capabilitiesJson: [],
+    } });
+    const originalAttempt = await prisma.conversationTurnAttempt.create({ data: {
+      turnId: source.id, attemptNo: 1, kind: "primary", status: "completed", codexThreadId: nativeSource,
+      codexTurnId: sourceNativeTurnId, startedAt: new Date(), completedAt: new Date(),
+    } });
+    await prisma.conversationTurnStartIntent.create({ data: {
+      projectionTurnId: turnId, ownerId, conversationId, runtimeGeneration, capabilityGeneration,
+      inputText: "Continue on this Mac", capabilitiesJson: [], attachmentsJson: [],
+      submitMode: "normal", runnerStatus: "prepared",
+      model, reasoningEffort: "low",
+      desktopTransitionSourceThreadId: transition ? nativeSource : null,
+    } });
+    assert((await redis.acquireTurnSlot(conversationId, turnId, ownerId)).acquired);
+    const provider = {
+      revision: 1, baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(),
+      protocolMode: "native_responses",
+    } as const;
+    const startInput = {
+      ownerId, conversationId, projectionTurnId: turnId, expectedRuntimeGeneration: runtimeGeneration,
+      appServerProcessLimit: 1, capabilityGeneration, mcpGeneration: capabilityGeneration,
+      codexThreadId: nativeSource, collaborationMode: "default", mcpServers: [], capabilities: [], environment: {},
+      context: { userInput: "Continue on this Mac", attachments: [], priorityPlugins: [], prioritySkills: [] },
+      model, reasoningEffort: "low", modelProvider: provider,
+      ...(transition && { modelTransitionSource: { model: "fixture-source", provider } }),
+    } satisfies RunnerStartInput;
+    if (scenario === "revoked-before-dispatch") {
+      let sentToSocket = false;
+      const onMessage = () => { sentToSocket = true; };
+      connection.socket.on("message", onMessage);
+      const sendCommand = execution.send;
+      try {
+        execution.send = async (binding, command, ...options) => {
+          assert.equal(command.operation, "turn.start");
+          assert.equal(command.turn_id, turnId);
+          assert(command.body.credentials.transition_source);
+          // Prove the unchanged lease parser reads this switch's scoped grant.
+          assert.equal((await leases.authorizeModel({
+            turnId, purpose: "transition_source", token: command.body.credentials.transition_source.token,
+          })).model, "fixture-source");
+          await leases.revoke(turnId);
+          return sendCommand.call(execution, binding, command, ...options);
+        };
+        await assert.rejects(runner.acceptStartTurn(startInput), { code: "FORBIDDEN" });
+        assert.equal(sentToSocket, false);
+        assert.equal(await redis.client.get(desktopRunLeaseKey(turnId)), "revoked");
+        assert.equal((await prisma.conversationTurnStartIntent.findUniqueOrThrow({ where: { projectionTurnId: turnId } })).runnerStatus, "prepared");
+        assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1);
+      } finally {
+        execution.send = sendCommand;
+        connection.socket.off("message", onMessage);
+        await prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId: turnId } });
+        await redis.releaseTurnSlot(conversationId, turnId);
+      }
+      continue;
+    }
+    const now = new Date().toISOString();
+    const baseReceipt = { conversationId, projectionTurnId: turnId, createdAt: now, updatedAt: now };
+    const nativeResult = {
+      ...baseReceipt, status: "succeeded" as const,
+      result: {
+        codexThreadId: nativeTarget, codexTurnId: nativeTurnId,
+        ...(transition && scenario !== "no-proof" && scenario !== "cleared-source" &&
+          { forkedFromId: scenario === "wrong-source" ? randomUUID() : nativeSource }),
+      },
+    };
+    const [accepted, start] = await Promise.all([
+      runner.acceptStartTurn(startInput),
+      readCommand(connection.socket).then(command => {
+        assert.equal(command.operation, "turn.start");
+        assert.equal(command.body.native_thread_id, nativeSource);
+        assert.equal(command.body.credentials.transition_source?.model, transition ? "fixture-source" : undefined);
+        send(connection.socket, {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...baseReceipt, status: "starting" },
+        });
+        return command;
+      }),
+    ]);
+    assert.equal(accepted.status, "starting");
+    const settled = {
+      type: "execution.callback", id: randomUUID(), operation: "start.settled",
+      conversation_id: conversationId, turn_id: turnId, runtime_generation: runtimeGeneration,
+      run_token: start.body.credentials.run_token,
+      body: { conversationId, projectionTurnId: turnId, runtimeGeneration },
+    } as const satisfies DesktopExecutionCallback;
+    const inspect = (command: DesktopExecutionCommand) => {
+      assert.equal(command.operation, "turn.inspect", "settlement must only inspect the original start");
+      assert.equal(command.turn_id, turnId);
+      assert.equal(command.runtime_generation, runtimeGeneration);
+      assert.equal(command.conversation_id, conversationId);
+      assert.equal(command.owner_id, ownerId);
+      assert.deepEqual(command.body, transition ? { transition_source_thread_id: nativeSource } : undefined);
+      return { type: "command.result", id: command.id, operation: command.operation, ok: true, result: nativeResult };
+    };
+    if (scenario === "settle") {
+      const inspectCommand = desktopExecutionCommandSchema.parse(await exchange(connection.socket, settled));
+      const ack = desktopExecutionAckSchema.parse(await exchange(connection.socket, inspect(inspectCommand)));
+      assert(ack.ok && ack.operation === "start.settled" && ack.data.settled, "the authorized fork did not settle");
+    } else {
+      if (scenario === "reconnect") {
+        const originalConnection = connection.connectionId;
+        connection = await input.reconnect();
+        const stale = desktopExecutionAckSchema.parse(await exchange(connection.socket, settled));
+        assert(!stale.ok && stale.error_code === "FORBIDDEN", "a new connection cannot use the prior run bearer");
+        await assert.rejects(conversations.recoverStartIntent(turnId, {
+          resubmitNonTerminal: false, desktopConnectionId: originalConnection,
+        }), { code: "RUNNER_UNAVAILABLE" });
+      }
+      const recover = () => conversations.recoverStartIntent(turnId, {
+        resubmitNonTerminal: false, desktopConnectionId: connection.connectionId,
+      });
+      let changedThread: string | null = nativeSource;
+      if (scenario === "changed-source") changedThread = randomUUID();
+      if (scenario === "cleared-source") changedThread = null;
+      const projects = scenario === "reconnect" || scenario === "expired" || scenario === "revoked" || scenario === "same-thread";
+      await Promise.all([
+        projects
+          ? recover().then(outcome => assert.equal(outcome, "projected"))
+          : assert.rejects(recover(), { code: "FORBIDDEN" }),
+        readCommand(connection.socket).then(async command => {
+          if (scenario === "revoked") await leases.revoke(turnId);
+          if (scenario === "expired") assert.equal(await redis.client.del(desktopRunLeaseKey(turnId)), 1);
+          if (changedThread !== nativeSource) await prisma.conversation.update({
+            where: { id: conversationId }, data: { codexThreadId: changedThread },
+          });
+          send(connection.socket, inspect(command));
+        }),
+      ]);
+      if (!projects) {
+        assert.equal((await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } })).codexThreadId, changedThread);
+        assert.equal((await prisma.conversationTurnStartIntent.findUniqueOrThrow({ where: { projectionTurnId: turnId } })).runnerStatus, "prepared");
+        assert.equal(await prisma.conversationTurn.count({ where: { conversationId } }), 1);
+        await prisma.conversationTurnStartIntent.delete({ where: { projectionTurnId: turnId } });
+        await redis.releaseTurnSlot(conversationId, turnId);
+        continue;
+      }
+      if (scenario === "revoked" || scenario === "expired") {
+        assert.equal(await redis.client.get(desktopRunLeaseKey(turnId)), scenario === "revoked" ? "revoked" : null);
+        const denied = desktopExecutionAckSchema.parse(await exchange(connection.socket, settled));
+        assert(!denied.ok && denied.error_code === "FORBIDDEN");
+      }
+    }
+    assert.equal(await conversations.recoverStartIntent(turnId, { desktopConnectionId: connection.connectionId }), "missing");
+    assert.equal((await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } })).codexThreadId, nativeTarget);
+    const turns = await prisma.conversationTurn.findMany({ where: { conversationId }, orderBy: { sequenceNo: "asc" } });
+    assert.deepEqual(turns.map(turn => [turn.id, turn.codexThreadId, turn.codexTurnId, turn.model]), [
+      [source.id, nativeTarget, sourceNativeTurnId, "fixture-source"],
+      [turnId, nativeTarget, nativeTurnId, model],
+    ]);
+    assert.deepEqual(await prisma.conversationTurnAttempt.findUnique({ where: { id: originalAttempt.id } }), originalAttempt);
+    assert.equal(await prisma.conversationTurnAttempt.count({ where: { turnId } }), 1);
+    assert.equal(await prisma.conversationMessage.count({ where: { conversationId, turnId, role: "user" } }), 1);
+    const terminal = {
+      deliveryId: randomUUID(),
+      event: {
+        method: "turn/completed", visibility: "user_visible",
+        params: { threadId: nativeTarget, turn: { id: nativeTurnId, status: "completed" } },
+      },
+    } satisfies EventDelivery;
+    if (scenario === "settle") {
+      const batch = {
+        ...settled, id: randomUUID(), operation: "events", body: { conversationId, events: [terminal] },
+      } satisfies EventCallback;
+      const preparation = {
+        deliveryId: randomUUID(),
+        event: {
+          method: "item/completed", visibility: "user_visible",
+          preparation: { turnId },
+          params: { threadId: nativeSource, turnId: randomUUID(), item: { id: randomUUID(), type: "contextCompaction" } },
+        },
+      } satisfies EventDelivery;
+      for (const invalid of [
+        preparation,
+        { ...preparation, event: {
+          ...preparation.event, preparation: { turnId: randomUUID() },
+          params: { ...preparation.event.params, threadId: nativeTarget },
+        } },
+        { ...terminal, event: { ...terminal.event, params: { ...terminal.event.params, threadId: nativeSource } } },
+      ]) {
+        const denied = await sendEvents(connection.socket, {
+          ...batch, id: randomUUID(), body: { conversationId, events: [invalid] },
+        });
+        assert(!denied.ok && denied.error_code === "FORBIDDEN");
+      }
+      assertAccepted(await sendEvents(connection.socket, batch), [terminal.deliveryId]);
+      assert.equal(await prisma.conversationEvent.count({ where: { id: preparation.deliveryId } }), 0);
+    } else {
+      await prisma.conversationTurn.update({ where: { id: turnId }, data: { status: "completed", completedAt: new Date() } });
+      await redis.releaseTurnSlot(conversationId, turnId);
+    }
   }
 }
 

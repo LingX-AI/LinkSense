@@ -104,12 +104,13 @@ export const desktopComputerExecuteOperation = "computer.execute" as const;
  * Mac never offers it.
  */
 export const desktopComputerWaitOperation = "computer.wait" as const;
+export const desktopModelSwitchOperation = "turn.model-switch" as const;
 export const desktopToolRequestOperationSchema = z.enum([...desktopToolOperationSchema.options, desktopComputerExecuteOperation]);
 export type DesktopToolRequestOperation = z.infer<typeof desktopToolRequestOperationSchema>;
 /** Command operations, including the additive M1b computer operation. */
 export const desktopExecutionCommandOperationSchema = z.enum([...desktopExecutionOperation.options, desktopComputerExecuteOperation]);
 export const desktopNegotiatedOperationSchema = z.enum([
-  ...desktopToolRequestOperationSchema.options, "approval.respond", desktopComputerWaitOperation,
+  ...desktopToolRequestOperationSchema.options, "approval.respond", desktopComputerWaitOperation, desktopModelSwitchOperation,
 ]);
 export type DesktopNegotiatedOperation = z.infer<typeof desktopNegotiatedOperationSchema>;
 /** Wait is usable only when this connection offered both markers. */
@@ -241,7 +242,10 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
       credentials: desktopRunCredentialsSchema,
     }),
   }),
-  command.extend({ operation: z.literal("turn.inspect") }),
+  command.extend({
+    operation: z.literal("turn.inspect"),
+    body: z.strictObject({ transition_source_thread_id: uuidSchema }).optional(),
+  }),
   command.extend({ operation: z.literal("turn.seal") }),
   command.extend({ operation: z.literal("turn.interrupt") }),
   command.extend({ operation: z.literal("turn.drain") }),
@@ -270,6 +274,7 @@ export const desktopExecutionStartReceiptSchema = z.discriminatedUnion("status",
       codexThreadId: uuidSchema,
       codexTurnId: uuidSchema,
       goal: runnerCodexGoalSchema.optional(),
+      forkedFromId: uuidSchema.optional(),
     }),
   }),
   startReceipt.extend({
@@ -281,6 +286,7 @@ export const desktopExecutionStartReceiptSchema = z.discriminatedUnion("status",
     errorCode: z.literal("RUNNER_TURN_START_RESULT_UNCERTAIN"),
   }),
 ]);
+export type DesktopExecutionStartReceipt = z.infer<typeof desktopExecutionStartReceiptSchema>;
 
 const receipt = z.strictObject({ type: z.literal("command.result"), id: uuidSchema });
 export const desktopExecutionTerminalSchema = z.strictObject({

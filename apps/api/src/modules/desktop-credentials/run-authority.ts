@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
+import { Prisma, type PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import type { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
 import { isCurrentDeviceCredential } from "../desktop-devices/repository.js";
@@ -11,6 +11,9 @@ export type DesktopProjectionFence = {
   check: () => Promise<void>;
   questions?: boolean;
   approvals?: boolean;
+};
+export type DesktopStartProjectionFence = DesktopProjectionFence & {
+  connectionId: string;
 };
 
 // Covers a Stop for a turn that still has only a start intent.
@@ -76,6 +79,7 @@ export async function isDesktopRunActive(
   coordinator: Pick<RedisDesktopDeviceCoordinator, "isCurrentConnection">,
   scope: DesktopRunScope,
   phase: DesktopRunAuthorizationPhase,
+  transitionThreadId?: string,
 ): Promise<boolean> {
   const [result] = await prisma.$queryRaw<BoundDeviceCredential[]>`
     SELECT d.revoked_at AS "revokedAt", d.auth_valid_after AS "deviceEpoch",
@@ -86,12 +90,14 @@ export async function isDesktopRunActive(
       WHERE c.id = ${scope.conversationId}::uuid AND c.owner_id = ${scope.ownerId}::uuid
         AND c.execution_target = 'local' AND c.archive_status = 'active'
         AND c.runtime_generation = ${scope.runtimeGeneration}::uuid
+        ${transitionThreadId ? Prisma.sql`AND c.codex_thread_id = ${transitionThreadId}` : Prisma.empty}
         AND d.id = ${scope.deviceId}::uuid AND d.platform = 'darwin'
         AND (
           (${phase !== "artifact"} AND EXISTS (
             SELECT 1 FROM conversation_turn_start_intents i
             WHERE i.projection_turn_id = ${scope.turnId}::uuid AND i.conversation_id = c.id
               AND i.owner_id = c.owner_id AND i.runtime_generation = c.runtime_generation
+              ${transitionThreadId ? Prisma.sql`AND i.desktop_transition_source_thread_id = ${transitionThreadId}::uuid` : Prisma.empty}
               AND (i.runner_status = 'prepared'
                 OR (${phase === "use" || phase === "settle"} AND i.runner_status = 'runner_succeeded')
                 OR (${phase === "settle"} AND i.runner_status = 'slot_pending'))

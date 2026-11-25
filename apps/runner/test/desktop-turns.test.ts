@@ -4,7 +4,9 @@ import path from "node:path"
 import { randomBytes, randomUUID } from "node:crypto"
 import pino from "pino"
 import { expect, it, vi } from "vitest"
-import { desktopExecutionAckSchema, desktopExecutionCommandSchema, type DesktopExecutionCommand } from "@linksense/shared"
+import {
+  desktopExecutionAckSchema, desktopExecutionCommandSchema, desktopModelSwitchOperation, type DesktopExecutionCommand,
+} from "@linksense/shared"
 
 import { DesktopWorkerProvider } from "../src/controller/desktop-worker-provider.js"
 import { DesktopLink } from "../src/desktop/link.js"
@@ -514,6 +516,67 @@ it("fails a structured quote closed unless this exact link negotiated it", async
   } finally {
     await legacy.close()
     await negotiated.close()
+    await provider.shutdown()
+  }
+})
+
+it("rejects model switches from a legacy API before a worker starts and keeps ordinary inspection compatible", async () => {
+  const owner = randomUUID()
+  const provider = new DesktopWorkerProvider({
+    dataRoot: tmpdir(), runtimeRoot: tmpdir(), controlToken: randomBytes(32).toString("hex"),
+  }, logger)
+  const turns = new DesktopTurns(provider, tmpdir(), "https://server.example.test", vi.fn(), logger)
+  const { body, ...scope } = quoteCommand(owner)
+  const source = randomUUID()
+  const timestamp = new Date().toISOString()
+  const result = { codexThreadId: randomUUID(), codexTurnId: randomUUID() }
+  const execute = vi.spyOn(turns, "execute").mockImplementation(async command => {
+    if (command.operation !== "turn.start" && command.operation !== "turn.inspect") throw new Error("unexpected command")
+    return { type: "command.result", id: command.id, operation: command.operation, ok: true, result: {
+      conversationId: scope.conversation_id, projectionTurnId: scope.turn_id, status: "succeeded",
+      createdAt: timestamp, updatedAt: timestamp,
+      result: command.operation === "turn.inspect" && command.body ? { ...result, forkedFromId: source } : result,
+    } }
+  })
+  const write = vi.fn<(output: unknown) => Promise<void>>(async () => {})
+  const legacy = new DesktopLink(randomUUID(), owner, turns, write, vi.fn())
+  const upgraded = new DesktopLink(randomUUID(), owner, turns, write, vi.fn(), [desktopModelSwitchOperation])
+  const start = desktopExecutionCommandSchema.parse({
+    ...scope, body: { ...body, native_thread_id: source, conversation_reference_context: undefined, credentials: {
+      ...body.credentials, transition_source: { ...body.credentials.primary, model: "previous", purpose: "transition_source" },
+    } },
+  })
+  try {
+    legacy.receive(start)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    expect(execute).not.toHaveBeenCalled()
+    expect(write.mock.calls[0]?.[0]).toMatchObject({
+      frame: { operation: "turn.start", ok: false, error_code: "RUNNER_UNAVAILABLE" },
+    })
+    upgraded.receive(start)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[1]?.[0]).toMatchObject({ frame: { result: { result } } })
+    const inspect = { ...scope, id: randomUUID(), operation: "turn.inspect" } as const
+    const inspectTransition = { ...inspect, body: { transition_source_thread_id: source } }
+    legacy.receive(inspectTransition)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(3))
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[2]?.[0]).toMatchObject({
+      frame: { operation: "turn.inspect", ok: false, error_code: "RUNNER_UNAVAILABLE" },
+    })
+    upgraded.receive(inspectTransition)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(4))
+    expect(write.mock.calls[3]?.[0]).toMatchObject({ frame: { result: { result: { ...result, forkedFromId: source } } } })
+    legacy.receive({ ...inspect, id: randomUUID() })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(5))
+    expect(write.mock.calls[4]?.[0]).toMatchObject({
+      frame: { result: { result: { codexThreadId: result.codexThreadId, codexTurnId: result.codexTurnId } } },
+    })
+    expect(write.mock.calls[4]?.[0]).not.toHaveProperty("frame.result.result.forkedFromId")
+  } finally {
+    await legacy.close()
+    await upgraded.close()
     await provider.shutdown()
   }
 })

@@ -8,6 +8,7 @@ import {
   desktopExecutionMaxFrameBytes,
   desktopExecutionMaxInFlight,
   desktopExecutionResultSchema,
+  desktopModelSwitchOperation,
   desktopToolClockSkewAllowanceMs,
   desktopToolMaxInFlight,
   desktopToolLifetimeFor,
@@ -183,7 +184,8 @@ export class DesktopDeviceTransport {
       }
     };
     try {
-      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments, conversationReferences) &&
+      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op)), attachments,
+        conversationReferences, toolOperations.includes(desktopModelSwitchOperation)) &&
         this.sockets.get(connectionId) === connection) return detach;
       detach();
       return null;
@@ -207,6 +209,10 @@ export class DesktopDeviceTransport {
 
   supportsConversationReference(binding: DesktopExecutionBinding): Promise<boolean> {
     return this.coordinator.supportsConversationReference(binding);
+  }
+
+  supportsModelSwitch(binding: DesktopExecutionBinding): Promise<boolean> {
+    return this.coordinator.supportsModelSwitch(binding);
   }
 
   async send(
@@ -278,7 +284,11 @@ export class DesktopDeviceTransport {
     const socket = this.sockets.get(connectionId);
     const pending = socket?.pending.get(frame.id);
     if (!socket || pending?.state !== "sent") return;
-    if (!matchesResult(pending.command, frame)) {
+    if (!matchesResult(pending.command, frame) ||
+      (frame.ok && (frame.operation === "turn.start" || frame.operation === "turn.inspect" || frame.operation === "turn.seal") &&
+        frame.result?.status === "succeeded" && frame.result.result.forkedFromId &&
+        (pending.command.operation !== "turn.inspect" || !pending.command.body ||
+          !socket.toolOperations.includes(desktopModelSwitchOperation)))) {
       socket.close();
       return;
     }
@@ -530,7 +540,8 @@ export class DesktopDeviceTransport {
     if (frame.operation === "turn.start" && (
       (frame.body.selected_knowledge_bases?.length && !knowledgeTools.every(op => socket.toolOperations.includes(op))) ||
       (frame.body.attachments?.length && !socket.attachments) ||
-      (frame.body.conversation_reference_context && !socket.conversationReferences)
+      (frame.body.conversation_reference_context && !socket.conversationReferences) ||
+      (frame.body.credentials.transition_source && !socket.toolOperations.includes(desktopModelSwitchOperation))
     )) {
       await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
@@ -605,9 +616,13 @@ export class DesktopDeviceTransport {
       this.finish(socket, delivery, failure(frame, authorized ? "RUNNER_UNAVAILABLE" : "FORBIDDEN"));
       return;
     }
+    const needsModelSwitch = (frame.operation === "turn.start" && frame.body.credentials.transition_source) ||
+      (frame.operation === "turn.inspect" && frame.body);
     const current = authorized &&
       (!(frame.operation === "turn.start" && frame.body.conversation_reference_context) ||
         await this.coordinator.supportsConversationReference(socket.binding)) &&
+      (!needsModelSwitch || (socket.toolOperations.includes(desktopModelSwitchOperation) &&
+        await this.coordinator.supportsModelSwitch(socket.binding))) &&
       await this.coordinator.mayDispatch(socket.binding, frame.id);
     if (socket.pending.get(frame.id) !== delivery || this.sockets.get(socket.binding.connectionId) !== socket) return;
     if (current && frame.operation === "turn.interrupt") {

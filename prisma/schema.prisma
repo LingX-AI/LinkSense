@@ -1177,6 +1177,7 @@ model ConversationTurnStartIntent {
   auditIpAddress                 String?   @map("audit_ip_address") @db.Inet
   auditUserAgent                 String?   @map("audit_user_agent") @db.Text
   runnerStatus                   String    @default("slot_pending") @map("runner_status") @db.VarChar(32)
+  desktopTransitionSourceThreadId String?  @map("desktop_transition_source_thread_id") @db.Uuid
   codexThreadId                  String?   @map("codex_thread_id") @db.Text
   codexTurnId                    String?   @map("codex_turn_id") @db.Text
   createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

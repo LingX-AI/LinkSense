@@ -106,6 +106,7 @@ const (
 	// operation: an old server ignores the unknown offered string and an old
 	// Mac never offers it.
 	desktopComputerWaitOperation        = "computer.wait"
+	desktopModelSwitchOperation         = "turn.model-switch"
 	desktopAttachmentHeader             = "X-LinkSense-Desktop-Attachments"
 	desktopAttachmentVersion            = 1
 	desktopConversationReferenceHeader  = "X-LinkSense-Desktop-Conversation-Reference"
@@ -326,6 +327,9 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		}
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
 		operations := "web.search,knowledge.search,knowledge.documents,knowledge.markdown,connection.execute,browser.execute,artifact.prepare,artifact.multipart,artifact.website,approval.respond"
+		if runtime.GOOS == "darwin" {
+			operations += "," + desktopModelSwitchOperation
+		}
 		if connection.computer != nil {
 			// Only the installed Mac product host offers the read-only wait,
 			// and it rides the existing computer.execute operation. The status

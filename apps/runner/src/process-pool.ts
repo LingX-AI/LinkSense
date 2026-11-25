@@ -2081,6 +2081,25 @@ export class AppServerProcessPool {
           paths.workspace,
           { modelConfig: input.modelProvider },
         );
+        if (this.options.desktopWorkspace) {
+          const source = z.uuid().safeParse(forked.thread.forkedFromId);
+          if (!source.success || source.data !== input.codexThreadId) {
+            throw new CodexProtocolError("Codex model switch returned an unexpected fork source");
+          }
+          const forkedTurns = forked.thread.turns;
+          const forkedTurnIds = Array.isArray(forkedTurns)
+            ? forkedTurns.map((turn) => turn.id)
+            : null;
+          const expectedForkTurnIds = sourceTurns.map((turn) => turn.id);
+          if (
+            forkedTurnIds === null ||
+            !sameStringSequence(forkedTurnIds, expectedForkTurnIds)
+          ) {
+            throw new CodexProtocolError(
+              "Codex model switch returned an unexpected fork history",
+            );
+          }
+        }
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
           managed.codexThreadId!,
@@ -6697,6 +6716,7 @@ export class AppServerProcessPool {
             } catch (error) {
               if (
                 input.forkFromCodexTurnId ||
+                (this.options.desktopWorkspace && input.modelTransitionSource) ||
                 creationContext?.allowReplacementThread === false ||
                 !isMissingNativeThreadRollout(error)
               ) {
@@ -6982,6 +7002,9 @@ export class AppServerProcessPool {
           !preparation.baselineTurnIds.has(event.params.turnId) &&
           event.params.item.type === "contextCompaction"
         ) {
+          // The desktop API projects only the new thread. This source marker
+          // would block its ordered event outbox.
+          if (this.options.desktopWorkspace) continue;
           await this.options.eventSink.publish(managed.conversationId, {
             ...event,
             preparation: { turnId: preparation.projectionTurnId },

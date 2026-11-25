@@ -597,6 +597,37 @@ settlement tooling or edit stored rows. If a deployment stop or device
 revocation settles a quoted turn before it starts, you can restore the exact
 question without the quote. Quoting again requires a fresh submission.
 
+Mac tasks continue on the same Codex thread when the model is unchanged. When
+the model changes, the source model compacts the existing context and Codex forks
+the thread before starting the selected model. The fork must preserve the
+post-compaction native turn IDs in their original order. The Mac worker verifies
+that preservation before starting the selected model. The API validates the
+fork's exact native lineage and target-turn proof for projection but does not
+itself inspect the ordered turns. A missing, reordered, or different fork
+history fails before target submission.
+
+Before a mixed-version upgrade or rollback, stop admitting model switches and
+drain accepted Mac starts. For an upgrade, apply
+`20261125070000_add_desktop_start_transition_source` before starting the updated
+API, then upgrade all API, device gateway, and recovery/settlement replicas
+before releasing the Mac app with its matching runner. Old Macs can still start
+and resume ordinary turns; a model switch requires a client update before the
+server reserves a turn slot or stages a transfer.
+
+Before rolling back, keep the nullable column and the Mac's native journals and
+event outbox. The older API already refused to project a fork onto a different
+native thread. A legacy in-flight fork with missing durable source proof remains
+unsettled. Preserve its original history and journal; do not delete, release,
+replay, or backfill it. If the source model configuration was removed, restore
+it when available or start a separate task while keeping the existing history.
+An expired or revoked run bearer fails a new authorization check and cannot
+authorize inference. The scoped run/source grant authorizes dispatch admission
+at the check; it does not make that check and the physical send atomic. The
+current exact device can read-only settle proven native history after bearer
+expiry; that is not execution authority.
+Stop still addresses the original turn: it cancels a pending start or interrupts
+an active native turn, and does not submit a replacement.
+
 Mac artifact registration is separately disabled by default. To
 enable it in development/test, upgrade all serving API replicas and
 `linksense-maintenance` consumers first, then set

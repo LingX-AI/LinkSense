@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import {
   desktopCommandCapacity,
   desktopExecutionCallbackSchema, desktopExecutionLifetimeFor, desktopExecutionMaxInFlight,
-  desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
+  desktopExecutionResultSchema, desktopModelSwitchOperation, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
   desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
   supportsDesktopComputerWait,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
@@ -87,6 +87,13 @@ export class DesktopLink {
     this.recentCommands.set(command.id, expiry)
     if (command.owner_id !== this.ownerId) {
       this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("FORBIDDEN") }))
+      return
+    }
+    if (((command.operation === "turn.start" && command.body.credentials.transition_source) ||
+        (command.operation === "turn.inspect" && command.body)) &&
+        !this.toolOperations.includes(desktopModelSwitchOperation)) {
+      // Older API replicas can still issue a transition grant but cannot settle its fork.
+      this.track(this.write({ type: "link.frame", link_id: this.id, frame: failure("RUNNER_UNAVAILABLE") }))
       return
     }
     if (command.operation === "turn.start" && command.body.conversation_reference_context &&

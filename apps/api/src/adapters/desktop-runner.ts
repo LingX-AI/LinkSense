@@ -7,28 +7,30 @@ import {
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
   type DesktopExecutionCommand,
   type DesktopExecutionResult,
+  type DesktopExecutionStartReceipt,
   type DesktopExecutionTerminal,
 } from "@linksense/shared";
 import dayjs from "dayjs";
 import type { DesktopRunLeases, DesktopRunScope } from "../modules/desktop-credentials/run-leases.js";
-import type { DesktopProjectionFence } from "../modules/desktop-credentials/run-authority.js";
+import type { DesktopStartProjectionFence } from "../modules/desktop-credentials/run-authority.js";
 import { AppError } from "../lib/errors.js";
 import { DesktopCommandUncertainError, DesktopCommandUndeliveredError, type DesktopDeviceTransport } from "./desktop-device-transport.js";
 import type { DesktopExecutionBinding } from "../modules/desktop-devices/coordinator.js";
 import type { DesktopAttachments } from "../modules/files/desktop-attachments.js";
-import type { RunnerStartInput, RunnerStartOperation } from "./runner.js";
+import type { RunnerStartInput } from "./runner.js";
 
 type ConversationScope = Pick<DesktopRunScope, "ownerId" | "conversationId">;
 type TurnScope = ConversationScope & { turnId: string; runtimeGeneration?: string; connectionId?: string };
 type StartCommand = Extract<DesktopExecutionCommand, { operation: "turn.start" }>;
+type InspectCommand = Extract<DesktopExecutionCommand, { operation: "turn.inspect" }>;
 type UserInputCommand = Extract<DesktopExecutionCommand, { operation: "user-input.respond" }>;
-type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<UserInputCommand, "operation" | "body"> |
-  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start" | "user-input.respond" | "computer.execute"> };
+type CommandInput = Pick<StartCommand, "operation" | "body"> | Pick<InspectCommand, "operation" | "body"> | Pick<UserInputCommand, "operation" | "body"> |
+  { operation: Exclude<DesktopExecutionCommand["operation"], "turn.start" | "turn.inspect" | "user-input.respond" | "computer.execute"> };
 
 export class DesktopRunner {
   constructor(
     private readonly findConversation: (scope: ConversationScope) => Promise<{ desktopDeviceId: string | null; runtimeGeneration: string } | null>,
-    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments" | "supportsConversationReference">,
+    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge" | "supportsAttachments" | "supportsConversationReference" | "supportsModelSwitch">,
     private readonly leases: Pick<DesktopRunLeases, "issue" | "discardUndelivered">,
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
     private readonly attachments: Pick<DesktopAttachments, "manifest">,
@@ -42,13 +44,14 @@ export class DesktopRunner {
     }) => Promise<void>,
   ) {}
 
-  async assertAvailable(scope: ConversationScope, needsAttachments = false, needsConversationReference = false): Promise<void> {
+  async assertAvailable(scope: ConversationScope, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false): Promise<void> {
     const { binding } = await this.resolve(scope);
+    if (needsModelSwitch) await this.assertModelSwitchSupport(binding);
     if (needsConversationReference) await this.assertConversationReferenceSupport(binding);
     if (needsAttachments) await this.assertAttachmentSupport(binding);
   }
 
-  async start(input: RunnerStartInput, connectionId?: string): Promise<RunnerStartOperation> {
+  async start(input: RunnerStartInput, connectionId?: string): Promise<DesktopExecutionStartReceipt> {
     const context = input.context;
     // Only pass features supported by the Mac wire contract. Never send the cloud start body.
     if (input.collaborationMode !== "default" || input.goal || input.operationKind === "compact" ||
@@ -63,6 +66,10 @@ export class DesktopRunner {
     const scope = { ownerId: input.ownerId, conversationId: input.conversationId, turnId: input.projectionTurnId, runtimeGeneration: input.expectedRuntimeGeneration };
     const target = await this.resolve({ ...scope, ...(connectionId ? { connectionId } : {}) });
     const binding = target.binding;
+    if (input.modelTransitionSource) {
+      if (!input.codexThreadId) throw new AppError("FORBIDDEN");
+      await this.assertModelSwitchSupport(binding);
+    }
     if (input.conversationReferenceContext) {
       // A native quote cannot be represented by the Chat bridge; fail before
       // the run lease or any device dispatch.
@@ -116,13 +123,21 @@ export class DesktopRunner {
     if (!await this.transport.supportsConversationReference(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
   }
 
-  async inspect(scope: TurnScope): Promise<RunnerStartOperation | null> {
-    const frame = await this.send(await this.resolve(scope), scope, { operation: "turn.inspect" });
+  private async assertModelSwitchSupport(binding: DesktopExecutionBinding): Promise<void> {
+    if (!await this.transport.supportsModelSwitch(binding)) throw new AppError("DESKTOP_UPDATE_REQUIRED");
+  }
+
+  async inspect(scope: TurnScope & { transitionSourceThreadId?: string }): Promise<DesktopExecutionStartReceipt | null> {
+    const target = await this.resolve(scope);
+    if (scope.transitionSourceThreadId) await this.assertModelSwitchSupport(target.binding);
+    const frame = await this.send(target, scope, { operation: "turn.inspect",
+      ...(scope.transitionSourceThreadId && { body: { transition_source_thread_id: scope.transitionSourceThreadId } }),
+    });
     if (frame.operation !== "turn.inspect") throw new DesktopCommandUncertainError();
     return frame.result;
   }
 
-  async seal(scope: TurnScope): Promise<RunnerStartOperation> {
+  async seal(scope: TurnScope): Promise<DesktopExecutionStartReceipt> {
     const frame = await this.send(await this.resolve(scope), scope, { operation: "turn.seal" });
     if (frame.operation !== "turn.seal" || !frame.result || frame.result.status === "starting") {
       throw new DesktopCommandUncertainError();
@@ -173,9 +188,12 @@ export class DesktopRunner {
     return { terminal: frame.result.terminal, deviceId: target.binding.deviceId, check };
   }
 
-  async projectionFence(scope: TurnScope & { runtimeGeneration: string }): Promise<DesktopProjectionFence & { connectionId: string }> {
+  async projectionFence(scope: TurnScope & { runtimeGeneration: string }): Promise<DesktopStartProjectionFence> {
     const { binding } = await this.resolve(scope);
-    return { scope: { ...scope, deviceId: binding.deviceId }, connectionId: binding.connectionId, check: () => this.checkConnection(binding) };
+    const runScope = { ...scope, deviceId: binding.deviceId, connectionId: binding.connectionId };
+    return {
+      scope: runScope, connectionId: binding.connectionId, check: () => this.checkConnection(binding),
+    };
   }
 
   private async checkConnection(binding: DesktopExecutionBinding): Promise<void> {

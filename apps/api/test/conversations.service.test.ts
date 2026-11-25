@@ -5820,6 +5820,87 @@ describe("ConversationService ownership and draft lifecycle", () => {
     ).not.toHaveProperty("modelTransitionSource");
   });
 
+  it("rejects a Mac start when the previous model was removed from provider settings", async () => {
+    const fixture = await conversationFixture();
+    const codexThreadId = "codex-thread-mac-removed-model";
+    const resolveModelTransitionRuntime = vi.fn(async () => {
+      throw new AppError("MODEL_SELECTION_INVALID");
+    });
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveModelTransitionRuntime,
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(
+      conversationRow({
+        executionTarget: "local",
+        desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+        codexThreadId,
+      }),
+    );
+    fixture.prisma.conversationTurn.findFirst.mockImplementation(
+      async (input?: { where?: Record<string, unknown> }) =>
+        input?.where?.taskKind === "turn" &&
+        input.where.codexThreadId === codexThreadId
+          ? { model: "removed-source-model" }
+          : null,
+    );
+    fixture.defaultTransaction.$queryRaw.mockImplementation(
+      async (...input: unknown[]) => {
+        const query = input[0] as { sql?: string } | string[] | undefined;
+        const sql = Array.isArray(query) ? query.join("") : query?.sql ?? "";
+        return sql.includes("FROM conversations c") &&
+          sql.includes("desktop_devices")
+          ? [{
+              revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW,
+              ownerStatus: "active", codexThreadId: null,
+            }]
+          : [];
+      },
+    );
+
+    await expect(
+      service.acceptTurn(
+        OWNER_ID,
+        CONVERSATION_ID,
+        {
+          inputText: "continue from the removed source model",
+          priorityCapabilityIds: [],
+          idempotencyKey: "mac-removed-source-model",
+          submitMode: "normal",
+          modelPreference: {
+            modelId: "target-model",
+            reasoningEffort: "high",
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+
+    expect(fixture.prisma.conversationTurn.findFirst).toHaveBeenCalledWith({
+      where: {
+        conversationId: CONVERSATION_ID,
+        codexThreadId,
+        taskKind: "turn",
+        codexTurnId: { not: "" },
+      },
+      orderBy: { sequenceNo: "desc" },
+      select: { model: true },
+    });
+    expect(resolveModelTransitionRuntime).toHaveBeenCalledWith(
+      "removed-source-model",
+    );
+    expect(
+      fixture.prisma.conversationTurnStartIntent.create,
+    ).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
+    expect(
+      fixture.defaultTransaction.conversationFile.updateMany,
+    ).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
   it("rejects an overloaded normal submission without creating phantom state", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -13316,7 +13397,9 @@ describe("conversation side chats", () => {
     fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({ sseEventId: MESSAGE_ID });
     fixture.prisma.conversationTurn.findFirst.mockImplementation(
       async ({ where }: { where?: Record<string, unknown> } = {}) =>
-        where?.model ? { model: "source-chat-model" } : null,
+        where?.conversationId === conversation.id && where.codexThreadId === conversation.codexThreadId
+          ? { model: "source-chat-model" }
+          : null,
     );
     const resolveModelTransitionRuntime = vi.fn(async (model: string) => ({
       model,

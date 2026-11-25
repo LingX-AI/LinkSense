@@ -162,17 +162,21 @@ try {
     turnId: randomUUID(),
     runtimeGeneration: localConversation.runtimeGeneration,
   };
-  const authority = (binding = scope, phase: DesktopRunAuthorizationPhase = "use") => isDesktopRunActive(db, {
+  const authority = (
+    binding = scope,
+    phase: DesktopRunAuthorizationPhase = "use",
+    transitionThreadId?: string,
+  ) => isDesktopRunActive(db, {
     isCurrentConnection: async (deviceId, connectionId) =>
       deviceId === scope.deviceId && connectionId === scope.connectionId,
-  }, binding, phase);
+  }, binding, phase, transitionThreadId);
   assert.equal(await authority(), false);
-  await db.conversationTurnStartIntent.create({ data: {
-    projectionTurnId: scope.turnId, ownerId: owner, conversationId: scope.conversationId,
-    runtimeGeneration: scope.runtimeGeneration, capabilityGeneration: "0".repeat(64),
-    inputText: "Isolated desktop fixture", capabilitiesJson: [], attachmentsJson: [],
-    submitMode: "normal", runnerStatus: "prepared",
-  } });
+  // Exercise the old schema before applying the projection migration below.
+  await db.$executeRaw`INSERT INTO conversation_turn_start_intents
+    (projection_turn_id, owner_id, conversation_id, runtime_generation, capability_generation,
+     input_text, capabilities_json, attachments_json, submit_mode, runner_status, updated_at)
+    VALUES (${scope.turnId}::uuid, ${owner}::uuid, ${scope.conversationId}::uuid, ${scope.runtimeGeneration}::uuid,
+      ${"0".repeat(64)}, 'Isolated desktop fixture', '[]'::jsonb, '[]'::jsonb, 'normal', 'prepared', now())`;
   assert.equal(await authority(scope, "issue"), true);
   assert.equal(await authority(scope, "transition"), true);
   assert.equal(await authority(), true);
@@ -183,12 +187,11 @@ try {
     { ...scope, runtimeGeneration: randomUUID() },
     { ...scope, conversationId: conversation },
   ]) assert.equal(await authority(binding), false);
-  await db.conversationTurnStartIntent.update({
-    where: { projectionTurnId: scope.turnId }, data: { runnerStatus: "release_pending" },
-  });
+  await db.$executeRaw`UPDATE conversation_turn_start_intents SET runner_status = 'release_pending'
+    WHERE projection_turn_id = ${scope.turnId}::uuid`;
   assert.equal(await authority(), false);
   await db.$transaction([
-    db.conversationTurnStartIntent.delete({ where: { projectionTurnId: scope.turnId } }),
+    db.$executeRaw`DELETE FROM conversation_turn_start_intents WHERE projection_turn_id = ${scope.turnId}::uuid`,
     db.conversationTurn.create({ data: {
       id: scope.turnId, conversationId: scope.conversationId, sequenceNo: 1,
       submittedBy: owner, codexThreadId: localThread, codexTurnId: randomUUID(),
@@ -259,7 +262,31 @@ try {
     codexThreadId: "legacy-thread", codexTurnId: "legacy-turn", totalTokens: 15n,
     totalCostPicoUsd: 200_000_000n, usedCreditMicros: 20_000n,
   });
+  const legacyStartId = randomUUID();
+  await db.$executeRaw`INSERT INTO conversation_turn_start_intents
+    (projection_turn_id, owner_id, conversation_id, runtime_generation, capability_generation,
+     input_text, capabilities_json, attachments_json, submit_mode, runner_status, updated_at)
+    VALUES (${legacyStartId}::uuid, ${owner}::uuid, ${scope.conversationId}::uuid, ${scope.runtimeGeneration}::uuid,
+      ${"0".repeat(64)}, 'Pending before model-switch support', '[]'::jsonb, '[]'::jsonb, 'normal', 'prepared', now())`;
   await migrate("desktop_upgrade");
+  const legacyStart = await db.conversationTurnStartIntent.findUniqueOrThrow({ where: { projectionTurnId: legacyStartId } });
+  assert.equal(legacyStart.desktopTransitionSourceThreadId, null);
+  assert.equal(legacyStart.runnerStatus, "prepared");
+  assert.equal(legacyStart.inputText, "Pending before model-switch support");
+  const legacyStartScope = { ...scope, turnId: legacyStartId };
+  assert.equal(await authority(legacyStartScope, "issue", localThread), false);
+  await db.conversationTurnStartIntent.update({
+    where: { projectionTurnId: legacyStartId },
+    data: { desktopTransitionSourceThreadId: localThread },
+  });
+  assert.equal(await authority(legacyStartScope, "issue", localThread), true);
+  assert.equal(await authority(legacyStartScope, "issue", randomUUID()), false);
+  await db.conversationTurnStartIntent.update({
+    where: { projectionTurnId: legacyStartId },
+    data: { desktopTransitionSourceThreadId: randomUUID() },
+  });
+  assert.equal(await authority(legacyStartScope, "issue", localThread), false);
+  await db.conversationTurnStartIntent.delete({ where: { projectionTurnId: legacyStartId } });
   assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: legacyGrantId } })).sessionId, null);
   assert.equal(await authority(), true);
   const legacyUsageAfter = await db.tokenUsageRecord.findUniqueOrThrow({

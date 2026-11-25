@@ -32,6 +32,7 @@ import {
   type RunnerCodexGoal,
   type RunnerKnowledgeBaseSelection,
   type ConversationReferenceContext,
+  type DesktopExecutionStartReceipt,
 } from "@linksense/shared";
 import { z } from "zod";
 import pRetry from "p-retry";
@@ -211,6 +212,28 @@ const runnerSteerOperationSchema = z.discriminatedUnion("status", [
 
 export type RunnerStartOperation = z.infer<typeof runnerStartOperationSchema>;
 type RunnerSteerOperation = z.infer<typeof runnerSteerOperationSchema>;
+
+// The cloud HTTP start-operation wire contract is intentionally strict and has
+// no native fork lineage. A desktop start receipt carries the optional
+// `forkedFromId`; preserve it on this internal view without relaxing the cloud
+// parser or accepting that key from a cloud response.
+type RunnerStartOperationView =
+  | Exclude<RunnerStartOperation, { status: "succeeded" }>
+  | Extract<DesktopExecutionStartReceipt, { status: "succeeded" }>;
+
+type RunnerStartSuccessResult =
+  Extract<RunnerStartOperationView, { status: "succeeded" }>["result"];
+
+function provesExactTransitionFork(
+  result: RunnerStartSuccessResult,
+  sourceThreadId: string,
+): boolean {
+  // The scoped native inspect must prove that the target forked from the
+  // authorized source and is a distinct native thread. A nil or same-thread
+  // proof cannot authorize a model transition.
+  return result.forkedFromId === sourceThreadId &&
+    result.codexThreadId !== sourceThreadId;
+}
 
 export type RunnerCapability = {
   id: string;
@@ -411,16 +434,16 @@ export class RunnerClient {
     return await this.resolveWorkspace?.(ownerId, conversationId) === "local";
   }
 
-  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false): Promise<void> {
-    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference);
+  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false): Promise<void> {
+    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference, needsModelSwitch);
   }
 
   drainDesktopTurn(scope: Parameters<DesktopRunner["drain"]>[0]): ReturnType<DesktopRunner["drain"]> {
     return this.desktopRunner().drain(scope);
   }
 
-  desktopProjectionFence(scope: Parameters<DesktopRunner["projectionFence"]>[0]): ReturnType<DesktopRunner["projectionFence"]> {
-    return this.desktopRunner().projectionFence(scope);
+  desktopProjectionFence(...args: Parameters<DesktopRunner["projectionFence"]>): ReturnType<DesktopRunner["projectionFence"]> {
+    return this.desktopRunner().projectionFence(...args);
   }
 
   private desktopRunner(): DesktopRunner {
@@ -469,7 +492,7 @@ export class RunnerClient {
     input: RunnerStartInput,
     placement?: RuntimePlacement,
     desktopConnectionId?: string,
-  ): Promise<RunnerStartOperation> {
+  ): Promise<RunnerStartOperationView> {
     assertCapabilityGeneration(input.capabilityGeneration);
     assertCapabilityGeneration(input.mcpGeneration);
     const { conversationId, ...startBody } = input;
@@ -542,10 +565,7 @@ export class RunnerClient {
     throw new AppError("RUNNER_UNAVAILABLE");
   }
 
-  async startTurn(input: RunnerStartInput, desktopConnectionId?: string): Promise<{
-    codexThreadId: string;
-    codexTurnId: string;
-  }> {
+  async startTurn(input: RunnerStartInput, desktopConnectionId?: string): Promise<Extract<DesktopExecutionStartReceipt, { status: "succeeded" }>["result"]> {
     const waitDeadline = Date.now() + START_OPERATION_WAIT_LIMIT_MS;
     const { conversationId } = input;
     const local = Boolean(desktopConnectionId) || await this.isDesktopConversation(input.ownerId, conversationId);
@@ -553,17 +573,36 @@ export class RunnerClient {
       ? await this.acceptStartTurn(input, undefined, desktopConnectionId)
       : await this.acceptStartTurn(input);
 
+    const transitionSourceThreadId = local && input.modelTransitionSource ? input.codexThreadId ?? undefined : undefined;
+    // A start with attachments can return success immediately. The same
+    // read-only inspection still has to verify that result's native lineage.
+    const needsForkProof = operation.status === "succeeded" && transitionSourceThreadId !== undefined;
     let consecutiveQueryFailures = 0;
-    while (operation.status === "starting") {
+    for (let inspectSucceeded = needsForkProof; operation.status === "starting" || inspectSucceeded; inspectSucceeded = false) {
       if (Date.now() >= waitDeadline) {
         throw new RunnerStartOperationUncertainError(local);
       }
       await wait(100);
       try {
         const queried = await this.inspectStartOperation(conversationId, input.projectionTurnId, input.ownerId,
-          ...(desktopConnectionId ? [{ connectionId: desktopConnectionId, runtimeGeneration: input.expectedRuntimeGeneration }] : []));
+          ...(local ? [{
+            ...(desktopConnectionId && { connectionId: desktopConnectionId }),
+            runtimeGeneration: input.expectedRuntimeGeneration,
+            ...(transitionSourceThreadId && { transitionSourceThreadId }),
+          }] : []));
         if (!queried) {
           throw new RunnerStartOperationUncertainError();
+        }
+        // A native start receipt cannot prove the fork, so both immediate and
+        // delayed successes are authorized only by the scoped inspect above.
+        if (queried.status === "succeeded" && transitionSourceThreadId !== undefined &&
+            !provesExactTransitionFork(queried.result, transitionSourceThreadId)) {
+          throw new RunnerStartOperationUncertainError(true);
+        }
+        if (operation.status === "succeeded" && (queried.status !== "succeeded" ||
+          queried.result.codexThreadId !== operation.result.codexThreadId ||
+          queried.result.codexTurnId !== operation.result.codexTurnId)) {
+          throw new RunnerStartOperationUncertainError(true);
         }
         operation = queried;
         consecutiveQueryFailures = 0;
@@ -596,8 +635,8 @@ export class RunnerClient {
     conversationId: string,
     projectionTurnId: string,
     ownerId: string,
-    desktopScope?: { runtimeGeneration?: string; connectionId?: string },
-  ): Promise<RunnerStartOperation | null> {
+    desktopScope?: { runtimeGeneration?: string; connectionId?: string; transitionSourceThreadId?: string },
+  ): Promise<RunnerStartOperationView | null> {
     if (desktopScope?.connectionId || await this.isDesktopConversation(ownerId, conversationId)) {
       try {
         return await this.desktopRunner().inspect({ ownerId, conversationId, turnId: projectionTurnId, ...desktopScope });

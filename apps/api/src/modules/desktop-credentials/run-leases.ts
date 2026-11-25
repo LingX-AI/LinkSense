@@ -180,10 +180,21 @@ export class DesktopRunLeases {
   }
 
   /** Use only while the corresponding database authority is locked. */
-  async fenceRunBinding(scope: DesktopRunScope, token: string): Promise<void> {
+  async fenceRunBinding(
+    scope: DesktopRunScope,
+    token: string,
+    transition?: DesktopRunCredentials["transition_source"],
+  ): Promise<void> {
     const lease = parseLease(await this.redis.get(key(scope.turnId)));
     if (!lease || lease.expiresAt <= this.now() || !matchesScope(lease.scope, scope) || !tokenMatches(token, lease.runHash)) {
       throw new AppError("AUTH_REQUIRED");
+    }
+    if (transition) {
+      const grant = lease.models.transition_source;
+      if (!grant || grant.model !== transition.model || grant.revision !== transition.revision ||
+          grant.protocolMode !== transition.protocol_mode || !tokenMatches(transition.token, grant.tokenHash)) {
+        throw new AppError("AUTH_REQUIRED");
+      }
     }
   }
 

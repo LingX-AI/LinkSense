@@ -28,6 +28,7 @@ import {
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
   desktopExecutionProtocolVersion,
+  desktopModelSwitchOperation,
   desktopExecutionResultSchema,
   desktopProtocolVersion,
   desktopToolCancelSchema,
@@ -206,7 +207,7 @@ export async function registerDesktopDeviceRoutes(
     const offered = typeof toolOffer === "string" ? new Set(toolOffer.split(",")) : undefined;
     const tools = !supportsTools ? [] : !offered ? ["web.search"] as const
       : desktopNegotiatedOperationSchema.options.filter(operation => offered.has(operation) &&
-        (operation === "web.search" ||
+        (operation === "web.search" || operation === desktopModelSwitchOperation ||
           (operation === "approval.respond" ? options.nativeApprovals
             : operation === "connection.execute" ? options.connectionTools
             : operation === "browser.execute" ? options.browserTools

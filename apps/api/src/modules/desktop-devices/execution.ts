@@ -142,9 +142,22 @@ export async function registerDesktopExecution(
         holderId: command.body.holder_id, admission,
       }, barrier);
     }
-    return command.operation === "user-input.respond"
-      ? leases.isActiveToolScope(scope)
-      : isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
+    if (command.operation === "user-input.respond") return leases.isActiveToolScope(scope);
+    if (command.operation === "turn.start" && command.body.credentials.transition_source) {
+      const source = command.body.native_thread_id;
+      if (!source || !await isDesktopRunActive(prisma, coordinator, scope, "issue", source)) return false;
+      try {
+        await leases.fenceRunBinding(scope, command.body.credentials.run_token, command.body.credentials.transition_source);
+        return true;
+      } catch (error) {
+        if (error instanceof AppError && error.code === "AUTH_REQUIRED") return false;
+        throw error;
+      }
+    }
+    if (command.operation === "turn.inspect" && command.body) {
+      return isDesktopRunActive(prisma, coordinator, scope, "settle", command.body.transition_source_thread_id);
+    }
+    return isDesktopRunActive(prisma, coordinator, scope, command.operation === "turn.start" ? "issue" : "settle");
   },
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
     async ({ ownerId, toolOperations, computerStatus, ...binding }, frame, signal, readDelivery) => {
@@ -198,9 +211,7 @@ export async function registerDesktopExecution(
       };
       await check();
       if (frame.operation === "start.settled") {
-        const settled = await services.conversations.settleStartOperation(ownerId, frame.body, {
-          connectionId: scope.connectionId, scope, check,
-        });
+        const settled = await services.conversations.settleStartOperation(ownerId, frame.body, { connectionId: scope.connectionId, scope, check });
         return { type: "execution.ack", id: frame.id, operation: frame.operation, ok: true, data: { settled } };
       }
       if (frame.operation === "turn.exited") {
