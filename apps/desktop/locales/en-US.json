@@ -8,6 +8,8 @@
   "computerPickerConfirm": "Use This Window",
   "computerPickerCancel": "Cancel",
   "newTask": "New Task",
+  "goBack": "Back",
+  "goForward": "Forward",
   "pauseComputerControl": "Pause Computer Control",
   "stopComputerControl": "Stop Computer Control",
   "preferences": "Preferences…",

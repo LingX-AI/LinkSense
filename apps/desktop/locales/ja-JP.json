@@ -8,6 +8,8 @@
   "computerPickerConfirm": "このウインドウを使用",
   "computerPickerCancel": "キャンセル",
   "newTask": "新しいタスク",
+  "goBack": "戻る",
+  "goForward": "進む",
   "pauseComputerControl": "コンピューター操作を一時停止",
   "stopComputerControl": "コンピューター操作を停止",
   "preferences": "環境設定…",

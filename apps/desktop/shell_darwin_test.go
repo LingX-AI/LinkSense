@@ -12,9 +12,9 @@ import (
 // TestShellMenusKeepViewActionsWithoutPageZoom inspects the prepared MyGo menu
 // tree. A bare RoleViewMenu expands to page zoom roles and their Cmd+Plus,
 // Cmd+- and Cmd+0 accelerators, which the fixed-scale Mac window must not install.
+// The native history actions live only in that View menu and use the WebView's
+// own back/forward list.
 func TestShellMenusKeepViewActionsWithoutPageZoom(t *testing.T) {
-	app, tray := (&Desktop{}).shellMenus(locales.In("en-US"))
-
 	pageZoomRoles := map[mygo.MenuRole]bool{
 		mygo.RoleResetZoom: true,
 		mygo.RoleZoomIn:    true,
@@ -37,42 +37,83 @@ func TestShellMenusKeepViewActionsWithoutPageZoom(t *testing.T) {
 		{mygo.RoleMinimize, "CmdOrCtrl+M"},
 		{mygo.RoleZoom, ""},
 	}
-	seen := map[mygo.MenuRole]bool{}
-	viewLabel := ""
-	var inspect func([]*mygo.MenuItem)
-	inspect = func(items []*mygo.MenuItem) {
-		for _, item := range items {
-			if pageZoomRoles[item.Role] {
-				t.Errorf("page zoom menu entry installed: role=%q accelerator=%q label=%q", item.Role, item.Accelerator, item.Label)
+	for _, locale := range []string{"zh-CN", "en-US", "es-ES", "fr-FR", "ja-JP", "pt-BR"} {
+		t.Run(locale, func(t *testing.T) {
+			tx := locales.In(locale)
+			app, tray := (&Desktop{}).shellMenus(tx)
+			seen := map[mygo.MenuRole]bool{}
+			var view *mygo.MenuItem
+			var inspect func([]*mygo.MenuItem)
+			inspect = func(items []*mygo.MenuItem) {
+				for _, item := range items {
+					if pageZoomRoles[item.Role] {
+						t.Errorf("page zoom menu entry installed: role=%q accelerator=%q label=%q", item.Role, item.Accelerator, item.Label)
+					}
+					if pageZoomAccelerators[item.Accelerator] {
+						t.Errorf("page zoom shortcut installed: role=%q accelerator=%q label=%q", item.Role, item.Accelerator, item.Label)
+					}
+					if item.Role == mygo.RoleViewMenu {
+						view = item
+					}
+					for _, want := range wanted {
+						if item.Role != want.role {
+							continue
+						}
+						seen[item.Role] = true
+						if item.Accelerator != want.accelerator {
+							t.Errorf("menu role %q has accelerator %q, want %q", item.Role, item.Accelerator, want.accelerator)
+						}
+					}
+					inspect(item.Submenu)
+				}
 			}
-			if pageZoomAccelerators[item.Accelerator] {
-				t.Errorf("page zoom shortcut installed: role=%q accelerator=%q label=%q", item.Role, item.Accelerator, item.Label)
-			}
-			if item.Role == mygo.RoleViewMenu {
-				viewLabel = item.Label
+			inspect(app.Items())
+			inspect(tray.Items())
+
+			if view == nil || view.Label == "" || view.Label == string(mygo.RoleViewMenu) {
+				t.Fatalf("the native View menu lost its localized label: %+v", view)
 			}
 			for _, want := range wanted {
-				if item.Role != want.role {
-					continue
-				}
-				seen[item.Role] = true
-				if item.Accelerator != want.accelerator {
-					t.Errorf("menu role %q has accelerator %q, want %q", item.Role, item.Accelerator, want.accelerator)
+				if !seen[want.role] {
+					t.Errorf("menu role %q is missing", want.role)
 				}
 			}
-			inspect(item.Submenu)
-		}
-	}
-	inspect(app.Items())
-	inspect(tray.Items())
 
-	if viewLabel == "" || viewLabel == string(mygo.RoleViewMenu) {
-		t.Fatalf("the native View menu lost its localized label: %q", viewLabel)
+			back, forward := app.ItemByID("history-back"), app.ItemByID("history-forward")
+			if back == nil || back.Click == nil || forward == nil || forward.Click == nil {
+				t.Fatal("the View menu is missing the native history actions")
+			}
+			if back.Label == "" || forward.Label == "" ||
+				back.Label != tx.GoBack() || forward.Label != tx.GoForward() {
+				t.Errorf("history labels = %q, %q, want %q, %q", back.Label, forward.Label, tx.GoBack(), tx.GoForward())
+			}
+			if back.Label == forward.Label {
+				t.Errorf("back and forward share the label %q", back.Label)
+			}
+			if back.Accelerator != "Cmd+[" || forward.Accelerator != "Cmd+]" {
+				t.Errorf("history shortcuts = %q, %q, want Cmd+[ and Cmd+]", back.Accelerator, forward.Accelerator)
+			}
+			if len(view.Submenu) < 3 || view.Submenu[0] != back || view.Submenu[1] != forward {
+				t.Error("history actions must lead the View menu")
+			}
+			if tray.ItemByID("history-back") != nil || tray.ItemByID("history-forward") != nil {
+				t.Error("history actions must not appear in the tray menu")
+			}
+		})
 	}
-	for _, want := range wanted {
-		if !seen[want.role] {
-			t.Errorf("menu role %q is missing", want.role)
+
+	// A missing main window must not be created just to serve history.
+	d := &Desktop{}
+	app, _ := d.shellMenus(locales.In("en-US"))
+	for _, id := range []string{"history-back", "history-forward"} {
+		item := app.ItemByID(id)
+		if item == nil || item.Click == nil {
+			t.Fatalf("missing history action %q", id)
 		}
+		item.Click(item, nil)
+	}
+	if d.mainWindow() != nil {
+		t.Fatal("a history action created a main window")
 	}
 }
 

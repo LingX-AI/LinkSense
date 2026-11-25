@@ -40,6 +40,14 @@ export interface Messages {
    */
   newTask(): string;
   /**
+   * `后退`
+   */
+  goBack(): string;
+  /**
+   * `前进`
+   */
+  goForward(): string;
+  /**
    * `暂停电脑控制`
    */
   pauseComputerControl(): string;
@@ -126,6 +134,8 @@ const catalog = createCatalog<Messages>({
     "computerPickerConfirm": [],
     "computerPickerCancel": [],
     "newTask": [],
+    "goBack": [],
+    "goForward": [],
     "pauseComputerControl": [],
     "stopComputerControl": [],
     "preferences": [],
@@ -154,6 +164,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "使用此窗口",
       "computerPickerCancel": "取消",
       "newTask": "新建任务",
+      "goBack": "后退",
+      "goForward": "前进",
       "pauseComputerControl": "暂停电脑控制",
       "stopComputerControl": "停止电脑控制",
       "preferences": "偏好设置…",
@@ -181,6 +193,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "Use This Window",
       "computerPickerCancel": "Cancel",
       "newTask": "New Task",
+      "goBack": "Back",
+      "goForward": "Forward",
       "pauseComputerControl": "Pause Computer Control",
       "stopComputerControl": "Stop Computer Control",
       "preferences": "Preferences…",
@@ -208,6 +222,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "Usar esta ventana",
       "computerPickerCancel": "Cancelar",
       "newTask": "Nueva tarea",
+      "goBack": "Atrás",
+      "goForward": "Adelante",
       "pauseComputerControl": "Pausar el control del equipo",
       "stopComputerControl": "Detener el control del equipo",
       "preferences": "Preferencias…",
@@ -235,6 +251,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "Utiliser cette fenêtre",
       "computerPickerCancel": "Annuler",
       "newTask": "Nouvelle tâche",
+      "goBack": "Précédent",
+      "goForward": "Suivant",
       "pauseComputerControl": "Suspendre le contrôle de l’ordinateur",
       "stopComputerControl": "Arrêter le contrôle de l’ordinateur",
       "preferences": "Préférences…",
@@ -262,6 +280,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "このウインドウを使用",
       "computerPickerCancel": "キャンセル",
       "newTask": "新しいタスク",
+      "goBack": "戻る",
+      "goForward": "進む",
       "pauseComputerControl": "コンピューター操作を一時停止",
       "stopComputerControl": "コンピューター操作を停止",
       "preferences": "環境設定…",
@@ -289,6 +309,8 @@ const catalog = createCatalog<Messages>({
       "computerPickerConfirm": "Usar esta janela",
       "computerPickerCancel": "Cancelar",
       "newTask": "Nova tarefa",
+      "goBack": "Voltar",
+      "goForward": "Avançar",
       "pauseComputerControl": "Pausar o controle do computador",
       "stopComputerControl": "Parar o controle do computador",
       "preferences": "Preferências…",

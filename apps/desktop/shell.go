@@ -53,6 +53,29 @@ func (d *Desktop) navigateMainWindow(route string) {
 	}
 }
 
+// stepMainWindowHistory drives the existing WebView's own history. History
+// commands must never present, reopen, or focus a window, so a missing or
+// destroyed main window and a WebView without the requested entry are no-ops.
+func (d *Desktop) stepMainWindowHistory(forward bool) {
+	win := d.mainWindow()
+	if win == nil || win.IsDestroyed() {
+		return
+	}
+	page := win.Page()
+	if page == nil {
+		return
+	}
+	if forward {
+		if page.CanGoForward() {
+			page.GoForward()
+		}
+		return
+	}
+	if page.CanGoBack() {
+		page.GoBack()
+	}
+}
+
 func (d *Desktop) installShell(dataRoot string) {
 	// shortcut: mygo 0.10.0 leaves a nil preference map for JSON null; remove this once upstream handles null.
 	canSave := true
@@ -119,6 +142,8 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
 	stopComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyStopComputer() }
 	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
+	goBack := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(false) }
+	goForward := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(true) }
 	viewCrashReports := func(*mygo.MenuItem, *mygo.Window) {
 		if d.quitting.Load() || openCrashReportsPath("/System/Applications/Utilities/Console.app") == nil {
 			return
@@ -161,10 +186,13 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 		}},
 		{Role: mygo.RoleEditMenu},
 		// The native View role keeps its localized label, but MyGo would expand
-		// a bare role into page-zoom commands. The fixed page scale keeps reload,
-		// developer tools and full screen, while RoleWindowMenu keeps native
-		// window management.
+		// a bare role into page-zoom commands. Back and Forward use the WebView's
+		// own history; the fixed page scale keeps reload, developer tools and
+		// full screen, while RoleWindowMenu keeps native window management.
 		{Role: mygo.RoleViewMenu, Submenu: []*mygo.MenuItem{
+			{ID: "history-back", Label: tx.GoBack(), Accelerator: "Cmd+[", Click: goBack},
+			{ID: "history-forward", Label: tx.GoForward(), Accelerator: "Cmd+]", Click: goForward},
+			mygo.Separator(),
 			{Role: mygo.RoleReload},
 			{Role: mygo.RoleForceReload},
 			{Role: mygo.RoleToggleDevTools},

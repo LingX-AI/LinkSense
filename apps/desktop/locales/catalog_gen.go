@@ -126,6 +126,26 @@ func (msgs Messages) NewTask() string {
 	return Catalog.Format(msgs.locale, "newTask", nil)
 }
 
+// GoBack says "后退"
+// in the language the app shows.
+func GoBack() string { return In(i18n.Locale()).GoBack() }
+
+// GoBack says "后退"
+// in the language of msgs.
+func (msgs Messages) GoBack() string {
+	return Catalog.Format(msgs.locale, "goBack", nil)
+}
+
+// GoForward says "前进"
+// in the language the app shows.
+func GoForward() string { return In(i18n.Locale()).GoForward() }
+
+// GoForward says "前进"
+// in the language of msgs.
+func (msgs Messages) GoForward() string {
+	return Catalog.Format(msgs.locale, "goForward", nil)
+}
+
 // PauseComputerControl says "暂停电脑控制"
 // in the language the app shows.
 func PauseComputerControl() string { return In(i18n.Locale()).PauseComputerControl() }

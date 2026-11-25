@@ -8,6 +8,8 @@
   "computerPickerConfirm": "Usar esta janela",
   "computerPickerCancel": "Cancelar",
   "newTask": "Nova tarefa",
+  "goBack": "Voltar",
+  "goForward": "Avançar",
   "pauseComputerControl": "Pausar o controle do computador",
   "stopComputerControl": "Parar o controle do computador",
   "preferences": "Preferências…",

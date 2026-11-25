@@ -25,14 +25,6 @@ func TestNativeMenuReopensSamePageAndHonorsUnsavedChanges(t *testing.T) {
 	w := d.mainWindow()
 	t.Cleanup(w.Destroy)
 	app, tray := d.shellMenus(locales.In("en-US"))
-	click := func(menu *mygo.Menu, id string) {
-		t.Helper()
-		item := menu.ItemByID(id)
-		if item == nil || item.Click == nil {
-			t.Fatalf("missing menu action %q", id)
-		}
-		mygo.RunOnMain(func() { item.Click(item, nil) })
-	}
 	p := w.Page()
 	whiteboxWait(t, p, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
 
@@ -42,10 +34,10 @@ func TestNativeMenuReopensSamePageAndHonorsUnsavedChanges(t *testing.T) {
 	}
 	// MyGo sets a checkbox's state before calling its menu action.
 	toggle.SetChecked(true)
-	click(tray, "close-to-tray")
+	clickNativeMenuItem(t, tray, "close-to-tray")
 	t.Cleanup(func() {
 		toggle.SetChecked(false)
-		click(tray, "close-to-tray")
+		clickNativeMenuItem(t, tray, "close-to-tray")
 	})
 	root, err := mygo.App.Path(mygo.PathUserData)
 	if err != nil {
@@ -60,11 +52,11 @@ func TestNativeMenuReopensSamePageAndHonorsUnsavedChanges(t *testing.T) {
 	if w.IsDestroyed() || w.IsVisible() {
 		t.Fatal("close-to-tray must hide the existing window")
 	}
-	click(tray, "show-window")
+	clickNativeMenuItem(t, tray, "show-window")
 	if !w.IsVisible() || d.mainWindow() != w {
 		t.Fatal("the menu must restore the original window")
 	}
-	click(app, "settings")
+	clickNativeMenuItem(t, app, "settings")
 	whiteboxWait(t, p, `location.pathname === "/settings/general"`)
 
 	if err := p.LoadURL("/settings/personalization"); err != nil {
@@ -79,8 +71,119 @@ func TestNativeMenuReopensSamePageAndHonorsUnsavedChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	whiteboxWait(t, p, `document.querySelector("#custom-instructions")?.form.querySelector("button[type=submit]").disabled === false`)
-	click(tray, "new-task")
+	clickNativeMenuItem(t, tray, "new-task")
 	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && document.querySelector("[role=alertdialog]") !== null`)
+}
+
+func clickNativeMenuItem(t *testing.T, menu *mygo.Menu, id string) {
+	t.Helper()
+	item := menu.ItemByID(id)
+	if item == nil || item.Click == nil {
+		t.Fatalf("missing menu action %q", id)
+	}
+	mygo.RunOnMain(func() { item.Click(item, nil) })
+}
+
+// TestNativeMacHistoryMenuHonorsUnsavedChanges drives the real WKWebView
+// history through the native View menu. A real React Router transition builds
+// the entries, so the check proves native Back/Forward keep the existing
+// unsaved guard and the same document rather than reloading or replacing it.
+func TestNativeMacHistoryMenuHonorsUnsavedChanges(t *testing.T) {
+	nativeWhiteboxSession(t, true)
+	d := nativeWhitebox.desktop
+	// The history assertions need their own document, not the default WebView
+	// store the other native whitebox tests keep for the run.
+	d.openMainWindowInSession(mygo.NewEphemeralSession())
+	w := d.mainWindow()
+	t.Cleanup(func() {
+		if !w.IsDestroyed() {
+			w.Destroy()
+		}
+	})
+	app, _ := d.shellMenus(locales.In("en-US"))
+	p := w.Page()
+	whiteboxWait(t, p, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+
+	// With no forward entry, Forward must leave the current document alone.
+	clickNativeMenuItem(t, app, "history-forward")
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(location.pathname === "/conversations/new"), 200))`)
+
+	// Two in-document pushes reach Personalization: the native Settings action
+	// then the Settings navigation link.
+	clickNativeMenuItem(t, app, "settings")
+	whiteboxWait(t, p, `location.pathname === "/settings/general" && document.querySelector('.settings-navigation-link[href="/settings/personalization"]') !== null`)
+	if _, err := p.Eval(`document.querySelector('.settings-navigation-link[href="/settings/personalization"]').click()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && document.querySelector("#custom-instructions")?.disabled === false`)
+	if _, err := p.Eval(`(() => {
+		window.__nativeHistorySentinel = "retained";
+		const el = document.querySelector("#custom-instructions");
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(el, "Unsaved fixture");
+		el.dispatchEvent(new Event("input", { bubbles: true }));
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `document.querySelector("#custom-instructions")?.form.querySelector("button[type=submit]").disabled === false`)
+
+	// Back is blocked by the existing unsaved guard; Stay keeps the document,
+	// its path and its draft.
+	clickNativeMenuItem(t, app, "history-back")
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && document.querySelector("[role=alertdialog]") !== null`)
+	if _, err := p.Eval(`(() => {
+		const dialog = document.querySelector("[role=alertdialog]");
+		const stay = [...dialog.querySelectorAll("button")].find(button => button.textContent.trim() === "Stay on Page");
+		if (!stay) throw new Error("Stay on Page is missing");
+		stay.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `new Promise(resolve => setTimeout(() => resolve(
+		location.pathname === "/settings/personalization" &&
+		!document.querySelector("[role=alertdialog]") &&
+		window.__nativeHistorySentinel === "retained" &&
+		document.querySelector("#custom-instructions")?.value === "Unsaved fixture"), 200))`)
+
+	// Discarding proceeds to the prior entry without reloading the document. The
+	// entry and location change before React renders, so the destination is
+	// ready only once General's own view replaced the form and its dialog.
+	clickNativeMenuItem(t, app, "history-back")
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" && document.querySelector("[role=alertdialog]") !== null`)
+	if _, err := p.Eval(`(() => {
+		const dialog = document.querySelector("[role=alertdialog]");
+		const discard = [...dialog.querySelectorAll("button")].find(button => button.textContent.trim() === "Discard Changes");
+		if (!discard) throw new Error("Discard Changes is missing");
+		discard.click();
+	})()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, p, `location.pathname === "/settings/general" &&
+		document.querySelector('.settings-navigation-link[href="/settings/general"][aria-current="page"]') !== null &&
+		document.querySelector("#custom-instructions") === null &&
+		document.querySelector("[role=alertdialog]") === null &&
+		window.__nativeHistorySentinel === "retained"`)
+
+	// Forward returns to Personalization in the same document with a fresh form.
+	clickNativeMenuItem(t, app, "history-forward")
+	whiteboxWait(t, p, `location.pathname === "/settings/personalization" &&
+		window.__nativeHistorySentinel === "retained" &&
+		document.querySelector("#custom-instructions")?.disabled === false`)
+	// The fixture saved no custom instructions, and the discarded draft left no
+	// pending change, so Forward must show that saved form.
+	if value, err := p.Eval(`document.querySelector("#custom-instructions")?.value`); err != nil || value != "" {
+		t.Fatalf("Forward showed %v instead of the saved empty instructions: %v", value, err)
+	}
+	if disabled, err := p.Eval(`document.querySelector("#custom-instructions")?.form.querySelector("button[type=submit]").disabled`); err != nil || disabled != true {
+		t.Fatalf("Forward left the saved form dirty: save disabled=%v (%v)", disabled, err)
+	}
+
+	// A destroyed main window is not reopened for history.
+	w.Destroy()
+	clickNativeMenuItem(t, app, "history-back")
+	clickNativeMenuItem(t, app, "history-forward")
+	if d.mainWindow() != w || !w.IsDestroyed() {
+		t.Fatal("a history action reopened the destroyed main window")
+	}
 }
 
 func TestNativeMenuDoesNotInterruptBrowserSignIn(t *testing.T) {
