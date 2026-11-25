@@ -1,6 +1,7 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { assertPairedDesktopDevice } from "./execution-target.js";
 import { lockDesktopConversation, type DesktopStartProjectionFence } from "../desktop-credentials/run-authority.js";
+import { snapshotRecoveredDesktopRunLease } from "../desktop-credentials/run-leases.js";
 import { endLocalComputerSessions } from "../local-computer/repository.js";
 import { resolveDesktopArtifactFileChanges } from "../files/desktop-artifact-references.js";
 import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
@@ -1800,6 +1801,12 @@ export class ConversationService {
         connectionId: fence.connectionId,
         ...(intent.desktopTransitionSourceThreadId && { transitionSourceThreadId: intent.desktopTransitionSourceThreadId }),
       } : undefined;
+      // Snapshot before inspect/seal: a lost direct failure receipt can leave
+      // this exact grant behind until the intent is released.
+      const retireAttachedFailure =
+        fence && intent.runnerStatus === "prepared" && intent.attachmentsJson.length > 0
+          ? await this.prepareFailedAttachedStartRetirement(intent, fence, lock)
+          : undefined;
       const inspect = () => this.runner.inspectStartOperation(
         intent.conversationId, intent.projectionTurnId, intent.ownerId, ...(desktop ? [desktop] : []),
       );
@@ -1916,6 +1923,7 @@ export class ConversationService {
         return "projected";
       }
       if (sealedMissingOperation) {
+        if (retireAttachedFailure && !await retireAttachedFailure()) return "pending";
         const marked = await this.markMissingStartIntentForRelease(intent);
         if (!marked) return "pending";
         await this.finishReleasePendingStartIntent(
@@ -1927,6 +1935,7 @@ export class ConversationService {
         return "released";
       }
 
+      if (retireAttachedFailure && !await retireAttachedFailure()) return "pending";
       const releasing = await this.markStartIntentForRelease(intent);
       await this.finishReleasePendingStartIntent(
         releasing,
@@ -1940,6 +1949,30 @@ export class ConversationService {
         .releaseConversationLock(initialIntent.conversationId, lock)
         .catch(() => undefined);
     }
+  }
+
+  private async prepareFailedAttachedStartRetirement(
+    intent: TurnStartIntent,
+    fence: DesktopStartProjectionFence,
+    conversationLockToken: string,
+  ): Promise<() => Promise<boolean>> {
+    if (
+      fence.scope.ownerId !== intent.ownerId ||
+      fence.scope.conversationId !== intent.conversationId ||
+      fence.scope.runtimeGeneration !== intent.runtimeGeneration ||
+      fence.scope.turnId !== intent.projectionTurnId
+    ) throw new AppError("CONFLICT");
+    const retire = await snapshotRecoveredDesktopRunLease(this.redis.client, {
+      ownerId: intent.ownerId,
+      deviceId: fence.scope.deviceId,
+      conversationId: intent.conversationId,
+      runtimeGeneration: intent.runtimeGeneration,
+      turnId: intent.projectionTurnId,
+    }, conversationLockToken);
+    return async () => {
+      await fence.check();
+      return await retire();
+    };
   }
 
   private async resumeDurableStartIntent(

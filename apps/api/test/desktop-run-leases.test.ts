@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { RunnerStartInput } from "../src/adapters/runner.js";
-import { DesktopRunLeases, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
+import { conversationLockKey } from "../src/adapters/redis.js";
+import {
+  DesktopRunLeases,
+  snapshotRecoveredDesktopRunLease,
+  type DesktopRunScope,
+} from "../src/modules/desktop-credentials/run-leases.js";
 import { RedisDesktopDeviceCoordinator } from "../src/modules/desktop-devices/coordinator.js";
 import { createRedisFixture } from "./fixtures/redis.js";
 
@@ -209,3 +214,180 @@ describe("desktop run leases", () => {
     await expect(leases.authorizeModel({ turnId: scope.turnId, ...credentials.primary })).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
   });
 });
+
+describe("recovered desktop run lease retirement", () => {
+  const stable = (scope: DesktopRunScope) => ({
+    ownerId: scope.ownerId,
+    deviceId: scope.deviceId,
+    conversationId: scope.conversationId,
+    turnId: scope.turnId,
+    runtimeGeneration: scope.runtimeGeneration,
+  });
+  const leaseKey = (scope: DesktopRunScope) => `linksense:desktop-run:${scope.turnId}`;
+  const lockCurrent = async (scope: DesktopRunScope, token: string) => {
+    await redis.client.set(conversationLockKey(scope.conversationId), token, "PX", 120_000);
+  };
+
+  it("retires an exact old-connection grant only while the recovery lock is current", async () => {
+    const { input, scope } = fixture();
+    const leases = new DesktopRunLeases(redis.client, async () => true);
+    const token = randomUUID();
+    await leases.issue(scope, input);
+    await lockCurrent(scope, token);
+    const retire = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    expect(retire).not.toBeNull();
+
+    await expect(retire!()).resolves.toBe(true);
+    expect(await redis.client.exists(leaseKey(scope))).toBe(0);
+  });
+
+  const lockMoves = [
+    { name: "a reacquired lock", move: async (scope: DesktopRunScope) => { await lockCurrent(scope, randomUUID()); } },
+    { name: "a released lock", move: async (scope: DesktopRunScope) => { await redis.client.del(conversationLockKey(scope.conversationId)); } },
+  ];
+  it.each(lockMoves)("keeps the grant when $name belongs to another recovery", async ({ move }) => {
+    const { input, scope } = fixture();
+    const leases = new DesktopRunLeases(redis.client, async () => true);
+    const token = randomUUID();
+    await leases.issue(scope, input);
+    await lockCurrent(scope, token);
+    const retire = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await move(scope);
+
+    expect(retire).not.toBeNull();
+    await expect(retire!()).resolves.toBe(false);
+    expect(await redis.client.exists(leaseKey(scope))).toBe(1);
+  });
+
+  it("keeps a newer grant with the same stable scope and a new connection issued after the snapshot", async () => {
+    const { input, scope } = fixture();
+    const leases = new DesktopRunLeases(redis.client, async () => true);
+    const token = randomUUID();
+    await leases.issue(scope, input);
+    await lockCurrent(scope, token);
+    const retire = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+
+    await redis.client.del(leaseKey(scope));
+    const replacement = randomUUID();
+    await leases.issue({ ...scope, connectionId: replacement }, input);
+    const current = await redis.client.get(leaseKey(scope));
+    expect(retire).not.toBeNull();
+    await expect(retire!()).resolves.toBe(false);
+    expect(await redis.client.get(leaseKey(scope))).toBe(current);
+  });
+
+  const replacements = [
+    { name: "revoked", replace: async (scope: DesktopRunScope) => { await new DesktopRunLeases(redis.client, async () => true).revoke(scope.turnId); } },
+    { name: "malformed", replace: async (scope: DesktopRunScope) => { await redis.client.set(leaseKey(scope), "{not-json"); } },
+    { name: "foreign", replace: async (scope: DesktopRunScope) => {
+      await redis.client.del(leaseKey(scope));
+      await new DesktopRunLeases(redis.client, async () => true).issue({ ...scope, deviceId: randomUUID() }, fixtureInput(scope));
+    } },
+    { name: "generation-mismatched", replace: async (scope: DesktopRunScope) => {
+      await redis.client.del(leaseKey(scope));
+      const generation = randomUUID();
+      await new DesktopRunLeases(redis.client, async () => true).issue(scope, fixtureInput(scope, generation));
+    } },
+  ];
+  it.each(replacements)("succeeds without changing $name lease bytes", async ({ replace }) => {
+    const { input, scope } = fixture();
+    await new DesktopRunLeases(redis.client, async () => true).issue(scope, input);
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    await replace(scope);
+    const before = await redis.client.get(leaseKey(scope));
+    const retire = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+
+    await expect(retire()).resolves.toBe(true);
+    expect(await redis.client.get(leaseKey(scope))).toBe(before);
+  });
+
+  it("keeps an unchanged non-deletable snapshot when the recovery lock was lost", async () => {
+    const { scope } = fixture();
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    await redis.client.set(leaseKey(scope), "revoked");
+    const retire = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await redis.client.del(conversationLockKey(scope.conversationId));
+
+    await expect(retire()).resolves.toBe(false);
+    expect(await redis.client.get(leaseKey(scope))).toBe("revoked");
+  });
+
+  it("fails closed for an absent snapshot when the recovery lock was lost", async () => {
+    const { scope } = fixture();
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    const absent = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await redis.client.del(conversationLockKey(scope.conversationId));
+
+    await expect(absent()).resolves.toBe(false);
+    expect(await redis.client.exists(leaseKey(scope))).toBe(0);
+  });
+
+  it("settles an absent snapshot only while the lease remains absent", async () => {
+    const { scope } = fixture();
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    const absent = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+
+    await expect(absent()).resolves.toBe(true);
+    expect(await redis.client.exists(leaseKey(scope))).toBe(0);
+  });
+
+  it("fails closed when a lease appears after an absent snapshot", async () => {
+    const { input, scope } = fixture();
+    const leases = new DesktopRunLeases(redis.client, async () => true);
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    const absent = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await leases.issue(scope, input);
+    const current = await redis.client.get(leaseKey(scope));
+
+    await expect(absent()).resolves.toBe(false);
+    expect(await redis.client.get(leaseKey(scope))).toBe(current);
+  });
+
+  it("does not mistake an empty stored value for an absent snapshot", async () => {
+    const { scope } = fixture();
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    const absent = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await redis.client.set(leaseKey(scope), "");
+
+    await expect(absent()).resolves.toBe(false);
+    expect(await redis.client.get(leaseKey(scope))).toBe("");
+
+    const empty = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await expect(empty()).resolves.toBe(true);
+    expect(await redis.client.get(leaseKey(scope))).toBe("");
+  });
+
+  it("treats a lease that expired after the snapshot as already retired", async () => {
+    const { input, scope } = fixture();
+    const leases = new DesktopRunLeases(redis.client, async () => true);
+    const token = randomUUID();
+    await lockCurrent(scope, token);
+    await leases.issue(scope, input);
+    const present = await snapshotRecoveredDesktopRunLease(redis.client, stable(scope), token);
+    await redis.client.pexpire(leaseKey(scope), 1);
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    await expect(present()).resolves.toBe(true);
+    expect(await redis.client.exists(leaseKey(scope))).toBe(0);
+  });
+});
+
+function fixtureInput(scope: DesktopRunScope, runtimeGeneration = scope.runtimeGeneration) {
+  return {
+    ownerId: scope.ownerId,
+    conversationId: scope.conversationId,
+    projectionTurnId: scope.turnId,
+    expectedRuntimeGeneration: runtimeGeneration,
+    model: "fixture-chat",
+    modelProvider: {
+      revision: 9, baseUrl: "https://fixture-provider.example.test/v1",
+      apiKey: "fixture-primary-key", protocolMode: "native_responses" as const,
+    },
+  };
+}

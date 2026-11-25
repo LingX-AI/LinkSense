@@ -13,6 +13,7 @@ import {
 import type { Redis } from "ioredis";
 import { z } from "zod";
 
+import { conversationLockKey } from "../../adapters/redis.js";
 import type { RunnerModelProviderRuntime, RunnerStartInput } from "../../adapters/runner.js";
 import { randomToken, sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
@@ -28,6 +29,8 @@ export const desktopRunScopeSchema = z.strictObject({
   turnId: runIdSchema,
   runtimeGeneration: runIdSchema,
 });
+const stableRunScopeSchema = desktopRunScopeSchema.omit({ connectionId: true });
+type StableRunScope = z.infer<typeof stableRunScopeSchema>;
 const credentialHash = z.string().regex(/^[a-f0-9]{64}$/u);
 const storedLeaseSchema = z.strictObject({
   scope: desktopRunScopeSchema,
@@ -305,6 +308,41 @@ function key(turnId: string): string {
   return `linksense:desktop-run:${turnId}`;
 }
 
+/**
+ * Snapshots the canonical lease of a recovered attached local start and
+ * returns its compare-delete. The delete is one Redis CAS on the raw lease
+ * bytes plus the still-held conversation lock, so a reissued or revoked grant
+ * and a stale recovery worker are left untouched. Absent, malformed, foreign,
+ * and revoked snapshots still return a closure: unchanged bytes must validate
+ * the lock without being deleted, while bytes that appeared or changed fail
+ * closed. `true` means the snapshotted state was safely settled.
+ */
+export async function snapshotRecoveredDesktopRunLease(
+  redis: Pick<Redis, "get" | "eval">,
+  scope: StableRunScope,
+  conversationLockToken: string,
+): Promise<() => Promise<boolean>> {
+  const expected = stableRunScopeSchema.parse(scope);
+  const leaseKey = key(expected.turnId);
+  const raw = await redis.get(leaseKey);
+  const lease = parseLease(raw);
+  const deletable = raw !== null && lease !== null && matchesStableScope(expected, lease.scope);
+  return async () => {
+    // ARGV: snapshot bytes (empty when absent), absent flag, lock token, delete flag.
+    const result = await redis.eval(`
+      if redis.call('GET', KEYS[2]) ~= ARGV[3] then return 0 end
+      local current = redis.call('GET', KEYS[1])
+      if not current then return 1 end
+      if ARGV[2] == '1' then return 0 end
+      if current ~= ARGV[1] then return 0 end
+      if ARGV[4] == '1' then return redis.call('DEL', KEYS[1]) end
+      return 1
+    `, 2, leaseKey, conversationLockKey(expected.conversationId),
+    raw ?? "", raw === null ? "1" : "0", conversationLockToken, deletable ? "1" : "0");
+    return result === 1;
+  };
+}
+
 /** Canonical run-lease key; shared with the selection Lua CAS so it cannot drift. */
 export function desktopRunLeaseKey(turnId: string): string {
   return key(runIdSchema.parse(turnId));
@@ -318,6 +356,12 @@ function matchesScope(a: DesktopRunScope, b: DesktopRunScope): boolean {
   return a.turnId === b.turnId && a.ownerId === b.ownerId &&
     a.deviceId === b.deviceId && a.connectionId === b.connectionId &&
     a.conversationId === b.conversationId && a.runtimeGeneration === b.runtimeGeneration;
+}
+
+function matchesStableScope(a: StableRunScope, b: DesktopRunScope): boolean {
+  return a.turnId === b.turnId && a.ownerId === b.ownerId &&
+    a.deviceId === b.deviceId && a.conversationId === b.conversationId &&
+    a.runtimeGeneration === b.runtimeGeneration;
 }
 
 function parseLease(raw: string | null): StoredLease | null {

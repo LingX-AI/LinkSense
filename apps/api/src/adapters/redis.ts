@@ -389,6 +389,11 @@ export type ClawHubInstallPreviewAdmission =
   | { status: "acquired"; token: string }
   | { status: "busy" | "rate_limited" | "quota_exceeded" }
 
+/** Canonical conversation lock key; shared with the recovered run-lease CAS. */
+export function conversationLockKey(conversationId: string): string {
+  return `linksense:conversation-lock:${conversationId}`
+}
+
 export class LinkSenseRedis {
   readonly client: Redis
 
@@ -709,7 +714,7 @@ export class LinkSenseRedis {
     const token = randomUUID()
     try {
       const result = await this.client.set(
-        `linksense:conversation-lock:${conversationId}`,
+        conversationLockKey(conversationId),
         token,
         "PX",
         ttlMilliseconds,
@@ -847,7 +852,7 @@ export class LinkSenseRedis {
       return await this.client.eval(`
         if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
         return redis.call('PEXPIRE', KEYS[1], ARGV[2])
-      `, 1, `linksense:conversation-lock:${conversationId}`, token, ttlMilliseconds) === 1
+      `, 1, conversationLockKey(conversationId), token, ttlMilliseconds) === 1
     } catch {
       throw new RedisUnavailableError("conversation_lock_extend")
     }
@@ -867,7 +872,7 @@ export class LinkSenseRedis {
       await this.client.eval(
         script,
         1,
-        `linksense:conversation-lock:${conversationId}`,
+        conversationLockKey(conversationId),
         token,
       )
     } catch {

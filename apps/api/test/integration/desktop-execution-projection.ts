@@ -1384,8 +1384,9 @@ export async function verifyDesktopExecutionProjection(input: {
       }, { graph: 1, workspace: 2, started: 1, aborted: 1 });
       assert(connector.stats.documentPages > 1);
       await verifyPackagedDesktopModelSwitch({
-        runtimeRoot, scratch: join(input.workspaceRoot, "model-switch"), address, server: app.server,
-        prisma, redis, coordinator, execution, conversations, events, modelProviderSettings, ownerId, deviceId, token,
+        runtimeRoot, scratch: join(input.workspaceRoot, "model-switch"), workspaceRoot: input.workspaceRoot,
+        address, server: app.server,
+        prisma, redis, coordinator, execution, conversations, files, events, modelProviderSettings, ownerId, deviceId, token,
         serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret],
       });
     }

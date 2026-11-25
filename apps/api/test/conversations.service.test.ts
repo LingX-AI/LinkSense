@@ -9679,6 +9679,225 @@ describe("ConversationService pending and turn materialization", () => {
     );
   });
 
+  it("retires the exact attached Mac lease from an older connection after a scoped failed receipt and before releasing the intent", async () => {
+    const fixture = await conversationFixture();
+    const { intent, rawLease, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    const transaction = releasingStartIntentTransaction(fixture, intent);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.get).toHaveBeenCalledWith(`linksense:desktop-run:${intent.projectionTurnId}`);
+    expect(fixture.redis.client.eval).toHaveBeenCalledWith(
+      expect.any(String), 2,
+      `linksense:desktop-run:${intent.projectionTurnId}`,
+      `linksense:conversation-lock:${CONVERSATION_ID}`,
+      rawLease, "0", "conversation-lock", "1",
+    );
+    const fetchedAt = fixture.redis.client.get.mock.invocationCallOrder[0]!;
+    const inspectedAt = fixture.runner.inspectStartOperation.mock.invocationCallOrder[0]!;
+    const retiredAt = fixture.redis.client.eval.mock.invocationCallOrder[0]!;
+    const releasedAt = fixture.prisma.conversationTurnStartIntent.updateMany.mock.invocationCallOrder[0]!;
+    expect(fetchedAt).toBeLessThan(inspectedAt);
+    expect(inspectedAt).toBeLessThan(retiredAt);
+    expect(retiredAt).toBeLessThan(releasedAt);
+    expect(transaction.conversationTurnStartIntent.deleteMany).toHaveBeenCalledOnce();
+  });
+
+  it("snapshots the attached Mac lease before sealing and retires it only after the seal proves failure", async () => {
+    const fixture = await conversationFixture();
+    const { intent, rawLease, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.sealStartOperation.mockResolvedValueOnce(failedStartOperation(intent, "RUNNER_TURN_START_SEALED"));
+    const transaction = releasingStartIntentTransaction(fixture, intent, true);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.get.mock.invocationCallOrder[0]!)
+      .toBeLessThan(fixture.runner.sealStartOperation.mock.invocationCallOrder[0]!);
+    expect(fixture.runner.sealStartOperation.mock.invocationCallOrder[0]!)
+      .toBeLessThan(fixture.redis.client.eval.mock.invocationCallOrder[0]!);
+    expect(fixture.redis.client.eval).toHaveBeenCalledWith(
+      expect.any(String), 2,
+      `linksense:desktop-run:${intent.projectionTurnId}`,
+      `linksense:conversation-lock:${CONVERSATION_ID}`,
+      rawLease, "0", "conversation-lock", "1",
+    );
+    expect(transaction.conversationTurnStartIntent.deleteMany).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the intent pending when a lease appears after an absent snapshot", async () => {
+    const fixture = await conversationFixture();
+    const { intent, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.redis.client.get.mockResolvedValueOnce(null);
+    fixture.redis.client.eval.mockResolvedValueOnce(0);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("pending");
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).toHaveBeenCalledWith(
+      expect.any(String), 2,
+      `linksense:desktop-run:${intent.projectionTurnId}`,
+      `linksense:conversation-lock:${CONVERSATION_ID}`,
+      "", "1", "conversation-lock", "0",
+    );
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("releases after an absent snapshot that stays absent", async () => {
+    const fixture = await conversationFixture();
+    const { intent, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    fixture.redis.client.get.mockResolvedValueOnce(null);
+    const transaction = releasingStartIntentTransaction(fixture, intent);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).toHaveBeenCalledWith(
+      expect.any(String), 2,
+      `linksense:desktop-run:${intent.projectionTurnId}`,
+      `linksense:conversation-lock:${CONVERSATION_ID}`,
+      "", "1", "conversation-lock", "0",
+    );
+    expect(transaction.conversationTurnStartIntent.deleteMany).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+  });
+
+  it("releases after an unchanged non-deletable lease snapshot", async () => {
+    const fixture = await conversationFixture();
+    const { intent, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    fixture.redis.client.get.mockResolvedValueOnce("revoked");
+    const transaction = releasingStartIntentTransaction(fixture, intent);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).toHaveBeenCalledWith(
+      expect.any(String), 2,
+      `linksense:desktop-run:${intent.projectionTurnId}`,
+      `linksense:conversation-lock:${CONVERSATION_ID}`,
+      "revoked", "0", "conversation-lock", "0",
+    );
+    expect(transaction.conversationTurnStartIntent.deleteMany).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { name: "an absent snapshot", raw: null },
+    { name: "an unchanged non-deletable snapshot", raw: "revoked" },
+  ])("does not release when $name loses the current device fence", async ({ raw }) => {
+    const fixture = await conversationFixture();
+    const { intent, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    fixture.redis.client.get.mockResolvedValueOnce(raw);
+    fence.check.mockRejectedValueOnce(new AppError("AUTH_REQUIRED"));
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId))
+      .rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+
+    expect(fence.check).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("reads the attached Mac lease before a nonterminal receipt without mutating", async () => {
+    const fixture = await conversationFixture();
+    const { intent, fence } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "starting",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+    });
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("pending");
+
+    expect(fixture.redis.client.get).toHaveBeenCalledOnce();
+    expect(fence.check).not.toHaveBeenCalled();
+    expect(fixture.redis.client.eval).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("keeps the intent pending when the failed Mac lease was replaced during recovery", async () => {
+    const fixture = await conversationFixture();
+    const { intent } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    fixture.redis.client.eval.mockResolvedValueOnce(0);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("pending");
+
+    expect(fixture.redis.client.eval).toHaveBeenCalledOnce();
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("does not read a run lease for a failed Mac start without attachments", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow();
+    const deviceId = "10000000-0000-4000-8000-000000000008";
+    fixture.runner.isDesktopConversation.mockResolvedValue(true);
+    fixture.runner.desktopProjectionFence.mockResolvedValue({
+      scope: {
+        ownerId: OWNER_ID, deviceId, conversationId: CONVERSATION_ID,
+        turnId: intent.projectionTurnId, runtimeGeneration: intent.runtimeGeneration,
+      },
+      connectionId: "10000000-0000-4000-8000-000000000009",
+      check: async () => undefined,
+    });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(failedStartOperation(intent));
+    releasingStartIntentTransaction(fixture, intent);
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+
+    expect(fixture.redis.client.get).not.toHaveBeenCalled();
+    expect(fixture.redis.client.eval).not.toHaveBeenCalled();
+  });
+
+  it("refuses recovery when the desktop fence does not match the attached start intent", async () => {
+    const fixture = await conversationFixture();
+    const { intent } = attachedMacStartSetup(fixture, { fenceTurnId: "40000000-0000-4000-8000-000000000098" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.redis.client.get).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectStartOperation).not.toHaveBeenCalled();
+  });
+
+  it("does not retire the attached Mac lease when the failed journal cannot be sealed", async () => {
+    const fixture = await conversationFixture();
+    const { intent } = attachedMacStartSetup(fixture);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.sealStartOperation.mockRejectedValueOnce(new RunnerStartOperationUncertainError());
+
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId))
+      .rejects.toBeInstanceOf(RunnerStartOperationUncertainError);
+
+    expect(fixture.redis.client.get).toHaveBeenCalledOnce();
+    expect(fixture.redis.client.eval).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+  });
+
   it("releases a prepared intent only after sealing a missing runner operation", async () => {
     const matching = await conversationFixture();
     const intent = startIntentRow();
@@ -13892,6 +14111,10 @@ async function conversationFixture() {
   };
   const redis = {
     maxConcurrentTurns: 5,
+    client: {
+      get: vi.fn(async () => null as string | null),
+      eval: vi.fn(async () => 1),
+    },
     reserveConversationPrewarm: vi.fn(async () => true),
     isConversationPrewarmCurrent: vi.fn(async () => true),
     claimConversationPrewarm: vi.fn(async () => true),
@@ -14980,6 +15203,94 @@ function runnerGoal(overrides: Partial<RunnerCodexGoal> = {}): RunnerCodexGoal {
     timeUsedSeconds: 10,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...overrides,
+  };
+}
+
+function attachedMacStartSetup(
+  fixture: Awaited<ReturnType<typeof conversationFixture>>,
+  options: { fenceTurnId?: string } = {},
+) {
+  const deviceId = "10000000-0000-4000-8000-000000000008";
+  const connectionId = "10000000-0000-4000-8000-000000000009";
+  const oldConnectionId = "10000000-0000-4000-8000-00000000000a";
+  const intent = startIntentRow({ attachmentsJson: [startIntentAttachmentRow()] });
+  const scope = {
+    ownerId: OWNER_ID, deviceId, conversationId: CONVERSATION_ID,
+    turnId: intent.projectionTurnId, runtimeGeneration: intent.runtimeGeneration,
+  };
+  const rawLease = JSON.stringify({
+    scope: { ...scope, connectionId: oldConnectionId },
+    expiresAt: NOW.getTime() + 600_000,
+    runHash: "b".repeat(64),
+    models: {},
+  });
+  const fence = {
+    scope: { ...scope, turnId: options.fenceTurnId ?? intent.projectionTurnId },
+    connectionId,
+    check: vi.fn(async () => undefined),
+  };
+  fixture.runner.isDesktopConversation.mockResolvedValue(true);
+  fixture.runner.desktopProjectionFence.mockResolvedValue(fence);
+  fixture.redis.client.get.mockResolvedValue(rawLease);
+  return { intent, rawLease, fence };
+}
+
+function failedStartOperation(
+  intent: ReturnType<typeof startIntentRow>,
+  errorCode: "RUNNER_TURN_START_FAILED" | "RUNNER_TURN_START_SEALED" = "RUNNER_TURN_START_FAILED",
+) {
+  return {
+    conversationId: CONVERSATION_ID,
+    projectionTurnId: intent.projectionTurnId,
+    status: "failed" as const,
+    errorCode,
+    createdAt: NOW.toISOString(),
+    updatedAt: NOW.toISOString(),
+  };
+}
+
+function releasingStartIntentTransaction(
+  fixture: Awaited<ReturnType<typeof conversationFixture>>,
+  intent: ReturnType<typeof startIntentRow>,
+  sealed = false,
+) {
+  const transaction = transactionFixture();
+  const releasing = startIntentRow({
+    ...intent, runnerStatus: "release_pending", codexThreadId: null, codexTurnId: null,
+  });
+  if (sealed) {
+    transaction.conversationTurnStartIntent.findUnique
+      .mockResolvedValueOnce({
+        ownerId: OWNER_ID, conversationId: CONVERSATION_ID,
+        runtimeGeneration: intent.runtimeGeneration, runnerStatus: "prepared",
+      })
+      .mockResolvedValueOnce(releasing);
+    transaction.conversation.findUnique.mockResolvedValueOnce(conversationRow());
+  } else {
+    transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(releasing);
+  }
+  fixture.prisma.$transaction.mockImplementation(
+    async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+  );
+  return transaction;
+}
+
+function startIntentAttachmentRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "70000000-0000-4000-8000-000000000001",
+    kind: "attachment",
+    source: "user_upload",
+    filename: "notes.txt",
+    mimeType: "text/plain",
+    sizeBytes: "10",
+    checksumSha256: "a".repeat(64),
+    storageBackend: "workspace",
+    workspaceRelativePath: "attachments/70000000-0000-4000-8000-000000000001/notes.txt",
+    workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
+    minioObjectKey: null,
+    downloadable: false,
+    createdBy: OWNER_ID,
     ...overrides,
   };
 }
