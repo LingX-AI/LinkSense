@@ -26,6 +26,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RESPONSE_INVALID: "Le service a renvoyé des résultats inutilisables. Contactez un administrateur.",
   WEB_SEARCH_TIMEOUT: "La recherche a expiré. Réessayez plus tard.",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "Les paramètres de masquage de confidentialité sont temporairement indisponibles. Pour éviter d’envoyer du contenu non masqué, réessayez plus tard ou contactez un administrateur.",
+  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "Le masquage de confidentialité est activé, donc un nouveau tour ne peut pas s’exécuter sur ce Mac. Si le cloud est disponible, vous pouvez y continuer.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Saisissez le secret de l’application. Si vous changez son identifiant, saisissez aussi le secret de la nouvelle application.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Comptes autorisés : {{count}}. Changer l’identifiant de l’application impose à ces utilisateurs de se reconnecter. Confirmez cet effet avant d’enregistrer.",

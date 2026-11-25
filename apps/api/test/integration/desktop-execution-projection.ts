@@ -1667,7 +1667,7 @@ export async function verifyDesktopExecutionProjection(input: {
         conversations.acceptTurn(ownerId, maskingConversationId, maskingSubmission, {}),
         (error: unknown) => {
           assert(error instanceof AppError, "the masked Mac start must fail with a product error");
-          assert.equal(error.code, "FORBIDDEN");
+          assert.equal(error.code, "DESKTOP_PRIVACY_MASKING_UNAVAILABLE");
           return true;
         },
       );

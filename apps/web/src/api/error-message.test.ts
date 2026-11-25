@@ -61,6 +61,62 @@ describe("getErrorMessage", () => {
     }
   )
 
+  it.each(supportedLocales)(
+    "maps the Mac privacy-masking error code to localized copy in %s",
+    (locale) => {
+      const code = "DESKTOP_PRIVACY_MASKING_UNAVAILABLE"
+      const error = new ApiError({ status: 403, errorCode: code })
+      expect(getErrorMessage(error, i18n.getFixedT(locale))).toBe(
+        localizedErrorMessage(code, locale)
+      )
+      expect(getErrorMessage(error, i18n.getFixedT(locale))).not.toBe(
+        localizedErrorMessage("FORBIDDEN", locale)
+      )
+    }
+  )
+
+  it("falls back to the Chinese Mac privacy-masking copy", () => {
+    const code = "DESKTOP_PRIVACY_MASKING_UNAVAILABLE"
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    expect(
+      getErrorMessage(
+        new ApiError({ status: 403, errorCode: code }),
+        fallback.getFixedT("en-US")
+      )
+    ).toBe(localizedErrorMessage(code, "zh-CN"))
+  })
+
+  it("keeps other forbidden responses generic", () => {
+    expect(
+      getErrorMessage(
+        new ApiError({
+          status: 403,
+          errorCode: "FORBIDDEN",
+          messageKey: "errors.common.forbidden",
+        }),
+        i18n.getFixedT("zh-CN")
+      )
+    ).toBe(i18n.t("errors.forbidden", { lng: "zh-CN" }))
+  })
+
+  it("uses the localized server message when an older client does not know the new error", () => {
+    const serverMessage =
+      "隐私脱敏已开启，无法在这台 Mac 上运行新的任务轮次。如云端可用，请在云端继续。"
+    const error = new ApiError({
+      status: 403,
+      errorCode: "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+      messageKey: "errors.desktopPrivacyMaskingUnavailable",
+      message: serverMessage,
+    })
+    const legacy = i18n.cloneInstance({ forkResourceStore: true })
+    for (const locale of ["en-US", "zh-CN"] as const)
+      legacy.removeResourceBundle(locale, "translation")
+    expect(getErrorMessage(error, legacy.getFixedT("en-US"))).toBe(
+      serverMessage
+    )
+  })
+
   it.each([
     ["APPLICATION_NOT_FOUND", "notFound"],
     ["APPLICATION_DISABLED", "disabled"],

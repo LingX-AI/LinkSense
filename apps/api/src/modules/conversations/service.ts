@@ -10276,7 +10276,7 @@ export class ConversationService {
           modelRuntime = submission.modelPreference
             ? await this.modelRuntimeForSelection(ownerId, conversationId, submission.modelPreference.modelId, submission.modelPreference.reasoningEffort)
             : await this.modelRuntimeForUser(ownerId, conversationId);
-          if (modelRuntime.provider.privacyMasking) throw new AppError("FORBIDDEN");
+          if (modelRuntime.provider.privacyMasking) throw new AppError("DESKTOP_PRIVACY_MASKING_UNAVAILABLE");
           const persistedConversationReference =
             await this.hasPersistedConversationReference(conversationId);
           if (localConversationReference) {

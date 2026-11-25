@@ -75,6 +75,14 @@ export const errorCatalog = {
       "en-US": "Privacy masking settings are temporarily unavailable. To avoid sending unmasked content, try again later or contact an administrator.",
     },
   },
+  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: {
+    message_key: "errors.desktopPrivacyMaskingUnavailable",
+    http_status: 403,
+    messages: {
+      "zh-CN": "隐私脱敏已开启，无法在这台 Mac 上运行新的任务轮次。如云端可用，请在云端继续。",
+      "en-US": "Privacy masking is enabled, so a new turn cannot run on this Mac. If the cloud is available, continue there.",
+    },
+  },
 
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,

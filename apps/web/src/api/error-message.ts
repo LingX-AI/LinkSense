@@ -175,6 +175,8 @@ const errorCodeToKey: Record<string, string> = {
   RUNNER_UNAVAILABLE: "errors.runnerUnavailable",
   RUNNER_OPERATION_UNCERTAIN: errorCatalog.RUNNER_OPERATION_UNCERTAIN.message_key,
   DESKTOP_DEVICE_REVOKED: errorCatalog.DESKTOP_DEVICE_REVOKED.message_key,
+  DESKTOP_PRIVACY_MASKING_UNAVAILABLE:
+    errorCatalog.DESKTOP_PRIVACY_MASKING_UNAVAILABLE.message_key,
   TURN_START_CLOSED: "errors.turnStartClosed",
   DEPLOYMENT_STOPPED: "errors.deploymentStopped",
   CREDIT_LIMIT_EXCEEDED: "errors.creditLimitExceeded",

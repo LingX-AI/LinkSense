@@ -5406,6 +5406,10 @@ export const zhCN = {
       "zh-CN"
     ),
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "zh-CN"),
+    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
+      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+      "zh-CN"
+    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",

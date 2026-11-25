@@ -6174,6 +6174,10 @@ export const jaJP = {
     runnerUnavailable:
       "実行サービスを利用できません。しばらくしてから再試行してください。",
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "ja-JP"),
+    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
+      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+      "ja-JP"
+    ),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "ja-JP"

@@ -3,8 +3,11 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import {
+  CLIENT_BUILD_HEADER,
+  DESKTOP_LEGACY_BUILD_SENTINEL,
   DESKTOP_PROTOCOL_HEADER,
   desktopProtocolVersion,
+  localizedErrorMessage,
 } from "@linksense/shared"
 import * as desktopAdapter from "@/adapters/desktop/desktop-adapter"
 import {
@@ -816,6 +819,104 @@ describe("LinkSense application", () => {
     },
     8_000
   )
+
+  it("explains the Mac privacy-masking admission through the desktop host and keeps the local draft", async () => {
+    const inputText = "保持这台 Mac 的明文草稿"
+    const serverMessage = localizedErrorMessage(
+      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+      "zh-CN"
+    )
+    let deniedStarts = 0
+    let deniedProtocol: string | null = null
+    const { fetchMock, requests } = installApiMock({
+      conversationOverride: {
+        execution_target: "local",
+        execution_status: "idle",
+        running_turn: null,
+        turns: [],
+      },
+      turnStartResponse: async () => {
+        deniedStarts += 1
+        return json(
+          {
+            success: false,
+            error_code: "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+            message_key: "errors.desktopPrivacyMaskingUnavailable",
+            message: serverMessage,
+          },
+          403
+        )
+      },
+    })
+    // Mock the Mac host's HTTP seam: the client must send the desktop protocol
+    // and reserved build id, accept the matching response protocol, and show
+    // the admission notice instead of the update-required dialog.
+    vi.spyOn(desktopAdapter, "isDesktopHost").mockReturnValue(true)
+    vi.spyOn(desktopAdapter, "getDesktopServerUrl").mockReturnValue(null)
+    vi.spyOn(desktopAdapter, "hostFetch").mockImplementation(
+      async (input, init) => {
+        const response = await fetchMock(input, init)
+        response.headers.set(
+          DESKTOP_PROTOCOL_HEADER,
+          String(desktopProtocolVersion)
+        )
+        if (
+          init?.method === "POST" &&
+          new URL(String(input), window.location.origin).pathname ===
+            "/api/v1/conversations/c1/turns"
+        )
+          deniedProtocol = response.headers.get(DESKTOP_PROTOCOL_HEADER)
+        return response
+      }
+    )
+    const interaction = userEvent.setup()
+    renderApp()
+    const input = await screen.findByRole("textbox", { name: "任务输入框" })
+    await interaction.type(input, inputText)
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    expect(
+      await screen.findByText(serverMessage.replace(/[。.]+\s*$/u, ""))
+    ).toBeVisible()
+    expect(input).toHaveTextContent(inputText)
+    expect(
+      readLocalConversationDraft(window.localStorage, "user-1", "c1")
+    ).toMatchObject({ input: inputText })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(deniedStarts).toBe(1)
+    expect(deniedProtocol).toBe(String(desktopProtocolVersion))
+
+    const turnPost = fetchMock.mock.calls.find(([request, init]) => {
+      const url = new URL(String(request), window.location.origin)
+      return (
+        url.pathname === "/api/v1/conversations/c1/turns" &&
+        init?.method === "POST"
+      )
+    })
+    expect(turnPost).toBeDefined()
+    const turnHeaders = new Headers(turnPost?.[1]?.headers)
+    expect(turnHeaders.get(DESKTOP_PROTOCOL_HEADER)).toBe(
+      String(desktopProtocolVersion)
+    )
+    expect(turnHeaders.get(CLIENT_BUILD_HEADER)).toBe(
+      DESKTOP_LEGACY_BUILD_SENTINEL
+    )
+    const conversationWrites = requests.filter(
+      ({ method, path }) =>
+        method === "POST" && path.startsWith("/api/v1/conversations")
+    )
+    expect(conversationWrites).toHaveLength(1)
+    expect(conversationWrites[0]).toMatchObject({
+      path: "/api/v1/conversations/c1/turns",
+      body: {
+        input_text: inputText,
+        priority_capability_ids: [],
+        knowledge_base_ids: [],
+        collaboration_mode: "default",
+        idempotency_key: expect.any(String),
+      },
+    })
+  })
 
   it("offers a desktop update for an old attachment device and still sends text-only turns", async () => {
     let hasAttachment = true

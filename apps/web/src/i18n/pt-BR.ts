@@ -6280,6 +6280,10 @@ export const ptBR = {
     runnerUnavailable:
       "O serviço de execução está indisponível. Tente novamente mais tarde.",
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "pt-BR"),
+    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
+      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
+      "pt-BR"
+    ),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "pt-BR"

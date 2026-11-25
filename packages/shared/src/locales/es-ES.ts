@@ -26,6 +26,7 @@ export const errorMessages = {
   WEB_SEARCH_RESPONSE_INVALID: "El servicio devolvió resultados no válidos. Contacta con el administrador.",
   WEB_SEARCH_TIMEOUT: "La búsqueda agotó el tiempo de espera. Inténtalo más tarde.",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "La configuración de enmascaramiento de privacidad no está disponible temporalmente. Para evitar enviar contenido sin enmascarar, inténtalo más tarde o contacta con un administrador.",
+  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "El enmascaramiento de privacidad está activado, así que un nuevo turno no puede ejecutarse en este Mac. Si la nube está disponible, continúa allí.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
