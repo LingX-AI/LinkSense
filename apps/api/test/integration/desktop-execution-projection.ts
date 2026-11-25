@@ -46,12 +46,14 @@ import { WebSocket, type RawData } from "ws";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
+import { DesktopCommandUndeliveredError } from "../../src/adapters/desktop-device-transport.js";
 import { BackgroundJobs, type MaintenanceJob } from "../../src/adapters/jobs.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
 import { LocalFilesystemObjectStorage } from "../../src/adapters/object-storage.js";
 import { RunnerClient, type RunnerStartInput } from "../../src/adapters/runner.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import { sha256 } from "../../src/lib/crypto.js";
+import { AppError } from "../../src/lib/errors.js";
 import { sendAppError } from "../../src/lib/http.js";
 import { projectWorkspaceRelativePath, runtimePlacementForWorkspace } from "../../src/lib/user-runtime-paths.js";
 import { AuditService } from "../../src/modules/audit/service.js";
@@ -203,6 +205,7 @@ export async function verifyDesktopExecutionProjection(input: {
         enqueueFormRecommendation: outsideFixture,
       },
       knowledge.store, modelProviderSettings, undefined, creditLimits,
+      undefined, undefined, undefined, privacyMaskingSettings,
     );
     const events = new ConversationEventService(prisma, redis, conversations, undefined, knowledge.sources);
     minio = await createDesktopMinioFixture(input.workspaceRoot);
@@ -1596,6 +1599,138 @@ export async function verifyDesktopExecutionProjection(input: {
       assert.equal(await prisma.conversationFile.count({ where: { id: staged.id, status: "staged", turnId: null } }), 1);
     } finally {
       oldAttachmentMac.socket.off("message", unexpectedDispatch);
+    }
+
+    // Privacy masking is a cloud-only capability. A brand-new turn on a local
+    // Mac task must be refused after the real owner setting resolves but
+    // before any start intent, turn slot, run lease, device dispatch, or cloud
+    // fallback. The identical admission must reach the device dispatch
+    // boundary once the original owner setting is restored.
+    const maskingConversationId = randomUUID();
+    const maskingThreadId = randomUUID();
+    const maskingRuntimeGeneration = randomUUID();
+    await prisma.conversation.create({ data: {
+      id: maskingConversationId, ownerId, title: "Privacy masking Mac admission", titleSource: "manual",
+      archiveStatus: "active", workspaceRelPath: projectWorkspaceRelativePath(ownerId, null),
+      runtimeGeneration: maskingRuntimeGeneration, executionTarget: "local", desktopDeviceId: deviceId,
+      codexThreadId: maskingThreadId,
+    } });
+    const maskingKey = `privacy-masking-${randomUUID()}`;
+    const maskingSubmission = {
+      inputText: "Keep this Mac turn unmasked", idempotencyKey: maskingKey,
+      priorityCapabilityIds: [], submitMode: "normal" as const,
+    };
+    const maskingTurnId = uuidv5(`turn-start:${maskingKey}`, maskingConversationId);
+    const maskingLeaseKey = desktopRunLeaseKey(maskingTurnId);
+    const maskingExpiryJobs = async () => (await queue.getJobs(["delayed"])).filter(job =>
+      job.data.type === "desktop-turn" && job.data.projectionTurnId === maskingTurnId);
+    const originalPrivacyMasking = await privacyMaskingSettings.getForUser(ownerId);
+    assert.equal(originalPrivacyMasking.settings.enabled, false, "the fixture owner must start with privacy masking off");
+    let maskingRevision = originalPrivacyMasking.revision;
+    let maskingEnabled = false;
+    const originalMaskingSend = execution.send;
+    const originalMaskingFetch = globalThis.fetch;
+    const originalMaskingAcquireTurnSlot = redis.acquireTurnSlot;
+    const originalMaskingIssueLease = leases.issue;
+    // A definite pre-transport dispatch failure, unlike transport uncertainty,
+    // proves the device never observed acceptance of the control turn.start.
+    const undelivered = new DesktopCommandUndeliveredError();
+    const attempted = { sends: [] as DesktopExecutionCommand[], slots: 0, leases: 0, cloud: 0 };
+    execution.send = async (...args: Parameters<typeof originalMaskingSend>) => {
+      attempted.sends.push(args[1]);
+      if (args[1].conversation_id === maskingConversationId && args[1].operation === "turn.start") throw undelivered;
+      return await originalMaskingSend.apply(execution, args);
+    };
+    globalThis.fetch = async (...args: Parameters<typeof originalMaskingFetch>) => {
+      attempted.cloud += 1;
+      return await originalMaskingFetch(...args);
+    };
+    // Count attempted reservations before delegating: a guard moved after a
+    // rolled-back slot or lease call still leaves its attempt observable.
+    redis.acquireTurnSlot = async (...args: Parameters<typeof originalMaskingAcquireTurnSlot>) => {
+      if (args[0] === maskingConversationId && args[1] === maskingTurnId) attempted.slots += 1;
+      return await originalMaskingAcquireTurnSlot.apply(redis, args);
+    };
+    leases.issue = async (...args: Parameters<typeof originalMaskingIssueLease>) => {
+      if (args[1].conversationId === maskingConversationId && args[1].projectionTurnId === maskingTurnId) attempted.leases += 1;
+      return await originalMaskingIssueLease.apply(leases, args);
+    };
+    try {
+      maskingRevision = (await privacyMaskingSettings.updateForUser(ownerId, {
+        expected_revision: maskingRevision,
+        settings: { ...originalPrivacyMasking.settings, enabled: true },
+      }, {})).revision;
+      maskingEnabled = true;
+      assert(await privacyMaskingSettings.runtimeForUser(ownerId), "the real owner setting must resolve a masking runtime");
+
+      await assert.rejects(
+        conversations.acceptTurn(ownerId, maskingConversationId, maskingSubmission, {}),
+        (error: unknown) => {
+          assert(error instanceof AppError, "the masked Mac start must fail with a product error");
+          assert.equal(error.code, "FORBIDDEN");
+          return true;
+        },
+      );
+      assert.equal(attempted.sends.length, 0, "masked admission must not reach the device dispatch boundary");
+      assert.equal(attempted.cloud, 0, "masked admission must not fall back to a cloud runner");
+      assert.equal(attempted.slots, 0, "masked admission must not attempt a turn-slot reservation");
+      assert.equal(attempted.leases, 0, "masked admission must not attempt a run lease");
+      assert.equal(await prisma.conversationTurnStartIntent.count({ where: { conversationId: maskingConversationId } }), 0,
+        "masked admission must not create a start intent");
+      assert(await redis.client.get(maskingLeaseKey) === null, "masked admission must not issue a run lease");
+      assert.equal(await redis.hasTurnSlot(maskingConversationId, maskingTurnId, ownerId), false);
+
+      // Restore the original owner setting before the control runs; the
+      // service has no delete, so the original values behave like no row.
+      const restoredPrivacyMasking = await privacyMaskingSettings.updateForUser(ownerId, {
+        expected_revision: maskingRevision,
+        settings: originalPrivacyMasking.settings,
+      }, {});
+      maskingRevision = restoredPrivacyMasking.revision;
+      maskingEnabled = false;
+      assert.equal(restoredPrivacyMasking.settings.enabled, false);
+      assert.equal(await privacyMaskingSettings.runtimeForUser(ownerId), undefined);
+
+      // The control uses the same conversation, device, model, and submission;
+      // its one turn.start reaches the transport boundary and is rejected
+      // there, before the device can observe acceptance.
+      const controlError = await conversations.acceptTurn(ownerId, maskingConversationId, maskingSubmission, {})
+        .then(() => undefined, (error: unknown) => error);
+      assert.equal(controlError, undelivered, "the exact undelivered dispatch error must reach the caller");
+      assert.equal(attempted.sends.length, 1, "the unmasked control must attempt exactly one device command");
+      const [startCommand] = attempted.sends;
+      assert(startCommand);
+      assert(startCommand.operation === "turn.start");
+      assert.equal(startCommand.owner_id, ownerId);
+      assert.equal(startCommand.conversation_id, maskingConversationId);
+      assert.equal(startCommand.turn_id, maskingTurnId);
+      assert.equal(startCommand.runtime_generation, maskingRuntimeGeneration);
+      assert.equal(startCommand.body.native_thread_id, maskingThreadId);
+      assert.equal(desktopExecutionCommandSchema.safeParse(startCommand).success, true,
+        "the attempted command must be a valid Mac turn.start");
+      assert.equal(attempted.slots, 1, "the unmasked control must reserve its turn slot once");
+      assert.equal(attempted.leases, 1, "the unmasked control must issue its run lease once");
+      assert.equal(await prisma.conversationTurnStartIntent.count({ where: { projectionTurnId: maskingTurnId } }), 0,
+        "the failed control admission must release its start intent");
+      assert.equal(await redis.hasTurnSlot(maskingConversationId, maskingTurnId, ownerId), false,
+        "the failed control admission must release its turn slot");
+      assert(await redis.client.get(maskingLeaseKey) === null,
+        "DesktopRunner.start must discard the undelivered run lease");
+      assert.equal(attempted.cloud, 0, "the control must not fall back to a cloud runner");
+    } finally {
+      execution.send = originalMaskingSend;
+      globalThis.fetch = originalMaskingFetch;
+      redis.acquireTurnSlot = originalMaskingAcquireTurnSlot;
+      leases.issue = originalMaskingIssueLease;
+      if (maskingEnabled) {
+        const currentPrivacyMasking = await privacyMaskingSettings.getForUser(ownerId);
+        await privacyMaskingSettings.updateForUser(ownerId, {
+          expected_revision: currentPrivacyMasking.revision,
+          settings: originalPrivacyMasking.settings,
+        }, {});
+      }
+      // The real runner discarded the lease; only its scheduled expiry remains.
+      for (const job of await maskingExpiryJobs()) await job.remove();
     }
 
     const revokedThread = randomUUID();
