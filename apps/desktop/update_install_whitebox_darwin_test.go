@@ -43,7 +43,7 @@ import (
 const (
 	fixtureAppName   = "UpdateWhitebox"
 	fixtureSlug      = "linksense-update-whitebox"
-	fixtureTarget    = "darwin-arm64"
+	fixturePlatform  = "darwin-arm64"
 	fixtureOld       = "0.1.0"
 	fixtureNew       = "0.2.0"
 	fixtureBeta      = "0.3.0-beta.1"
@@ -274,7 +274,7 @@ func (f *updateFeed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	variant := f.variant
 	body, hasVariant := f.variants[variant]
 	f.mu.Unlock()
-	if r.URL.Path == "/update-"+fixtureTarget+".json" && hasVariant && variant != "real" {
+	if r.URL.Path == "/update-"+fixturePlatform+".json" && hasVariant && variant != "real" {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 		return
@@ -454,7 +454,7 @@ func (h *updateWhitebox) build(version string, deltas int) fixtureBuild {
 	if err != nil {
 		h.t.Fatalf("mygo build %s: %v\n%s", version, err, bytes.ReplaceAll(output, []byte(h.private), []byte("[redacted]")))
 	}
-	dir := filepath.Join(out, fixtureTarget)
+	dir := filepath.Join(out, fixturePlatform)
 	build := fixtureBuild{app: filepath.Join(dir, fixtureAppName+".app")}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -468,7 +468,7 @@ func (h *updateWhitebox) build(version string, deltas int) fixtureBuild {
 		switch {
 		case strings.HasSuffix(name, ".tar.gz"):
 			build.archive = filepath.Join(dir, name)
-		case name == "update-"+fixtureTarget+".json":
+		case name == "update-"+fixturePlatform+".json":
 			data, err := os.ReadFile(filepath.Join(dir, name))
 			if err != nil {
 				h.t.Fatal(err)
@@ -523,7 +523,7 @@ func (h *updateWhitebox) prepareVariants() {
 	if full.URL != h.server.URL+"/"+filepath.Base(h.new.archive) {
 		h.t.Fatalf("the manifest does not name the archive on the fixture feed: %s", full.URL)
 	}
-	h.feed.setVariant("full", mustJSON(h.t, full))
+	h.feed.setVariant("full", mustUpdateJSON(h.t, full))
 
 	tampered := filepath.Join(h.feedDir, "tampered.tar.gz")
 	mutateCopy(h.t, h.new.archive, tampered, func(data []byte) {
@@ -531,7 +531,7 @@ func (h *updateWhitebox) prepareVariants() {
 	})
 	signed := full
 	signed.URL = h.server.URL + "/tampered.tar.gz"
-	h.feed.setVariant("tampered-archive", mustJSON(h.t, signed))
+	h.feed.setVariant("tampered-archive", mustUpdateJSON(h.t, signed))
 
 	corrupt := h.new.manifest
 	if len(corrupt.Deltas) != 1 {
@@ -544,10 +544,10 @@ func (h *updateWhitebox) prepareVariants() {
 		data[len(data)/2] ^= 0xff
 	})
 	corrupt.Deltas[0].URL = h.server.URL + "/corrupt.delta"
-	h.feed.setVariant("corrupt-delta", mustJSON(h.t, corrupt))
+	h.feed.setVariant("corrupt-delta", mustUpdateJSON(h.t, corrupt))
 }
 
-func mustJSON(t *testing.T, value any) []byte {
+func mustUpdateJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -830,7 +830,7 @@ func TestSignedUpdateInstallWhitebox(t *testing.T) {
 			t.Fatalf("fixture runs %s, not %s", result.AppVersion, fixtureOld)
 		}
 		counts := h.feed.counts()
-		manifestPath := "/update-" + fixtureTarget + ".json"
+		manifestPath := "/update-" + fixturePlatform + ".json"
 		if counts[manifestPath] == 0 {
 			t.Fatalf("the check did not read the manifest: %v", counts)
 		}
@@ -1008,7 +1008,7 @@ func TestSignedUpdateInstallWhitebox(t *testing.T) {
 		}
 		counts := h.feed.counts()
 		for path := range counts {
-			if path != "/update-"+fixtureTarget+".json" {
+			if path != "/update-"+fixturePlatform+".json" {
 				t.Fatalf("the beta check downloaded %s: %v", path, counts)
 			}
 		}
