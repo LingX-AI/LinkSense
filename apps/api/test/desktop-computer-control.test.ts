@@ -37,6 +37,7 @@ import {
   DesktopComputerSelectionError,
   desktopComputerSelectionKey,
   type DesktopComputerControlStore,
+  type DesktopComputerResumeReceipt,
   type DesktopComputerSelection,
 } from "../src/modules/desktop-devices/computer-control.js";
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
@@ -87,6 +88,14 @@ afterAll(async () => { await redis.close(); });
 type Frame = Record<string, unknown>;
 type ComputerExecuteToolRequest = Extract<DesktopToolRequest, { operation: "computer.execute" }>;
 
+/** Storage snapshots never share nested state with the double's live map. */
+function snapshot(selection: DesktopComputerSelection): DesktopComputerSelection {
+  return {
+    ...selection,
+    pendingInput: selection.pendingInput === null ? null : { ...selection.pendingInput },
+  };
+}
+
 /** Product-store double: the Redis/PostgreSQL CAS itself is covered by its own tests. */
 class FakeControlStore implements DesktopComputerControlStore {
   readonly selections = new Map<string, DesktopComputerSelection>();
@@ -117,7 +126,7 @@ class FakeControlStore implements DesktopComputerControlStore {
 
   async read(scope: DesktopRunScope): Promise<DesktopComputerSelection | null> {
     const selection = this.selections.get(desktopComputerSelectionKey(scope));
-    return selection ? { ...selection } : null;
+    return selection ? snapshot(selection) : null;
   }
 
   async readKeyScope(scope: DesktopRunScope): Promise<DesktopComputerSelection | null> {
@@ -271,22 +280,56 @@ class FakeControlStore implements DesktopComputerControlStore {
 
   async resume(input: {
     scope: DesktopRunScope; selectionId: string; newSelectionId: string;
+    onResumed?: (receipt: DesktopComputerResumeReceipt) => void;
   }): Promise<DesktopComputerSelection> {
     this.resumeCalls.push(input);
     if (this.failResume) throw this.failResume;
-    const selection = this.require(input.scope, input.selectionId);
+    const selection = this.selections.get(desktopComputerSelectionKey(input.scope));
+    if (!selection || selection.connectionId !== input.scope.connectionId) {
+      throw new DesktopComputerSelectionError("COMPUTER_UNAVAILABLE");
+    }
+    // Production-like lost-ack retry: the already-active successor is returned
+    // without a write before the predecessor id is compared, so it must never
+    // create a resume receipt.
     if (selection.state === "active" && selection.selectionId === input.newSelectionId) return selection;
-    if (selection.state !== "paused" || input.newSelectionId === input.selectionId) {
+    if (selection.selectionId !== input.selectionId ||
+        selection.state !== "paused" || input.newSelectionId === input.selectionId) {
       throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
     }
     selection.selectionId = input.newSelectionId;
     selection.state = "active";
+    input.onResumed?.({ predecessor: input.selectionId, successor: snapshot(selection) });
     return selection;
   }
 
-  async stop(input: { scope: DesktopRunScope; selectionId: string }): Promise<DesktopComputerSelection> {
+  async stop(input: {
+    scope: DesktopRunScope; selectionId: string; receipt?: DesktopComputerResumeReceipt;
+  }): Promise<DesktopComputerSelection> {
     this.stopCalls.push(input);
-    const selection = this.require(input.scope, input.selectionId);
+    const selection = this.selections.get(desktopComputerSelectionKey(input.scope));
+    if (!selection || selection.connectionId !== input.scope.connectionId) {
+      throw new DesktopComputerSelectionError("COMPUTER_UNAVAILABLE");
+    }
+    if (selection.selectionId !== input.selectionId) {
+      // Production-like alias: only the exact still-active successor of the
+      // receipt's predecessor may be stopped through the predecessor id.
+      const receipt = input.receipt;
+      if (!receipt || receipt.predecessor !== input.selectionId ||
+          receipt.successor.ownerId !== input.scope.ownerId ||
+          receipt.successor.deviceId !== input.scope.deviceId ||
+          receipt.successor.connectionId !== input.scope.connectionId ||
+          receipt.successor.conversationId !== input.scope.conversationId ||
+          receipt.successor.turnId !== input.scope.turnId ||
+          receipt.successor.runtimeGeneration !== input.scope.runtimeGeneration ||
+          selection.state !== "active" ||
+          selection.selectionId !== receipt.successor.selectionId ||
+          selection.sessionId !== receipt.successor.sessionId ||
+          selection.controlEpoch !== receipt.successor.controlEpoch ||
+          selection.bundleId !== receipt.successor.bundleId ||
+          selection.expiresAt !== receipt.successor.expiresAt) {
+        throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
+      }
+    }
     selection.state = "stopped";
     return selection;
   }
@@ -349,6 +392,9 @@ function frameQueue(socket: WebSocket) {
 const isCommand = (frame: Frame): frame is Frame => frame.type === "command";
 const isToolResult = (frame: Frame): frame is Frame => frame.type === "tool.result";
 const isControlResult = (frame: Frame): frame is Frame => frame.type === "computer.control.result";
+/** A pong proves the socket processed the prior frame without an early reply. */
+const isPongOrControlResult = (frame: Frame): frame is Frame =>
+  frame.type === "pong" || isControlResult(frame);
 
 async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -2077,6 +2123,330 @@ describe("M1b product computer control", () => {
         id: stopFrame.id, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
       });
       expect(state.store.stopCalls).toHaveLength(1);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("lets one exact original-selection stop take over a resume awaiting its active ack without a late positive ack", async () => {
+    const state = await fixture();
+    let releaseFinalize!: () => void;
+    const finalizeGate = new Promise<void>(resolve => { releaseFinalize = resolve; });
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      const key = desktopComputerSelectionKey(scope);
+      const cancelRunTools = vi.spyOn(state.transport, "cancelRunTools");
+      const selected = await select(state, socket, frames, scope);
+      if (!selected.ok) throw new Error("select failed");
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused", selection_id: selectionA },
+      });
+
+      // Park the resume in its final positive publication after the store has
+      // already written the new selection B as active.
+      const originalFinalize = state.store.finalizeActive.bind(state.store);
+      let finalizeStarted!: () => void;
+      const started = new Promise<void>(resolve => { finalizeStarted = resolve; });
+      state.store.finalizeActive = async input => {
+        finalizeStarted();
+        await finalizeGate;
+        return originalFinalize(input);
+      };
+      const resumeFrame = controlFrame("resume", scope, selectionA, { new_selection_id: selectionB });
+      socket.send(JSON.stringify(resumeFrame));
+      await started;
+      expect(state.store.selections.get(key)).toMatchObject({ state: "active", selectionId: selectionB });
+
+      // A different target is never the takeover: it keeps the immediate
+      // rejection and must not reserve the one slot.
+      const foreignStop = controlFrame("stop", scope, selectionC);
+      socket.send(JSON.stringify(foreignStop));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: foreignStop.id, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+      });
+
+      // The real Mac controller still names the original A while it waits for
+      // the resume ack. That exact stop is reserved and must not run early.
+      const stopFrame = controlFrame("stop", scope, selectionA);
+      socket.send(JSON.stringify(stopFrame));
+      // Frames are handled in order, so a pong before any control result
+      // proves this stop was parked by the synchronous reservation rather
+      // than rejected or executed.
+      socket.send(JSON.stringify({ type: "ping" }));
+      expect((await frames.until(isPongOrControlResult)).type).toBe("pong");
+      expect(state.store.stopCalls).toHaveLength(0);
+
+      releaseFinalize();
+      // The late positive active ack is suppressed; only a negative result for
+      // the superseded resume may arrive, before the reserved stop result.
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: resumeFrame.id, ok: false,
+      });
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopFrame.id, ok: true, data: { state: "stopped", selection_id: selectionA },
+      });
+      expect(state.store.stopCalls).toHaveLength(1);
+      const afterStop = await frames.settle();
+      expect(afterStop.filter(isControlResult)).toEqual([]);
+      expect(afterStop.filter(frame => frame.type === "command")).toEqual([]);
+
+      // The persisted current B can no longer drive input.
+      expect(state.store.selections.get(key)?.state).not.toBe("active");
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+
+      // A replay of the finished stop id is the bounded rejection, never a
+      // second execution, and the resume was never retried.
+      socket.send(JSON.stringify(stopFrame));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopFrame.id, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+      });
+      expect(state.store.resumeCalls).toHaveLength(1);
+      expect(state.store.stopCalls).toHaveLength(1);
+      expect(cancelRunTools).not.toHaveBeenCalled();
+    } finally {
+      releaseFinalize();
+      await state.cleanup();
+    }
+  });
+
+  it("lets one exact same-selection stop take over a pause awaiting a proven or failed quiesce", async () => {
+    for (const outcome of ["acked", "failed"] as const) {
+      const state = await fixture();
+      let prepared: Awaited<ReturnType<typeof prepareSocket>> | undefined;
+      let quiesce: ReturnType<typeof commandOf> | undefined;
+      let quiesceSettled = false;
+      try {
+        prepared = await prepareSocket(state);
+        const { socket, frames, scope, runToken } = prepared;
+        const key = desktopComputerSelectionKey(scope);
+        const cancelRunTools = vi.spyOn(state.transport, "cancelRunTools");
+        await select(state, socket, frames, scope);
+        socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+        const observe = commandOf(await frames.until(isCommand));
+        socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+        await frames.until(isToolResult);
+
+        // Pause A is parked on its one issued quiesce before the native ack.
+        const pauseFrame = controlFrame("pause", scope, selectionA);
+        socket.send(JSON.stringify(pauseFrame));
+        quiesce = commandOf(await frames.until(isCommand));
+        expect(quiesce.body).toMatchObject({ selection_id: selectionA, request: { kind: "quiesce" } });
+        expect(state.store.selections.get(key)?.state).toBe("pausing");
+
+        // The Mac still names the installed A while the pause is gated. That
+        // exact stop is reserved, never answered with uncertainty, and must not
+        // run before the pause transition has settled.
+        const stopFrame = controlFrame("stop", scope, selectionA);
+        socket.send(JSON.stringify(stopFrame));
+        socket.send(JSON.stringify({ type: "ping" }));
+        // Frames are handled in order, so a pong before any control result
+        // proves this stop was parked by the synchronous reservation rather
+        // than rejected or executed.
+        expect((await frames.until(isPongOrControlResult)).type).toBe("pong");
+        expect(state.store.stopCalls).toHaveLength(0);
+
+        if (outcome === "acked") {
+          socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+          quiesceSettled = true;
+          // The superseded pause reports only a negative result; the reserved
+          // stop then revokes the paused selection with no second quiesce.
+          expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+            id: pauseFrame.id, ok: false,
+          });
+          expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+            id: stopFrame.id, ok: true, data: { state: "stopped", selection_id: selectionA },
+          });
+        } else {
+          // The native quiesce failed, so the pause reports only a negative
+          // result and retains the exact holder. The reserved stop must run
+          // once, revoke the selection, and issue its own new cleanup quiesce
+          // for that same selection and holder instead of retrying the pause.
+          socket.send(JSON.stringify(desktopExecutionResultSchema.parse({
+            type: "command.result", id: quiesce.id, operation: "computer.execute", ok: false,
+            error_code: "RUNNER_OPERATION_UNCERTAIN",
+          })));
+          quiesceSettled = true;
+          expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+            id: pauseFrame.id, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+          });
+          expect(JSON.parse(await redis.client.get(localComputerGuiOccupancyKey(scope.deviceId)) ?? "null"))
+            .toMatchObject({ holderId: observe.body.holder_id, selectionId: selectionA });
+          const cleanup = commandOf(await frames.until(isCommand));
+          expect(cleanup.id).not.toBe(quiesce.id);
+          expect(cleanup.body).toMatchObject({
+            session_id: observe.body.session_id, selection_id: selectionA,
+            holder_id: observe.body.holder_id, request: { kind: "quiesce" },
+          });
+          // Only the exact cleanup proof may produce the positive stop reply.
+          expect((await frames.settle(50)).filter(isControlResult)).toEqual([]);
+          socket.send(JSON.stringify(commandResult(cleanup, { kind: "quiesce", result: { quiesced: true } })));
+          expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+            id: stopFrame.id, ok: true, data: { state: "stopped", selection_id: selectionA },
+          });
+        }
+        expect(state.store.stopCalls).toHaveLength(1);
+        expect(state.store.selections.get(key)?.state).toBe("stopped");
+        expect(await redis.client.exists(localComputerGuiOccupancyKey(scope.deviceId))).toBe(0);
+        const afterStop = await frames.settle();
+        expect(afterStop.filter(isControlResult)).toEqual([]);
+        expect(afterStop.filter(frame => frame.type === "command")).toEqual([]);
+
+        // The stopped predecessor can no longer drive input.
+        socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+        expect(await frames.until(isToolResult)).toMatchObject({
+          ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+        });
+        expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+        expect(cancelRunTools).not.toHaveBeenCalled();
+      } finally {
+        // A failed assertion must not leave the pause parked on its quiesce.
+        if (prepared && quiesce && !quiesceSettled && prepared.socket.readyState === WebSocket.OPEN) {
+          prepared.socket.send(JSON.stringify(
+            commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } }),
+          ));
+          await prepared.frames.settle(50);
+        }
+        await state.cleanup();
+      }
+    }
+  });
+
+  it("lets one exact original-selection stop stop the committed resume after its active ack", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      const key = desktopComputerSelectionKey(scope);
+      const selected = await select(state, socket, frames, scope);
+      if (!selected.ok) throw new Error("select failed");
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused", selection_id: selectionA },
+      });
+      const resumeFrame = controlFrame("resume", scope, selectionA, { new_selection_id: selectionB });
+      socket.send(JSON.stringify(resumeFrame));
+      const resumed = controlResultOf(await frames.until(isControlResult));
+      expect(resumed).toMatchObject({
+        id: resumeFrame.id, ok: true, data: { state: "active", selection_id: selectionB },
+      });
+      if (!resumed.ok) throw new Error("resume failed");
+
+      // The Mac still names A after the ack: it did not install B, so it never
+      // adopted a B holder. The one receipt this socket saved still stops the
+      // actual committed successor B, and the reply correlates to A.
+      const stopFrame = controlFrame("stop", scope, selectionA);
+      socket.send(JSON.stringify(stopFrame));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopFrame.id, ok: true,
+        data: { state: "stopped", selection_id: selectionA, session_id: resumed.data.session_id },
+      });
+      expect(state.store.stopCalls).toHaveLength(1);
+      expect(state.store.selections.get(key)).toMatchObject({ state: "stopped", selectionId: selectionB });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("quiesces an exact successor holder recorded on the server when a receipt aliases the stop", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      const key = desktopComputerSelectionKey(scope);
+      const selected = await select(state, socket, frames, scope);
+      if (!selected.ok) throw new Error("select failed");
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused", selection_id: selectionA },
+      });
+      const resumeFrame = controlFrame("resume", scope, selectionA, { new_selection_id: selectionB });
+      socket.send(JSON.stringify(resumeFrame));
+      const resumed = controlResultOf(await frames.until(isControlResult));
+      expect(resumed).toMatchObject({
+        id: resumeFrame.id, ok: true, data: { state: "active", selection_id: selectionB },
+      });
+      if (!resumed.ok) throw new Error("resume failed");
+
+      // This fixture only simulates an exact successor holder already recorded
+      // on the server; it does not prove that the cancelled Mac adopted B.
+      // The synthetic quiesce ack proves the server continuation, not a native
+      // terminal.
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      expect(observe.body.selection_id).toBe(selectionB);
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+
+      const stopFrame = controlFrame("stop", scope, selectionA);
+      socket.send(JSON.stringify(stopFrame));
+      const quiesce = commandOf(await frames.until(isCommand));
+      expect(quiesce.body).toMatchObject({
+        holder_id: observe.body.holder_id, selection_id: selectionB,
+        session_id: resumed.data.session_id, request: { kind: "quiesce" },
+      });
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopFrame.id, ok: true,
+        data: { state: "stopped", selection_id: selectionA, session_id: resumed.data.session_id },
+      });
+      expect(state.store.stopCalls).toHaveLength(1);
+      expect(state.store.selections.get(key)).toMatchObject({ state: "stopped", selectionId: selectionB });
+      expect(await redis.client.exists(localComputerGuiOccupancyKey(scope.deviceId))).toBe(0);
+
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
+      });
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("never lets an idempotent resume or a later selection authorize the original stop id", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope } = await prepareSocket(state);
+      const key = desktopComputerSelectionKey(scope);
+      // A fresh pick B, then an already-active resume A->B: it writes nothing,
+      // so the arbitrary prior A is never associated with B.
+      await select(state, socket, frames, scope, selectionB);
+      const resumeFrame = controlFrame("resume", scope, selectionA, { new_selection_id: selectionB });
+      socket.send(JSON.stringify(resumeFrame));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: resumeFrame.id, ok: true, data: { state: "active", selection_id: selectionB },
+      });
+
+      const stopA = controlFrame("stop", scope, selectionA);
+      socket.send(JSON.stringify(stopA));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopA.id, ok: false, error_code: "COMPUTER_TARGET_CHANGED",
+      });
+      expect(state.store.selections.get(key)).toMatchObject({ state: "active", selectionId: selectionB });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+
+      // B is stopped exactly, then a fresh pick C is current. The old
+      // predecessor A still cannot revoke that different selection.
+      socket.send(JSON.stringify(controlFrame("stop", scope, selectionB)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "stopped", selection_id: selectionB },
+      });
+      await select(state, socket, frames, scope, selectionC);
+      socket.send(JSON.stringify(controlFrame("stop", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: false, error_code: "COMPUTER_TARGET_CHANGED",
+      });
+      expect(state.store.selections.get(key)).toMatchObject({ state: "active", selectionId: selectionC });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
     } finally {
       await state.cleanup();
     }

@@ -45,7 +45,7 @@ import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
 import type { DesktopDeviceRecord } from "./repository.js";
 import type { DesktopDeviceService } from "./service.js";
-import type { DesktopComputerControl } from "./computer-control.js";
+import type { DesktopComputerControl, DesktopComputerResumeReceipt } from "./computer-control.js";
 
 const deviceParamsSchema = z.strictObject({ id: z.uuid() });
 const revocationCheckIntervalMs = 5_000;
@@ -123,6 +123,8 @@ export async function registerDesktopDeviceRoutes(
     controlTarget: { conversationId: string; turnId: string; selectionId: string } | null;
     /** The one reserved exact stop id, or null. */
     controlTakeover: string | null;
+    /** One bounded receipt from this socket's last committed resume, or null. */
+    resumeReceipt: DesktopComputerResumeReceipt | null;
     /** Resolves once the open transition's handler has fully settled. */
     controlSettled: Promise<void> | null;
   }>();
@@ -272,8 +274,8 @@ export async function registerDesktopDeviceRoutes(
               try {
                 const parsed = desktopComputerControlResultSchema.parse(result);
                 // A reserved matching stop owns the next transition; it
-                // suppresses the stale positive select/renewal ack so the Mac
-                // cannot activate a selection it has already stopped locally.
+                // suppresses the stale positive select/renewal/resume/pause ack
+                // so the Mac cannot treat a superseded transition as current.
                 // A negative result for the earlier request may still be sent.
                 if (parsed.ok && current.controlTakeover !== null) return false;
                 socket.send(JSON.stringify(parsed), error => {
@@ -299,22 +301,29 @@ export async function registerDesktopDeviceRoutes(
             //
             // The single exception is an exact same-socket Stop for the
             // identical conversation/turn/selection while that selection's
-            // select or renewal is still settling. It is reserved
-            // synchronously here and runs only after the prior transition has
-            // settled, so a Stop can never overtake a select and let the old
-            // frame recreate authority. Everything else keeps the existing
-            // immediate rejection.
+            // select, renewal, resume, or pause is still settling. It is
+            // reserved synchronously here and runs only after the prior
+            // transition has settled, so a Stop can never overtake a select
+            // and let the old frame recreate authority. A resume target is its
+            // original paused id, so the same predicate names the exact
+            // predecessor; a pause keeps the installed id. Only a pause that
+            // completed with its holder released and no retained pending input
+            // avoids extra cleanup; otherwise the Stop uses its existing exact
+            // cleanup quiesce and proof.
+            // Everything else keeps the existing immediate rejection.
             const body = control.data.body;
             if (current.controlInFlight !== null) {
               if (current.controlInFlight === control.data.id) return;
               if (current.controlTakeover === control.data.id) return;
-              const pendingSelect = current.controlTarget;
+              const pendingTarget = current.controlTarget;
               if (body.action === "stop" && current.controlTakeover === null &&
-                  !current.controls.has(control.data.id) && current.controlKind === "select" &&
-                  current.controlSettled !== null && pendingSelect !== null &&
-                  pendingSelect.conversationId === body.conversation_id &&
-                  pendingSelect.turnId === body.turn_id &&
-                  pendingSelect.selectionId === body.selection_id) {
+                  !current.controls.has(control.data.id) &&
+                  (current.controlKind === "select" || current.controlKind === "resume" ||
+                    current.controlKind === "pause") &&
+                  current.controlSettled !== null && pendingTarget !== null &&
+                  pendingTarget.conversationId === body.conversation_id &&
+                  pendingTarget.turnId === body.turn_id &&
+                  pendingTarget.selectionId === body.selection_id) {
                 current.controlTakeover = control.data.id;
                 const prior = current.controlSettled;
                 await prior;
@@ -334,11 +343,15 @@ export async function registerDesktopDeviceRoutes(
                   let settle!: () => void;
                   current.controlSettled = new Promise<void>(resolve => { settle = resolve; });
                   try {
+                    // The receipt, if any, is read only after the prior
+                    // transition settled, so a resume that just committed its
+                    // exact successor is visible to this stop.
                     await options.computerControl.handle({
                       ownerId: current.device.ownerId, deviceId: current.device.id,
                       connectionId: current.connectionId,
                       verifyCredential: () => service.hasCurrentCredential(current.device),
                       frame: control.data,
+                      ...(current.resumeReceipt === null ? {} : { resumeReceipt: current.resumeReceipt }),
                     }, reply);
                   } finally {
                     settle();
@@ -388,11 +401,15 @@ export async function registerDesktopDeviceRoutes(
               if (!await service.coordinator.isCurrentConnection(current.device.id, current.connectionId)) return;
               // The handler performs the one reply through the continuation.
               // It never rejects; a lost continuation fails closed with no ack.
+              // A stop may reuse this socket's one committed-resume receipt; a
+              // resume may replace that slot only through its own commit.
               await options.computerControl.handle({
                 ownerId: current.device.ownerId, deviceId: current.device.id,
                 connectionId: current.connectionId,
                 verifyCredential: () => service.hasCurrentCredential(current.device),
                 frame: control.data,
+                ...(current.resumeReceipt === null ? {} : { resumeReceipt: current.resumeReceipt }),
+                onResumed: receipt => { current.resumeReceipt = receipt; },
               }, reply);
             } finally {
               settle();
@@ -425,7 +442,8 @@ export async function registerDesktopDeviceRoutes(
             tools: device.platform === "darwin" ? tools : [],
             computerStatus: device.platform === "darwin" && supportsComputerStatus,
             ready: false, controls: new Set(), controlInFlight: null,
-            controlKind: null, controlTarget: null, controlTakeover: null, controlSettled: null,
+            controlKind: null, controlTarget: null, controlTakeover: null,
+            resumeReceipt: null, controlSettled: null,
           };
           connected.set(socket, state);
           const active = await service.maintain(device, connectionId);

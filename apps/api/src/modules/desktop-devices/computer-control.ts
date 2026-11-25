@@ -102,6 +102,21 @@ export const desktopComputerSelectionSchema = z.strictObject({
 });
 export type DesktopComputerSelection = z.infer<typeof desktopComputerSelectionSchema>;
 
+/**
+ * One bounded, server-proven resume receipt for the exact socket that
+ * committed it. The committed selection carries its own scope fields, so a
+ * Stop that still names the paused predecessor A can take over only that
+ * exact still-active successor B. It is never persisted, serialized, or
+ * accepted from a frame; `new_selection_id` alone is never proof. An
+ * idempotent already-active resume writes nothing and creates no receipt.
+ */
+export type DesktopComputerResumeReceipt = {
+  /** The paused selection id the resume frame named. */
+  predecessor: string;
+  /** The exact successor the locked paused->active CAS committed. */
+  successor: DesktopComputerSelection;
+};
+
 type SelectionKeyScope = Pick<
   DesktopRunScope, "ownerId" | "deviceId" | "conversationId" | "turnId" | "runtimeGeneration"
 >;
@@ -788,8 +803,23 @@ export interface DesktopComputerControlStore {
   select(input: { scope: DesktopRunScope; selectionId: string; bundleId: string }): Promise<DesktopComputerSelection>;
   pause(input: { scope: DesktopRunScope; selectionId: string }): Promise<DesktopComputerSelection>;
   confirmPause(input: { scope: DesktopRunScope; selection: DesktopComputerSelection }): Promise<DesktopComputerSelection>;
-  resume(input: { scope: DesktopRunScope; selectionId: string; newSelectionId: string }): Promise<DesktopComputerSelection>;
-  stop(input: { scope: DesktopRunScope; selectionId: string }): Promise<DesktopComputerSelection>;
+  /**
+   * Explicit resume. `onResumed` runs only after the locked paused->active CAS
+   * actually wrote and the commit revalidated; an idempotent already-active
+   * retry writes nothing and never calls it.
+   */
+  resume(input: {
+    scope: DesktopRunScope;
+    selectionId: string;
+    newSelectionId: string;
+    onResumed?: (receipt: DesktopComputerResumeReceipt) => void;
+  }): Promise<DesktopComputerSelection>;
+  /** Stops the exact stored selection; only one exact resume receipt may alias a still-active successor. */
+  stop(input: {
+    scope: DesktopRunScope;
+    selectionId: string;
+    receipt?: DesktopComputerResumeReceipt;
+  }): Promise<DesktopComputerSelection>;
   /** Exact six-field compare-delete; only when the live pending marker is known idle. */
   clear(scope: DesktopRunScope, selection: DesktopComputerSelection): Promise<boolean>;
   /** Tokenless exact canonical run lease, live and non-revoked. */
@@ -1068,11 +1098,13 @@ export class PrismaDesktopComputerControl implements DesktopComputerControlStore
     scope: DesktopRunScope;
     selectionId: string;
     newSelectionId: string;
+    onResumed?: (receipt: DesktopComputerResumeReceipt) => void;
   }): Promise<DesktopComputerSelection> {
     const { scope } = input;
     const previous = idSchema.parse(input.selectionId);
     const next = idSchema.parse(input.newSelectionId);
     let written: DesktopComputerSelection | undefined;
+    let committed: DesktopComputerSelection;
     try {
       const stored = await withDesktopComputerLock(this.prisma, scope, async (tx, locked) => {
         const existing = await this.selections.read(scope);
@@ -1085,6 +1117,7 @@ export class PrismaDesktopComputerControl implements DesktopComputerControlStore
         if (!await this.leases.hasActiveBinding(scope)) throw new AppError("AUTH_REQUIRED");
         // A lost acknowledge may retry the identical explicit resume. Return the
         // already-resumed selection only after re-proving the same live grants.
+        // This writes nothing, so it can never associate an arbitrary prior id.
         if (existing.state === "active" && existing.selectionId === next) {
           const session = await readActiveDesktopComputerSession(tx, locked, {
             sessionId: existing.sessionId, bundleId: existing.bundleId, requireGrants: true, now,
@@ -1101,25 +1134,48 @@ export class PrismaDesktopComputerControl implements DesktopComputerControlStore
         written = stored;
         return stored;
       });
-      return await this.revalidate(scope, stored);
+      committed = await this.revalidate(scope, stored);
     } catch (error) {
       // The Redis resume is outside the database transaction; a failed commit
       // must not leave the speculative active metadata behind.
       if (written) await this.selections.clear(scope, written).catch(() => undefined);
       throw error;
     }
+    // Only a real paused->active write reaches here, so only it creates the
+    // receipt; the idempotent no-write branch above never calls it.
+    if (written) input.onResumed?.({ predecessor: previous, successor: committed });
+    return committed;
   }
 
-  async stop(input: { scope: DesktopRunScope; selectionId: string }): Promise<DesktopComputerSelection> {
+  async stop(input: {
+    scope: DesktopRunScope;
+    selectionId: string;
+    receipt?: DesktopComputerResumeReceipt;
+  }): Promise<DesktopComputerSelection> {
     const { scope } = input;
+    const requested = idSchema.parse(input.selectionId);
     return withDesktopComputerLock(this.prisma, scope, async (tx, locked) => {
       const existing = await this.selections.read(scope);
       if (!existing || existing.connectionId !== scope.connectionId) throw unavailable();
-      if (existing.selectionId !== idSchema.parse(input.selectionId)) throw targetChanged();
-      // Safety control: revoke the exact session even when the turn became
-      // terminal or an earlier stop committed only its Redis state. The exact
-      // session id keeps a newer session untouched; an already-ended session is
-      // an idempotent no-op.
+      if (existing.selectionId !== requested) {
+        // A Stop that still names the paused predecessor may stop only the
+        // exact successor this same socket's resume committed, and only while
+        // it is still active: a paused, stopped, renewed, replaced, or
+        // differently scoped successor fails closed. The receipt is
+        // server-proven and the locked read shares the resume lock.
+        const receipt = input.receipt;
+        if (!receipt || !selectionMatchesScope(receipt.successor, scope) ||
+            receipt.predecessor !== requested || existing.state !== "active" ||
+            existing.selectionId !== receipt.successor.selectionId ||
+            existing.sessionId !== receipt.successor.sessionId ||
+            existing.controlEpoch !== receipt.successor.controlEpoch ||
+            existing.expiresAt !== receipt.successor.expiresAt ||
+            existing.bundleId !== receipt.successor.bundleId) throw targetChanged();
+      }
+      // Safety control: revoke the exact stored session even when the turn
+      // became terminal or an earlier stop committed only its Redis state. The
+      // exact session id keeps a newer session untouched; an already-ended
+      // session is an idempotent no-op.
       await endDesktopComputerSession(tx, locked, { sessionId: existing.sessionId, now: this.now() });
       return await this.selections.stop(scope, existing.selectionId);
     });
@@ -1300,6 +1356,10 @@ export class DesktopComputerControl {
     connectionId: string;
     verifyCredential: () => Promise<boolean>;
     frame: DesktopComputerControlFrame;
+    /** One server-proven receipt from this exact socket, never a wire field. */
+    resumeReceipt?: DesktopComputerResumeReceipt;
+    /** Receives the receipt only when this socket's resume actually committed. */
+    onResumed?: (receipt: DesktopComputerResumeReceipt) => void;
   }, deliver?: (result: DesktopComputerControlResult) => boolean): Promise<DesktopComputerControlResult> {
     const base = { type: "computer.control.result", id: input.frame.id } as const;
     let delivered = false;
@@ -1310,7 +1370,10 @@ export class DesktopComputerControl {
       delivered = true;
       return true;
     };
-    const success = (selection: DesktopComputerSelection): DesktopComputerControlResult => {
+    const success = (
+      selection: DesktopComputerSelection,
+      selectionId = selection.selectionId,
+    ): DesktopComputerControlResult => {
       // `pausing` is an internal in-between state and is never acknowledged.
       if (selection.state === "pausing") throw unavailable();
       return {
@@ -1318,7 +1381,7 @@ export class DesktopComputerControl {
         data: {
           state: selection.state,
           session_id: selection.sessionId,
-          selection_id: selection.selectionId,
+          selection_id: selectionId,
           runtime_generation: selection.runtimeGeneration,
           expires_at: new Date(selection.expiresAt).toISOString(),
         },
@@ -1339,8 +1402,12 @@ export class DesktopComputerControl {
       const selection = body.action === "select"
         ? await this.host.store.select({ scope, selectionId: body.selection_id, bundleId: body.bundle_id })
         : body.action === "pause" ? await this.pause(scope, body.selection_id)
-          : body.action === "resume" ? await this.resume(scope, body.selection_id, body.new_selection_id)
-            : await this.stop(scope, body.selection_id);
+          : body.action === "resume"
+            ? await this.host.store.resume({
+                scope, selectionId: body.selection_id, newSelectionId: body.new_selection_id,
+                ...(input.onResumed === undefined ? {} : { onResumed: input.onResumed }),
+              })
+            : await this.stop(scope, body.selection_id, input.resumeReceipt);
       if (!await input.verifyCredential() || !await this.currentBinding(scope)) throw unavailable();
       if (selection.state !== "active" && selection.state !== "paused" && selection.state !== "stopped") {
         throw unavailable();
@@ -1404,8 +1471,13 @@ export class DesktopComputerControl {
       if (!await this.currentBinding(scope)) throw unavailable();
       if (selection.state === "stopped") this.tracked.delete(desktopComputerSelectionKey(scope));
       else this.track(scope, selection);
-      const result = success(selection);
-      if (deliver) emit(result);
+      // A receipt-aliased stop replies to the predecessor id the frame named;
+      // every other field is the actual stored successor's.
+      const result = body.action === "stop" ? success(selection, body.selection_id) : success(selection);
+      // A reserved takeover or a replaced link can refuse this positive reply;
+      // map it through the existing failure path instead of returning an
+      // undelivered success (a superseded pause must never look successful).
+      if (!emit(result)) throw unavailable();
       return result;
     } catch (error) {
       const result: DesktopComputerControlResult = {
@@ -1980,18 +2052,23 @@ export class DesktopComputerControl {
     return confirmed;
   }
 
-  private async resume(
-    scope: DesktopRunScope, selectionId: string, newSelectionId: string,
+  private async stop(
+    scope: DesktopRunScope,
+    selectionId: string,
+    receipt?: DesktopComputerResumeReceipt,
   ): Promise<DesktopComputerSelection> {
-    return this.host.store.resume({ scope, selectionId, newSelectionId });
-  }
-
-  private async stop(scope: DesktopRunScope, selectionId: string): Promise<DesktopComputerSelection> {
-    const stopped = await this.host.store.stop({ scope, selectionId });
+    const stopped = await this.host.store.stop({
+      scope, selectionId,
+      ...(receipt === undefined ? {} : { receipt }),
+    });
     this.tracked.delete(desktopComputerSelectionKey(scope));
+    // Quiesce, pending proof, and holder release always use the actual stored
+    // successor; only the wire reply names the stop frame's predecessor.
     const holder = await this.matchingHolder(scope, stopped);
     const pending = stopped.pendingInput;
     if (holder && pending && holder.holderId !== pending.holderId) throw targetChanged();
+    // A missing occupancy key after an admitted act is not proof that no input
+    // exists: the durable pending marker names the exact holder to quiesce.
     const holderId = holder?.holderId ?? pending?.holderId;
     if (!holderId) return stopped;
     const ack = await this.quiesce(scope, stopped, holderId);

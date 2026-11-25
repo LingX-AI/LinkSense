@@ -15,6 +15,7 @@ import {
   PrismaDesktopComputerControl,
   desktopComputerSelectionKey,
   type DesktopComputerControlHost,
+  type DesktopComputerResumeReceipt,
   type DesktopComputerSelection,
 } from "../../src/modules/desktop-devices/computer-control.js";
 import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
@@ -562,6 +563,120 @@ try {
     where: { id: freshAfterRefusal.sessionId },
   })).status, "active");
   await otherReplica.revokeScope(refusedRenewal.scope);
+
+  // A committed resume receipt aliases only its exact still-active successor
+  // under the locked authority: the recorded predecessor id stops the actual
+  // successor and ends its session, while a missing, mismatched, stale, or
+  // no-longer-active successor never revokes the current selection. An
+  // already-active retry records nothing.
+  const receiptRun = await runTurn();
+  const receiptPredecessor = receiptRun.selection.selectionId;
+  const receiptSuccessor = randomUUID();
+  assert.equal((await store.pause({
+    scope: receiptRun.scope, selectionId: receiptPredecessor,
+  })).state, "pausing");
+  await store.confirmPause({ scope: receiptRun.scope, selection: (await store.read(receiptRun.scope))! });
+  const resumeReceipts: DesktopComputerResumeReceipt[] = [];
+  const receiptResumed = await store.resume({
+    scope: receiptRun.scope, selectionId: receiptPredecessor, newSelectionId: receiptSuccessor,
+    onResumed: receipt => { resumeReceipts.push(receipt); },
+  });
+  assert.equal(receiptResumed.state, "active");
+  assert.equal(receiptResumed.selectionId, receiptSuccessor);
+  assert.equal(resumeReceipts.length, 1, "the committed resume recorded one receipt");
+  const resumeReceipt = resumeReceipts[0]!;
+  assert.equal(resumeReceipt.predecessor, receiptPredecessor);
+  assert.equal(resumeReceipt.successor.selectionId, receiptSuccessor);
+  assert.equal(resumeReceipt.successor.sessionId, receiptRun.selection.sessionId);
+
+  // A later Pause of B is a client action on B. The delayed Stop that still
+  // names A must not alias that paused B: a receipt is only for a committing
+  // or just-active successor.
+  assert.equal((await store.pause({
+    scope: receiptRun.scope, selectionId: receiptSuccessor,
+  })).state, "pausing");
+  await store.confirmPause({ scope: receiptRun.scope, selection: (await store.read(receiptRun.scope))! });
+  const pausedReceiptSelection = await store.read(receiptRun.scope);
+  assert.equal(pausedReceiptSelection?.state, "paused");
+  const pausedReceiptSession = await db.localComputerSession.findUniqueOrThrow({
+    where: { id: receiptResumed.sessionId },
+  });
+  assert.equal(pausedReceiptSession.status, "active");
+  await assert.rejects(store.stop({
+    scope: receiptRun.scope, selectionId: receiptPredecessor, receipt: resumeReceipt,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  assert.deepEqual(await store.read(receiptRun.scope), pausedReceiptSelection);
+  assert.deepEqual(await db.localComputerSession.findUniqueOrThrow({
+    where: { id: receiptResumed.sessionId },
+  }), pausedReceiptSession);
+
+  // The next committed resume supplies the genuine receipt used for the
+  // positive alias below; both receipts are captured from the store.
+  const nextSuccessor = randomUUID();
+  const nextReceipts: DesktopComputerResumeReceipt[] = [];
+  const nextResumed = await store.resume({
+    scope: receiptRun.scope, selectionId: receiptSuccessor, newSelectionId: nextSuccessor,
+    onResumed: receipt => { nextReceipts.push(receipt); },
+  });
+  assert.equal(nextResumed.state, "active");
+  assert.equal(nextResumed.selectionId, nextSuccessor);
+  assert.equal(nextReceipts.length, 1);
+  const nextReceipt = nextReceipts[0]!;
+
+  // No receipt, a mismatched predecessor, or a different scope leaves the
+  // exact successor active and its session usable.
+  await assert.rejects(store.stop({
+    scope: receiptRun.scope, selectionId: receiptSuccessor,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  await assert.rejects(store.stop({
+    scope: receiptRun.scope, selectionId: randomUUID(), receipt: nextReceipt,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  await assert.rejects(store.stop({
+    scope: { ...receiptRun.scope, turnId: randomUUID() },
+    selectionId: receiptSuccessor, receipt: nextReceipt,
+  }), { code: "COMPUTER_UNAVAILABLE" });
+  assert.equal((await store.read(receiptRun.scope))?.state, "active");
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: nextResumed.sessionId },
+  })).status, "active");
+
+  const receiptStopped = await store.stop({
+    scope: receiptRun.scope, selectionId: receiptSuccessor, receipt: nextReceipt,
+  });
+  assert.equal(receiptStopped.state, "stopped");
+  assert.equal(receiptStopped.selectionId, nextSuccessor);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: nextResumed.sessionId },
+  })).status, "ended");
+
+  // A fresh later selection is never revocable through the old predecessor
+  // and the now-stale receipt.
+  const receiptReplacement = await store.select({
+    scope: receiptRun.scope, selectionId: randomUUID(), bundleId,
+  });
+  assert.equal(receiptReplacement.state, "active");
+  await assert.rejects(store.stop({
+    scope: receiptRun.scope, selectionId: receiptSuccessor, receipt: nextReceipt,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  assert.equal((await store.read(receiptRun.scope))?.selectionId, receiptReplacement.selectionId);
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: receiptReplacement.sessionId },
+  })).status, "active");
+
+  // An idempotent already-active resume returns the stored successor without
+  // a write and therefore never calls the receipt callback.
+  const idempotentPredecessor = randomUUID();
+  let idempotentReceipts = 0;
+  const idempotentResume = await store.resume({
+    scope: receiptRun.scope, selectionId: idempotentPredecessor, newSelectionId: receiptReplacement.selectionId,
+    onResumed: () => { idempotentReceipts += 1; },
+  });
+  assert.equal(idempotentResume.selectionId, receiptReplacement.selectionId);
+  assert.equal(idempotentReceipts, 0);
+  await assert.rejects(store.stop({
+    scope: receiptRun.scope, selectionId: idempotentPredecessor,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  await store.stop({ scope: receiptRun.scope, selectionId: receiptReplacement.selectionId });
 
   // A first positive check followed by a revoke before the Lua CAS rolls the
   // speculative session/grant rows back and writes nothing.

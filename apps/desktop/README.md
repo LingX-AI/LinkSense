@@ -931,15 +931,35 @@ is separate from the macOS Accessibility grant.
   stop and revokes this task's authorization. It does not cancel or replay the
   Codex turn. Stop is a native IPC action, not an API request: while the
   WebView or API is offline it still closes input and retires the local
-  selection, without sending or replaying a server stop. An exact
-  same-selection Stop is also the one control accepted while that selection's
-  select or renewal is still settling; the API parks it until the earlier
-  transition settles and suppresses a late positive select/renew ack (a
-  negative result for the superseded request may still be sent). The card does
-  not report Stopped until the exact in-flight action is terminal and the
-  driver is closed; if that proof misses the deadline, input stays closed, the
-  selection remains non-open, and no new selection is admitted until the real
-  terminal. Stop never queues a retry.
+  selection, without sending or replaying a server stop. An exact Stop for the
+  selection the Mac still has installed (for a resume, its original paused id)
+  is also the one control accepted while that selection's select, renewal,
+  resume or pause is still settling; the API parks it until the earlier
+  transition settles and suppresses a late positive select/renewal/resume/pause
+  ack (a negative result for the superseded request may still be sent). A
+  parked Stop never cancels or replays a pending Pause. Only a Pause that
+  completed with its holder released and no retained pending input lets the
+  Stop revoke the paused selection without another quiesce; after a failed
+  Pause, the Stop uses the existing exact cleanup and quiesce proof before it
+  reports Stopped. This parking is the API/development behavior; it adds no
+  native GUI step, and a real Mac Stop press during an unacknowledged Pause
+  remains separately unverified.
+  A resume that commits a new selection leaves one receipt on that same
+  socket, so a Stop that still names the resume's original paused id stops
+  exactly the committed successor and its quiesce, and the reply names
+  the requested id. That predecessor alias is exact: it holds only while the
+  committed successor is still the current active selection with the
+  committed session, control epoch, expiry and application on the same
+  socket and scope. Once the client has paused or stopped the successor, or a
+  renewal or selection change has replaced those values, a delayed
+  predecessor Stop is refused and the Mac must stop the current selection id.
+  An already-active resume writes nothing and creates no receipt, so a later
+  selection, renewal, expiry, pause, stop or different socket is never
+  associated with an arbitrary older id. The card does not report Stopped
+  until the exact in-flight action is terminal
+  and the driver is closed; if that proof misses the deadline, input stays
+  closed, the selection remains non-open, and no new selection is admitted
+  until the real terminal. Stop never queues a retry.
 
 The emergency controls are **Pause Computer Control** (`Cmd+Shift+Esc`) and
 **Stop Computer Control** (`Ctrl+Shift+Esc`) in the LinkSense app menu; the
@@ -1008,9 +1028,11 @@ a new selection. A stale observation or ref returns
 Only one action may be in flight. A duplicate transport command id is not
 executed twice; a duplicate control id that is still open is dropped, and a
 finished or overlapping control id is refused with
-`RUNNER_OPERATION_UNCERTAIN`. The exact same-selection Stop above is the only
-exception. Results for a superseded connection, runtime generation, session or
-selection are rejected.
+`RUNNER_OPERATION_UNCERTAIN`. The one exact Stop described above (the current
+id while a select, renewal, resume or pause settles, or a resume's original
+paused id while that resume settles or after it was acknowledged) is the only
+exception. Results for a superseded connection,
+runtime generation, session or selection are rejected.
 
 Product observe and wait share one locked final delivery. A read result is
 still only a candidate when the native read returns. After the metadata
