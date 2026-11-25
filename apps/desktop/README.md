@@ -968,6 +968,35 @@ cancel or replay the Codex turn. If either registration fails, the other chord
 and the menus remain available, and that chord is tried again only on a later
 focus or selection change.
 
+The opt-in Carbon registration check is
+`TestNativeMacComputerEmergencyShortcutsBindAndReleaseNatively`. From
+`apps/desktop`:
+
+```sh
+LINKSENSE_DESKTOP_WEB_DIST="$PWD/../web/dist" \
+  go test -tags desktop_whitebox,desktop_shortcut_whitebox -count=1 \
+  -run '^TestNativeMacComputerEmergencyShortcutsBindAndReleaseNatively$' .
+```
+
+`$PWD/../web/dist` is the standard compiled Web output. If it is absent, run
+`pnpm desktop:build-web` from the repository root; an existing prepared build
+may be selected by its absolute path instead. `-count=1` keeps a cached result
+from standing in for the registration check.
+
+It reserves the actual `Cmd+Shift+Esc` and `Ctrl+Shift+Esc` chords for the
+run, so use an isolated Mac where no other application owns them; an existing
+owner fails the baseline. It drives the selection, background, activation and
+quit lifecycle directly on the main thread and proves native registration and
+release; it sends no keystrokes or input events, opens no window and requests
+no permission.
+
+Physical key delivery needs a signed, installed smoke, which has not been run.
+With LinkSense foreground, press the Pause and Stop app-menu key equivalents
+and separately click the app-menu and menu-bar items; while another app owns
+focus, press the actual background chords. Do not remap macOS shortcuts or
+override a system or other application shortcut. Pause and Stop must affect
+only the authorized selection, and the Codex turn must continue.
+
 #### Late results, window changes and recovery
 
 Each act is bound to the latest observation and the pinned window identity.
