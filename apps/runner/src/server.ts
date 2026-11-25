@@ -893,6 +893,7 @@ export function buildRunnerServer(
         memories_enabled: settings.memories_enabled,
         show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
+        ...(settings.sensitive_data ? { sensitive_data: settings.sensitive_data } : {}),
       });
     } catch (error) {
       request.log.error(
@@ -936,6 +937,7 @@ export function buildRunnerServer(
         memories_enabled: settings.memories_enabled,
         show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
+        ...(settings.sensitive_data ? { sensitive_data: settings.sensitive_data } : {}),
       });
     } catch (error) {
       request.log.error(

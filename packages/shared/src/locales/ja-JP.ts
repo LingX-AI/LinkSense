@@ -468,6 +468,7 @@ export const auditMessages = {
     system_initialization_rejected: "システムの初期設定を拒否",
     system_initialized: "システムを初期設定",
     usage_exported: "利用状況分析をエクスポート",
+    sensitive_data_settings_updated: "機密データの設定を更新",
     voice_transcription_settings_updated: "音声文字起こしの設定を更新",
     user_admin_self_change_rejected: "管理者による自己変更を拒否",
     user_avatar_replaced: "ユーザーのアバターを置き換え",

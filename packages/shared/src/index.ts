@@ -37,6 +37,7 @@ export * from "./model-pricing.js";
 export * from "./pricing-currency.js";
 export * from "./password.js";
 export * from "./personalization.js";
+export * from "./sensitive-data.js";
 export * from "./runner.js";
 export * from "./runner-heartbeat.js";
 export * from "./schedules.js";

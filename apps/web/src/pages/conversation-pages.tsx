@@ -110,6 +110,11 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import {
+  TaskLocalModel,
+  TaskLocalModelControl,
+} from "@/features/sensitive-data/task-local-model"
+import { useTaskLocalModelStatus } from "@/features/sensitive-data/use-task-local-model-status"
 import { useProductName } from "@/app/product-branding"
 import { useVoiceTranscriptionAvailability } from "@/features/conversations/use-voice-transcription-availability"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -1448,6 +1453,13 @@ export function ConversationPage({
   const visuallyRunning = Boolean(
     (running || pendingTurnExecutionActive || pendingConversationExecution) &&
     !reconnectExhausted
+  )
+  const sensitiveTaskId =
+    !isNew && surfaceActive && !readOnly ? conversationId : undefined
+  const sensitiveDataStatus = useTaskLocalModelStatus(
+    user?.id,
+    sensitiveTaskId,
+    visuallyRunning
   )
   const runningMessageAction = sideChatReference
     ? "queue"
@@ -6132,6 +6144,16 @@ export function ConversationPage({
         </div>
       </header>
 
+      {sensitiveTaskId && user && (
+        <TaskLocalModel
+          ownerId={user.id}
+          conversationId={sensitiveTaskId}
+          status={sensitiveDataStatus}
+          active={visuallyRunning || isNewTaskPromotion}
+          showBadge={!showConversationComposer}
+        />
+      )}
+
       {!isNew && showConversationActions && (
         <ConversationShareDialog
           conversation={displayConversation}
@@ -6538,6 +6560,16 @@ export function ConversationPage({
             }
             uploading={attachMutation.isPending}
             attachmentOperationPending={attachmentOperationPending}
+            localModelControl={
+              sensitiveTaskId && user && sensitiveDataStatus?.status === "local" ? (
+                <TaskLocalModelControl
+                  key={`${user.id}:${sensitiveTaskId}`}
+                  ownerId={user.id}
+                  conversationId={sensitiveTaskId}
+                  status={sensitiveDataStatus}
+                />
+              ) : undefined
+            }
             modelPreference={modelPreferenceQuery.data}
             modelPreferencePending={
               attachmentOperationPending ||

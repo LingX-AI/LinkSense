@@ -472,6 +472,7 @@ type ConversationComposerProps = Readonly<{
   planModeDisabled?: boolean
   unavailableMessage?: string
   interactionBlocked?: boolean
+  localModelControl?: ReactNode
   modelPreference?: ModelPreference
   modelPreferencePending?: boolean
   modelContextUsage?: ConversationModelContextUsage | null
@@ -554,6 +555,7 @@ export const ConversationComposer = forwardRef<
     planModeDisabled = false,
     interactionBlocked = false,
     unavailableMessage,
+    localModelControl,
     modelPreference,
     modelPreferencePending = false,
     modelContextUsage,
@@ -2549,9 +2551,9 @@ export const ConversationComposer = forwardRef<
             />
           )}
 
-          {voice.phase === "idle" &&
-            (!managedApplicationName ||
-              allowManagedApplicationModelSelection) &&
+          {localModelControl ?? (
+            voice.phase === "idle" &&
+            (!managedApplicationName || allowManagedApplicationModelSelection) &&
             modelPreference &&
             onModelPreferenceChange && (
               <ConversationModelSelector
@@ -2560,7 +2562,8 @@ export const ConversationComposer = forwardRef<
                 contextUsage={modelContextUsage}
                 onChange={onModelPreferenceChange}
               />
-            )}
+            )
+          )}
 
           {!textOnly && voice.phase === "idle" && (
             <Tooltip>

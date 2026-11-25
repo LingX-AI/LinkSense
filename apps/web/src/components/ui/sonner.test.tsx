@@ -29,7 +29,7 @@ describe("Toaster", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  it("keeps short messages on one line and wraps only at a wider viewport-safe maximum", () => {
+  it("applies the fit-content layout only to centered notifications", () => {
     render(<Toaster position="top-center" />)
 
     expect(sonnerSpy).toHaveBeenCalledWith(
@@ -70,7 +70,7 @@ describe("Toaster", () => {
           closeButtonAriaLabel: "关闭",
           classNames: {
             toast:
-              "cn-toast left-1/2! right-auto! w-max! max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 py-3!",
+              "cn-toast py-3! data-[x-position=center]:left-1/2! data-[x-position=center]:right-auto! data-[x-position=center]:w-max! data-[x-position=center]:max-w-[min(40rem,calc(100vw-2rem))] data-[x-position=center]:-translate-x-1/2",
             content: "min-w-0",
             closeButton: expect.stringContaining("border-0!"),
           },

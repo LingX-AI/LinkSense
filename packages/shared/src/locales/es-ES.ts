@@ -468,6 +468,7 @@ export const auditMessages = {
     "system_initialization_rejected": "Inicialización del sistema rechazada",
     "system_initialized": "Sistema inicializado",
     "usage_exported": "Análisis de uso exportado",
+    "sensitive_data_settings_updated": "Ajustes de tratamiento de datos sensibles actualizados",
     "voice_transcription_settings_updated": "Ajustes de transcripción de voz actualizados",
     "user_admin_self_change_rejected": "Cambio del propio administrador rechazado",
     "user_avatar_replaced": "Avatar del usuario sustituido",

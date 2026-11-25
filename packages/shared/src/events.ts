@@ -27,6 +27,8 @@ import {
 import { knowledgeNoAvailableBasesCodeSchema } from "./knowledge.js";
 import { imageGenerationFailureCodeSchema } from "./image-generation.js";
 import { coreMcpServerKey } from "./mcp.js";
+import { modelIdentifierSchema } from "./model-provider.js";
+import { modelTokenPricingSchema } from "./model-pricing.js";
 import { publicKnowledgeOutputLimit } from "./public-knowledge-output.js";
 
 export const conversationEventVisibilitySchema = z.enum([
@@ -1419,12 +1421,19 @@ export const runnerCodexTokenUsageBreakdownSchema = z.strictObject({
 export const runnerCodexTokenUsageParamsSchema = z.strictObject({
   threadId: runnerNativeIdSchema,
   turnId: runnerNativeIdSchema,
+  localModelUsage: z.strictObject({
+    model: modelIdentifierSchema,
+    pricing: modelTokenPricingSchema,
+  }).optional(),
   tokenUsage: z.strictObject({
     total: runnerCodexTokenUsageBreakdownSchema,
     last: runnerCodexTokenUsageBreakdownSchema,
     modelContextWindow: runnerCodexTokenCountSchema.nullable(),
   }),
 });
+export type LocalModelUsage = NonNullable<
+  z.infer<typeof runnerCodexTokenUsageParamsSchema>["localModelUsage"]
+>;
 const runnerCodexTurnPlanParamsSchema = z.strictObject({
   threadId: runnerNativeIdSchema,
   turnId: runnerNativeIdSchema,

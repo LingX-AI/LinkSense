@@ -12,7 +12,7 @@ import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import type { Logger } from "pino";
 import { ProxyAgent } from "proxy-agent";
 import { getProxyForUrl } from "proxy-from-env";
-import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
+import { Agent, EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import WebSocket, {
   WebSocketServer,
   type ClientOptions as WebSocketClientOptions,
@@ -25,6 +25,7 @@ import type {
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
+  LocalModelUsage,
   RunnerMemoryUsageCapture,
 } from "@linksense/shared";
 import {
@@ -56,6 +57,11 @@ import {
   translateResponsesRequest,
   type ToolCompatibilityContext,
 } from "./tool-compat.js";
+import {
+  resolveSensitiveDataRequest,
+  SensitiveDataRequestBlocked,
+  type SensitiveDataRelay,
+} from "./sensitive-data.js";
 
 const DEFAULT_REQUEST_BODY_LIMIT = 128 * 1024 * 1024;
 const MODEL_TRANSITION_NONCE_METADATA_KEY = "linksense_transition_nonce";
@@ -112,6 +118,7 @@ export type ModelGatewayTurnCorrelation = {
 
 export type ModelGatewayLease = {
   token: string;
+  localModelUsage?: () => LocalModelUsage | undefined;
   setTurnCorrelation: (correlation: ModelGatewayTurnCorrelation | null) => void;
   /**
    * Temporarily route Codex model-switch compaction to the exact source
@@ -148,6 +155,7 @@ type StoredLease = Readonly<ModelGatewayLeaseInput> & {
   };
   transitionNonce: { current: string | null };
   manualModelTransitionCompaction: { current: boolean };
+  localInference: { current: { turnId: string; usage: LocalModelUsage } | null };
 };
 
 type PendingWebSocketRequest = {
@@ -192,6 +200,7 @@ type ModelGatewayAbortSource =
   | "upstream_stream_cancelled";
 
 type ModelGatewayRequestContext = {
+  localSensitiveDataRoute?: boolean;
   latency?: UpstreamLatency;
   upstreamStreaming?: boolean;
   requestId: string;
@@ -220,6 +229,7 @@ type ModelGatewayOptions = {
   closeGraceMs?: number;
   fetch?: typeof fetch;
   onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+  sensitiveDataRelay?: SensitiveDataRelay;
 };
 
 class GatewayHttpError extends Error {
@@ -258,6 +268,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     ReadonlyMap<string, string>
   >();
   private readonly httpProxyDispatcher: EnvHttpProxyAgent;
+  private readonly localDispatcher = new Agent();
   private readonly webSocketProxyAgent: ProxyAgent;
   private readonly server: Server;
   private listeningBaseUrl: string | null = null;
@@ -368,6 +379,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     const transitionNonce: StoredLease["transitionNonce"] = { current: null };
     const manualModelTransitionCompaction: StoredLease["manualModelTransitionCompaction"] =
       { current: false };
+    const localInference: StoredLease["localInference"] = { current: null };
     this.leases.set(
       token,
       Object.freeze({
@@ -376,11 +388,15 @@ export class ModelGateway implements ModelGatewayRuntime {
         transitionSource,
         transitionNonce,
         manualModelTransitionCompaction,
+        localInference,
       }),
     );
     let released = false;
     return {
       token,
+      localModelUsage: () => localInference.current?.turnId === turnCorrelation.current?.turnId
+        ? localInference.current?.usage
+        : undefined,
       setTurnCorrelation: (correlation) => {
         if (released) return;
         turnCorrelation.current = correlation
@@ -448,6 +464,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         this.listeningBaseUrl = null;
         this.webSocketProxyAgent.destroy();
         await this.httpProxyDispatcher.close();
+        await this.localDispatcher.close();
       }
     })();
     return this.closePromise;
@@ -514,6 +531,11 @@ export class ModelGateway implements ModelGatewayRuntime {
 
     let connection: UpstreamWebSocketConnection;
     try {
+      if (await this.requiresGuardedHttp(lease, handshakeAbort.signal)) {
+        this.webSocketSessions.delete(session);
+        rejectWebSocketUpgrade(socket, 426, "websocket_transport_unavailable");
+        return;
+      }
       connection = await this.connectUpstreamWebSocket(
         lease,
         request,
@@ -1082,6 +1104,12 @@ export class ModelGateway implements ModelGatewayRuntime {
     const abortPreparation = () => preparationAbort.abort();
     downstream.once("close", abortPreparation);
     try {
+      if (await this.requiresGuardedHttp(lease, preparationAbort.signal)) {
+        // Reused connections from before protection was enabled must close
+        // before any new model request reaches the external provider.
+        downstream.close(1012, "HTTP transport required");
+        return;
+      }
       await this.prepareRequestImages(source, preparationAbort.signal);
     } catch (error) {
       if (!(error instanceof GatewayHttpError)) throw error;
@@ -1303,7 +1331,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         ),
       );
       const requestedModel = stringValue(body.model);
-      const authorizedLease = requestedModel
+      let authorizedLease = requestedModel
         ? authorizeModelRequest(
             lease,
             requestedModel,
@@ -1320,6 +1348,51 @@ export class ModelGateway implements ModelGatewayRuntime {
         body.tool_choice = "none";
         delete body.parallel_tool_calls;
       }
+      if (this.options.sensitiveDataRelay) {
+        try {
+          const auxiliary = context.memoryOperation !== null || authorizedLease !== lease;
+          const routed = await resolveSensitiveDataRequest(
+            this.options.sensitiveDataRelay,
+            lease.ownerId,
+            {
+              conversation_id: lease.conversationId,
+              execution_model: lease.model,
+              turn_id: context.turnId,
+            },
+            {
+              model: authorizedLease.model,
+              baseUrl: authorizedLease.upstreamBaseUrl,
+              auxiliary,
+            },
+            body,
+            upstreamAbort.controller.signal,
+          );
+          body = routed.body;
+          if (!auxiliary && context.turnId) {
+            lease.localInference.current = routed.local ? {
+              turnId: context.turnId,
+              usage: { model: routed.local.model, pricing: routed.local.pricing },
+            } : null;
+          }
+          if (routed.local) {
+            context.localSensitiveDataRoute = true;
+            authorizedLease = {
+              ...authorizedLease,
+              model: routed.local.model,
+              upstreamBaseUrl: routed.local.baseUrl,
+              apiKey: routed.local.apiKey,
+              pricing: routed.local.pricing,
+              revision: routed.local.revision,
+              protocolMode: routed.local.protocolMode,
+            };
+          }
+        } catch (error) {
+          if (upstreamAbort.controller.signal.aborted) throw error;
+          const status = error instanceof SensitiveDataRequestBlocked ? 422 : 503;
+          throw new GatewayHttpError(status, "sensitive_data_protection_blocked");
+        }
+      }
+      upstreamAbort.controller.signal.throwIfAborted();
       await this.prepareRequestImages(body, upstreamAbort.controller.signal);
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(
@@ -1357,6 +1430,17 @@ export class ModelGateway implements ModelGatewayRuntime {
       request.off("aborted", abortOnRequest);
       response.off("close", abortOnResponse);
     }
+  }
+
+  private async requiresGuardedHttp(lease: StoredLease, signal: AbortSignal): Promise<boolean> {
+    if (!this.options.sensitiveDataRelay) return false;
+    const result = await this.options.sensitiveDataRelay(lease.ownerId, {
+      kind: "transport",
+      conversation_id: lease.conversationId,
+      execution_model: lease.model,
+      turn_id: lease.turnCorrelation.current?.turnId ?? null,
+    }, signal);
+    return result.action !== "forward";
   }
 
   private async forwardNativeResponses(
@@ -1669,7 +1753,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         if (this.options.fetch) return this.options.fetch(input, init);
         return await undiciFetch(input instanceof Request ? input.url : input, {
           ...init,
-          dispatcher: this.httpProxyDispatcher,
+          dispatcher: context.localSensitiveDataRoute ? this.localDispatcher : this.httpProxyDispatcher,
         }) as unknown as Response;
       };
       const upstream = await createModelProviderFetch(baseUrl, fetcher)(endpointUrl(baseUrl, endpoint), requestInit);

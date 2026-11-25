@@ -51,6 +51,7 @@ import { errorEnvelope, ok } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
+import { sensitiveDataRoutes } from "./modules/sensitive-data/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
@@ -135,6 +136,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.secret_payload",
   "req.body.secret_fields[*].value",
   "req.body.credential",
+  "req.body.decision_api_key",
+  "req.body.context",
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
@@ -243,6 +246,7 @@ export async function buildApi(
   registerMaintenanceGuard(app, services.system);
 
   await app.register(systemRoutes, { prefix: "/api/v1/system", services });
+  await app.register(sensitiveDataRoutes, { service: services.sensitiveData });
   app.post("/api/v1/system/initialize", async (request, reply) => {
     const result = await authService.initialize(request.body, {
       ipAddress: request.ip,

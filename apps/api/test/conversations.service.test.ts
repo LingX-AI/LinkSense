@@ -7388,7 +7388,7 @@ describe("ConversationService pending and turn materialization", () => {
 
       expect(generator.generate).toHaveBeenCalledExactlyOnceWith([
         { role: "user", content: "name while the task runs" },
-      ]);
+      ], CONVERSATION_ID);
       expect(fixture.redis.releaseConversationLock).toHaveBeenCalled();
       expect(fixture.redis.releaseUserRuntimeLease).toHaveBeenCalled();
       finishNaming?.();

@@ -1,4 +1,5 @@
 import type { WebSearchRequest } from "@linksense/shared";
+import { z } from "zod";
 import { WebSearchRequestError, webSearchErrorFromApi } from "./web-search-error.js";
 import type { Logger } from "pino";
 import { relative } from "node:path";
@@ -9,11 +10,14 @@ import {
   runnerEventBatchReceiptSchema,
   runnerStartSettledSchema,
   runnerStartSettledReceiptSchema,
+  sensitiveDataRelayResultSchema,
   userWorkspacePathSchema,
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
   type ImagePreviewRegistration,
   type RunnerStartSettled,
+  type SensitiveDataRelayInput,
+  type SensitiveDataRelayResult,
 } from "@linksense/shared";
 import type {
   ImageGenerationRequest,
@@ -190,6 +194,19 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     event: LinkSensePublishedEvent,
   ): Promise<void> {
     await this.publishBatch(conversationId, [event]);
+  }
+
+  async authorizeSensitiveData(
+    ownerId: string,
+    input: SensitiveDataRelayInput,
+    signal: AbortSignal,
+  ): Promise<SensitiveDataRelayResult> {
+    const response = await this.request("/internal/runner/sensitive-data", input, ownerId, signal);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error("Sensitive data routing is unavailable");
+    }
+    return z.object({ data: sensitiveDataRelayResultSchema }).parse(await response.json()).data;
   }
 
   async publishBatch(

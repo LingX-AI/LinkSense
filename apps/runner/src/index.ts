@@ -295,6 +295,8 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   )
   const modelGateway = new ModelGateway({
     logger,
+    sensitiveDataRelay: (ownerId, request, signal) =>
+      eventSink.authorizeSensitiveData(ownerId, request, signal),
     onMemoryUsage: async (capture) => {
       if (!eventSink.recordMemoryUsage) {
         throw new Error("memory usage sink is unavailable")

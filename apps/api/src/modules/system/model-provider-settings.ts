@@ -341,8 +341,10 @@ export interface ManagedModelRuntimeSettingsReader {
 }
 
 export interface TaskTitleModelSettingsReader {
-  resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null>
+  resolveTaskTitleModel(conversationId?: string): Promise<ResolvedTaskTitleModelRuntime | null>
 }
+
+export type ResolvedTaskTitleModelRuntime = ResolvedManagedModelRuntime & { trustedLocal?: true }
 
 export interface ManagedModelReferenceReader {
   getReferencedModelIds(): Promise<ReadonlySet<string>>
@@ -1109,13 +1111,29 @@ export class ModelProviderSettingsService
   ): Promise<ResolvedManagedModelRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
-    return projectManagedRuntime(stored, modelId, expectedKind)
+    const runtime = findManagedRuntime(stored, modelId, expectedKind)
+    if (!runtime) throw new AppError("MODEL_SELECTION_INVALID")
+    return runtime
+  }
+
+  async resolveManagedModels(
+    modelIds: readonly string[],
+    expectedKind: ManagedModelKind,
+  ): Promise<ResolvedManagedModelRuntime[]> {
+    const stored = await this.readStoredSettings()
+    if (!stored) return []
+    return modelIds.flatMap((id) => {
+      const runtime = findManagedRuntime(stored, id, expectedKind)
+      return runtime ? [runtime] : []
+    })
   }
 
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {
     const stored = await this.readStoredSettings()
     if (!stored?.titleModel) return null
-    return projectManagedRuntime(stored, stored.titleModel, "chat")
+    const runtime = findManagedRuntime(stored, stored.titleModel, "chat")
+    if (!runtime) throw new AppError("MODEL_SELECTION_INVALID")
+    return runtime
   }
 
   private async readStoredSettingsForMetadata(): Promise<StoredModelProviderSettings | null> {
@@ -1709,15 +1727,15 @@ function projectMemoryExtractionRuntime(
   stored: StoredModelProviderSettings,
   taskModel: string
 ): MemoryExtractionRuntime {
-  const resolved = projectManagedRuntime(
+  const resolved = findManagedRuntime(
     stored,
     stored.memoryExtractionModel ?? taskModel,
     "chat"
   )
-  const model = resolved.model
-  if (model.kind !== "chat" || !resolved.channel.apiKey) {
+  if (!resolved || resolved.model.kind !== "chat" || !resolved.channel.apiKey) {
     throw new AppError("MODEL_SELECTION_INVALID")
   }
+  const model = resolved.model
   const reasoningEffort = reasoningEffortValues.find((effort) =>
     model.supported_reasoning_efforts.includes(effort)
   )
@@ -1775,17 +1793,17 @@ function allModels(stored: StoredModelProviderSettings): ManagedPricedModel[] {
   return stored.providers.flatMap((provider) => provider.models)
 }
 
-function projectManagedRuntime(
+function findManagedRuntime(
   stored: StoredModelProviderSettings,
   modelId: string,
   expectedKind?: ManagedModelKind
-): ResolvedManagedModelRuntime {
+): ResolvedManagedModelRuntime | null {
   const channel = stored.providers.find((provider) =>
     provider.models.some((model) => model.id === modelId)
   )
   const model = channel?.models.find((candidate) => candidate.id === modelId)
   if (!channel || !model || (expectedKind && model.kind !== expectedKind)) {
-    throw new AppError("MODEL_SELECTION_INVALID")
+    return null
   }
   return {
     revision: stored.revision,

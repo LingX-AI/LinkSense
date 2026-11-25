@@ -3,6 +3,10 @@ import { z } from "zod";
 import { timestampSchema, uuidSchema } from "./common.js";
 import { modelIdentifierSchema } from "./model-provider.js";
 import { modelTokenPricingSchema } from "./model-pricing.js";
+import {
+  sensitiveDataPreferenceSchema,
+  updateSensitiveDataPreferenceSchema,
+} from "./sensitive-data.js";
 import { usageMeasurementMethodSchema } from "./usage.js";
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 20_000;
@@ -15,16 +19,19 @@ export const personalizationSettingsSchema = z.strictObject({
   memories_enabled: z.boolean(),
   show_reasoning: z.boolean(),
   task_auto_naming: taskAutoNamingSchema,
+  sensitive_data: sensitiveDataPreferenceSchema.optional(),
 });
 
 export const updatePersonalizationSettingsSchema = personalizationSettingsSchema
   .partial()
+  .extend({ sensitive_data: updateSensitiveDataPreferenceSchema.optional() })
   .refine(
     (input) =>
       input.custom_instructions !== undefined ||
       input.memories_enabled !== undefined ||
       input.show_reasoning !== undefined ||
-      input.task_auto_naming !== undefined,
+      input.task_auto_naming !== undefined ||
+      input.sensitive_data !== undefined,
     "personalization_update_must_not_be_empty",
   );
 

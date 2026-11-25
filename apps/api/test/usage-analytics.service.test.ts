@@ -15,6 +15,24 @@ const NOW = new Date("2026-07-27T12:00:00.000Z");
 const MEASUREMENT_STARTED_AT = new Date("2026-07-27T00:00:00.000Z");
 
 describe("UsageAnalyticsService token capture", () => {
+  it("records actual local inference model and prices when a guarded turn changes routes", async () => {
+    const fixture = captureFixture();
+    const service = new UsageAnalyticsService(fixture.prisma as never, { now: () => NOW });
+    await service.captureTokenUsage(CONVERSATION_ID, {
+      ...tokenParams({
+        totalTokens: 180, inputTokens: 120, cachedInputTokens: 40, outputTokens: 60, reasoningOutputTokens: 20,
+      }),
+      localModelUsage: {
+        model: "local-protected",
+        pricing: { input_price_per_million: "1", cached_input_price_per_million: "0", output_price_per_million: "0" },
+      },
+    });
+    expect(fixture.tx.tokenUsageRecord.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ model: "local-protected", totalCostPicoUsd: 40_000_000n })],
+      skipDuplicates: true,
+    });
+  });
+
   it("acknowledges an unprojected native-history snapshot on a fork", async () => {
     const fixture = captureFixture({ forkRootId: CONVERSATION_ID });
     fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(null);

@@ -2,12 +2,41 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+  MAX_SENSITIVE_DATA_DETECTION_PROMPT_LENGTH,
   personalizationSettingsSchema,
   runnerMemoryUsageCaptureSchema,
+  sensitiveDataPreferenceSchema,
   updatePersonalizationSettingsSchema,
+  updateSensitiveDataPreferenceSchema,
 } from "../src/index.js";
 
 describe("personalization contracts", () => {
+  it("defaults an existing detection prompt to empty and preserves omission in model-only updates", () => {
+    const preference = { selection: "default", default_model_id: "local-fixture" };
+    expect(sensitiveDataPreferenceSchema.parse(preference)).toEqual({
+      ...preference,
+      detection_prompt: null,
+    });
+    expect(updatePersonalizationSettingsSchema.parse({ sensitive_data: preference })).toEqual({
+      sensitive_data: preference,
+    });
+  });
+
+  it("validates and normalizes a personal detection prompt", () => {
+    const preference = { selection: "ask", default_model_id: null };
+    expect(updateSensitiveDataPreferenceSchema.parse({
+      ...preference,
+      detection_prompt: "  Protect confidential projects.\nInclude their code names.  ",
+    }).detection_prompt).toBe("Protect confidential projects.\nInclude their code names.");
+    expect(updateSensitiveDataPreferenceSchema.parse({
+      ...preference, detection_prompt: "\n  ",
+    }).detection_prompt).toBeNull();
+    expect(updateSensitiveDataPreferenceSchema.safeParse({
+      ...preference,
+      detection_prompt: "x".repeat(MAX_SENSITIVE_DATA_DETECTION_PROMPT_LENGTH + 1),
+    }).success).toBe(false);
+  });
+
   it.each([true, false])("accepts a reasoning-only update without changing other settings: %s", (show_reasoning) => {
     expect(updatePersonalizationSettingsSchema.parse({ show_reasoning })).toEqual({ show_reasoning })
   })
