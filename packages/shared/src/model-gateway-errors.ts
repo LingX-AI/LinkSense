@@ -6,6 +6,7 @@ export const modelGatewayErrorMessages = {
   model_provider_unavailable: "The model provider is temporarily unavailable.",
   model_provider_timeout: "The model provider request timed out.",
   model_gateway_error: "The model gateway request failed.",
+  sensitive_data_protection_blocked: "The request stopped because a local model could not continue safely.",
 } as const;
 
 export type ModelGatewayFailureCode = keyof typeof modelGatewayErrorMessages;

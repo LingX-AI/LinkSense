@@ -13,6 +13,7 @@ import {
   runtimeServiceSessionHeader,
   type ConversationEvent,
   imagePreviewRegistrationSchema,
+  sensitiveDataRelayInputSchema,
 } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import { z } from "zod"
@@ -61,6 +62,21 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
       const body = runnerHeartbeatSchema.parse(request.body)
       await services.events.recordRunnerHeartbeat(ownerId, body, z.uuid().optional().parse(request.headers[runtimeServiceSessionHeader]))
       return reply.send(ok({ confirmed: true }, request.id))
+    })
+
+    app.post("/runner/sensitive-data", { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
+      const ownerId = parseRunnerOwnerId(request)
+      const input = sensitiveDataRelayInputSchema.parse(request.body)
+      const controller = new AbortController()
+      const abortIfDisconnected = () => {
+        if (!reply.raw.writableEnded) controller.abort()
+      }
+      reply.raw.once("close", abortIfDisconnected)
+      try {
+        return reply.send(ok(await services.sensitiveData.authorize(ownerId, input, controller.signal), request))
+      } finally {
+        reply.raw.off("close", abortIfDisconnected)
+      }
     })
 
     app.post("/runner/start-settled", async (request, reply) => {

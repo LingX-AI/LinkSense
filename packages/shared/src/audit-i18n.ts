@@ -176,6 +176,7 @@ const actionMessages = {
   model_provider_model_availability_updated: ["已更新供应商模型可用状态", "Provider model availability updated"],
   model_provider_model_deleted: ["已删除供应商模型", "Provider model deleted"],
   model_provider_settings_updated: ["已更新模型供应商设置", "Model provider settings updated"],
+  sensitive_data_settings_updated: ["已更新敏感数据处理设置", "Sensitive data settings updated"],
   password_change_rejected: ["已拒绝修改密码", "Password change rejected"],
   password_setup_or_reset_delivery_failed: ["密码设置或重置通知发送失败", "Password setup or reset delivery failed"],
   password_setup_or_reset_rejected: ["已拒绝设置或重置密码", "Password setup or reset rejected"],

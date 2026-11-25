@@ -83,6 +83,8 @@ import {
 import { PrismaUserRepository, UserService } from "./modules/users/index.js";
 import { AuthenticationSettingsService } from "./modules/system/authentication-settings.js";
 import { ModelProviderSettingsService } from "./modules/system/model-provider-settings.js";
+import { SensitiveDataService } from "./modules/sensitive-data/service.js";
+import { SensitiveDataSettingsService } from "./modules/sensitive-data/settings.js";
 import { ImageGenerationSettingsService } from "./modules/system/image-generation-settings.js";
 import { VoiceTranscriptionSettingsService } from "./modules/system/voice-transcription-settings.js";
 import { ImageUnderstandingSettingsService } from "./modules/system/image-understanding-settings.js";
@@ -209,6 +211,7 @@ export type AppServices = {
   mailer: Mailer;
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
+  sensitiveData: SensitiveDataService;
   webSearchSettings: WebSearchSettingsService;
   imageGenerationSettings: ImageGenerationSettingsService;
   voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
@@ -289,6 +292,12 @@ export function createServices(input: {
   const modelProviderSettings = new ModelProviderSettingsService(
     input.prisma,
     input.config,
+  );
+  const sensitiveData = new SensitiveDataService(
+    input.prisma,
+    new SensitiveDataSettingsService(input.prisma, input.config, modelProviderSettings),
+    modelProviderSettings,
+    input.runner,
   );
   const usageAnalytics = new UsageAnalyticsService(input.prisma, {
     modelCatalog: modelProviderSettings,
@@ -695,7 +704,9 @@ export function createServices(input: {
   const conversationTitles = new ConversationTitleService(
     input.prisma,
     input.redis,
-    new ManagedTaskTitleGenerator(modelProviderSettings),
+    new ManagedTaskTitleGenerator({
+      resolveTaskTitleModel: (conversationId) => sensitiveData.resolveTitleModel(conversationId),
+    }),
     usageAnalytics,
     input.runner,
   );
@@ -887,6 +898,7 @@ export function createServices(input: {
     mailer,
     authenticationSettings,
     modelProviderSettings,
+    sensitiveData,
     webSearchSettings,
     imageGenerationSettings,
     voiceTranscriptionSettings,

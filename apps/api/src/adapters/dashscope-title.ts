@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto"
 
-import type { ModelTokenPricing } from "@linksense/shared"
+import { createModelProviderFetch, type ModelTokenPricing } from "@linksense/shared"
 import { generateText } from "ai"
 
 import { truncateConversationTitle } from "../lib/conversation-title.js"
+import { trustedModelFetch } from "../lib/trusted-model-fetch.js"
 import { cl100kTokenEstimator } from "../modules/knowledge-processing/token-estimator.js"
 import type {
-  ResolvedManagedModelRuntime,
+  ResolvedTaskTitleModelRuntime,
   TaskTitleModelSettingsReader,
 } from "../modules/system/model-provider-settings.js"
 import { createTaskLanguageModel } from "./task-language-model.js"
@@ -70,7 +71,7 @@ export type TaskTitleGenerationResult = {
 }
 
 export type TaskTitleModelCall = (input: {
-  runtime: ResolvedManagedModelRuntime
+  runtime: ResolvedTaskTitleModelRuntime
   system: string
   prompt: string
   timeoutMs?: number
@@ -93,12 +94,13 @@ export class ManagedTaskTitleGenerator {
 
   async generate(
     messages: TaskTitleMessage[],
+    conversationId?: string,
   ): Promise<TaskTitleGenerationResult | null> {
     const source = buildTitleSource(messages)
     if (!source) return null
 
     try {
-      const runtime = await this.settings.resolveTaskTitleModel()
+      const runtime = await this.settings.resolveTaskTitleModel(conversationId)
       if (!runtime?.channel.apiKey || runtime.model.kind !== "chat") return null
       const result = await this.#callModel({
         runtime,
@@ -125,7 +127,7 @@ export class ManagedTaskTitleGenerator {
 }
 
 async function callTaskTitleModel(input: {
-  runtime: ResolvedManagedModelRuntime
+  runtime: ResolvedTaskTitleModelRuntime
   system: string
   prompt: string
   timeoutMs?: number
@@ -133,13 +135,16 @@ async function callTaskTitleModel(input: {
   if (!input.runtime.channel.apiKey) {
     throw new Error("task title model credential is unavailable")
   }
+  const connection = {
+    model: input.runtime.model.id,
+    apiKey: input.runtime.channel.apiKey,
+    baseUrl: input.runtime.channel.baseUrl,
+    protocolMode: input.runtime.channel.protocolMode,
+  }
   const result = await generateText({
-    model: createTaskLanguageModel({
-      model: input.runtime.model.id,
-      apiKey: input.runtime.channel.apiKey,
-      baseUrl: input.runtime.channel.baseUrl,
-      protocolMode: input.runtime.channel.protocolMode,
-    }),
+    model: input.runtime.trustedLocal
+      ? createTaskLanguageModel(connection, { fetch: createModelProviderFetch(connection.baseUrl, trustedModelFetch) })
+      : createTaskLanguageModel(connection),
     system: input.system,
     prompt: input.prompt,
     maxRetries: 0,
