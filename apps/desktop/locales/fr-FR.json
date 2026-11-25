@@ -52,5 +52,11 @@
   "mygo.menuWindow": "Fenêtre",
   "mygo.menuMinimize": "Minimiser",
   "mygo.menuZoom": "Réduire/agrandir",
-  "mygo.menuBringAllToFront": "Tout ramener au premier plan"
+  "mygo.menuBringAllToFront": "Tout ramener au premier plan",
+
+  "mygo.guideDrag": "Faites glisser {app} dans la liste ci-dessus pour accorder l’autorisation « {permission} ».",
+  "mygo.guideDragHint": "Glissez",
+  "mygo.permissionAccessibility": "Accessibilité",
+  "mygo.permissionDeviceControlAndDataAccess": "Contrôle des appareils et accès aux données",
+  "mygo.permissionScreenRecording": "Enregistrement de l’écran"
 }

@@ -793,8 +793,8 @@ test("desktop native locales have matching nonempty keys", async () => {
     }
   }
   // MyGo ships en, ja, zh-Hans and zh-Hant; only the other three app
-  // languages replace its menu role labels. Their override key sets must
-  // match, so no language silently loses one.
+  // languages replace its strings. Their override key sets must match, so
+  // no language silently loses one.
   assert.deepEqual(overrides.map(([locale]) => locale).sort(), ["es-ES", "fr-FR", "pt-BR"]);
   for (const [locale, mygo] of overrides.slice(1)) {
     assert.deepEqual(mygo, overrides[0][1], `${locale} mygo.* keys`);
@@ -803,5 +803,34 @@ test("desktop native locales have matching nonempty keys", async () => {
   // so pin the total: the menu catalog of MyGo v0.10.0 (pinned in
   // apps/desktop/go.mod) has 29 role labels, and each of these languages
   // must override every one.
-  assert.equal(overrides[0][1].length, 29, "mygo.* overrides");
+  const menuKeys = mygo => mygo.filter(key => key.startsWith("mygo.menu"));
+  assert.equal(menuKeys(overrides[0][1]).length, 29, "mygo.* menu overrides");
+
+  // The permission guide is the app's only use of MyGo's own permission
+  // strings: LinkSense asks for Accessibility and Screen Recording, and
+  // MyGo names Accessibility "Device Control and Data Access" on macOS 27.
+  // MyGo ships those in en, ja and zh-Hans; es-ES, fr-FR and pt-BR must
+  // override exactly this set and nothing else.
+  const permissionKeys = [
+    "mygo.guideDrag",
+    "mygo.guideDragHint",
+    "mygo.permissionAccessibility",
+    "mygo.permissionDeviceControlAndDataAccess",
+    "mygo.permissionScreenRecording",
+  ];
+  for (const locale of ["es-ES", "fr-FR", "pt-BR"]) {
+    const catalog = catalogs.find(([tag]) => tag === locale)[1];
+    assert.deepEqual(
+      mygoOverrides(catalog).filter(key => !key.startsWith("mygo.menu")),
+      permissionKeys, `${locale} permission overrides`);
+  }
+
+  // The plugin's panel substitutes the app and permission into guideDrag, so
+  // both placeholders must survive translation. The sentence itself belongs
+  // to the catalog; the Go probe checks what the plugin actually formats.
+  for (const locale of ["es-ES", "fr-FR", "pt-BR"]) {
+    const catalog = catalogs.find(([tag]) => tag === locale)[1];
+    const placeholders = [...catalog["mygo.guideDrag"].matchAll(/\{([a-z]+)\}/gu)].map(match => match[1]).sort();
+    assert.deepEqual(placeholders, ["app", "permission"], `${locale} mygo.guideDrag placeholders`);
+  }
 });

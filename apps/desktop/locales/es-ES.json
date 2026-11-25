@@ -52,5 +52,11 @@
   "mygo.menuWindow": "Ventana",
   "mygo.menuMinimize": "Minimizar",
   "mygo.menuZoom": "Zoom",
-  "mygo.menuBringAllToFront": "Traer todo al frente"
+  "mygo.menuBringAllToFront": "Traer todo al frente",
+
+  "mygo.guideDrag": "Arrastra {app} a la lista de arriba para conceder el permiso «{permission}».",
+  "mygo.guideDragHint": "Arrastra",
+  "mygo.permissionAccessibility": "Accesibilidad",
+  "mygo.permissionDeviceControlAndDataAccess": "Control de dispositivos y acceso a datos",
+  "mygo.permissionScreenRecording": "Grabación de pantalla"
 }

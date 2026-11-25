@@ -52,5 +52,11 @@
   "mygo.menuWindow": "Janela",
   "mygo.menuMinimize": "Minimizar",
   "mygo.menuZoom": "Zoom",
-  "mygo.menuBringAllToFront": "Trazer Todas para a Frente"
+  "mygo.menuBringAllToFront": "Trazer Todas para a Frente",
+
+  "mygo.guideDrag": "Arraste {app} para a lista acima para conceder a permissão “{permission}”.",
+  "mygo.guideDragHint": "Arraste",
+  "mygo.permissionAccessibility": "Acessibilidade",
+  "mygo.permissionDeviceControlAndDataAccess": "Controle de Dispositivos e Acesso a Dados",
+  "mygo.permissionScreenRecording": "Gravação de Tela"
 }
