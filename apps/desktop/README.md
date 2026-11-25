@@ -179,11 +179,14 @@ answer an approval.
 
 The macOS main window is fixed at the standard 100% page scale. Window
 resizing, maximize/restore, minimize and full screen remain available, as do
-system accessibility features. The app installs no page-zoom menu commands or
+system accessibility features. MyGo restores the main window's position and
+size on the next launch. The app installs no page-zoom menu commands or
 keyboard bindings and keeps MyGo's defaults (`ZoomFactor` 1, pinch zoom off).
 The localized native View menu keeps Reload, Force Reload, Toggle Developer
 Tools and Toggle Full Screen, and the Window menu keeps native minimize and
-maximize/restore.
+maximize/restore. The View menu also adds native Back and Forward
+(`Command+[` / `Command+]`); they use the current main window's history and
+keep the existing unsaved Settings guard.
 
 The native red/yellow/green controls keep extra padding and share a vertical
 centerline with the workspace L icon at normal sidebar widths. The layout
