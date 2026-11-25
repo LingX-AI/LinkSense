@@ -799,4 +799,9 @@ test("desktop native locales have matching nonempty keys", async () => {
   for (const [locale, mygo] of overrides.slice(1)) {
     assert.deepEqual(mygo, overrides[0][1], `${locale} mygo.* keys`);
   }
+  // Equality alone still passes when the same role is deleted from all three,
+  // so pin the total: the menu catalog of MyGo v0.10.0 (pinned in
+  // apps/desktop/go.mod) has 29 role labels, and each of these languages
+  // must override every one.
+  assert.equal(overrides[0][1].length, 29, "mygo.* overrides");
 });
