@@ -323,7 +323,7 @@ export const settingsResources = {
       "Ne masque pas un mot à l’intérieur d’un mot ou d’un identifiant plus long.",
     privacyMaskingAllow: "Valeurs autorisées",
     privacyMaskingAllowDescription:
-      "Une valeur par ligne. Une valeur qui correspond exactement est envoyée telle quelle, par exemple une adresse e-mail de test.",
+      "Une valeur par ligne. Une valeur détectée n’est envoyée telle quelle que si elle correspond en entier et respecte la casse. Le réglage de casse des mots personnalisés n’affecte pas cette liste.",
     privacyMaskingAllowPlaceholder: "exemple@exemple.test",
     privacyMaskingSaved: "Paramètres de masquage enregistrés.",
     privacyMaskingSave: "Enregistrer le masquage",

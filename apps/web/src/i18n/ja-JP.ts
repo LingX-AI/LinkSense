@@ -821,7 +821,7 @@ export const jaJP = {
       "より長い単語や識別子の一部はマスクしません。",
     privacyMaskingAllow: "許可する値",
     privacyMaskingAllowDescription:
-      "1 行に 1 値。完全一致した値はそのまま送信されます（テスト用メールアドレスなど）。",
+      "1 行に 1 つの値を入力します。検出された値が大文字と小文字も含めて完全に一致した場合だけ、そのまま送信します。カスタム語句の大文字・小文字の設定はこの一覧には適用されません。",
     privacyMaskingAllowPlaceholder: "example@example.test",
     privacyMaskingSaved: "プライバシーマスキング設定を保存しました。",
     privacyMaskingSave: "プライバシーマスキングを保存",

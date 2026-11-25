@@ -57,6 +57,23 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each([
+    ["zh-CN", "包括大小写"],
+    ["en-US", "case-sensitive"],
+    ["es-ES", "mayúsculas y minúsculas"],
+    ["pt-BR", "maiúsculas de minúsculas"],
+    ["fr-FR", "respecte la casse"],
+    ["ja-JP", "大文字と小文字"],
+  ])("explains case-sensitive allowlist matching in %s", (locale, phrase) => {
+    const key = "settings.privacyMaskingAllowDescription"
+    expect(i18n.getResource(locale, "translation", key)).toContain(phrase)
+    if (locale !== "zh-CN") {
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      fallback.removeResourceBundle(locale, "translation")
+      expect(fallback.t(key, { lng: locale })).toBe(i18n.t(key, { lng: "zh-CN" }))
+    }
+  })
+
   it.each(supportedLanguages)("explains the Mac output limit in %s", (locale) => {
     const key = "errors.desktopOutputLimit"
     const translation = i18n.getResource(locale, "translation", key)

@@ -70,9 +70,12 @@ The literal word list is unchanged. Custom rules add up to 16 named entries:
   matching the empty input, and fails closed on contextual zero-length matches.
 
 Each new category or custom rule can replace and restore a match or block
-the entire request. The case-insensitive exact-value allowlist still applies
-to both actions. A blocking match cannot be hidden by an overlapping
+the entire request. A blocking match cannot be hidden by an overlapping
 replacement; overlapping replacements cover the whole matched span.
+
+The allowlist exempts a detected value from masking or blocking only when the
+entire value matches an entry, including letter case. The case setting for
+custom words does not affect the allowlist.
 
 The request walker keeps structural values intact: model ids, message and
 tool-call ids, tool names and schemas, tool-choice, `prompt_cache_key`,
@@ -155,11 +158,14 @@ An unknown placeholder is left as it is; the gateway never guesses a value.
   and can send unmasked traffic. Runners that predate Mask cannot accept
   enabled settings. Do not roll protected traffic back to those builds.
 - Advanced rules add optional fields to the existing encrypted settings.
-  No new migration is required. Old rows retain their behavior and new
+  No new migration is required. Old rows remain valid and new
   categories stay off until explicitly enabled. An update omitting the new
   fields does not erase them. Upgrade all three layers and refresh old Web
   tabs before saving advanced rules; older strict schemas do not understand
   the new fields or preview results.
+- Existing allowlist entries remain usable without a migration. Older saves
+  kept only the first spelling among case variants. Add each spelling that
+  should still be allowed as a separate entry.
 - A newer API accepts count-only captures. If an API that supports activity
   but predates hints rejects a capture, the newer Runner submits its counts
   once without hints. New Web reads count-only rows and can fall back to

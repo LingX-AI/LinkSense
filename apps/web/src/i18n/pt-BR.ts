@@ -832,7 +832,7 @@ export const ptBR = {
       "Não mascara uma palavra dentro de outra palavra ou identificador maior.",
     privacyMaskingAllow: "Valores permitidos",
     privacyMaskingAllowDescription:
-      "Um valor por linha. Um valor com correspondência exata é enviado como está, por exemplo um e-mail de teste.",
+      "Um valor por linha. Um valor detectado só é enviado como está se corresponder por inteiro, distinguindo maiúsculas de minúsculas. A opção de maiúsculas e minúsculas das palavras personalizadas não afeta esta lista.",
     privacyMaskingAllowPlaceholder: "exemplo@exemplo.test",
     privacyMaskingSaved: "Configurações de mascaramento salvas.",
     privacyMaskingSave: "Salvar mascaramento",

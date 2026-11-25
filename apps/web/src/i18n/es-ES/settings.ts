@@ -131,7 +131,7 @@ export const settingsMessages = {
       "No enmascara una palabra dentro de otra palabra o identificador más largo.",
     privacyMaskingAllow: "Valores permitidos",
     privacyMaskingAllowDescription:
-      "Un valor por línea. Un valor que coincida exactamente se envía tal cual, por ejemplo un correo de prueba.",
+      "Un valor por línea. Un valor detectado solo se envía tal cual si coincide por completo, incluidas las mayúsculas y minúsculas. El ajuste de las palabras personalizadas no afecta a esta lista.",
     privacyMaskingAllowPlaceholder: "ejemplo@ejemplo.test",
     privacyMaskingSaved: "Configuración de enmascaramiento guardada.",
     privacyMaskingSave: "Guardar enmascaramiento",

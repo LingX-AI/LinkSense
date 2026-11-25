@@ -520,7 +520,7 @@ export const zhCN = {
     privacyMaskingWholeWordDescription: "不匹配更长单词或标识符中的一部分。",
     privacyMaskingAllow: "允许原样发送的值",
     privacyMaskingAllowDescription:
-      "每行一个值，完全匹配时原样发送，例如测试邮箱地址。",
+      "每行填写一个值。只有检测到的值与某一项完全一致（包括大小写）时，才会原样发送。自定义词的大小写设置不影响此列表。",
     privacyMaskingAllowPlaceholder: "example@example.test",
     privacyMaskingSaved: "隐私脱敏设置已保存。",
     privacyMaskingSave: "保存隐私脱敏",

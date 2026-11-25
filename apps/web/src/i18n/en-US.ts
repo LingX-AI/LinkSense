@@ -562,7 +562,7 @@ export const enUS = {
       "Do not mask a word inside a longer word or identifier.",
     privacyMaskingAllow: "Allowed values",
     privacyMaskingAllowDescription:
-      "One value per line. A value that matches exactly is sent as written, for example a test email address.",
+      "One value per line. A detected value is sent as-is only on a full, case-sensitive match. The custom-word case setting does not affect this list.",
     privacyMaskingAllowPlaceholder: "example@example.test",
     privacyMaskingSaved: "Privacy masking settings saved.",
     privacyMaskingSave: "Save privacy masking",
