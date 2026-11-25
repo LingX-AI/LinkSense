@@ -181,6 +181,18 @@ func (executor *controlTestExecutor) close() error {
 	executor.mu.Lock()
 	executor.closed = true
 	executor.mu.Unlock()
+	executor.releaseAct()
+	executor.closedOnce.Do(func() {
+		if executor.closedDone != nil {
+			close(executor.closedDone)
+		}
+	})
+	return nil
+}
+
+// releaseAct lets an in-flight fixture act become terminal without closing the
+// executor, so a caller can observe retirement while input is already closed.
+func (executor *controlTestExecutor) releaseAct() {
 	executor.releaseOnce.Do(func() {
 		if executor.actRelease != nil {
 			close(executor.actRelease)
@@ -189,12 +201,6 @@ func (executor *controlTestExecutor) close() error {
 			close(executor.waitRelease)
 		}
 	})
-	executor.closedOnce.Do(func() {
-		if executor.closedDone != nil {
-			close(executor.closedDone)
-		}
-	})
-	return nil
 }
 
 // awaitClosed observes the asynchronous release that follows a state
@@ -1098,6 +1104,54 @@ func TestComputerControlSupersededSocketNeverActivatesOrReplays(t *testing.T) {
 	}
 }
 
+// TestComputerControlStaleSessionNeverWritesOnASupersedingSocket proves the
+// scope transport writes only on the exact session the caller admitted. A
+// reconnect that installs a newer loopback session between admission and the
+// write must fail the request before any frame reaches the newer socket, never
+// redirect the old generation's stop onto it.
+func TestComputerControlStaleSessionNeverWritesOnASupersedingSocket(t *testing.T) {
+	platform := &controlTestPlatform{eligible: true}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	staleSession := harness.connection.currentControlSession()
+	if staleSession == nil {
+		t.Fatal("the fixture control session is not live")
+	}
+	harness.socket.close()
+	var second *controlFixtureSocket
+	select {
+	case second = <-harness.sockets:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture did not accept the reconnect")
+	}
+	waitControlStatus(t, harness.connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ComputerReady
+	})
+	if current := harness.connection.currentControlSession(); current == nil || current == staleSession {
+		t.Fatal("the reconnect did not install a superseding control session")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	requestID := newComputerControlID()
+	selectionID := "80000000-0000-4000-8000-000000000906"
+	frame, err := computerControlScopeFrame(requestID, "stop", controlConversation, controlTurn, selectionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ackOK, stopErr := harness.control.exchangeControl(ctx, harness.connection, staleSession, requestID, frame, "stop",
+		computerControlAckExpectation{
+			SessionID: controlSession, RuntimeGeneration: controlGeneration,
+			SelectionID: selectionID, ExpiresAt: time.Now().Add(time.Minute),
+		})
+	if stopErr == nil || ackOK {
+		t.Fatalf("a stale-session stop reported success: ackOK=%v err=%v", ackOK, stopErr)
+	}
+	if !errors.Is(stopErr, errComputerUnavailable) {
+		t.Fatalf("a stale-session stop returned %v", stopErr)
+	}
+	expectNoControlFrame(t, second, 150*time.Millisecond)
+}
+
 func TestComputerControlUnavailableWithoutNegotiationOrEligibility(t *testing.T) {
 	t.Run("operation not negotiated", func(t *testing.T) {
 		platform := &controlTestPlatform{eligible: true}
@@ -1190,6 +1244,379 @@ func TestComputerControlEmergencyPauseUsesTheHostSelection(t *testing.T) {
 	t.Fatal("emergency pause did not reach the paused state")
 }
 
+func TestComputerControlEmergencyStopUsesTheHostSelectionAndNeverReplays(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	executor := &controlTestExecutor{closedDone: make(chan struct{})}
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	selectionID := selectActiveTarget(t, harness, platform)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		harness.control.emergencyStop(harness.desktop)
+	}()
+	frame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	body := controlFrameBody(t, frame)
+	if body["action"] != "stop" || body["selection_id"] != selectionID ||
+		body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
+		t.Fatalf("the host stop was not bound to the host selection: %+v", body)
+	}
+	if !validUUID(frame["id"].(string)) {
+		t.Fatalf("the stop frame is not correlated: %+v", frame)
+	}
+	sendControlAck(t, harness.socket, frame["id"].(string), computerControlStateStopped,
+		controlSession, selectionID, controlGeneration, time.Now())
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the host stop did not finish")
+	}
+	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+	executor.awaitClosed(t)
+	gateResult := harness.control.gate.act(context.Background(), executor.selection(), "call-host-stop", m1bComputerAct{
+		Action: "click", ObservationID: controlObservation, Ref: "@obs1:e1", TimeoutMS: 8000,
+	})
+	if gateResult.act.OK || gateResult.act.Error != "COMPUTER_TARGET_CHANGED" {
+		t.Fatalf("the host stop left input reachable: %+v", gateResult.act)
+	}
+
+	// A repeated gesture on the already stopped scope sends nothing.
+	harness.control.emergencyStop(harness.desktop)
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+	if status := harness.control.status(harness.desktop, controlConversation, controlTurn); status.State != computerControlStateStopped {
+		t.Fatalf("a repeated host stop changed the stopped scope: %+v", status)
+	}
+}
+
+func TestComputerControlEmergencyStopWhileRetiringNeverSendsASecondFrame(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	executor := &controlTestExecutor{
+		actStarted: make(chan struct{}, 1), actRelease: make(chan struct{}), closedDone: make(chan struct{}),
+	}
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	selectionID := selectActiveTarget(t, harness, platform)
+	selection := executor.selection()
+
+	actDone := make(chan struct{})
+	go func() {
+		defer close(actDone)
+		_ = harness.control.gate.act(context.Background(), selection, "call-retiring", m1bComputerAct{
+			Action: "click", ObservationID: controlObservation, Ref: "@obs1:e1", TimeoutMS: 8000,
+		})
+	}()
+	select {
+	case <-executor.actStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the fixture act did not start")
+	}
+
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		harness.control.emergencyStop(harness.desktop)
+	}()
+	frame := nextControlFrame(t, harness.socket, computerControlRequestType)
+	if body := controlFrameBody(t, frame); body["action"] != "stop" || body["selection_id"] != selectionID {
+		t.Fatalf("the first host stop was not exact: %+v", body)
+	}
+	waitControlRetiring(t, harness.control)
+
+	secondDone := make(chan struct{})
+	go func() {
+		defer close(secondDone)
+		harness.control.emergencyStop(harness.desktop)
+	}()
+	expectNoControlFrame(t, harness.socket, 150*time.Millisecond)
+
+	sendControlAck(t, harness.socket, frame["id"].(string), computerControlStateStopped,
+		controlSession, selectionID, controlGeneration, time.Now())
+	executor.releaseAct()
+	for name, done := range map[string]<-chan struct{}{"first": firstDone, "second": secondDone, "act": actDone} {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the %s host stop did not finish", name)
+		}
+	}
+	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+	executor.awaitClosed(t)
+	expectNoControlFrame(t, harness.socket, 80*time.Millisecond)
+}
+
+func TestComputerControlEmergencyStopCancelsPendingPickerWithoutSending(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releasePicker := func() { releaseOnce.Do(func() { close(release) }) }
+	// An early assertion failure must not leave the blocked picker goroutine
+	// behind; the happy path releases it as soon as the cancel is proven.
+	t.Cleanup(releasePicker)
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick: func(context.Context, *Desktop) (computerSelectedTarget, error) {
+			<-release
+			return controlFixtureTarget(), nil
+		},
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results := controlAsync(ctx, harness.desktop, "select")
+	deadline := time.Now().Add(2 * time.Second)
+	for platform.picks.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if platform.picks.Load() != 1 {
+		t.Fatal("the picker did not open")
+	}
+
+	harness.control.emergencyStop(harness.desktop)
+	if status := harness.control.status(harness.desktop, controlConversation, controlTurn); status.State != computerControlStateStopped {
+		t.Fatalf("the host stop did not cancel the pending picker: %+v", status)
+	}
+	releasePicker()
+	result := awaitControl(t, results)
+	if result.err == nil || result.status.State != computerControlStateStopped {
+		t.Fatalf("the canceled picker returned %+v", result)
+	}
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+}
+
+func TestComputerControlEmergencyStopIdleHasNoSideEffect(t *testing.T) {
+	platform := &controlTestPlatform{eligible: true}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	harness.control.emergencyStop(harness.desktop)
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+	if status := harness.control.status(harness.desktop, controlConversation, controlTurn); status.State != computerControlStateIdle {
+		t.Fatalf("an idle host stop changed the state: %+v", status)
+	}
+	if picks := platform.picks.Load(); picks != 0 {
+		t.Fatalf("an idle host stop opened %d pickers", picks)
+	}
+}
+
+// TestComputerControlEmergencyStopOfflineClosesTheExactGateWithoutSending
+// covers the native gesture while the control admission generation is gone but
+// the loopback fixture is still writable: admission closes the exact local
+// boundary before the in-flight act reaches its terminal, release waits for
+// that real terminal, and neither the old socket nor the later reconnect may
+// receive a stop frame or a replacement grant.
+func TestComputerControlEmergencyStopOfflineClosesTheExactGateWithoutSending(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+	executor := &controlTestExecutor{
+		actStarted: make(chan struct{}, 1), actRelease: make(chan struct{}), closedDone: make(chan struct{}),
+	}
+	t.Cleanup(executor.releaseAct)
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	selectActiveTarget(t, harness, platform)
+	selection := executor.selection()
+
+	actDone := make(chan struct{})
+	go func() {
+		defer close(actDone)
+		_ = harness.control.gate.act(context.Background(), selection, "call-offline", m1bComputerAct{
+			Action: "click", ObservationID: controlObservation, Ref: "@obs1:e1", TimeoutMS: 8000,
+		})
+	}()
+	select {
+	case <-executor.actStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the fixture act did not start")
+	}
+
+	// Withdraw the control admission generation exactly as a socket teardown
+	// does, but keep the fixture connected so an erroneous stop is observable
+	// instead of failing on a closed socket.
+	session := harness.connection.currentControlSession()
+	if session == nil {
+		t.Fatal("the fixture control session is not live")
+	}
+	harness.connection.clearControlSession(session)
+
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		harness.control.emergencyStop(harness.desktop)
+	}()
+
+	// Admission closes the exact local boundary before any server result, and
+	// the retired executor stays open until its real act terminal.
+	deadline := time.Now().Add(3 * time.Second)
+	for harness.control.gate.open() {
+		if time.Now().After(deadline) {
+			t.Fatal("the offline host stop did not close local input")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if closed, _, _ := executor.snapshot(); closed {
+		t.Fatal("the offline host stop released the executor before its act terminal")
+	}
+	expectNoControlFrame(t, harness.socket, 80*time.Millisecond)
+
+	executor.releaseAct()
+	select {
+	case <-actDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the fixture act did not reach its terminal")
+	}
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the offline host stop did not finish")
+	}
+	executor.awaitClosed(t)
+	expectNoControlFrame(t, harness.socket, 120*time.Millisecond)
+	gateResult := harness.control.gate.act(context.Background(), selection, "call-offline-after", m1bComputerAct{
+		Action: "click", ObservationID: controlObservation, Ref: "@obs1:e1", TimeoutMS: 8000,
+	})
+	if gateResult.act.OK || gateResult.act.Error != "COMPUTER_TARGET_CHANGED" {
+		t.Fatalf("the offline host stop left input reachable: %+v", gateResult.act)
+	}
+
+	// A reconnect is a new admission generation: it must not inherit the
+	// skipped stop and the gesture must not have produced a replacement grant.
+	harness.socket.close()
+	var second *controlFixtureSocket
+	select {
+	case second = <-harness.sockets:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture did not accept the reconnect")
+	}
+	waitControlStatus(t, harness.connection, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ComputerReady
+	})
+	expectNoControlFrame(t, second, 150*time.Millisecond)
+	if status := harness.control.status(harness.desktop, controlConversation, controlTurn); status.State != computerControlStateIdle {
+		t.Fatalf("the offline host stop left a replacement grant: %+v", status)
+	}
+	if picks := platform.picks.Load(); picks != 1 {
+		t.Fatalf("the offline host stop opened %d extra pickers", picks-1)
+	}
+}
+
+// TestComputerControlEmergencyStopUsesTheLinkLiveAtAdmission deterministically
+// pins the gesture's pre-admission state to the old live generation and then
+// makes the replacement current after admission but before the post-admission
+// link lookup. The stop must deliver one frame for the selection captured at
+// admission on the link that is live for it, not retire it silently against a
+// stale pre-admission snapshot.
+func TestComputerControlEmergencyStopUsesTheLinkLiveAtAdmission(t *testing.T) {
+	platform := &controlTestPlatform{
+		eligible: true,
+		pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+	}
+	harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+
+	// A second authenticated socket generation, exactly what a reconnect
+	// installs, with its own fixture runtime and control session.
+	origin, err := url.Parse(harness.server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := newFixtureDeviceConnection(t, origin, harness.credential)
+	replacementRuntime, _, _ := newFixtureRuntime(t)
+	replacement.runtime = replacementRuntime
+	harness.control.prepareConnection(replacement)
+	t.Cleanup(func() {
+		replacement.cancel()
+		select {
+		case <-replacement.done:
+		case <-time.After(5 * time.Second):
+			t.Error("the replacement device connection did not stop")
+		}
+	})
+	harness.desktop.mu.Lock()
+	harness.desktop.device = replacement
+	harness.desktop.mu.Unlock()
+	go replacement.run()
+	var replacementSocket *controlFixtureSocket
+	select {
+	case replacementSocket = <-harness.sockets:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fixture did not accept the replacement connection")
+	}
+	waitControlStatus(t, replacement, func(status DeviceConnectionStatus) bool {
+		return status.State == DeviceOnline && status.ComputerReady
+	})
+
+	// Install the exact current selection on the replacement generation.
+	executor := &controlTestExecutor{closedDone: make(chan struct{})}
+	platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+		return executor, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results := controlAsync(ctx, harness.desktop, "select")
+	frame := nextControlFrame(t, replacementSocket, computerControlRequestType)
+	selectionID := controlFrameBody(t, frame)["selection_id"].(string)
+	sendControlAck(t, replacementSocket, frame["id"].(string), computerControlStateActive,
+		controlSession, selectionID, controlGeneration, time.Now().Add(time.Minute))
+	if result := awaitControl(t, results); result.err != nil || result.status.State != computerControlStateActive {
+		t.Fatalf("the replacement select did not activate: %+v", result)
+	}
+
+	// The gesture now sees the old generation as its pre-admission snapshot
+	// while the exact current selection is bound to the replacement link.
+	harness.desktop.mu.Lock()
+	harness.desktop.device = harness.connection
+	harness.desktop.mu.Unlock()
+
+	// shortcutMu pauses the stop after it publishes retirement (input closed)
+	// and before its post-admission link lookup; the replacement then becomes
+	// current. This orders the switch without sleeping.
+	harness.control.shortcutMu.Lock()
+	shortcutHeld := true
+	defer func() {
+		if shortcutHeld {
+			harness.control.shortcutMu.Unlock()
+		}
+	}()
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		harness.control.emergencyStop(harness.desktop)
+	}()
+	waitControlRetiring(t, harness.control)
+	harness.desktop.mu.Lock()
+	harness.desktop.device = replacement
+	harness.desktop.mu.Unlock()
+	harness.control.shortcutMu.Unlock()
+	shortcutHeld = false
+
+	frame = nextControlFrame(t, replacementSocket, computerControlRequestType)
+	body := controlFrameBody(t, frame)
+	if body["action"] != "stop" || body["selection_id"] != selectionID {
+		t.Fatalf("the host stop was not bound to the selection live at admission: %+v", body)
+	}
+	expectNoControlFrame(t, harness.socket, 100*time.Millisecond)
+	sendControlAck(t, replacementSocket, frame["id"].(string), computerControlStateStopped,
+		controlSession, selectionID, controlGeneration, time.Now())
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the host stop did not finish")
+	}
+	waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+	executor.awaitClosed(t)
+}
+
 func TestComputerGateBlocksInputAfterPause(t *testing.T) {
 	executor := &controlTestExecutor{}
 	platform := &controlTestPlatform{
@@ -1261,6 +1688,88 @@ func TestShellMenusExposeLocalizedEmergencyPause(t *testing.T) {
 		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != "Cmd+Shift+Esc" {
 			t.Fatalf("pause accelerator is %q", accelerator)
 		}
+	}
+}
+
+func TestShellMenusExposeLocalizedStopComputerControlBesidePause(t *testing.T) {
+	desktop := &Desktop{}
+	submenuOf := func(menu *mygo.Menu) []*mygo.MenuItem {
+		for _, item := range menu.Items() {
+			if item.Role == mygo.RoleAppMenu {
+				return item.Submenu
+			}
+		}
+		return menu.Items()
+	}
+	for _, locale := range []string{"zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"} {
+		tx := locales.In(locale)
+		app, tray := desktop.shellMenus(tx)
+		for name, menu := range map[string]*mygo.Menu{"app": app, "tray": tray} {
+			item := menu.ItemByID("stop-computer")
+			if item == nil || item.Click == nil {
+				t.Fatalf("%s has no stop action in %s", name, locale)
+			}
+			if item.Label != tx.StopComputerControl() {
+				t.Fatalf("%s stop label %q is not localized in %s", name, item.Label, locale)
+			}
+			if item.Accelerator != "" {
+				t.Fatalf("%s stop shortcut is %q, want none", name, item.Accelerator)
+			}
+			items := submenuOf(menu)
+			pauseIndex, stopIndex := -1, -1
+			for index, entry := range items {
+				switch entry.ID {
+				case "pause-computer":
+					pauseIndex = index
+				case "stop-computer":
+					stopIndex = index
+				}
+			}
+			if pauseIndex < 0 || stopIndex != pauseIndex+1 {
+				t.Fatalf("%s stop is not directly beside pause in %s", name, locale)
+			}
+		}
+		if accelerator := app.ItemByID("pause-computer").Accelerator; accelerator != "Cmd+Shift+Esc" {
+			t.Fatalf("pause accelerator is %q", accelerator)
+		}
+	}
+}
+
+func TestShellStopItemsRouteToTheHostStop(t *testing.T) {
+	for _, source := range []string{"app", "tray"} {
+		t.Run(source, func(t *testing.T) {
+			platform := &controlTestPlatform{
+				eligible: true,
+				pick:     func(context.Context, *Desktop) (computerSelectedTarget, error) { return controlFixtureTarget(), nil },
+			}
+			harness := startControlHarness(t, []string{m1bComputerOperation}, platform)
+			executor := &controlTestExecutor{closedDone: make(chan struct{})}
+			platform.executor = func(context.Context, *Desktop, computerSelectedTarget, m1bComputerSelection) (computerProductExecutor, error) {
+				return executor, nil
+			}
+			selectionID := selectActiveTarget(t, harness, platform)
+			app, tray := harness.desktop.shellMenus(locales.In("en-US"))
+			menu := app
+			if source == "tray" {
+				menu = tray
+			}
+			item := menu.ItemByID("stop-computer")
+			if item == nil || item.Click == nil {
+				t.Fatalf("the %s menu has no stop action", source)
+			}
+			item.Click(item, nil)
+			frame := nextControlFrame(t, harness.socket, computerControlRequestType)
+			body := controlFrameBody(t, frame)
+			if body["action"] != "stop" || body["selection_id"] != selectionID ||
+				body["conversation_id"] != controlConversation || body["turn_id"] != controlTurn {
+				t.Fatalf("the %s stop was not bound to the host selection: %+v", source, body)
+			}
+			sendControlAck(t, harness.socket, frame["id"].(string), computerControlStateStopped,
+				controlSession, selectionID, controlGeneration, time.Now())
+			waitComputerStatus(t, harness.control, harness.desktop, controlConversation, controlTurn, computerControlStateStopped)
+			executor.awaitClosed(t)
+			expectNoControlFrame(t, harness.socket, 80*time.Millisecond)
+		})
 	}
 }
 

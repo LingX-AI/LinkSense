@@ -948,6 +948,9 @@ closes input immediately, runs off the UI thread, and never exposes native
 detail. Without an active selection, or when the signed driver cannot be built,
 only the app-local menu item remains.
 
+The same two menus also expose **Stop Computer Control**, which reuses the
+existing control Stop behavior without a shortcut or a second page action.
+
 #### Late results, window changes and recovery
 
 Each act is bound to the latest observation and the pinned window identity.

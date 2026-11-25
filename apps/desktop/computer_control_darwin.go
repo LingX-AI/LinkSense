@@ -530,7 +530,7 @@ func (c *computerControl) selectTarget(ctx context.Context, desktop *Desktop, sc
 		return c.status(desktop, conversationID, turnID), errComputerUnavailable
 	}
 	ackContext, cancelAck := context.WithTimeout(opContext, computerControlSelectAckTimeout)
-	raw, ackSession, err := connection.computerControl(ackContext, requestID, frame)
+	raw, ackSession, err := connection.computerControl(ackContext, session, requestID, frame)
 	cancelAck()
 	if err != nil {
 		_ = executor.close()
@@ -1064,9 +1064,46 @@ func (c *computerControl) resume(ctx context.Context, desktop *Desktop, scope co
 }
 
 func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope computerControlScope) (ComputerControlStatus, error) {
-	connection, session := c.usableConnection(desktop)
+	return c.stopScope(ctx, desktop, scope, false)
+}
+
+// stopScope is shared by the renderer action and the native menu stop. host is
+// true only for the menu path: it carries no renderer ids, so the exact scope
+// is resolved from the live picker or selection under this same admission lock.
+// A replacement installed between a menu gesture and this lock is therefore
+// either the one current selection stopped here or a newer one that owns the
+// state; a stale pre-lock snapshot is never used.
+//
+// The selection captured under this lock is the one the gesture stops. Its
+// exact executor is retired first, which closes local input synchronously, and
+// only then is the link that is live for that captured selection looked up. A
+// reconnect that replaced the gesture's admission generation therefore cannot
+// decide whether the stopped selection is reported: the one stop frame is sent
+// only when the current link and owner still match the captured selection, and
+// a stale generation never receives it.
+func (c *computerControl) stopScope(ctx context.Context, desktop *Desktop, scope computerControlScope, host bool) (ComputerControlStatus, error) {
+	// This lookup serves only the pending-picker stopped terminal below. The
+	// selection path ignores it: nothing captured before admission may decide
+	// the link that receives the stop frame.
+	pickerConnection, pickerSession := c.usableConnection(desktop)
 
 	c.mu.Lock()
+	if host {
+		switch {
+		case c.retiring != nil:
+			scope = computerControlScope{
+				ConversationID: c.retiring.selection.ConversationID,
+				TurnID:         c.retiring.selection.TurnID,
+			}
+		case c.selecting:
+			scope = c.selectingScope
+		default:
+			scope = computerControlScope{
+				ConversationID: c.selection.ConversationID,
+				TurnID:         c.selection.TurnID,
+			}
+		}
+	}
 	if c.retiring != nil {
 		// The exact executor is already retiring. A stop cannot claim stopped
 		// or send a second control frame before the act terminal and close are
@@ -1100,11 +1137,11 @@ func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope comp
 		c.selecting = false
 		c.selectingScope = computerControlScope{}
 		linkID, ownerID := "", ""
-		if session != nil {
-			linkID = session.linkID
+		if pickerSession != nil {
+			linkID = pickerSession.linkID
 		}
-		if connection != nil {
-			ownerID = connection.credential.OwnerID
+		if pickerConnection != nil {
+			ownerID = pickerConnection.credential.OwnerID
 		}
 		c.finalizeStoppedWithoutInputLocked(scope, ownerID, linkID)
 		c.mu.Unlock()
@@ -1136,26 +1173,11 @@ func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope comp
 		c.mu.Unlock()
 		return c.status(desktop, scope.ConversationID, scope.TurnID), nil
 	}
-	if connection == nil || session == nil || !strings.EqualFold(selection.LinkID, session.linkID) ||
-		!strings.EqualFold(selection.OwnerID, connection.credential.OwnerID) {
-		// No live link or exact owner: close input and retire locally, but never
-		// send or retry the server side effect.
-		retirement, start := c.beginRetirementLocked(selection, executor, true)
-		c.mu.Unlock()
-		c.syncEmergencyShortcut()
-		if start {
-			c.startRetirement(retirement)
-		}
-		waitContext, cancelWait := context.WithTimeout(ctx, computerControlStopAckTimeout)
-		awaitRetirement(waitContext, retirement)
-		cancelWait()
-		return c.status(desktop, scope.ConversationID, scope.TurnID), errComputerUnavailable
-	}
-
-	// The live exact link gets the one stop control frame. Input is closed and
-	// the exact executor is handed to the retirement before the network wait;
-	// a timed-out stop keeps retiring in the background and publishes stopped
-	// (and admits a fresh select) only at the real act terminal.
+	// The exact selection captured above is the one this gesture stops. Retire
+	// it first so local input closes synchronously, then look up the link that
+	// is live for it. A reconnect that replaced the gesture's admission
+	// generation never receives this exact generation's stop frame, and a lost
+	// link retires locally without a send or retry.
 	retirement, start := c.beginRetirementLocked(selection, executor, true)
 	opContext, cancel := context.WithTimeout(ctx, computerControlStopAckTimeout)
 	c.mu.Unlock()
@@ -1165,15 +1187,21 @@ func (c *computerControl) stop(ctx context.Context, desktop *Desktop, scope comp
 	}
 	defer cancel()
 
-	requestID := newComputerControlID()
-	frame, err := computerControlScopeFrame(requestID, "stop", selection.ConversationID, selection.TurnID, selection.SelectionID, "")
+	connection, session := c.usableConnection(desktop)
+	live := connection != nil && session != nil &&
+		strings.EqualFold(selection.LinkID, session.linkID) &&
+		strings.EqualFold(selection.OwnerID, connection.credential.OwnerID)
 	ackOK, ackErr := false, errComputerUnavailable
-	if err == nil {
-		_, ackOK, ackErr = c.exchangeControl(opContext, connection, session, requestID, frame, "stop",
-			computerControlAckExpectation{
-				SessionID: selection.SessionID, RuntimeGeneration: selection.RuntimeGeneration,
-				SelectionID: selection.SelectionID, ExpiresAt: selection.ExpiresAt,
-			})
+	if live {
+		requestID := newComputerControlID()
+		frame, err := computerControlScopeFrame(requestID, "stop", selection.ConversationID, selection.TurnID, selection.SelectionID, "")
+		if err == nil {
+			_, ackOK, ackErr = c.exchangeControl(opContext, connection, session, requestID, frame, "stop",
+				computerControlAckExpectation{
+					SessionID: selection.SessionID, RuntimeGeneration: selection.RuntimeGeneration,
+					SelectionID: selection.SelectionID, ExpiresAt: selection.ExpiresAt,
+				})
+		}
 	}
 	done := awaitRetirement(opContext, retirement)
 	status := c.status(desktop, scope.ConversationID, scope.TurnID)
@@ -1264,7 +1292,7 @@ type computerControlAckExpectation struct {
 // local disabled state while reporting a stable failure.
 func (c *computerControl) exchangeControl(ctx context.Context, connection *deviceConnection, session *deviceControlSession,
 	requestID string, frame []byte, action string, expect computerControlAckExpectation) (computerControlAck, bool, error) {
-	raw, ackSession, err := connection.computerControl(ctx, requestID, frame)
+	raw, ackSession, err := connection.computerControl(ctx, session, requestID, frame)
 	if err != nil {
 		return computerControlAck{}, false, computerControlTransportError(err)
 	}
@@ -1449,6 +1477,20 @@ func (c *computerControl) emergencyPause(desktop *Desktop) {
 	}
 	c.mu.Unlock()
 	_, _ = c.pauseScope(ctx, desktop, scope, true)
+}
+
+// emergencyStop is the shell menu's Stop affordance. It carries no renderer
+// ids; stopScope resolves the current picker or exact selection under the stop
+// admission lock and reuses the one existing retirement and terminal-proof
+// path. It never opens a picker, sends no stop when the link is gone, and
+// queues no retry.
+func (c *computerControl) emergencyStop(desktop *Desktop) {
+	if c == nil || desktop == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), computerControlStopAckTimeout+5*time.Second)
+	defer cancel()
+	_, _ = c.stopScope(ctx, desktop, computerControlScope{}, true)
 }
 
 func newComputerControlID() string {

@@ -44,6 +44,10 @@ export interface Messages {
    */
   pauseComputerControl(): string;
   /**
+   * `停止电脑控制`
+   */
+  stopComputerControl(): string;
+  /**
    * `偏好设置…`
    */
   preferences(): string;
@@ -123,6 +127,7 @@ const catalog = createCatalog<Messages>({
     "computerPickerCancel": [],
     "newTask": [],
     "pauseComputerControl": [],
+    "stopComputerControl": [],
     "preferences": [],
     "quit": [],
     "showWindow": [],
@@ -150,6 +155,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "取消",
       "newTask": "新建任务",
       "pauseComputerControl": "暂停电脑控制",
+      "stopComputerControl": "停止电脑控制",
       "preferences": "偏好设置…",
       "quit": "退出",
       "showWindow": "显示 LinkSense",
@@ -176,6 +182,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "Cancel",
       "newTask": "New Task",
       "pauseComputerControl": "Pause Computer Control",
+      "stopComputerControl": "Stop Computer Control",
       "preferences": "Preferences…",
       "quit": "Quit",
       "showWindow": "Show LinkSense",
@@ -202,6 +209,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "Cancelar",
       "newTask": "Nueva tarea",
       "pauseComputerControl": "Pausar el control del equipo",
+      "stopComputerControl": "Detener el control del equipo",
       "preferences": "Preferencias…",
       "quit": "Salir",
       "showWindow": "Mostrar LinkSense",
@@ -228,6 +236,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "Annuler",
       "newTask": "Nouvelle tâche",
       "pauseComputerControl": "Suspendre le contrôle de l’ordinateur",
+      "stopComputerControl": "Arrêter le contrôle de l’ordinateur",
       "preferences": "Préférences…",
       "quit": "Quitter",
       "showWindow": "Afficher LinkSense",
@@ -254,6 +263,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "キャンセル",
       "newTask": "新しいタスク",
       "pauseComputerControl": "コンピューター操作を一時停止",
+      "stopComputerControl": "コンピューター操作を停止",
       "preferences": "環境設定…",
       "quit": "終了",
       "showWindow": "LinkSense を表示",
@@ -280,6 +290,7 @@ const catalog = createCatalog<Messages>({
       "computerPickerCancel": "Cancelar",
       "newTask": "Nova tarefa",
       "pauseComputerControl": "Pausar o controle do computador",
+      "stopComputerControl": "Parar o controle do computador",
       "preferences": "Preferências…",
       "quit": "Sair",
       "showWindow": "Mostrar o LinkSense",

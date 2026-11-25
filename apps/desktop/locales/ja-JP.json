@@ -9,6 +9,7 @@
   "computerPickerCancel": "キャンセル",
   "newTask": "新しいタスク",
   "pauseComputerControl": "コンピューター操作を一時停止",
+  "stopComputerControl": "コンピューター操作を停止",
   "preferences": "環境設定…",
   "quit": "終了",
   "showWindow": "LinkSense を表示",

@@ -136,6 +136,16 @@ func (msgs Messages) PauseComputerControl() string {
 	return Catalog.Format(msgs.locale, "pauseComputerControl", nil)
 }
 
+// StopComputerControl says "停止电脑控制"
+// in the language the app shows.
+func StopComputerControl() string { return In(i18n.Locale()).StopComputerControl() }
+
+// StopComputerControl says "停止电脑控制"
+// in the language of msgs.
+func (msgs Messages) StopComputerControl() string {
+	return Catalog.Format(msgs.locale, "stopComputerControl", nil)
+}
+
 // Preferences says "偏好设置…"
 // in the language the app shows.
 func Preferences() string { return In(i18n.Locale()).Preferences() }

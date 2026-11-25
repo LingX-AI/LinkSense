@@ -114,8 +114,10 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	show := func(*mygo.MenuItem, *mygo.Window) { d.presentMainWindow() }
 	openSettings := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/settings/general") }
 	newTask := func(*mygo.MenuItem, *mygo.Window) { d.navigateMainWindow("/conversations/new") }
-	// Emergency pause must not block the main thread on the acknowledgement.
+	// Emergency pause and stop must not block the main thread on the
+	// acknowledgement.
 	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer() }
+	stopComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyStopComputer() }
 	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
 	viewCrashReports := func(*mygo.MenuItem, *mygo.Window) {
 		if d.quitting.Load() || openCrashReportsPath("/System/Applications/Utilities/Console.app") == nil {
@@ -142,6 +144,7 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 			mygo.Separator(),
 			{ID: "settings", Label: tx.Preferences(), Accelerator: "Cmd+,", Click: openSettings},
 			{ID: "pause-computer", Label: tx.PauseComputerControl(), Accelerator: "Cmd+Shift+Esc", Click: pauseComputer},
+			{ID: "stop-computer", Label: tx.StopComputerControl(), Click: stopComputer},
 			mygo.Separator(),
 			{Role: mygo.RoleServices},
 			mygo.Separator(),
@@ -175,6 +178,7 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 		{ID: "new-task", Label: tx.NewTask(), Click: newTask},
 		{ID: "settings", Label: tx.Preferences(), Click: openSettings},
 		{ID: "pause-computer", Label: tx.PauseComputerControl(), Click: pauseComputer},
+		{ID: "stop-computer", Label: tx.StopComputerControl(), Click: stopComputer},
 		{ID: "close-to-tray", Label: tx.CloseToTray(), Type: mygo.MenuItemCheckbox, Checked: d.closeToTray,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
 				enabled := item.IsChecked()

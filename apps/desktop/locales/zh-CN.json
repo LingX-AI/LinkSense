@@ -9,6 +9,7 @@
   "computerPickerCancel": "取消",
   "newTask": "新建任务",
   "pauseComputerControl": "暂停电脑控制",
+  "stopComputerControl": "停止电脑控制",
   "preferences": "偏好设置…",
   "quit": "退出",
   "showWindow": "显示 LinkSense",

@@ -745,10 +745,14 @@ func (connection *deviceConnection) clearControlSession(session *deviceControlSe
 	connection.controlMu.Unlock()
 }
 
-// computerControl writes one control frame on the exact live generation and
-// waits for its correlated result. No connection lock is held across the write
-// or the wait, so the socket reader and every other status caller keep going.
-func (connection *deviceConnection) computerControl(ctx context.Context, id string, frame []byte) (json.RawMessage, *deviceControlSession, error) {
+// computerControl writes one control frame on the exact hello generation the
+// caller admitted and waits for its correlated result. The session pointer is
+// pinned for the write: a reconnect that installs a newer generation between
+// admission and this call fails the request before any write instead of
+// redirecting the old generation's frame onto the new link. No connection lock
+// is held across the write or the wait, so the socket reader and every other
+// status caller keep going.
+func (connection *deviceConnection) computerControl(ctx context.Context, session *deviceControlSession, id string, frame []byte) (json.RawMessage, *deviceControlSession, error) {
 	if ctx == nil || !validUUID(id) || len(frame) == 0 || len(frame) > computerControlMaxResultBytes {
 		return nil, nil, errComputerInvalid
 	}
@@ -758,9 +762,8 @@ func (connection *deviceConnection) computerControl(ctx context.Context, id stri
 	if !connection.authorized() {
 		return nil, nil, errAccountRequired
 	}
-	session := connection.currentControlSession()
-	if session == nil {
-		return nil, nil, errComputerUnavailable
+	if session == nil || connection.currentControlSession() != session {
+		return nil, nil, errComputerControlSuperseded
 	}
 	pending := &pendingComputerControl{session: session, reply: make(chan computerControlReply, 1)}
 	connection.controlMu.Lock()

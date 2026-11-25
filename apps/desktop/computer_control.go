@@ -80,8 +80,8 @@ type ComputerControlStatus struct {
 
 // computerControlScope is the exact conversation/turn pair a renderer action is
 // bound to. Both ids are required for every IPC action; the empty scope exists
-// only inside the native emergency-pause path and is unreachable from the
-// binding.
+// only inside the native emergency pause and stop paths and is unreachable from
+// the binding.
 type computerControlScope struct {
 	ConversationID string
 	TurnID         string
@@ -159,6 +159,7 @@ type computerControlService interface {
 	prepareConnection(connection *deviceConnection)
 	connectionEnded(connection *deviceConnection, session *deviceControlSession)
 	emergencyPause(desktop *Desktop)
+	emergencyStop(desktop *Desktop)
 }
 
 // ComputerControl is the closed M1b control binding. It is available only to
@@ -175,9 +176,9 @@ func (d *Desktop) ComputerControl(ctx context.Context, conversationID, turnID, a
 		return ComputerControlStatus{State: computerControlStateUnavailable}, errComputerInvalid
 	}
 	// Every IPC action requires both ids. The empty scope is reserved for the
-	// native emergency pause and can never reach the product controller through
-	// this binding, so a renderer can neither wildcard another turn nor act on
-	// the host's current selection.
+	// native emergency pause and stop and can never reach the product controller
+	// through this binding, so a renderer can neither wildcard another turn nor
+	// act on the host's current selection.
 	if _, ok := newComputerControlScope(conversationID, turnID); !ok {
 		return ComputerControlStatus{State: computerControlStateUnavailable}, errComputerInvalid
 	}
@@ -199,6 +200,17 @@ func (d *Desktop) emergencyPauseComputer() {
 		return
 	}
 	d.computer.emergencyPause(d)
+}
+
+// emergencyStopComputer is the shell menu's Stop affordance. Like the pause
+// item it carries no page ids: the host resolves its current picker or exact
+// selection under the stop admission lock, so the gesture can never land on a
+// replacement chosen from a stale snapshot.
+func (d *Desktop) emergencyStopComputer() {
+	if d == nil || d.computer == nil {
+		return
+	}
+	d.computer.emergencyStop(d)
 }
 
 // computerControlAck is one strictly validated success result.
