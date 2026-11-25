@@ -138,11 +138,15 @@ updated installed tooling.
 ## Desktop cloud target entry
 
 `LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED` advertises the desktop cloud-target
-entry for newly created tasks in the Mac app through the public bootstrap
-response (`desktop.cloud_target`). It only gates that entry: it is not an
-admission or security restriction, and disabling it does not stop existing
-tasks, cloud execution, or normal Web and app use. This entry flag does not
-change the separate local-execution guard used for white-box testing.
+entry through the public bootstrap response (`desktop.cloud_target`). While it
+is `false`, the Mac new-task UI blocks cloud prewarm and cloud submission, and
+the authenticated continuations route rejects a cloud destination with
+`RUNNER_UNAVAILABLE` before the service creates the task.
+
+Existing cloud tasks still open and run. Ordinary Web new cloud tasks and
+`POST /api/v1/conversations` are unchanged; this switch is not a universal
+cloud admission or security control, and it does not change the separate
+local-execution guard used for white-box testing.
 
 Upgrade to a release whose API, Compose files, and installed management tools
 recognize the key before adding it to the installed `.env`. Use the current
