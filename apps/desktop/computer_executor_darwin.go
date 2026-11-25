@@ -395,8 +395,9 @@ func (e *computerExecutorDarwin) actStart(selection m1bComputerSelection) (uint6
 // act dispatches at most one click/type and never retries. The consumed proof,
 // the selection expiry, the validated input timeout and the caller context
 // bound the driver context, so expiry or cancellation during the driver's slow
-// preflight stops it before input. The driver enforces its own process and CLI
-// operation limits inside that context; no separate CLI budget is passed.
+// preflight stops it before input. The same validated input timeout is passed to
+// the driver as the CLI's positive operation deadline inside that context; it
+// never extends the context, the process cap, or the grant/proof/cancel fence.
 func (e *computerExecutorDarwin) act(ctx context.Context, selection m1bComputerSelection, nativeCallID string, input m1bComputerAct) m1bComputerResult {
 	if ctx == nil {
 		return m1bComputerActOutcome(m1bComputerActResult{OK: false, Error: computerExecutorInvalid})
@@ -455,6 +456,7 @@ func (e *computerExecutorDarwin) act(ctx context.Context, selection m1bComputerS
 		Kind:          computerActionKind(input.Action),
 		Ref:           input.Ref,
 		Text:          input.Text,
+		TimeoutMS:     input.TimeoutMS,
 	})
 	e.mu.Lock()
 	if e.active == run {

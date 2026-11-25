@@ -1208,7 +1208,7 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 
 	// Source v1.3.1 type/ordinary AXPress click normally end delivered_unverified.
 	clickResult, err := driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: clickRef,
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: clickRef, TimeoutMS: m1bComputerMaxTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1224,12 +1224,12 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 	if len(clickCalls) != 1 {
 		t.Fatalf("expected exactly one click, got %d", len(clickCalls))
 	}
-	assertExactArgs(t, clickCalls[0], driver.sessionID, "click", clickRef, "--timeout-ms=15000")
+	assertExactArgs(t, clickCalls[0], driver.sessionID, "click", clickRef, "--timeout-ms=20000")
 	if count := len(callsFor(readFakeCalls(t, runtimeRoot), "snapshot")); count != 2 {
 		t.Fatalf("expected one click readback, snapshots=%d", count)
 	}
 	_, err = driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: clickRef,
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: clickRef, TimeoutMS: m1bComputerMaxTimeout,
 	})
 	var driverErr *computerDriverError
 	if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
@@ -1255,7 +1255,7 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 	}
 	resetFakeCalls(t, runtimeRoot)
 	typeResult, err := driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionType, Ref: typeRef, Text: text,
+		ObservationID: observation.ID, Kind: computerActionType, Ref: typeRef, Text: text, TimeoutMS: m1bComputerMinTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1271,7 +1271,7 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 	if len(typeCalls) != 1 {
 		t.Fatalf("expected exactly one type, got %d", len(typeCalls))
 	}
-	assertExactArgs(t, typeCalls[0], driver.sessionID, "type", typeRef, "--stdin", "--timeout-ms=15000")
+	assertExactArgs(t, typeCalls[0], driver.sessionID, "type", typeRef, "--stdin", "--timeout-ms=100")
 	if typeCalls[0].Stdin != text {
 		t.Fatalf("stdin mismatch: got %q want %q", typeCalls[0].Stdin, text)
 	}
@@ -1282,7 +1282,7 @@ func TestComputerDriverActionsUseLatestRefsAndReadEffect(t *testing.T) {
 		t.Fatalf("expected one type readback, snapshots=%d", count)
 	}
 	_, err = driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionType, Ref: typeRef, Text: text,
+		ObservationID: observation.ID, Kind: computerActionType, Ref: typeRef, Text: text, TimeoutMS: m1bComputerMinTimeout,
 	})
 	if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
 		t.Fatalf("unverified type must not authorize reuse: %v", err)
@@ -1344,7 +1344,7 @@ func TestComputerDriverStaticReadbackPreservesActionableRefsAndPrivacy(t *testin
 				t.Fatalf("observation exceeds the established element cap: %d", len(observation.Elements))
 			}
 			result, err := driver.Act(context.Background(), computerAction{
-				ObservationID: observation.ID, Kind: computerActionClick, Ref: projected.Nodes[0].Ref,
+				ObservationID: observation.ID, Kind: computerActionClick, Ref: projected.Nodes[0].Ref, TimeoutMS: m1bComputerDefaultTimeout,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -1402,7 +1402,7 @@ func TestComputerDriverFullSnapshotOutputLimit(t *testing.T) {
 				t.Fatal("expected proven actionable ref and accurate capture quality")
 			}
 			result, err := driver.Act(context.Background(), computerAction{
-				ObservationID: observation.ID, Kind: computerActionClick, Ref: preRef,
+				ObservationID: observation.ID, Kind: computerActionClick, Ref: preRef, TimeoutMS: m1bComputerDefaultTimeout,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -1448,7 +1448,7 @@ func TestComputerDriverRejectsChangedTargetAndStaleInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorTargetChanged {
@@ -1475,7 +1475,7 @@ func TestComputerDriverRejectsChangedTargetAndStaleInputs(t *testing.T) {
 			action computerAction
 			code   string
 		}{
-			{"foreign ref", computerAction{ObservationID: observation.ID, Kind: computerActionClick, Ref: "@sother:e1"}, computerErrorStaleRef},
+			{"foreign ref", computerAction{ObservationID: observation.ID, Kind: computerActionClick, Ref: "@sother:e1", TimeoutMS: m1bComputerDefaultTimeout}, computerErrorStaleRef},
 		}
 		for _, item := range cases {
 			t.Run(item.name, func(t *testing.T) {
@@ -1503,7 +1503,7 @@ func TestComputerDriverRejectsChangedTargetAndStaleInputs(t *testing.T) {
 		scenario.PermissionsData = fakePermissions("denied")
 		writeFakeScenario(t, runtimeRoot, scenario)
 		_, err = driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorAccessDenied {
@@ -1516,6 +1516,28 @@ func TestComputerDriverRejectsChangedTargetAndStaleInputs(t *testing.T) {
 			t.Fatal("denied act must invalidate the observation")
 		}
 	})
+}
+
+func TestComputerDriverRejectsUnboundedActionTimeoutBeforeInput(t *testing.T) {
+	runtimeRoot, stateRoot := newFakeRuntime(t)
+	driver := newPreparedDriver(t, runtimeRoot, stateRoot)
+	writeFakeScenario(t, runtimeRoot, basicScenario(t, "spre1", "@spre1:e1"))
+	observation, err := driver.Observe(context.Background(), fixtureTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, timeoutMS := range []int{0, m1bComputerMinTimeout - 1, m1bComputerMaxTimeout + 1} {
+		_, err := driver.Act(context.Background(), computerAction{
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: timeoutMS,
+		})
+		assertDriverCode(t, err, computerErrorInvalidArgument)
+	}
+	if calls := readFakeCalls(t, runtimeRoot); len(callsFor(calls, "click")) != 0 || len(callsFor(calls, "type")) != 0 {
+		t.Fatal("an out-of-range action timeout must never spawn input")
+	}
+	if driver.latest == nil {
+		t.Fatal("a rejected action timeout must not consume the observation")
+	}
 }
 
 func TestComputerDriverActionReportedOverlayBlocksWindowRefs(t *testing.T) {
@@ -1546,7 +1568,7 @@ func TestComputerDriverActionReportedOverlayBlocksWindowRefs(t *testing.T) {
 		})
 		driver, runtimeRoot, observation := setup(t, data)
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -1562,7 +1584,7 @@ func TestComputerDriverActionReportedOverlayBlocksWindowRefs(t *testing.T) {
 			t.Fatal("overlay must leave no actable observation")
 		}
 		_, err = driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
@@ -1656,7 +1678,7 @@ func TestComputerDriverExplicitUnprovenCarriesNoCapturedContent(t *testing.T) {
 	}
 	assertNoStoredSentinel(t, driver.stateRoot)
 	_, err = driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@sidentity1:e1",
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@sidentity1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 	})
 	assertDriverCode(t, err, computerErrorNoObservation)
 	calls := readFakeCalls(t, runtimeRoot)
@@ -1797,6 +1819,7 @@ func TestComputerDriverObserveRequiresPinnedCaptureEvidence(t *testing.T) {
 				ObservationID: strings.Repeat("a", 32),
 				Kind:          computerActionClick,
 				Ref:           "@spre1:e1",
+				TimeoutMS:     m1bComputerDefaultTimeout,
 			})
 			assertDriverCode(t, err, computerErrorNoObservation)
 			calls := readFakeCalls(t, runtimeRoot)
@@ -1833,7 +1856,7 @@ func TestComputerDriverZeroRefEvidenceIsReadOnly(t *testing.T) {
 	}
 	assertNoStoredSentinel(t, driver.stateRoot)
 	_, err = driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@szeroref1:e1",
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@szeroref1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 	})
 	assertDriverCode(t, err, computerErrorNoObservation)
 	calls := readFakeCalls(t, runtimeRoot)
@@ -1867,7 +1890,7 @@ func TestComputerDriverUnprovenReadbackIsNotEffectEvidence(t *testing.T) {
 		t.Fatalf("the proven capture must stay actable: %+v", observation)
 	}
 	result, err := driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@seffect1:e1",
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@seffect1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1950,7 +1973,7 @@ func TestComputerDriverPostActionReplacementIsDiscarded(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+		ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2000,7 +2023,7 @@ func TestComputerDriverTypedTextAlreadyPresentIsNotDone(t *testing.T) {
 		t.Fatal("target ref missing")
 	}
 	result, err := driver.Act(context.Background(), computerAction{
-		ObservationID: observation.ID, Kind: computerActionType, Ref: targetRef, Text: text,
+		ObservationID: observation.ID, Kind: computerActionType, Ref: targetRef, Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2034,7 +2057,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatalf("exactly one type must be sent, got %d", count)
 		}
 		_, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: ref, Text: "typed",
+			ObservationID: observation.ID, Kind: computerActionType, Ref: ref, Text: "typed", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
@@ -2081,7 +2104,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := driver.Act(context.Background(), computerAction{
-				ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+				ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -2123,7 +2146,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 				observation.Truncated, observation.actionableIncomplete)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2163,7 +2186,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2200,7 +2223,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2244,7 +2267,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatal("omitted inert labels must not look like possible twins")
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@sdensepre:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@sdensepre:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2281,7 +2304,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2324,7 +2347,7 @@ func TestComputerDriverTypedEffectRequiresCompleteUniqueEvidence(t *testing.T) {
 			t.Fatal("pre-action capture must be complete for this regression")
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text,
+			ObservationID: observation.ID, Kind: computerActionType, Ref: "@spre1:e1", Text: text, TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2360,7 +2383,7 @@ func TestComputerDriverPostActionDispositionBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2373,7 +2396,7 @@ func TestComputerDriverPostActionDispositionBoundaries(t *testing.T) {
 			t.Fatalf("expected one verified readback, snapshots=%d", count)
 		}
 		_, err = driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorNoObservation {
@@ -2399,7 +2422,7 @@ func TestComputerDriverPostActionDispositionBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2443,7 +2466,7 @@ func TestComputerDriverRejectsInvalidSuccessReport(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := driver.Act(context.Background(), computerAction{
-				ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+				ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 			})
 			var driverErr *computerDriverError
 			if !errors.As(err, &driverErr) || driverErr.Code != computerErrorProtocol || !driverErr.Sent {
@@ -2486,7 +2509,7 @@ func TestComputerDriverActionFailuresAreNeverRetried(t *testing.T) {
 		})
 		driver, runtimeRoot, observation := setup(t, errorJSON)
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorCommandFailed {
@@ -2510,7 +2533,7 @@ func TestComputerDriverActionFailuresAreNeverRetried(t *testing.T) {
 		errorJSON := mustJSON(t, map[string]any{"code": "ACTION_FAILED"})
 		driver, runtimeRoot, observation := setup(t, errorJSON)
 		result, err := driver.Act(context.Background(), computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		var driverErr *computerDriverError
 		if !errors.As(err, &driverErr) || driverErr.Code != computerErrorProtocol {
@@ -2555,7 +2578,7 @@ func TestComputerDriverCancellationKillsTheActionGroupWithoutRetry(t *testing.T)
 	finished := make(chan outcome, 1)
 	go func() {
 		result, err := driver.Act(ctx, computerAction{
-			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1",
+			ObservationID: observation.ID, Kind: computerActionClick, Ref: "@spre1:e1", TimeoutMS: m1bComputerDefaultTimeout,
 		})
 		finished <- outcome{result: result, err: err}
 	}()

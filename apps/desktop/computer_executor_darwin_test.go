@@ -309,7 +309,7 @@ func TestComputerExecutorBridgeMapsSharedWireResults(t *testing.T) {
 	if len(typeCalls) != 1 {
 		t.Fatalf("expected exactly one type call, got %d", len(typeCalls))
 	}
-	assertExactArgs(t, typeCalls[0], computerConcreteDriver(t, executor).sessionID, "type", ref, "--stdin", "--timeout-ms=15000")
+	assertExactArgs(t, typeCalls[0], computerConcreteDriver(t, executor).sessionID, "type", ref, "--stdin", "--timeout-ms=8000")
 	if typeCalls[0].Stdin != text {
 		t.Fatalf("stdin mismatch: got %q want %q", typeCalls[0].Stdin, text)
 	}
@@ -403,7 +403,7 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 	if ref != "@sapre1:e2" {
 		t.Fatalf("unexpected ref: %q", ref)
 	}
-	input := map[string]any{"action": "click", "observation_id": observationID, "ref": ref}
+	input := map[string]any{"action": "click", "observation_id": observationID, "ref": ref, "timeout_ms": m1bComputerMaxTimeout}
 
 	missing := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000512", selection, fixtureHolder, false,
 		computerActRequestJSON(t, "call-a", input))
@@ -419,7 +419,7 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 	// A proof bound to a different native call id must not authorize this
 	// input, and it must not survive for a later action.
 	otherAuth, err := newComputerHostAuthorization(selection, "call-other", m1bComputerAct{
-		Action: "click", ObservationID: observationID, Ref: ref, TimeoutMS: m1bComputerDefaultTimeout,
+		Action: "click", ObservationID: observationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
 	}, time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +439,7 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 	}
 
 	authorizeFixtureAct(t, executor, selection, "call-a", m1bComputerAct{
-		Action: "click", ObservationID: observationID, Ref: ref, TimeoutMS: m1bComputerDefaultTimeout,
+		Action: "click", ObservationID: observationID, Ref: ref, TimeoutMS: m1bComputerMaxTimeout,
 	}, time.Minute)
 	accepted := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000514", selection, fixtureHolder, false,
 		computerActRequestJSON(t, "call-a", input))
@@ -452,7 +452,7 @@ func TestComputerExecutorBridgeRequiresExactAuthorization(t *testing.T) {
 	if len(clickCalls) != 1 {
 		t.Fatalf("expected exactly one click, got %d", len(clickCalls))
 	}
-	assertExactArgs(t, clickCalls[0], computerConcreteDriver(t, executor).sessionID, "click", ref, "--timeout-ms=15000")
+	assertExactArgs(t, clickCalls[0], computerConcreteDriver(t, executor).sessionID, "click", ref, "--timeout-ms=20000")
 
 	// A post-entry result whose delivery is not proven maps to the documented
 	// uncertain runner code and is not retried.
@@ -952,6 +952,27 @@ func TestComputerExecutorAuthorizationBindsExactInput(t *testing.T) {
 		if count := len(callsFor(readFakeCalls(t, runtimeRoot), "click")); count != 1 {
 			t.Fatalf("the exact authorized act dispatched %d clicks", count)
 		}
+	})
+
+	t.Run("explicit lower timeout is passed to the driver", func(t *testing.T) {
+		executor, selection, run, runtimeRoot, observationID, ref := start(t, time.Hour)
+		input := clickInput(observationID, ref)
+		input.TimeoutMS = 2_000
+		authorizeFixtureAct(t, executor, selection, "call-lower", input, time.Minute)
+		frame := sendComputerCommand(t, run, "90000000-0000-4000-8000-000000000725", selection, fixtureHolder, false,
+			computerActRequestJSON(t, "call-lower", map[string]any{
+				"action": "click", "observation_id": observationID, "ref": ref, "timeout_ms": 2_000,
+			}))
+		kind, result := typedComputerFrame(t, frame)
+		if kind != "act" || result["ok"] != true || result["effect"] != computerEffectSmallChange {
+			t.Fatalf("an explicit lower timeout rejected the exact input: %+v", frame)
+		}
+		assertComputerActWire(t, result)
+		clickCalls := callsFor(readFakeCalls(t, runtimeRoot), "click")
+		if len(clickCalls) != 1 {
+			t.Fatalf("the explicit lower timeout dispatched %d clicks", len(clickCalls))
+		}
+		assertExactArgs(t, clickCalls[0], computerConcreteDriver(t, executor).sessionID, "click", ref, "--timeout-ms=2000")
 	})
 }
 

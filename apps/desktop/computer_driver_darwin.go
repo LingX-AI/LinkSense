@@ -125,7 +125,6 @@ const (
 	computerMaxStderrBytes            = 64 * 1024
 	computerListWindowsTimeoutMS      = 5000
 	computerSnapshotTimeoutMS         = 5000
-	computerActionTimeoutMS           = 15000
 	computerWaitMinTimeoutMS          = 100
 	computerWaitDefaultTimeoutMS      = 8000
 	computerWaitMaxTimeoutMS          = 20000
@@ -339,11 +338,15 @@ const (
 	computerActionType  computerActionKind = "type"
 )
 
+// computerAction is one exact click or type. TimeoutMS is the approved act
+// budget in m1bComputerMinTimeout..m1bComputerMaxTimeout; it becomes the CLI's
+// positive operation deadline and never extends the caller context.
 type computerAction struct {
 	ObservationID string
 	Kind          computerActionKind
 	Ref           string
 	Text          string
+	TimeoutMS     int
 }
 
 type computerActionResult struct {
@@ -1154,10 +1157,10 @@ func (d *computerDriver) Act(ctx context.Context, action computerAction) (comput
 		return result, err
 	}
 
-	args := d.baseArgs(string(action.Kind), action.Ref, "--timeout-ms="+strconv.Itoa(computerActionTimeoutMS))
+	args := d.baseArgs(string(action.Kind), action.Ref, "--timeout-ms="+strconv.Itoa(action.TimeoutMS))
 	var stdin []byte
 	if action.Kind == computerActionType {
-		args = d.baseArgs("type", action.Ref, "--stdin", "--timeout-ms="+strconv.Itoa(computerActionTimeoutMS))
+		args = d.baseArgs("type", action.Ref, "--stdin", "--timeout-ms="+strconv.Itoa(action.TimeoutMS))
 		stdin = []byte(action.Text)
 	}
 	// From here on the pre-action observation is never reused. One action is
@@ -2148,6 +2151,9 @@ func validPrintableToken(value string, maxBytes int) bool {
 
 func (a computerAction) validate() error {
 	if !validObservationID(a.ObservationID) {
+		return invalidArgument()
+	}
+	if a.TimeoutMS < m1bComputerMinTimeout || a.TimeoutMS > m1bComputerMaxTimeout {
 		return invalidArgument()
 	}
 	switch a.Kind {
