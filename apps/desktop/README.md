@@ -558,9 +558,14 @@ and task-recovery consumer before enabling the switch in a shared environment.
 The PostgreSQL fixture can also verify the packaged Go bridge and local Codex
 using `LINKSENSE_DESKTOP_RUNTIME_DIST` pointed at the built app's
 `Contents/Resources/runtime` directory and `pnpm test:desktop:postgres`.
-The fixture uses a local synthetic provider. Separate acceptance is required
-for orphaned Shell processes after a force quit, installed upgrades and
-production signing/notarization.
+The fixture uses a local synthetic provider. The [2026-11-21 P0-10
+receipt](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#10-实施记录2026-11-17)
+in the task breakdown's implementation log records that after the test host was
+killed, the prepared runtime's Shell and the recorded descendants in the
+fixture supervisor process group were reclaimed with no replay or reconnect.
+It does not cover force quit of the signed installed app, installed upgrades,
+or production signing and notarization; those still require separate
+acceptance.
 
 For the joined Browser Use check on Apple silicon, run `pnpm desktop:prepare`, [build the extension](../../docs/development/browser-use.md#构建与部署), and have Playwright Chromium, `initdb`, `pg_ctl`, and `redis-server` installed. With workspace dependencies and the Prisma client ready, run from the repository root:
 
