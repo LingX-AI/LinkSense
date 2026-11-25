@@ -7,6 +7,7 @@ import {
   DESKTOP_MODEL_PURPOSE_HEADER,
   modelImageOmittedPlaceholder,
   type ModelServiceProvider,
+  type PrivacyMaskingRuntime,
 } from "@linksense/shared";
 import Fastify from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -46,6 +47,33 @@ const nativeCompactionPrompt = [
   "Be concise, structured, and focused on helping the next LLM seamlessly continue the work.",
   "",
 ].join("\n");
+/** Synthetic 2x3 PNG shared with the checked-in computer-use fixture. */
+const fallbackPng =
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGPgEpH7D8IMGAwAWwsHY6MDm74AAAAASUVORK5CYII=";
+const screenshot = { type: "input_image", image_url: `data:image/png;base64,${fallbackPng}` };
+/** Codex 0.170 tool output: the screenshot is an image part nested in the call result. */
+const toolOutputInput = [
+  { type: "message", role: "user", content: [{ type: "input_text", text: "Inspect the app" }] },
+  { type: "function_call", call_id: "call_capture", name: "computer_observe", arguments: "{}" },
+  {
+    type: "function_call_output", call_id: "call_capture",
+    output: [{ type: "input_text", text: "Screenshot captured" }, screenshot],
+  },
+  { type: "message", role: "user", content: [{ type: "input_text", text: "continue" }] },
+] as const;
+/** Same runtime shape as the runner's privacy-masking fixture, enabled by presence. */
+const maskingRuntime: PrivacyMaskingRuntime = {
+  revision: 1,
+  secrets: true,
+  personal: false,
+  kinds: {},
+  words: [],
+  words_any_case: true,
+  words_whole: true,
+  actions: {},
+  allow: [],
+  placeholder_key: "0".repeat(64),
+};
 const endpoint = DESKTOP_MODEL_PROXY_PATH;
 const admissionPricing = {
   input_price_per_million: "10",
@@ -110,6 +138,9 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
     provider: "openai", pricing: admissionPricing,
   }));
   const assertCanStartTask = vi.fn<(ownerId: string) => Promise<void>>(async () => undefined);
+  const runtimeForUser = vi.fn<(userId: string) => Promise<PrivacyMaskingRuntime | undefined>>(
+    async () => undefined,
+  );
   const recordDesktopProviderUsage = vi.fn<
     DesktopProviderUsageRecorder["recordDesktopProviderUsage"]
   >(async () => ({ recorded: true }));
@@ -128,12 +159,12 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
     prefix: endpoint, redis: redis.client, rateLimitSecret: randomUUID(),
     ...(deadline === undefined ? {} : { deadlineMs: deadline }),
     leases, settings: { resolveDesktopProxyProvider }, creditLimits: { assertCanStartTask },
-    privacyMasking: { runtimeForUser: async () => undefined },
+    privacyMasking: { runtimeForUser },
     usage: { recordDesktopProviderUsage }, fetcher,
   });
   return {
     app, binding, credentials, turnId, conversationId, runtimeGeneration, ownerId, leases, fetcher, resolveDesktopProxyProvider, assertCanStartTask,
-    recordDesktopProviderUsage,
+    recordDesktopProviderUsage, runtimeForUser,
     request: (
       route: string,
       token: string,
@@ -182,6 +213,72 @@ describe("desktop model proxy", () => {
     expect((await test.request("primary/responses", token, { ...nativeInput, input })).statusCode).toBe(200);
     const withImages = JSON.parse(String(test.fetcher.mock.calls[1]?.[1]?.body));
     expect(withImages.input[0].content[1]).toEqual(image);
+  });
+
+  it("applies the nested tool-output image policy and denies only the masking-enabled bound owner", async () => {
+    const test = await fixture();
+    const token = test.credentials.primary.token;
+    const payload = { ...nativeInput, stream: false, input: toolOutputInput };
+
+    // 1. The default provider is text-only: replace only the nested image
+    // part, leaving text, call_id, and ordering intact.
+    expect((await test.request("primary/responses", token, payload)).statusCode).toBe(200);
+    const textOnly = JSON.parse(String(test.fetcher.mock.calls[0]?.[1]?.body));
+    expect(textOnly.input).toEqual([
+      toolOutputInput[0],
+      toolOutputInput[1],
+      {
+        type: "function_call_output", call_id: "call_capture",
+        output: [
+          { type: "input_text", text: "Screenshot captured" },
+          { type: "input_text", text: modelImageOmittedPlaceholder },
+        ],
+      },
+      toolOutputInput[3],
+    ]);
+    expect(JSON.stringify(textOnly)).not.toContain(fallbackPng);
+
+    // 2. The same payload and lease reach an image-capable provider while
+    // masking stays off: the nested input is forwarded exactly and the
+    // established non-stream response records real fixture usage.
+    test.resolveDesktopProxyProvider.mockResolvedValue({
+      baseUrl: "https://server-configured.example.test/v1", apiKey: upstreamKey,
+      supportsImageInput: true, provider: "openai", pricing: admissionPricing,
+    });
+    test.fetcher.mockImplementationOnce(async () => Response.json({
+      object: "response",
+      status: "completed",
+      usage: { input_tokens: 7, output_tokens: 3, total_tokens: 10 },
+    }));
+    expect((await test.request("primary/responses", token, payload)).statusCode).toBe(200);
+    expect(JSON.parse(String(test.fetcher.mock.calls[1]?.[1]?.body)).input).toEqual(toolOutputInput);
+    expect(test.recordDesktopProviderUsage).toHaveBeenCalledOnce();
+    expect(test.recordDesktopProviderUsage).toHaveBeenCalledWith(expect.objectContaining({
+      purpose: "primary",
+      ownerId: test.ownerId,
+      model: nativeInput.model,
+      tokenUsage: {
+        totalTokens: 10,
+        inputTokens: 7,
+        cachedInputTokens: 0,
+        outputTokens: 3,
+        reasoningOutputTokens: 0,
+      },
+      pricing: admissionPricing,
+    }));
+
+    // 3. Same payload, lease, and provider; only the bound owner's masking
+    // policy changes, so the proxy denies before any further fetch or usage.
+    test.runtimeForUser.mockImplementation(async userId => userId === test.ownerId ? maskingRuntime : undefined);
+    const denied = await test.request("primary/responses", token, payload);
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ error_code: "FORBIDDEN" });
+    expect(test.fetcher).toHaveBeenCalledTimes(2);
+    expect(test.recordDesktopProviderUsage).toHaveBeenCalledOnce();
+    expect(denied.body).not.toContain(fallbackPng);
+    expect(denied.body).not.toContain(token);
+    expect(denied.body).not.toContain(upstreamKey);
+    expect(test.runtimeForUser.mock.calls).toEqual([[test.ownerId], [test.ownerId], [test.ownerId]]);
   });
 
   it("forwards a bounded native preloaded tool output without a call ID", async () => {
