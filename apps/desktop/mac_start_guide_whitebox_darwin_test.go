@@ -175,6 +175,18 @@ func TestNativeMacFirstRunStartGuideWhitebox(t *testing.T) {
 	desktop.openMainWindowInSession(mygo.NewEphemeralSession())
 	win := desktop.mainWindow()
 	t.Cleanup(win.Destroy)
+	// The main window shares MyGo's "desktop-main" StateKey: MyGo saves its
+	// bounds when it closes, in this process's window-state.json. Keep the
+	// geometry this test entered with so the 720x540 viewport below cannot
+	// outlive it and shrink the next native test's main window. Registered
+	// after win.Destroy, so the restore runs before MyGo captures and saves the
+	// closing state, whether an assertion failed or not.
+	entryBounds := win.Bounds()
+	t.Cleanup(func() {
+		if !win.IsDestroyed() {
+			win.SetBounds(entryBounds)
+		}
+	})
 	win.SetSize(720, 540)
 	page := win.Page()
 	if got := page.ZoomFactor(); got != 1 {
