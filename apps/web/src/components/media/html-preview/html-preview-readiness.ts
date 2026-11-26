@@ -33,8 +33,7 @@ export function installHtmlPreviewReadiness(
   let version = 0
   let fontVersion = -1
   let fontsSettled = false
-  let measureFrame = 0
-  let revealFrame = 0
+  let revealTimer: number | undefined
 
   const stylesPending = () => {
     for (const element of document.querySelectorAll<HTMLLinkElement>(
@@ -83,16 +82,10 @@ export function installHtmlPreviewReadiness(
     return false
   }
 
-  const cancelFrames = () => {
-    target.cancelAnimationFrame(measureFrame)
-    target.cancelAnimationFrame(revealFrame)
-    measureFrame = 0
-    revealFrame = 0
-  }
   const dispose = () => {
     stopped = true
     target.clearTimeout(deadline)
-    cancelFrames()
+    target.clearTimeout(revealTimer)
     observer.disconnect()
     document.removeEventListener("DOMContentLoaded", check)
     document.removeEventListener("load", resourceEnded, true)
@@ -100,25 +93,24 @@ export function installHtmlPreviewReadiness(
     document.fonts?.removeEventListener("loadingerror", fontFailed)
     target.removeEventListener("pagehide", dispose)
   }
-  const readyToMeasure = () =>
-    document.readyState !== "loading" &&
-    !stylesPending() &&
-    fontsSettled &&
-    fontVersion === version
+  const settledState = () => {
+    if (document.readyState === "loading" || stylesPending()) return
+    if (!fontsSettled || fontVersion !== version) return
+    return incomplete ? "incomplete" : "complete"
+  }
+  const finish = (state: HtmlPreviewResourceState) => {
+    options.prepare()
+    dispose()
+    options.onReady(state)
+  }
   const reveal = () => {
-    if (stopped || measureFrame || revealFrame) return
-    measureFrame = target.requestAnimationFrame(() => {
-      measureFrame = 0
-      if (!readyToMeasure()) return check()
-      options.prepare()
-      revealFrame = target.requestAnimationFrame(() => {
-        revealFrame = 0
-        if (!readyToMeasure()) return check()
-        const result = incomplete ? "incomplete" : "complete"
-        dispose()
-        options.onReady(result)
-      })
-    })
+    if (revealTimer !== undefined) return
+    revealTimer = target.setTimeout(() => {
+      revealTimer = undefined
+      const state = settledState()
+      if (state === undefined) return check()
+      finish(state)
+    }, 0)
   }
   const fontFailed = () => {
     incomplete = true
@@ -184,7 +176,6 @@ export function installHtmlPreviewReadiness(
       }
     }
     version++
-    cancelFrames()
     check()
   })
   observer.observe(document.documentElement, {
@@ -199,13 +190,10 @@ export function installHtmlPreviewReadiness(
   document.addEventListener("error", resourceEnded, true)
   document.fonts?.addEventListener("loadingerror", fontFailed)
   target.addEventListener("pagehide", dispose)
-  const deadline = target.setTimeout(() => {
-    // A blocked stylesheet or background tab can also delay animation frames.
-    // The deadline must reveal available content without waiting for a paint.
-    options.prepare()
-    dispose()
-    options.onReady("timeout")
-  }, options.timeoutMs)
+  const deadline = target.setTimeout(
+    () => finish(settledState() ?? "timeout"),
+    options.timeoutMs
+  )
   check()
   return dispose
 }

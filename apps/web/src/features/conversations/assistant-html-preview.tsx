@@ -391,14 +391,12 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           <iframe
             key={`${previewId}:${activeFrameState.attempt}`}
             ref={frameRef}
-            className={cn(
-              "block h-full w-full border-0 bg-white",
-              activeFrameState.status !== "ready" && "invisible"
-            )}
+            className="block h-full w-full border-0 bg-white"
             data-assistant-html-preview-id={previewId}
             data-assistant-html-preview-attempt={activeFrameState.attempt}
             title={t("conversation.inlineHtmlPreview.frameTitle")}
             sandbox={interactiveHtmlPreviewSandbox}
+            inert={activeFrameState.status !== "ready"}
             scrolling="auto"
             src={shellSource}
             onLoad={() => {

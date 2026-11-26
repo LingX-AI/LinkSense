@@ -338,6 +338,7 @@ describe("assistant HTML preview document", () => {
         undefined
       )
       if (initialState === "loading") {
+        await vi.advanceTimersByTimeAsync(1_000)
         expect(postMessage).not.toHaveBeenCalled()
         readyState = "interactive"
         parsed.dispatchEvent(new Event("DOMContentLoaded"))
@@ -442,9 +443,6 @@ describe("assistant HTML preview document", () => {
     expect(bootstrap?.textContent).not.toContain("window.html2canvas")
     expect(bootstrap?.textContent).toContain('const previewId = "preview-1"')
     expect(bootstrap?.textContent).not.toMatch(/tailwind/i)
-    expect(bootstrap?.textContent).toContain(
-      'document.readyState !== "loading"'
-    )
     expect(bootstrap?.textContent).toContain(
       "data-linksense-assistant-preview-loading"
     )
