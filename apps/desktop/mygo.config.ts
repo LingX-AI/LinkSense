@@ -22,7 +22,6 @@ export default ({ command }: { command: string }) => {
       signingIdentity: "-",
       ...(command === "build" && process.env.LINKSENSE_DESKTOP_MACOS_RELEASE === "1" && {
         notarize: { keychainProfile: "linksense-desktop-notary" },
-        helperEntitlements: { "runtime/bin/node": "node-release.entitlements.plist" },
       }),
     },
     ...(updateUrl && {

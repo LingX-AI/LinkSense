@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"path/filepath"
 	"runtime"
 
 	"github.com/LingX-AI/linksense/apps/desktop/locales"
@@ -49,13 +48,6 @@ func main() {
 		}
 		if parsed, err := configuredServerURL(mygo.IsDev()); err == nil {
 			desktop.configure(parsed, mygo.Secrets, root)
-			if resources, err := mygo.App.Path(mygo.PathResources); err == nil {
-				origin := ""
-				if runtime.GOOS == "darwin" {
-					origin = parsed.String()
-				}
-				desktop.localRuntime = superviseRuntime(filepath.Join(root, "local-runtime"), filepath.Join(resources, "runtime"), origin)
-			}
 			desktop.openMainWindow()
 			if runtime.GOOS == "darwin" {
 				desktop.installShell(root)

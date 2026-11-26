@@ -3,9 +3,17 @@
 The desktop client embeds the existing `apps/web` application in a Go/mygo
 window. It remains part of this repository, with no separate Web UI.
 
-The implementation follows the [desktop plan](../../docs/research/linksense-desktop-dual-mode-plan-2026-11-16.md)
-and [task breakdown](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md).
-Phase 0 is in progress; the shell alone is not a completed local execution environment.
+The v1 implementation follows the
+[cloud Codex + local tools spec](../../docs/development/linksense-desktop-v1-cloud-local-tools-2026-11-26.md).
+Tasks run in the cloud; this app is the shell, the cloud client, and the local
+tool host for files, desktop control, and the user's browser. It no longer runs
+a bundled Codex, Node, or local agent runtime. The older
+[dual-mode plan](../../docs/research/linksense-desktop-dual-mode-plan-2026-11-16.md)
+and [task breakdown](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md)
+describe the superseded local execution environment and are historical.
+Sections below that still describe pairing, run locations, a bundled
+runtime, or local Codex are likewise historical; the v1 spec and the current
+code are authoritative.
 
 ## Development
 
@@ -57,19 +65,19 @@ Refresh restores subsequent app launches without opening the browser again.
 Deploy the matching API and Web authorization routes before distributing this
 client. Existing Web sessions and refresh-token records need no migration.
 
-On macOS, `linksense-desktop://pair?server=https%3A%2F%2Flinksense.example.com`
-opens **Settings → General → This Mac** when `server` is the packaged origin
-and the user is signed in. The link only opens Settings; pairing still requires
-submitting the form there. Older links that carry a pairing code are not
-accepted. Open LinkSense directly, sign in if needed, and use **Settings →
-General → This Mac** to pair. Already paired devices do not need to be paired
-again.
+Signing in registers this Mac automatically. There is no pairing code, device
+list, or separate enable action: after the native refresh proves the account,
+the client idempotently registers the installation by a stable local
+installation id, rotates its device credential into the Keychain, and opens the
+device socket. The installation id survives sign-out and credential deletion,
+so a server revocation cannot be bypassed by signing in again. **Settings →
+General → Local tools** shows the connection and the one explicit opt-out
+switch. Turning local tools off disconnects now and persists across launches;
+turning them back on is the only action that clears a server-side revocation.
 
-An optional Mac new-task guide covers pairing, the
-[default run location](#local-execution) for new tasks, and the system-browser
-extension ([Browser Use](../../docs/development/browser-use.md)). **Skip**
-dismisses it only for the current account and server on this Mac; the guide
-never pairs the device, launches a browser or requests a system permission.
+Local tools are authorized per task and per resource: the user chooses folders,
+a window, or a browser tab in the task that needs it. The app never prompts for
+a pairing code and never opens a browser for enrollment.
 
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
@@ -95,7 +103,7 @@ names, hardware identifiers, paths, messages or task content, runtime output,
 screenshots, keystrokes, tokens, credentials, timestamps, crash reports or raw
 logs. Exporting makes no network request, starts no device connection, does not
 request a macOS permission, and does not open Settings or a permission guide.
-An unpaired, unpackaged or older build still exports an honest report with
+A disconnected, unpackaged or older build still exports an honest report with
 `development` when the bundle has no valid version and `notPackaged`/`unknown`
 permission states when no packaged permission check is available.
 
@@ -422,8 +430,8 @@ Runtime restrictions:
 
 Rollback is manual. Keep the previous verified DMG for the same server
 origin. Quit the app, replace `LinkSense.app` in Applications with the
-previous bundle, and launch it. Verify Keychain sign-in, pairing, deep links
-and a new local turn, and confirm API compatibility before rolling back.
+previous bundle, and launch it. Verify saved sign-in, the local-tools connection, deep links
+and a cloud task, and confirm API compatibility before rolling back.
 Never roll back by publishing an older manifest: clients do not downgrade.
 
 Real-Mac update fixtures are separate from Developer ID signing,
@@ -471,40 +479,31 @@ cancellation, and does not follow redirects. Refresh credentials are stored
 in the OS credential store, scoped to the packaged server. Access tokens are
 kept only in memory in desktop mode; browser session storage is unchanged.
 
-Builds embed the Web application's current build and bundle fixed Node.js
-24.22.1, Codex 0.170.0, agent-desktop 1.3.1, and the runner's production
-dependency closure. The release manifest pins upstream download SHA-256
-checksums; the generated runtime manifest records executable hashes.
-Preparation checks the bundled Node and Codex versions and native imports on
-the build host; the pinned agent-desktop engine is verified by archive
-checksum, exact file hashes and the Apple signature gate, and its GUI behavior
-has a separate opt-in `desktop:whitebox:engine` smoke.
-The runner uses pnpm's portable, hoisted deployment so mygo's resource copier
-retains its complete dependency tree. Runtime license texts ship alongside
-the repository and the target Go application's dependency notices. Local
-macOS builds use ad hoc signing by default. See [macOS releases](#macos-releases)
-for Developer ID signing and notarization.
+Builds embed the Web application's current build and the pinned
+`agent-desktop` 1.3.1 engine with its macOS helper. There is no bundled Node,
+Codex, runner, capability snapshot, or Codex home template. The release
+manifest pins the upstream archive SHA-256; the generated runtime manifest
+records exact executable hashes. The engine is verified by archive checksum,
+exact file hashes, and the Apple signature gate; it is not launched during a
+Mac build because even `--version` takes over the same-UID legacy command host.
+Its GUI behavior has a separate opt-in `desktop:whitebox:engine` smoke.
+Runtime license texts ship alongside the repository and the target Go
+application's dependency notices. Local macOS builds use ad hoc signing by
+default. See [macOS releases](#macos-releases) for Developer ID signing and
+notarization.
 
-Windows ARM64 keeps the native Go shell and agent-desktop engine, and uses
-x64 Node/Codex and npm bindings under Windows 11's built-in x64 emulation.
-The current `@firecrawl/anydoc` dependency has no Windows ARM64 binding.
-The runtime architecture is explicit in the manifest; Windows 10 ARM64
-cannot provide this x64 runtime.
+Windows ARM64 keeps the native Go shell and the native ARM64 agent-desktop
+engine. The runtime architecture is explicit in the manifest.
 
-On the matching host platform, the completed package is checked again. The
-smoke test copies it outside the repository, launches an actual desktop
-worker, verifies its authenticated Codex health check and session boundary,
-and stops it. It also starts the bundled Codex and Core MCP, calls the
-rich-output catalog and completes a native turn against a local model
-fixture. The Go supervisor is tested against the bundled Node entrypoint
-through one complete heartbeat window. No provider key is needed.
-Clean-system installation and device behavior have separate acceptance gates.
+On the matching host platform, the completed package is checked again:
+the generated manifest, exact engine bytes, bundle permissions, and the
+Windows engine version. Mac packages do not launch the engine. Cloud tasks,
+local tool authorization, and install/upgrade behavior have separate
+acceptance gates.
 
-The macOS ARM64 development build measured 174.6 MB for the DMG and 601.6 MB
-for the expanded application. Node and Codex account for approximately
-122.5 MB and 273.6 MB of the expanded files. The original size estimate
-understated installed size; download size and installed size are tracked
-separately for release review.
+The v1 package is materially smaller than the superseded runtime build; the
+exact size is recorded with each internal package. Download size and installed
+size are tracked separately for release review.
 
 ### Local packaging cleanup
 
@@ -551,10 +550,10 @@ the signed update archive, deltas and manifest described below.
 
 Before distribution, test a quarantined DMG on an isolated Apple silicon Mac:
 install by dragging to Applications, verify Gatekeeper and the first browser
-sign-in and callback, pair the device and start the bundled runtime from a
+sign-in and callback, confirm automatic local-tools registration from a
 standard account other than the installer. Then replace
 the previous verified app in place with the new one for the **same server
-origin**. Check saved sign-in, pairing, deep links and a new local turn. A
+origin**. Check saved sign-in, the local-tools connection, deep links and a cloud task. A
 change of signing identity can prompt macOS to authorize Keychain access again.
 Keep the previous verified DMG separately; after local turns settle, verify the
 same checks when replacing the new app with that previous package. Verify API
@@ -583,26 +582,26 @@ acceptance.
 For the joined Browser Use check on Apple silicon, run `pnpm desktop:prepare`, [build the extension](../../docs/development/browser-use.md#构建与部署), and have Playwright Chromium, `initdb`, `pg_ctl`, and `redis-server` installed. With workspace dependencies and the Prisma client ready, run from the repository root:
 
 ```sh
-LINKSENSE_TEST_DESKTOP_BROWSER_EXTENSION=1 LINKSENSE_DESKTOP_RUNTIME_DIST="$PWD/apps/desktop/resources/darwin-arm64/runtime" pnpm test:desktop:postgres
+LINKSENSE_TEST_DESKTOP_BROWSER_EXTENSION=1 pnpm test:desktop:postgres
 ```
 
 It uses disposable PostgreSQL and Redis, a fresh Chromium profile, and simulated authentication and inference. Verify the flow in the signed, installed app separately.
 
-On macOS, **Settings → General → This Mac** shows this Mac's native device
-state and the account's paired devices. A signed-in account pairs this Mac by
-naming it; the page requests a one-time pairing code and hands it to the native
-host. Paired devices can be renamed or revoked there. Pairing and resume are
-bound to the account proven by the native refresh; the list, rename and revoke
-use the signed-in account's API session. A stored pairing alone is not reused
-for another signed-in account, and losing the account hides the live device
-state without deleting the still-valid Keychain credential. After the
-system-browser sign-in and a verified refresh, the app resumes that account's
-stored Keychain device credential. Ordinary sign-out clears the session and
-disconnects this Mac while keeping its pairing. To remove the pairing, select
-**Also revoke access for this Mac** when signing out; the app removes the
-matching local credential after the server confirms the revoke.
+On macOS, **Settings → General → Local tools** shows this Mac's connection and
+one switch. There is no pairing form or device list. After the system-browser
+sign-in and a verified native refresh, the app idempotently registers this
+installation, rotates the device credential in the Keychain, and connects.
+Registration is bound to the account proven by the native refresh; a stored
+credential alone is not reused for another signed-in account, and losing the
+account hides the live state without deleting the Keychain credential.
+Ordinary sign-out clears the session and disconnects while keeping the stored
+credential. To remove it, select **Also revoke access for this Mac** when
+signing out; the app removes the matching local credential after the server
+confirms the revoke. Turning the local-tools switch off persists an opt-out
+that auto-enrollment will not override; turning it back on is the explicit
+re-enable that can clear a server revocation.
 
-**Recent desktop activity** in **Settings → General → This Mac** expands on
+**Recent desktop activity** in **Settings → General → Local tools** expands on
 request and lists, when available, the account's latest 20 redacted device,
 approval, local-permission, computer-attempt and target-change entries. A
 recorded attempt does not prove delivery or effect. Entries never disclose
@@ -615,9 +614,9 @@ older release. The existing admin audit is unchanged. The verified development
 built from `5ee1eeee` or newer, paired with an API that exposes the endpoint,
 is needed.
 
-New tasks default to the cloud. In **Settings → General → This Mac**, you can
-set a **Default run location** for new tasks created from this Mac, even before
-pairing. LinkSense remembers it on this Mac for the signed-in account and server.
+Every new task runs in the cloud. There is no run-location picker, default
+target, cross-target continuation, or target badge. Historical local tasks
+remain readable but do not accept new turns.
 The new task's **Run location** control overrides the default for that draft
 only. It offers local as an override when the native host reports an online
 device with `executionReady`, not for a presence-only connection. If the saved
@@ -1075,7 +1074,7 @@ uncertain renewal, pause or stop it may perform one read-only status refresh.
 - **Device revoke** closes the socket, invalidates the credential and clears the
   selection. Local input closes and the driver retires without retrying a server
   side effect. Reconnecting never resumes or replays the old selection; after
-  pairing/sign-in and a live local turn, select the window again.
+  sign-in and a live local-tools connection, select the window again.
 - **Disconnect or runtime-generation change** retires the selection on the Mac
   and does not revive it on the new socket. A reconnect starts from no
   selection.

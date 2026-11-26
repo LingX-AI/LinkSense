@@ -16,27 +16,25 @@ const relativeFile = z.string().min(1).max(240).regex(/^[A-Za-z0-9][A-Za-z0-9._/
   !value.startsWith("/") &&
   value.split("/").every(part => part !== "" && part !== "." && part !== ".."), "unsafe_resource_path");
 const artifactSchema = z.strictObject({
-  key: z.enum(["node", "codex", "codex-command-runner", "codex-windows-sandbox-setup", "agent-desktop"]),
+  key: z.literal("agent-desktop"),
   format: z.enum(["file", "tar.gz"]),
   url: z.url().refine(value => {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password &&
-      !url.search && !url.hash && ["github.com", "nodejs.org"].includes(url.hostname);
+      !url.search && !url.hash && url.hostname === "github.com";
   }, "untrusted_resource_origin"),
   sha256: z.string().regex(archiveDigest),
-  files: z.array(z.strictObject({ source: relativeFile.nullable(), destination: relativeFile })).min(1).max(4),
+  files: z.array(z.strictObject({ source: relativeFile.nullable(), destination: relativeFile })).min(1).max(2),
 }).refine(artifact => artifact.format === "file"
   ? artifact.files.length === 1 && artifact.files[0].source === null
   : artifact.files.every(file => file.source !== null), "resource_archive_mismatch");
 const platformSchema = z.strictObject({
   runtime_arch: z.enum(["amd64", "arm64"]),
-  artifacts: z.array(artifactSchema).min(3).max(5),
+  artifacts: z.array(artifactSchema).length(1),
 });
 const manifestSchema = z.strictObject({
   schema_version: z.literal(1),
   versions: z.strictObject({
-    node: z.string().regex(/^24\.\d+\.\d+$/u),
-    codex: z.string().regex(/^\d+\.\d+\.\d+$/u),
     agent_desktop: z.string().regex(/^\d+\.\d+\.\d+$/u),
   }),
   platforms: z.strictObject({
@@ -51,14 +49,12 @@ export function parseDesktopResources(input) {
   const manifest = manifestSchema.parse(input);
   for (const [target, platform] of Object.entries(manifest.platforms)) {
     const artifacts = platform.artifacts;
-    // shortcut: Windows ARM64 uses x64 Node/Codex until anydoc provides an ARM64 native binding.
-    const expectedArchitecture = target === "windows/arm64" ? "amd64" : target.split("/")[1];
+    const expectedArchitecture = target.split("/")[1];
     if (platform.runtime_arch !== expectedArchitecture) throw new Error("Desktop runtime architecture is unsupported");
     const keys = artifacts.map(artifact => artifact.key).sort();
-    const required = target.startsWith("windows")
-      ? ["agent-desktop", "codex", "codex-command-runner", "codex-windows-sandbox-setup", "node"]
-      : ["agent-desktop", "codex", "node"];
-    if (JSON.stringify(keys) !== JSON.stringify(required)) throw new Error("Desktop runtime resources are incomplete or duplicated");
+    if (JSON.stringify(keys) !== JSON.stringify(["agent-desktop"])) {
+      throw new Error("Desktop runtime resources are incomplete or duplicated");
+    }
     const destinations = artifacts.flatMap(artifact => artifact.files.map(file => file.destination));
     if (new Set(destinations).size !== destinations.length) throw new Error("Desktop runtime destinations overlap");
     for (const artifact of artifacts) {
@@ -69,9 +65,7 @@ export function parseDesktopResources(input) {
       if (JSON.stringify(artifact.files.map(file => file.destination)) !== JSON.stringify(expected)) {
         throw new Error("Desktop runtime executable names do not match the platform");
       }
-      const origin = artifact.key === "node" ? `https://nodejs.org/dist/v${manifest.versions.node}/`
-        : artifact.key === "agent-desktop" ? `https://github.com/vercel-labs/agent-desktop/releases/download/v${manifest.versions.agent_desktop}/`
-        : `https://github.com/openai/codex/releases/download/rust-v${manifest.versions.codex}/`;
+      const origin = `https://github.com/vercel-labs/agent-desktop/releases/download/v${manifest.versions.agent_desktop}/`;
       if (!artifact.url.startsWith(origin)) throw new Error("Desktop runtime release does not match its pinned version");
     }
   }
@@ -155,58 +149,33 @@ export async function extractDesktopArtifact(input, archive, destination) {
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-async function stageDesktopRunner(destination, target, runtimeArchitecture) {
-  // mygo excludes dot-prefixed resource directories, including pnpm's isolated store.
-  await run("pnpm", ["--filter", "@linksense/runner", "deploy", "--prod", "--frozen-lockfile",
-    "--ignore-scripts", "--node-linker=hoisted", "--config.inject-workspace-packages=true",
-    "--os", target.startsWith("windows") ? "win32" : "darwin",
-    "--cpu", runtimeArchitecture === "amd64" ? "x64" : "arm64", destination], { cwd: root });
-  // Deployment metadata contains build-machine file URLs; the installed runtime never reinstalls dependencies.
-  await copyFile(path.join(root, "apps/runner/package.json"), path.join(destination, "package.json"));
-  await rm(path.join(destination, "pnpm-lock.yaml"), { force: true });
-}
-
 function verificationEnvironment(home) {
   const environment = Object.fromEntries(["PATH", "SystemRoot", "WINDIR", "TMP", "TEMP", "TMPDIR"]
     .flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
-  return { ...environment, HOME: home, USERPROFILE: home, CODEX_HOME: path.join(home, ".codex") };
+  return { ...environment, HOME: home, USERPROFILE: home };
 }
 
 export function desktopRuntimeVersionChecks(target, versions) {
-  // agent-desktop 1.3.1 stops same-UID legacy command hosts before parsing
+  // agent-desktop stops same-UID legacy command hosts before parsing
   // arguments, so even --version mutates a Mac login. The pinned archive
   // checksum, exact file hashes and the release signature prove its identity
   // without launching it; keep the CLI smoke only on Windows.
-  return [
-    ["node", versions.node],
-    ["codex", versions.codex],
-    ...(target.startsWith("windows") ? [["agent-desktop", versions.agent_desktop]] : []),
-  ];
+  return target.startsWith("windows") ? [["agent-desktop", versions.agent_desktop]] : [];
 }
 
 export async function verifyPackagedDesktopRuntime(runtime, target, versions) {
   if (!["darwin", "win32"].includes(process.platform) || target !== desktopTarget()) return;
+  const checks = desktopRuntimeVersionChecks(target, versions);
+  if (checks.length === 0) return;
   const home = await mkdtemp(path.join(root, ".data/desktop/staging/verify-"));
   const suffix = target.startsWith("windows") ? ".exe" : "";
   try {
-    const environment = verificationEnvironment(home);
-    for (const [name, expected] of desktopRuntimeVersionChecks(target, versions)) {
+    for (const [name, expected] of checks) {
       const { stdout } = await promisify(execFile)(path.join(runtime, "bin", `${name}${suffix}`), ["--version"], {
-        timeout: 10_000, maxBuffer: 16_384, env: environment,
+        timeout: 10_000, maxBuffer: 16_384, env: verificationEnvironment(home),
       });
       if (!stdout.trim().endsWith(expected)) throw new Error(`Bundled ${name} version differs from the pinned release`);
     }
-    const probe = `import {realpathSync} from "node:fs"; import path from "node:path"; import {fileURLToPath} from "node:url";
-      const root = realpathSync(process.argv[1]);
-      for (const name of ["zod", "fastify", "@linksense/shared", "sharp", "@firecrawl/anydoc"]) {
-        const relative = path.relative(root, realpathSync(fileURLToPath(import.meta.resolve(name))));
-        if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep)) throw new Error("Dependency escaped the packaged runtime");
-        await import(name);
-      } process.stdout.write("DESKTOP_RUNTIME_IMPORTS_OK");`;
-    const { stdout } = await promisify(execFile)(path.join(runtime, "bin", `node${suffix}`), ["--input-type=module", "--eval", probe, runtime], {
-      cwd: path.join(runtime, "runner"), timeout: 30_000, maxBuffer: 16_384, env: environment,
-    });
-    if (stdout !== "DESKTOP_RUNTIME_IMPORTS_OK") throw new Error("Packaged desktop runner dependency probe failed");
   } finally { await rm(home, { recursive: true, force: true }); }
 }
 
@@ -233,8 +202,6 @@ export async function pruneDesktopDownloadCache(projectRoot, validatedManifest) 
 export async function prepareDesktopResources(target) {
   validateDesktopTarget(target);
   const manifest = parseDesktopResources(JSON.parse(await readFile(path.join(desktop, "desktop-resources.json"), "utf8")));
-  const pinnedCodex = JSON.parse(await readFile(path.join(root, "apps/runner/src/codex/runtime-version.json"), "utf8"));
-  if (manifest.versions.codex !== pinnedCodex.version) throw new Error("Desktop and cloud Codex versions differ");
   const cache = path.join(root, downloadCachePath);
   await mkdir(cache, { recursive: true, mode: 0o700 });
   const stagingParent = path.join(root, ".data/desktop/staging");
@@ -248,19 +215,8 @@ export async function prepareDesktopResources(target) {
       const archive = await downloadArtifact(artifact, cache);
       files.push(...await extractDesktopArtifact(artifact, archive, staging));
     }
-    await run("pnpm", ["--filter", "@linksense/shared", "build"], { cwd: root });
-    await run("pnpm", ["--filter", "@linksense/runner", "build"], { cwd: root });
-    if (target.startsWith("darwin")) {
-      await run("pnpm", ["--filter", "@linksense/api", "exec", "tsx", "src/commands/bundle-desktop-capabilities.ts",
-        path.join(staging, "capabilities")], { cwd: root });
-    }
-    await stageDesktopRunner(path.join(staging, "runner"), target, platform.runtime_arch);
-    await mkdir(path.join(staging, "template"));
-    await copyFile(path.join(root, "deploy/codex-home-template/config.toml"), path.join(staging, "template/config.toml"));
     await mkdir(path.join(staging, "legal"));
-    for (const name of ["node", "codex", "agent-desktop"]) {
-      await copyFile(path.join(desktop, "legal", `${name}-LICENSE`), path.join(staging, "legal", `${name}-LICENSE`));
-    }
+    await copyFile(path.join(desktop, "legal/agent-desktop-LICENSE"), path.join(staging, "legal/agent-desktop-LICENSE"));
     const runtime = {
       schema_version: 1, application: "org.linksense.desktop", target, runtime_arch: platform.runtime_arch, versions: manifest.versions, files,
     };

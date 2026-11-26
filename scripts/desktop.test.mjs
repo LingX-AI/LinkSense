@@ -518,7 +518,7 @@ test("release ldflags carry the signer token and reject an environment override"
     "-X=main.desktopMacosSignerToken=forged"), /must not set/u);
 });
 
-test("MyGo scopes notarization and Node's entitlement override to release builds", () => {
+test("MyGo scopes notarization to release builds", () => {
   const development = inspectDesktopConfig("0", "build");
   assert.deepEqual(inspectDesktopConfig("1", "dev"), development);
   assert.equal(development.identifier, "org.linksense.desktop");
@@ -532,7 +532,6 @@ test("MyGo scopes notarization and Node's entitlement override to release builds
     icon: "AppIcon.icns",
     signingIdentity: "-",
     notarize: { keychainProfile: "linksense-desktop-notary" },
-    helperEntitlements: { "runtime/bin/node": "node-release.entitlements.plist" },
   });
 });
 

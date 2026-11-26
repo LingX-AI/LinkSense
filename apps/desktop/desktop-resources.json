@@ -1,38 +1,12 @@
 {
   "schema_version": 1,
   "versions": {
-    "node": "24.22.1",
-    "codex": "0.170.0",
     "agent_desktop": "1.3.1"
   },
   "platforms": {
     "darwin/arm64": {
       "runtime_arch": "arm64",
       "artifacts": [
-        {
-          "key": "node",
-          "format": "tar.gz",
-          "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.gz",
-          "sha256": "89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7",
-          "files": [
-            {
-              "source": "node-v24.22.1-darwin-arm64/bin/node",
-              "destination": "bin/node"
-            }
-          ]
-        },
-        {
-          "key": "codex",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-aarch64-apple-darwin.tar.gz",
-          "sha256": "7c9f21d5cbae4860d14b379fdcf709ff399ce874fd714b58783e1b4199c2b9a9",
-          "files": [
-            {
-              "source": "codex-aarch64-apple-darwin",
-              "destination": "bin/codex"
-            }
-          ]
-        },
         {
           "key": "agent-desktop",
           "format": "tar.gz",
@@ -55,30 +29,6 @@
       "runtime_arch": "amd64",
       "artifacts": [
         {
-          "key": "node",
-          "format": "tar.gz",
-          "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-x64.tar.gz",
-          "sha256": "d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035",
-          "files": [
-            {
-              "source": "node-v24.22.1-darwin-x64/bin/node",
-              "destination": "bin/node"
-            }
-          ]
-        },
-        {
-          "key": "codex",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-apple-darwin.tar.gz",
-          "sha256": "c858bb0149b003a8cf8840a1143c4d953f18bea23ba6ea861d5fdf0b5e29a5a3",
-          "files": [
-            {
-              "source": "codex-x86_64-apple-darwin",
-              "destination": "bin/codex"
-            }
-          ]
-        },
-        {
           "key": "agent-desktop",
           "format": "tar.gz",
           "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz",
@@ -97,56 +47,8 @@
       ]
     },
     "windows/arm64": {
-      "runtime_arch": "amd64",
+      "runtime_arch": "arm64",
       "artifacts": [
-        {
-          "key": "node",
-          "format": "file",
-          "url": "https://nodejs.org/dist/v24.22.1/win-x64/node.exe",
-          "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
-          "files": [
-            {
-              "source": null,
-              "destination": "bin/node.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "f32cad4e92e17f5ba1a4836f0bacca3950457cb204a4274dcb75fec99fbd82cd",
-          "files": [
-            {
-              "source": "codex-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex-command-runner",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "3bcdf35967c754509649652abfa736ccd4802e2e5348354c60bf210f19951154",
-          "files": [
-            {
-              "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex-command-runner.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex-windows-sandbox-setup",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "034fe88cb2fb112d9020a0c4b508fe4720fa1f04b6e1854bc03b987879e6df2d",
-          "files": [
-            {
-              "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex-windows-sandbox-setup.exe"
-            }
-          ]
-        },
         {
           "key": "agent-desktop",
           "format": "tar.gz",
@@ -164,54 +66,6 @@
     "windows/amd64": {
       "runtime_arch": "amd64",
       "artifacts": [
-        {
-          "key": "node",
-          "format": "file",
-          "url": "https://nodejs.org/dist/v24.22.1/win-x64/node.exe",
-          "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
-          "files": [
-            {
-              "source": null,
-              "destination": "bin/node.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "f32cad4e92e17f5ba1a4836f0bacca3950457cb204a4274dcb75fec99fbd82cd",
-          "files": [
-            {
-              "source": "codex-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex-command-runner",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "3bcdf35967c754509649652abfa736ccd4802e2e5348354c60bf210f19951154",
-          "files": [
-            {
-              "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex-command-runner.exe"
-            }
-          ]
-        },
-        {
-          "key": "codex-windows-sandbox-setup",
-          "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "034fe88cb2fb112d9020a0c4b508fe4720fa1f04b6e1854bc03b987879e6df2d",
-          "files": [
-            {
-              "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",
-              "destination": "bin/codex-windows-sandbox-setup.exe"
-            }
-          ]
-        },
         {
           "key": "agent-desktop",
           "format": "tar.gz",

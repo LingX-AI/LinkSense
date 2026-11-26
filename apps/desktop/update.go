@@ -144,6 +144,13 @@ type updateLease interface {
 	release()
 }
 
+// runtimeFreeUpdateLease admits an install when this build has no local
+// runtime to quiesce. The v1 app has no local turns, so the update cannot
+// interrupt one.
+type runtimeFreeUpdateLease struct{}
+
+func (runtimeFreeUpdateLease) release() {}
+
 // updateNotificationAttempt fences one native update notification to the exact
 // revision and account generation that made it eligible. A new check, stage,
 // candidate or account invalidates it before its delivery wait completes.
@@ -225,8 +232,11 @@ func newDesktopUpdates(desktop *Desktop) *desktopUpdates {
 			return update.Install(ctx, progress)
 		},
 		acquire: func(ctx context.Context) (updateLease, error) {
-			if desktop == nil || desktop.localRuntime == nil {
+			if desktop == nil {
 				return nil, errUpdateAdmissionUnavailable
+			}
+			if desktop.localRuntime == nil {
+				return runtimeFreeUpdateLease{}, nil
 			}
 			return desktop.localRuntime.acquireUpdateAdmission(ctx)
 		},

@@ -366,14 +366,8 @@ async function main() {
         // them, and the archive's bundle plist, before the stage is exposed.
         const verifiedUpdate = update.signedArtifacts && privateKeyFile
           ? await verifyDesktopUpdateArtifacts(output, update, app) : undefined;
-        if (nativeSmoke) {
-          await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtimePath], { cwd: root });
-          const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn|DesktopForcedQuitReclaimsCodexChild|DesktopEpipeReclaim)$" : "^TestPackagedRuntimeSupervisor$";
-          await run("go", ["test", "-tags", "desktop_runtime_package", "-run", tests, "-count=1", "-timeout=180s", "./..."], {
-            env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtimePath },
-          });
-        } else if (target.startsWith("darwin/")) {
-          console.warn(`Built ${target} without native execution verification.`);
+        if (!nativeSmoke && target.startsWith("darwin/")) {
+          console.warn(`Built ${target} without native packaging verification.`);
         }
         // Publish the verified envelope only after that smoke. The raw MyGo
         // manifest and artifacts are already in place for future delta builds.

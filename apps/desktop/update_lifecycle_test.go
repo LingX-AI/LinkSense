@@ -541,36 +541,39 @@ func TestUpdateInstallReportsBusyAdmissionAndAllowsRetry(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallFailsClosedWithoutARunner(t *testing.T) {
+func TestUpdateInstallAdmitsWithoutARunner(t *testing.T) {
 	isolateUpdateGlobals(t)
 	desktopUpdateFeed = "https://updates.example.test/update-darwin-arm64.json"
 	desktopUpdateManifestKey = base64.StdEncoding.EncodeToString(newUpdateTestKey(t))
+	// The v1 app has no local runtime; an install must not require one.
 	d := &Desktop{}
 	u := newDesktopUpdates(d)
 	u.enabled = func() bool { return true }
+	u.install = func(context.Context, *mygo.Update, func(int64, int64)) error { return nil }
+	u.relaunch = func() {}
+	u.quit = func() {}
 	u.applySource = func(mygo.UpdateSource) {}
 	u.getPreference = func(string, any) bool { return false }
 	u.setPreference = func(string, any) error { return nil }
-	// No background check in this test: the controller has no window.
-	u.desktop = nil
 	u.setPreferences(true)
 	u.start()
 	available := makeUpdateAvailable(t, u, "0.2.0")
 	result, err := u.installRequest(context.Background(), available.Revision)
+	if err != nil || result.State != UpdateStaged {
+		t.Fatalf("runtime-free install returned %+v, %v", result, err)
+	}
+}
+
+func TestUpdateInstallFailsClosedOnANilLease(t *testing.T) {
+	u, _ := newUpdateFixture(t)
+	u.acquire = func(context.Context) (updateLease, error) { return nil, nil }
+	available := makeUpdateAvailable(t, u, "0.2.0")
+	result, err := u.installRequest(context.Background(), available.Revision)
 	if !errors.Is(err, errUpdateAdmissionUnavailable) {
-		t.Fatalf("missing runner returned %v", err)
+		t.Fatalf("a nil lease reported %v", err)
 	}
 	if result.State != UpdateInstallFailed || result.Version != "0.2.0" {
-		t.Fatalf("missing runner returned %+v", result)
-	}
-
-	u.acquire = func(context.Context) (updateLease, error) { return nil, nil }
-	available, err = u.checkRequest(context.Background())
-	if err != nil || available.State != UpdateAvailable {
-		t.Fatalf("recheck after a nil lease returned %+v, %v", available, err)
-	}
-	if _, err := u.installRequest(context.Background(), available.Revision); !errors.Is(err, errUpdateAdmissionUnavailable) {
-		t.Fatalf("a nil lease reported %v", err)
+		t.Fatalf("a nil lease returned %+v", result)
 	}
 }
 
