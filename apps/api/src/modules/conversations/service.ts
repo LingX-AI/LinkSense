@@ -1848,15 +1848,22 @@ export class ConversationService {
             (operation.status === "starting" ||
               operation.status === "uncertain")
           ) {
-            const resumed = await this.resumeDurableStartIntent(intent);
-            if (resumed === undefined) return "pending";
-            if (resumed === null) {
-              const deleted =
-                await this.deleteUnacquiredMissingStartIntent(intent);
-              return deleted ? "released" : "pending";
+            try {
+              const resumed = await this.resumeDurableStartIntent(intent);
+              if (resumed === undefined) return "pending";
+              if (resumed === null) {
+                const deleted =
+                  await this.deleteUnacquiredMissingStartIntent(intent);
+                return deleted ? "released" : "pending";
+              }
+              operation = resumed;
+              assertMatchingStartOperation(intent, operation);
+            } catch (error) {
+              // A Runner that still reports uncertain is a recovery outcome,
+              // not a reason to abort the whole pass and block API startup.
+              if (!isStartResumeOutcomeError(error)) throw error;
+              return "pending";
             }
-            operation = resumed;
-            assertMatchingStartOperation(intent, operation);
           }
           if (
             operation.status === "starting" ||
@@ -1914,15 +1921,22 @@ export class ConversationService {
         !desktop && resubmitNonTerminal &&
         (operation.status === "starting" || operation.status === "uncertain")
       ) {
-        const resumed = await this.resumeDurableStartIntent(intent);
-        if (resumed === undefined) return "pending";
-        if (resumed === null) {
-          const releasing = await this.markStartIntentForRelease(intent);
-          await this.finishReleasePendingStartIntent(releasing);
-          return "released";
+        try {
+          const resumed = await this.resumeDurableStartIntent(intent);
+          if (resumed === undefined) return "pending";
+          if (resumed === null) {
+            const releasing = await this.markStartIntentForRelease(intent);
+            await this.finishReleasePendingStartIntent(releasing);
+            return "released";
+          }
+          operation = resumed;
+          assertMatchingStartOperation(intent, operation);
+        } catch (error) {
+          // The Runner can still report uncertain, or settle to a sealed or
+          // failed start, while resuming. That is an outcome to verify below,
+          // not a reason to fail the whole recovery pass.
+          if (!isStartResumeOutcomeError(error)) throw error;
         }
-        operation = resumed;
-        assertMatchingStartOperation(intent, operation);
       }
       if (operation.status === "starting" || operation.status === "uncertain") {
         if (
@@ -1930,25 +1944,45 @@ export class ConversationService {
           Date.now() - Date.parse(operation.updatedAt) >=
             START_INTENT_UNSETTLED_RELEASE_MILLISECONDS
         ) {
-          // Fence a start that may still be in flight before failing the turn.
-          // The interrupt marker also stops a later recovery from resubmitting it.
-          try {
-            await this.runner.interruptStartOperation(
-              intent.conversationId,
-              intent.projectionTurnId,
-              intent.ownerId,
-              intent.runtimeGeneration,
-            );
-          } catch {
-            return "pending";
+          // The window authorizes verification, never release by itself. The
+          // operation may already have settled since the earlier inspection.
+          let settled = await inspect();
+          assertMatchingStartOperation(intent, settled);
+          if (settled?.status === "starting" || settled?.status === "uncertain") {
+            // Publish the interrupt marker so a live start stops at its next
+            // checkpoint, then confirm what actually settled. The interrupt
+            // receipt alone does not prove that no native turn exists.
+            try {
+              await this.runner.interruptStartOperation(
+                intent.conversationId,
+                intent.projectionTurnId,
+                intent.ownerId,
+                intent.runtimeGeneration,
+              );
+            } catch {
+              return "pending";
+            }
+            settled = await inspect();
+            assertMatchingStartOperation(intent, settled);
           }
-          // No native turn was correlated within the recovery window. Keep the
-          // user's request visible as failed instead of holding the slot forever.
-          const releasing = await this.markStartIntentForRelease(intent);
-          await this.finishReleasePendingStartIntent(releasing);
-          return "released";
+          if (settled?.status === "succeeded") {
+            // A native turn exists. Keep its real result and let the native
+            // terminal flow finish instead of reporting a start failure.
+            const succeeded = await this.recordSucceededStartIntent(
+              intent,
+              settled.result,
+              fence,
+            );
+            await this.publishStartProjection(succeeded, settled.result, fence);
+            return "projected";
+          }
+          // Only a definite failure proves the start cannot produce a native
+          // turn. Anything else stays pending so a late result is not erased.
+          if (settled?.status !== "failed") return "pending";
+          operation = settled;
+        } else {
+          return "pending";
         }
-        return "pending";
       }
       if (operation.status === "succeeded") {
         const succeeded = await this.recordSucceededStartIntent(
@@ -12502,6 +12536,19 @@ function assertMatchingStartOperation(
   ) {
     throw new AppError("CONFLICT");
   }
+}
+
+/**
+ * Runner-side start outcomes that recovery must verify rather than treat as
+ * infrastructure failures. Letting these abort a bulk pass would keep the API
+ * from starting while the durable intent remains for the recovery worker.
+ */
+function isStartResumeOutcomeError(error: unknown): boolean {
+  return (
+    error instanceof RunnerStartOperationUncertainError ||
+    (error instanceof AppError &&
+      (error.code === "TURN_START_CLOSED" || error.code === "RUNNER_UNAVAILABLE"))
+  );
 }
 
 function matchesStartIntentSubmission(
