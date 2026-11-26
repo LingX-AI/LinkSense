@@ -465,9 +465,20 @@ export class DesktopDeviceTransport {
     try {
       await this.publisherReady;
     } catch {
+      this.logger.warn({
+        event: "desktop_transport_publisher_unavailable",
+        status: this.publisher.status,
+      }, "desktop transport publisher unavailable");
       throw new AppError("RUNNER_UNAVAILABLE");
     }
-    if (this.closed || this.publisher.status !== "ready") throw new AppError("RUNNER_UNAVAILABLE");
+    if (this.closed || this.publisher.status !== "ready") {
+      this.logger.warn({
+        event: "desktop_transport_not_ready",
+        status: this.publisher.status,
+        closed: this.closed,
+      }, "desktop transport not ready");
+      throw new AppError("RUNNER_UNAVAILABLE");
+    }
   }
 
   private async subscribe(): Promise<void> {

@@ -463,6 +463,12 @@ export async function registerDesktopDeviceRoutes(
             resumeReceipt: null, controlSettled: null,
           };
           connected.set(socket, state);
+          app.log.info({
+            event: "desktop_execution_negotiation",
+            deviceId: device.id,
+            execution: state.execution,
+            platform: device.platform,
+          }, "desktop execution negotiation");
           const active = await service.maintain(device, connectionId);
           if (socket.readyState !== WebSocket.OPEN || active !== "online") {
             socket.close(active === "revoked" ? 4403 : active === "replaced" ? 4409 : 4500);
