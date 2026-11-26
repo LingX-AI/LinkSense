@@ -422,7 +422,11 @@ export async function registerDesktopDeviceRoutes(
                 // Emergency Stop never takes this path: its takeover call above
                 // omits the callback, and a superseded Pause reply is refused
                 // before the handler can notify.
-                onPauseAcknowledged: receipt => options.pauseAudit?.record(receipt),
+                onPauseAcknowledged: receipt => {
+                  // Keep the shutdown guard: a late callback must not open a
+                  // new audit connection while the route is tearing down.
+                  if (!closing) options.pauseAudit?.record(receipt);
+                },
               }, reply);
             } finally {
               settle();
