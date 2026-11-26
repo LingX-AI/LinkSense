@@ -65,20 +65,31 @@ export function resolveBrowserLanguage(
   return "en-US"
 }
 
-function resolveInitialLanguage(): SupportedLanguage {
-  let stored: SupportedLanguage | null
+function readStoredLanguage(): string | null {
   try {
-    stored = normalizeLanguage(
-      window.localStorage?.getItem(LANGUAGE_STORAGE_KEY)
-    )
+    return window.localStorage?.getItem(LANGUAGE_STORAGE_KEY) ?? null
   } catch {
-    stored = null
+    return null
   }
+}
+
+function readNativeLanguage(): string | null {
+  const native = window.mygo
+  if (native?.platform !== "darwin") return null
+  return typeof native.locale === "string" ? native.locale : null
+}
+
+export function resolveInitialLanguage(input: {
+  stored?: string | null
+  native?: string | null
+  languages?: readonly string[]
+  language?: string | null
+}): SupportedLanguage {
+  const stored = normalizeLanguage(input.stored)
   if (stored) return stored
-  return resolveBrowserLanguage(
-    window.navigator.languages,
-    window.navigator.language
-  )
+  const native = normalizeLanguage(input.native)
+  if (native) return native
+  return resolveBrowserLanguage(input.languages, input.language)
 }
 
 void i18n.use(initReactI18next).init({
@@ -252,7 +263,12 @@ void i18n.use(initReactI18next).init({
       },
     },
   },
-  lng: resolveInitialLanguage(),
+  lng: resolveInitialLanguage({
+    stored: readStoredLanguage(),
+    native: readNativeLanguage(),
+    languages: window.navigator.languages,
+    language: window.navigator.language,
+  }),
   fallbackLng: "zh-CN",
   supportedLngs: supportedLanguages,
   interpolation: { escapeValue: false },
@@ -267,10 +283,21 @@ i18n.on("languageChanged", (language) => {
 document.documentElement.lang =
   normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
 
-export async function setAppLanguage(
-  language: SupportedLanguage,
-  options: { persist?: boolean } = {}
-) {
+type NativeLanguageSync = (language: SupportedLanguage) => void
+
+let nativeLanguageSync: NativeLanguageSync | null = null
+let appLanguageRevision = 0
+
+/**
+ * Registers the macOS shell bridge that makes the native app language follow
+ * an explicit Web choice. Only the main document installs it; embedded pages
+ * keep their configured locale without touching native state.
+ */
+export function setNativeLanguageSync(handler: NativeLanguageSync | null) {
+  nativeLanguageSync = handler
+}
+
+async function changeDisplayedLanguage(language: SupportedLanguage) {
   const currentLanguage = normalizeLanguage(
     i18n.language ?? i18n.resolvedLanguage
   )
@@ -279,12 +306,36 @@ export async function setAppLanguage(
   } else if (document.documentElement.lang !== language) {
     document.documentElement.lang = language
   }
+}
+
+export async function setAppLanguage(
+  language: SupportedLanguage,
+  options: { persist?: boolean } = {}
+) {
+  // Only the installed macOS bridge follows persisted choices. A revision
+  // keeps an overlapping older choice from persisting or reaching the shell
+  // after a newer one; browsers and Windows keep writing as they did.
+  const revision =
+    options.persist === false || nativeLanguageSync === null
+      ? null
+      : ++appLanguageRevision
+  await changeDisplayedLanguage(language)
   if (options.persist === false) return
+  if (revision !== null && revision !== appLanguageRevision) return
   try {
     window.localStorage?.setItem(LANGUAGE_STORAGE_KEY, language)
   } catch {
     // Language switching remains available when browser storage is disabled.
   }
+  try {
+    nativeLanguageSync?.(language)
+  } catch {
+    // A native bridge failure must not break sign-in, Settings, or the page.
+  }
+}
+
+export function getStoredLanguagePreference(): SupportedLanguage | null {
+  return normalizeLanguage(readStoredLanguage())
 }
 
 export function hasStoredLanguagePreference() {

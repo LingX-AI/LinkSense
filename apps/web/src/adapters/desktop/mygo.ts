@@ -286,6 +286,15 @@ export const Desktop = {
    */
   revealArtifactDownload: bind<[string], void>("Desktop.RevealArtifactDownload", (handle: string) => [handle]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
+  /**
+   * SetLocale makes the macOS app language follow an explicit language choice
+   * made in the shared UI. The caller is checked before any work and again when
+   * the change is applied on the main thread, so a page that navigated away
+   * cannot change the app afterwards. MyGo applies SetLocale synchronously on
+   * the main thread, so a successful reply means the app language already
+   * changed.
+   */
+  setLocale: bind<[string], void>("Desktop.SetLocale", (tag: string) => [tag]),
   setUpdateChannel: bind<[string], DesktopUpdateResult>("Desktop.SetUpdateChannel", (channel: string) => [channel]),
   /**
    * ShowApprovalNotification shows one generic reminder for the live approval

@@ -7,8 +7,11 @@ import {
 } from "@linksense/shared"
 
 import i18n, {
+  getStoredLanguagePreference,
   resolveBrowserLanguage,
+  resolveInitialLanguage,
   setAppLanguage,
+  setNativeLanguageSync,
   supportedLanguages,
 } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
@@ -57,16 +60,19 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
-  it.each(supportedLanguages)("explains the Mac output limit in %s", (locale) => {
-    const key = "errors.desktopOutputLimit"
-    const translation = i18n.getResource(locale, "translation", key)
-    expect(translation).toBeTypeOf("string")
-    expect(translation).not.toBe(key)
-    if (locale !== "zh-CN") {
-      expect(translation).not.toBe(i18n.t(key, { lng: "zh-CN" }))
+  it.each(supportedLanguages)(
+    "explains the Mac output limit in %s",
+    (locale) => {
+      const key = "errors.desktopOutputLimit"
+      const translation = i18n.getResource(locale, "translation", key)
+      expect(translation).toBeTypeOf("string")
+      expect(translation).not.toBe(key)
+      if (locale !== "zh-CN") {
+        expect(translation).not.toBe(i18n.t(key, { lng: "zh-CN" }))
+      }
+      expect(i18n.t(key, { lng: "de-DE" })).toBe(i18n.t(key, { lng: "zh-CN" }))
     }
-    expect(i18n.t(key, { lng: "de-DE" })).toBe(i18n.t(key, { lng: "zh-CN" }))
-  })
+  )
 
   it.each([
     ["zh-CN", "1 条新回复", "2 条新回复"],
@@ -718,6 +724,138 @@ describe("i18n resources", () => {
     } finally {
       i18n.off("languageChanged", onLanguageChanged)
       await i18n.changeLanguage("zh-CN")
+    }
+  })
+
+  it("prefers a validated saved preference over native and browser languages", () => {
+    expect(
+      resolveInitialLanguage({
+        stored: "fr-CA",
+        native: "ja-JP",
+        languages: ["pt-BR"],
+        language: "pt-BR",
+      })
+    ).toBe("fr-FR")
+  })
+
+  it("uses a supported native language before the browser", () => {
+    expect(
+      resolveInitialLanguage({
+        native: "es-MX",
+        languages: ["ja-JP"],
+        language: "ja-JP",
+      })
+    ).toBe("es-ES")
+    expect(
+      resolveInitialLanguage({
+        stored: "not-a-language",
+        native: "ja-JP",
+        languages: ["fr-FR"],
+        language: "fr-FR",
+      })
+    ).toBe("ja-JP")
+  })
+
+  it("falls back to the browser for a missing or unsupported native language", () => {
+    expect(
+      resolveInitialLanguage({
+        native: "",
+        languages: ["pt-BR"],
+        language: "en-US",
+      })
+    ).toBe("pt-BR")
+    expect(
+      resolveInitialLanguage({
+        native: "de-DE",
+        languages: ["ja-JP"],
+        language: "en-US",
+      })
+    ).toBe("ja-JP")
+    expect(
+      resolveInitialLanguage({
+        languages: undefined,
+        language: undefined,
+      })
+    ).toBe("en-US")
+  })
+
+  it("reads only a validated saved preference", () => {
+    window.localStorage.removeItem("linksense.language")
+    expect(getStoredLanguagePreference()).toBeNull()
+    window.localStorage.setItem("linksense.language", "de-DE")
+    expect(getStoredLanguagePreference()).toBeNull()
+    window.localStorage.setItem("linksense.language", "pt-PT")
+    expect(getStoredLanguagePreference()).toBe("pt-BR")
+    window.localStorage.removeItem("linksense.language")
+  })
+
+  it("syncs persisted choices but not native-origin or non-persistent changes", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+    const sync = vi.fn()
+    setNativeLanguageSync(sync)
+
+    try {
+      await setAppLanguage("en-US", { persist: false })
+      expect(sync).not.toHaveBeenCalled()
+      expect(window.localStorage.getItem("linksense.language")).toBeNull()
+
+      await setAppLanguage("es-ES")
+      expect(sync).toHaveBeenCalledTimes(1)
+      expect(sync).toHaveBeenCalledWith("es-ES")
+      expect(window.localStorage.getItem("linksense.language")).toBe("es-ES")
+
+      sync.mockClear()
+      await setAppLanguage("ja-JP", { persist: false })
+      expect(sync).not.toHaveBeenCalled()
+      expect(i18n.language).toBe("ja-JP")
+      expect(document.documentElement.lang).toBe("ja-JP")
+      expect(window.localStorage.getItem("linksense.language")).toBe("es-ES")
+    } finally {
+      setNativeLanguageSync(null)
+      await i18n.changeLanguage("zh-CN")
+      window.localStorage.removeItem("linksense.language")
+    }
+  })
+
+  it("does not let a native bridge failure break the displayed language", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+    setNativeLanguageSync(() => {
+      throw new Error("DESKTOP_LOCALE_UNAVAILABLE")
+    })
+
+    try {
+      await setAppLanguage("en-US")
+
+      expect(i18n.language).toBe("en-US")
+      expect(document.documentElement.lang).toBe("en-US")
+      expect(window.localStorage.getItem("linksense.language")).toBe("en-US")
+    } finally {
+      setNativeLanguageSync(null)
+      await i18n.changeLanguage("zh-CN")
+      window.localStorage.removeItem("linksense.language")
+    }
+  })
+
+  it("keeps the latest overlapping persisted choice", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+    const sync = vi.fn()
+    setNativeLanguageSync(sync)
+
+    try {
+      await Promise.all([setAppLanguage("fr-FR"), setAppLanguage("ja-JP")])
+
+      expect(i18n.language).toBe("ja-JP")
+      expect(document.documentElement.lang).toBe("ja-JP")
+      expect(window.localStorage.getItem("linksense.language")).toBe("ja-JP")
+      expect(sync).toHaveBeenCalledTimes(1)
+      expect(sync).toHaveBeenCalledWith("ja-JP")
+    } finally {
+      setNativeLanguageSync(null)
+      await i18n.changeLanguage("zh-CN")
+      window.localStorage.removeItem("linksense.language")
     }
   })
 
