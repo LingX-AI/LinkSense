@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Socket } from "node:net";
 import {
   desktopComputerQuiesceLifetimeMs,
   localComputerGrantSchema,
@@ -11,9 +12,11 @@ import {
   type DesktopToolRequest,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
+import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
 import { DesktopCommandUncertainError, type DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
+import { createPrismaClient } from "../../db.js";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
@@ -117,6 +120,130 @@ export type DesktopComputerResumeReceipt = {
   /** The exact successor the locked paused->active CAS committed. */
   successor: DesktopComputerSelection;
 };
+
+/**
+ * The server-proven identity of one acknowledged Pause: the authenticated
+ * device account plus the stored selection generation. No request id, bundle,
+ * window, frame, credential, or free-form input is part of it.
+ */
+export type DesktopComputerPauseReceipt = {
+  ownerId: string;
+  sessionId: string;
+  selectionId: string;
+  controlEpoch: string;
+  /** When this socket accepted the positive reply; persisted as the row time. */
+  acknowledgedAt: Date;
+};
+
+/**
+ * Deterministic audit primary key for one paused selection generation. A
+ * duplicate or replay with a fresh request id maps to the same row, while the
+ * client-supplied request id is never part of the identity. `controlEpoch`
+ * rotates on every true renewal and every true paused->active resume, so the
+ * valid A -> Pause(A) -> Resume(B) -> Pause(B) -> Resume(A) -> Pause(A) cycle
+ * maps to three distinct rows; only a repeat of the same live paused
+ * generation is the same claim.
+ */
+export function desktopComputerPauseAuditId(receipt: DesktopComputerPauseReceipt): string {
+  return uuidv5([
+    "linksense:desktop-computer:paused",
+    receipt.sessionId.toLowerCase(),
+    receipt.selectionId.toLowerCase(),
+    receipt.controlEpoch.toLowerCase(),
+  ].join(":"), receipt.ownerId.toLowerCase());
+}
+
+// Pause auditing is best effort and strictly downstream of the acknowledged
+// reply. The dedicated client owns one pg connection and one issued write at a
+// time. Its driver acquisition timeout is shorter than Prisma's maxWait so a
+// queued acquire is rejected by the driver before Prisma's timer can win, and
+// each transaction sets its own short server-side statement timeout. Each
+// connection is also single-use and carries one fixed transport deadline: a
+// server that accepts the connection and then stops answering would otherwise
+// leave BEGIN, INSERT, COMMIT, or Prisma's rollback pending and keep route
+// shutdown waiting on that write. Destroying the actual socket at the deadline
+// rejects the in-flight statement so the pool and Prisma disconnect can finish;
+// pg-pool's maxUses makes sure a normally released socket is never reused with
+// a stale deadline. Neither timeout is global. A write that timed out may still
+// have been applied server-side, which is why the primary key is idempotent.
+// Prisma 7.10.1 arms the transaction maxWait timer before the pg adapter sends
+// BEGIN, while the transport deadline starts with the socket and the driver
+// acquisition bound is 500 ms. Both transaction timers therefore sit above
+// 500 ms + the 2 s transport deadline, with margin: a stalled BEGIN is settled
+// by the actual transport teardown and its connection is released before
+// Prisma rejects, so the route's pLimit(1) slot cannot advance while the old
+// connection is still checked out. The transport, statement, and driver
+// deadlines themselves are unchanged.
+const pauseAuditTransactionMaxWaitMs = 3_000;
+const pauseAuditTransactionTimeoutMs = 3_000;
+const pauseAuditStatementTimeoutMs = 1_000;
+const pauseAuditTransportDeadlineMs = 2_000;
+export const desktopComputerPauseAuditPoolConfig = {
+  max: 1,
+  maxUses: 1,
+  connectionTimeoutMillis: 500,
+  application_name: "linksense-desktop-pause-audit",
+  stream: () => {
+    const socket = new Socket();
+    const deadline = setTimeout(
+      () => socket.destroy(new Error("desktop computer pause audit transport deadline")),
+      pauseAuditTransportDeadlineMs,
+    );
+    deadline.unref();
+    socket.once("close", () => clearTimeout(deadline));
+    return socket;
+  },
+} as const;
+
+/** Lazy-owned by the Mac product control; callers close it after route work. */
+export function createDesktopComputerPauseAuditClient(databaseUrl: string): PrismaClient {
+  return createPrismaClient(databaseUrl, {
+    pool: desktopComputerPauseAuditPoolConfig,
+    // The route owns the one fixed warning; Prisma's error log would repeat
+    // the failed SQL and driver error for a best-effort background write.
+    log: [],
+  });
+}
+
+/**
+ * Idempotent Pause audit row. Only an accepted positive Pause reply reaches
+ * this writer; the existing audit primary key deduplicates retries. The row
+ * carries the acknowledgement timestamp, the server-proven account, the
+ * opaque session target, and no metadata, so bundle, selection/window, frame,
+ * and credential values never enter the audit trail.
+ */
+export async function recordDesktopComputerPauseAudit(
+  db: Pick<PrismaClient, "$transaction" | "$executeRaw" | "auditLog">,
+  receipt: DesktopComputerPauseReceipt,
+): Promise<void> {
+  await db.$transaction(async tx => {
+    // DATABASE_URL may disable the server-side statement timeout at session
+    // scope, either directly (`?statement_timeout=0`) or through startup
+    // `options=-c statement_timeout=0`, and pg 8.23.1 parses the connection
+    // string after the pool config. SET LOCAL is scoped to this transaction
+    // and overrides both. PostgreSQL does not accept bind parameters in a bare
+    // SET, so use its parameterized set_config equivalent with is_local = true.
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(pauseAuditStatementTimeoutMs)}, true)`;
+    await tx.auditLog.createMany({
+      data: [{
+        id: desktopComputerPauseAuditId(receipt),
+        actorId: receipt.ownerId,
+        action: "computer_session_paused",
+        targetType: "local_computer_session",
+        targetId: receipt.sessionId,
+        result: "success",
+        metadataJson: {},
+        // The user-visible sequence is the acknowledgement order, not the
+        // order in which asynchronous inserts happen to commit.
+        createdAt: receipt.acknowledgedAt,
+      }],
+      skipDuplicates: true,
+    });
+  }, {
+    maxWait: pauseAuditTransactionMaxWaitMs,
+    timeout: pauseAuditTransactionTimeoutMs,
+  });
+}
 
 type SelectionKeyScope = Pick<
   DesktopRunScope, "ownerId" | "deviceId" | "conversationId" | "turnId" | "runtimeGeneration"
@@ -404,6 +531,12 @@ if lease.expiresAt <= now then return cjson.encode({status='timeout'}) end
 if lease.pendingInput ~= cjson.null then return cjson.encode({status='conflict'}) end
 lease.selectionId = ARGV[3]
 lease.state = 'active'
+-- A true paused->active commit starts a new selection generation and rotates
+-- the server-controlled epoch, exactly like an explicit renewal. Cached,
+-- pre-resume, or repeated Pause claims for this native selection id therefore
+-- never share the predecessor generation. The idempotent already-active branch
+-- above returns without writing, so a lost-ack retry keeps the epoch.
+lease.controlEpoch = ARGV[13]
 local ttl = math.floor(lease.expiresAt + tonumber(ARGV[4]) - now)
 if ttl <= 0 then return cjson.encode({status='timeout'}) end
 redis.call('SET', KEYS[1], cjson.encode(lease), 'PX', ttl)
@@ -619,6 +752,9 @@ export class DesktopComputerRedisSelection {
       scope.connectionId, idSchema.parse(selectionId), idSchema.parse(newSelectionId),
       String(desktopComputerQuiesceLifetimeMs),
       ...scopeArguments(scope), JSON.stringify(scope), String(maxIndexedScopes),
+      // Server-controlled generation for the true paused->active commit; the
+      // idempotent already-active read above never writes it.
+      idSchema.parse(randomUUID()),
     ]).then(transition);
   }
 
@@ -1377,6 +1513,12 @@ export class DesktopComputerControl {
     resumeReceipt?: DesktopComputerResumeReceipt;
     /** Receives the receipt only when this socket's resume actually committed. */
     onResumed?: (receipt: DesktopComputerResumeReceipt) => void;
+    /**
+     * One synchronous notification after a Pause's positive reply was accepted
+     * by the current socket's delivery continuation. Auditing is downstream of
+     * the reply and must never await, gate, or delay it.
+     */
+    onPauseAcknowledged?: (receipt: DesktopComputerPauseReceipt) => void;
   }, deliver?: (result: DesktopComputerControlResult) => boolean): Promise<DesktopComputerControlResult> {
     const base = { type: "computer.control.result", id: input.frame.id } as const;
     let delivered = false;
@@ -1495,6 +1637,22 @@ export class DesktopComputerControl {
       // map it through the existing failure path instead of returning an
       // undelivered success (a superseded pause must never look successful).
       if (!emit(result)) throw unavailable();
+      // Only this socket's accepted positive reply is a Pause claim. An absent
+      // delivery continuation or a refused one proves nothing about the
+      // receiver, so no audit receipt is published; a local scheduling failure
+      // never changes the acknowledged transition. The stored selection, not
+      // any caller-supplied field, supplies the claimed identity.
+      if (body.action === "pause" && delivered) {
+        try {
+          input.onPauseAcknowledged?.({
+            ownerId: selection.ownerId, sessionId: selection.sessionId,
+            selectionId: selection.selectionId, controlEpoch: selection.controlEpoch,
+            acknowledgedAt: this.now(),
+          });
+        } catch {
+          // The Pause is already acknowledged; audit supervision owns reporting.
+        }
+      }
       return result;
     } catch (error) {
       const result: DesktopComputerControlResult = {

@@ -404,6 +404,7 @@ export const auditMessages = {
     "desktop_tool_requested": "Solicitação de ferramenta de desktop",
     "desktop_approval_responded": "Solicitação de aprovação no desktop respondida",
     "computer_session_started": "Sessão do computador local iniciada",
+    "computer_session_paused": "Sessão do computador local pausada",
     "computer_session_stopped": "Sessão do computador local encerrada",
     "computer_permission_granted": "Permissão do computador local concedida",
     "computer_permission_revoked": "Permissão do computador local revogada",

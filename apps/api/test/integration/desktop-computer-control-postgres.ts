@@ -2,19 +2,27 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import pLimit from "p-limit";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { createPrismaClient } from "../../src/db.js";
+import { PrismaClient } from "../../src/generated/prisma/client.js";
 import { sha256 } from "../../src/lib/crypto.js";
 import {
   DesktopComputerControl,
   DesktopComputerRedisSelection,
   PrismaDesktopComputerControl,
+  createDesktopComputerPauseAuditClient,
+  desktopComputerPauseAuditId,
+  desktopComputerPauseAuditPoolConfig,
   desktopComputerSelectionKey,
+  recordDesktopComputerPauseAudit,
   type DesktopComputerControlHost,
+  type DesktopComputerPauseReceipt,
   type DesktopComputerResumeReceipt,
   type DesktopComputerSelection,
 } from "../../src/modules/desktop-devices/computer-control.js";
@@ -66,9 +74,124 @@ const databaseUrl = (name: string) => {
   url.username = userInfo().username;
   return url.toString();
 };
+
+/** Polls a real observable condition; the interval is only retry spacing. */
+const waitUntil = async (label: string, deadlineMs: number, predicate: () => Promise<boolean>) => {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise<void>(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+};
+
+/**
+ * Loopback TCP proxy in front of the disposable PostgreSQL cluster. It
+ * forwards both directions until the test drops only server -> client bytes,
+ * leaving a fully connected real backend that never answers the client while
+ * requests keep reaching it. The exact in-flight query is confirmed through
+ * pg_stat_activity before responses are lost. It can also withhold only the
+ * first connection's responses once its real BEGIN query was forwarded, so
+ * that one backend stays open while every later connection is untouched.
+ */
+async function createAuditTransportProxy(upstreamPort: number) {
+  type Pair = {
+    client: Socket; upstream: Socket;
+    withholdServerBytes: boolean;
+    pending: Buffer;
+    startupDone: boolean;
+  };
+  // Complete simple-query frame for BEGIN: type Q, length 10, "BEGIN\0".
+  const beginQuery = Buffer.from("\x51\x00\x00\x00\x0aBEGIN\x00", "latin1");
+  const pairs = new Set<Pair>();
+  let dropServerBytes = false;
+  let anyClientClosed = false;
+  let stallFirstBegin = false;
+  let firstBeginForwarded = false;
+  const closeWaiters = new Set<() => void>();
+  const observeClientBytes = (pair: Pair, chunk: Buffer) => {
+    if (!stallFirstBegin || firstBeginForwarded) return;
+    pair.pending = pair.pending.length ? Buffer.concat([pair.pending, chunk]) : chunk;
+    if (!pair.startupDone) {
+      if (pair.pending.length < 4) return;
+      const startupLength = pair.pending.readUInt32BE(0);
+      // Consume the whole length-prefixed startup packet first, so its payload
+      // can never be mistaken for a query and BEGIN is only seen after the
+      // connection was established.
+      if (startupLength < 8 || pair.pending.length < startupLength) return;
+      pair.pending = pair.pending.subarray(startupLength);
+      pair.startupDone = true;
+    }
+    if (!pair.pending.includes(beginQuery)) {
+      const keep = beginQuery.length - 1;
+      if (pair.pending.length > keep) pair.pending = pair.pending.subarray(pair.pending.length - keep);
+      return;
+    }
+    // The BEGIN frame was already written upstream by the caller; withhold
+    // only this connection's responses so the real backend remains in BEGIN.
+    pair.withholdServerBytes = true;
+    firstBeginForwarded = true;
+  };
+  const server = createServer(client => {
+    const upstream = connect(upstreamPort, "127.0.0.1");
+    const pair: Pair = { client, upstream, withholdServerBytes: false, pending: Buffer.alloc(0), startupDone: false };
+    pairs.add(pair);
+    client.on("data", (chunk: Buffer) => {
+      if (upstream.writable) upstream.write(chunk);
+      observeClientBytes(pair, chunk);
+    });
+    upstream.on("data", (chunk: Buffer) => {
+      if (!dropServerBytes && !pair.withholdServerBytes && client.writable) client.write(chunk);
+    });
+    client.on("error", () => { upstream.destroy(); client.destroy(); });
+    upstream.on("error", () => { client.destroy(); upstream.destroy(); });
+    upstream.on("close", () => { pairs.delete(pair); client.destroy(); });
+    client.on("close", () => {
+      pairs.delete(pair);
+      upstream.destroy();
+      anyClientClosed = true;
+      for (const resolve of closeWaiters) resolve();
+      closeWaiters.clear();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing audit transport proxy port");
+  const destroyConnections = () => {
+    for (const pair of [...pairs]) {
+      pairs.delete(pair);
+      pair.client.destroy();
+      pair.upstream.destroy();
+    }
+  };
+  return {
+    port: address.port,
+    url: (name: string) => {
+      const url = new URL(`postgresql://127.0.0.1:${address.port}/${name}`);
+      url.username = userInfo().username;
+      return url.toString();
+    },
+    waitForClientClose: () => anyClientClosed
+      ? Promise.resolve()
+      : new Promise<void>(resolve => { closeWaiters.add(resolve); }),
+    dropServerBytes: () => { dropServerBytes = true; },
+    stallFirstBegin: () => { stallFirstBegin = true; },
+    firstBeginForwarded: () => firstBeginForwarded,
+    destroyConnections,
+    activeConnections: () => pairs.size,
+    close: async () => {
+      destroyConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    },
+  };
+}
 let pgStarted = false;
 const redis = await createRedisFixture();
 let db: ReturnType<typeof createPrismaClient> | undefined;
+let auditDb: ReturnType<typeof createPrismaClient> | undefined;
 try {
   await execute("initdb", ["-D", data, "--auth=trust", "--encoding=UTF8", "--no-locale"], { timeout: 30_000 });
   await execute("pg_ctl", [
@@ -90,6 +213,7 @@ try {
     env: { ...process.env, DATABASE_URL: databaseUrl("computer_control") },
   });
   db = createPrismaClient(databaseUrl("computer_control"));
+  auditDb = createDesktopComputerPauseAuditClient(databaseUrl("computer_control"));
 
   const owner = await db.user.create({
     data: { email: "computer-owner@example.test", name: "Owner", role: "user", status: "active" },
@@ -796,6 +920,7 @@ try {
   assert.equal((await store.read(pending.scope))?.pendingInput?.holderId, pendingHolder);
   await redis.client.del(localComputerGuiOccupancyKey(device.id));
   transportCalls.length = 0;
+  const pauseReceipts: DesktopComputerPauseReceipt[] = [];
   const pauseResult = await computerControl.handle({
     ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
     verifyCredential: async () => true,
@@ -806,7 +931,8 @@ try {
         turn_id: pending.scope.turnId, selection_id: pending.selection.selectionId,
       },
     },
-  });
+    onPauseAcknowledged: receipt => { pauseReceipts.push(receipt); },
+  }, () => true);
   assert.equal(pauseResult.ok, true);
   if (!pauseResult.ok) throw new Error("pause failed");
   assert.equal(pauseResult.data.state, "paused");
@@ -815,7 +941,673 @@ try {
   }]);
   assert.equal((await store.read(pending.scope))?.pendingInput, null);
   assert.equal(await redis.client.exists(localComputerGuiOccupancyKey(device.id)), 0);
+  const pendingPaused = await store.read(pending.scope);
+  assert.equal(pendingPaused?.state, "paused");
+  assert.equal(pauseReceipts.length, 1);
+  const pauseReceipt = pauseReceipts[0]!;
+  assert.equal(pauseReceipt.ownerId, owner.id);
+  assert.equal(pauseReceipt.sessionId, pending.selection.sessionId);
+  assert.equal(pauseReceipt.selectionId, pending.selection.selectionId);
+  assert.equal(pauseReceipt.controlEpoch, pendingPaused?.controlEpoch);
+  assert.ok(pauseReceipt.acknowledgedAt instanceof Date);
+  // Only an accepted positive Pause reply reaches the audit writer; the row is
+  // idempotent by its existing primary key and carries no metadata.
+  assert.equal(await db.auditLog.count({ where: { action: "computer_session_paused" } }), 0);
+  await recordDesktopComputerPauseAudit(auditDb, pauseReceipt);
+  await recordDesktopComputerPauseAudit(auditDb, pauseReceipt);
+  const pauseRows = await db.auditLog.findMany({ where: { action: "computer_session_paused" } });
+  assert.equal(pauseRows.length, 1, "a repeated Pause audit write stays one row");
+  const [pauseRow] = pauseRows;
+  if (!pauseRow) throw new Error("pause audit row missing");
+  assert.equal(pauseRow.id, desktopComputerPauseAuditId(pauseReceipt));
+  assert.equal(pauseRow.actorId, owner.id);
+  assert.equal(pauseRow.action, "computer_session_paused");
+  assert.equal(pauseRow.targetType, "local_computer_session");
+  assert.equal(pauseRow.targetId, pending.selection.sessionId);
+  assert.equal(pauseRow.result, "success");
+  assert.deepEqual(pauseRow.metadataJson, {});
+  assert.equal(pauseRow.createdAt.getTime(), pauseReceipt.acknowledgedAt.getTime(),
+    "the row time is the accepted reply time, not the asynchronous insert order");
+  assert.equal(pauseRow.ipAddress, null);
+  assert.equal(pauseRow.userAgent, null);
+  assert.equal(JSON.stringify(pauseRow).includes(bundleId), false);
+  assert.equal(JSON.stringify(pauseRow).includes(pending.selection.selectionId), false);
+
+  // A duplicate Pause with a fresh request id is idempotent and maps to the
+  // same trusted generation, so the database keeps the one existing row.
+  const repeatedPause = await computerControl.handle({
+    ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+    verifyCredential: async () => true,
+    frame: {
+      type: "computer.control", id: randomUUID(),
+      body: {
+        action: "pause", conversation_id: pending.scope.conversationId,
+        turn_id: pending.scope.turnId, selection_id: pending.selection.selectionId,
+      },
+    },
+    onPauseAcknowledged: receipt => { pauseReceipts.push(receipt); },
+  }, () => true);
+  assert.equal(repeatedPause.ok, true);
+  assert.equal(pauseReceipts.length, 2);
+  assert.equal(desktopComputerPauseAuditId(pauseReceipts[1]!), desktopComputerPauseAuditId(pauseReceipt));
+  assert.equal(pauseReceipts[1]!.controlEpoch, pauseReceipt.controlEpoch);
+  await recordDesktopComputerPauseAudit(auditDb, pauseReceipts[1]!);
+  assert.equal(await db.auditLog.count({ where: { action: "computer_session_paused" } }), 1);
+
+  // A native quiesce failure is not a Pause: no receipt and no success row.
+  const failedPause = await runTurn();
+  const failedPauseHolder = await putHolder(failedPause.scope, failedPause.selection);
+  const failingControl = new DesktopComputerControl({
+    ...hostOptions,
+    transport: {
+      connection: hostOptions.transport.connection,
+      send: async (_binding, command) => desktopExecutionResultSchema.parse({
+        type: "command.result", id: command.id, operation: "computer.execute", ok: false,
+        error_code: "COMPUTER_ACTION_FAILED",
+      }),
+    },
+  });
+  const failedPauseReceipts: DesktopComputerPauseReceipt[] = [];
+  const failedPauseResult = await failingControl.handle({
+    ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+    verifyCredential: async () => true,
+    frame: {
+      type: "computer.control", id: randomUUID(),
+      body: {
+        action: "pause", conversation_id: failedPause.scope.conversationId,
+        turn_id: failedPause.scope.turnId, selection_id: failedPause.selection.selectionId,
+      },
+    },
+    onPauseAcknowledged: receipt => { failedPauseReceipts.push(receipt); },
+  }, () => true);
+  assert.equal(failedPauseResult.ok, false);
+  assert.equal(failedPauseReceipts.length, 0);
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: failedPause.selection.sessionId },
+  }), 0);
+  assert.equal((await occupancy.read(device.id))?.holderId, failedPauseHolder);
+  await otherReplica.revokeScope(failedPause.scope);
+
+  // A credential that goes stale before the final reply recheck suppresses the
+  // acknowledgement and therefore the success row.
+  const stalePause = await runTurn();
+  const stalePauseReceipts: DesktopComputerPauseReceipt[] = [];
+  let staleCredentialChecks = 0;
+  const stalePauseResult = await computerControl.handle({
+    ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+    verifyCredential: async () => ++staleCredentialChecks < 2,
+    frame: {
+      type: "computer.control", id: randomUUID(),
+      body: {
+        action: "pause", conversation_id: stalePause.scope.conversationId,
+        turn_id: stalePause.scope.turnId, selection_id: stalePause.selection.selectionId,
+      },
+    },
+    onPauseAcknowledged: receipt => { stalePauseReceipts.push(receipt); },
+  }, () => true);
+  assert.equal(stalePauseResult.ok, false);
+  assert.equal(staleCredentialChecks, 2);
+  assert.equal(stalePauseReceipts.length, 0);
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: stalePause.selection.sessionId },
+  }), 0);
+  await otherReplica.revokeScope(stalePause.scope);
   await otherReplica.revokeTurn(pending.turn.id);
+
+  // Only explicit receiver acceptance is a Pause claim. An absent delivery
+  // continuation keeps the existing successful reply but publishes no receipt;
+  // a refused continuation fails the reply and likewise publishes none.
+  const absentDeliveryRun = await runTurn();
+  const absentDeliveryReceipts: DesktopComputerPauseReceipt[] = [];
+  const absentDeliveryResult = await computerControl.handle({
+    ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+    verifyCredential: async () => true,
+    frame: {
+      type: "computer.control", id: randomUUID(),
+      body: {
+        action: "pause", conversation_id: absentDeliveryRun.scope.conversationId,
+        turn_id: absentDeliveryRun.scope.turnId, selection_id: absentDeliveryRun.selection.selectionId,
+      },
+    },
+    onPauseAcknowledged: receipt => { absentDeliveryReceipts.push(receipt); },
+  });
+  assert.equal(absentDeliveryResult.ok, true);
+  assert.equal(absentDeliveryReceipts.length, 0);
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: absentDeliveryRun.selection.sessionId },
+  }), 0);
+  await otherReplica.revokeScope(absentDeliveryRun.scope);
+
+  const refusedDeliveryRun = await runTurn();
+  const refusedDeliveryReceipts: DesktopComputerPauseReceipt[] = [];
+  const refusedDeliveryResult = await computerControl.handle({
+    ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+    verifyCredential: async () => true,
+    frame: {
+      type: "computer.control", id: randomUUID(),
+      body: {
+        action: "pause", conversation_id: refusedDeliveryRun.scope.conversationId,
+        turn_id: refusedDeliveryRun.scope.turnId, selection_id: refusedDeliveryRun.selection.selectionId,
+      },
+    },
+    onPauseAcknowledged: receipt => { refusedDeliveryReceipts.push(receipt); },
+  }, () => false);
+  assert.equal(refusedDeliveryResult.ok, false);
+  assert.equal(refusedDeliveryReceipts.length, 0);
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: refusedDeliveryRun.selection.sessionId },
+  }), 0);
+  await otherReplica.revokeScope(refusedDeliveryRun.scope);
+
+  // The server-controlled control epoch separates repeated valid cycles through
+  // the same native selection id. Each true paused->active resume rotates it,
+  // so A -> Pause(A) -> Resume(B) -> Pause(B) -> Resume(A) -> Pause(A) is three
+  // claims, while an idempotent repeat of the live paused generation stays one.
+  const identityRun = await runTurn();
+  const identityA = identityRun.selection.selectionId;
+  const identityB = randomUUID();
+  const pauseOnce = async (selectionId: string) => {
+    const paused = await store.pause({ scope: identityRun.scope, selectionId });
+    return paused.state === "paused"
+      ? paused
+      : await store.confirmPause({ scope: identityRun.scope, selection: paused });
+  };
+  const identityReceipt = (selection: DesktopComputerSelection): DesktopComputerPauseReceipt => ({
+    ownerId: owner.id, sessionId: selection.sessionId, selectionId: selection.selectionId,
+    controlEpoch: selection.controlEpoch, acknowledgedAt: new Date(),
+  });
+  const pausedIdentityA = await pauseOnce(identityA);
+  const firstPauseReceipt = identityReceipt(pausedIdentityA);
+  const resumedIdentityB = await store.resume({
+    scope: identityRun.scope, selectionId: identityA, newSelectionId: identityB,
+  });
+  assert.notEqual(resumedIdentityB.controlEpoch, pausedIdentityA.controlEpoch,
+    "a true paused->active resume rotates the server control epoch");
+  const pausedIdentityB = await pauseOnce(identityB);
+  const resumedIdentityA = await store.resume({
+    scope: identityRun.scope, selectionId: identityB, newSelectionId: identityA,
+  });
+  assert.notEqual(resumedIdentityA.controlEpoch, resumedIdentityB.controlEpoch);
+  const pausedIdentityAgain = await pauseOnce(identityA);
+  const secondPauseReceipt = identityReceipt(pausedIdentityB);
+  const thirdPauseReceipt = identityReceipt(pausedIdentityAgain);
+  assert.notEqual(
+    desktopComputerPauseAuditId(secondPauseReceipt), desktopComputerPauseAuditId(firstPauseReceipt),
+    "pausing B after resuming from A is a separate claim",
+  );
+  assert.notEqual(
+    desktopComputerPauseAuditId(thirdPauseReceipt), desktopComputerPauseAuditId(firstPauseReceipt),
+    "pausing A again after resuming back from B is a separate claim",
+  );
+  await recordDesktopComputerPauseAudit(auditDb, firstPauseReceipt);
+  await recordDesktopComputerPauseAudit(auditDb, secondPauseReceipt);
+  await recordDesktopComputerPauseAudit(auditDb, thirdPauseReceipt);
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: identityRun.selection.sessionId },
+  }), 3);
+  // A repeat of the exact live paused generation is not a new claim.
+  const repeatedIdentityPause = await pauseOnce(identityA);
+  assert.equal(repeatedIdentityPause.controlEpoch, pausedIdentityAgain.controlEpoch);
+  await recordDesktopComputerPauseAudit(auditDb, identityReceipt(repeatedIdentityPause));
+  assert.equal(await db.auditLog.count({
+    where: { action: "computer_session_paused", targetId: identityRun.selection.sessionId },
+  }), 3);
+  await otherReplica.revokeScope(identityRun.scope);
+
+  // A real competing transaction holds the exact deterministic PAUSE audit
+  // primary key. The writer's PostgreSQL statement timeout must reject it while
+  // that transaction is still open and leave no committed row, and an unrelated
+  // exact Stop (which writes its own audit row in the same table) must still
+  // settle without waiting for this PAUSE row.
+  const lockedRun = await runTurn();
+  await store.pause({ scope: lockedRun.scope, selectionId: lockedRun.selection.selectionId });
+  const lockedPausedSelection = await store.confirmPause({
+    scope: lockedRun.scope, selection: (await store.read(lockedRun.scope))!,
+  });
+  const lockedReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: lockedPausedSelection.sessionId,
+    selectionId: lockedPausedSelection.selectionId,
+    controlEpoch: lockedPausedSelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const lockedAuditId = desktopComputerPauseAuditId(lockedReceipt);
+  let releaseLockedRow!: () => void;
+  const lockedRowHeld = new Promise<void>(resolve => { releaseLockedRow = resolve; });
+  let lockedRowInserted = false;
+  const lockingTransaction = db.$transaction(async tx => {
+    await tx.auditLog.create({
+      data: {
+        id: lockedAuditId, actorId: owner.id, action: "computer_session_paused",
+        targetType: "local_computer_session", targetId: lockedPausedSelection.sessionId,
+        result: "success", metadataJson: {},
+      },
+    });
+    lockedRowInserted = true;
+    await lockedRowHeld;
+    // Roll back the exact held row; the writer must have given up first.
+    throw new Error("pause audit lock fixture rollback");
+  }, { maxWait: 5_000, timeout: 30_000 }).catch(() => undefined);
+  await waitUntil("the locked audit row to be inserted", 5_000, async () => lockedRowInserted);
+  const settleOutcome = (promise: Promise<unknown>, ms: number): Promise<"settled" | "timeout"> => {
+    let timer: NodeJS.Timeout | undefined;
+    return Promise.race([
+      promise.then(() => "settled" as const, () => "settled" as const),
+      new Promise<"timeout">(resolve => { timer = setTimeout(() => resolve("timeout"), ms); }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
+  };
+  let lockedWriter: Promise<void> | undefined;
+  try {
+    let rejection: unknown;
+    lockedWriter = recordDesktopComputerPauseAudit(auditDb, lockedReceipt).catch(error => {
+      rejection = error;
+    });
+    assert.equal(
+      await settleOutcome(lockedWriter!, 5_000), "settled",
+      "the blocked Pause audit insert must settle inside its DB timeout",
+    );
+    assert.ok(rejection instanceof Error, "the blocked Pause audit insert must reject");
+    assert.match(rejection.message, /57014/,
+      "the dedicated audit client's PostgreSQL statement timeout aborted the blocked insert");
+    assert.equal(await db.auditLog.count({ where: { id: lockedAuditId } }), 0,
+      "a rejected blocked insert leaves no committed row");
+
+    const stopWhilePauseRowLocked = await computerControl.handle({
+      ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+      verifyCredential: async () => true,
+      frame: {
+        type: "computer.control", id: randomUUID(),
+        body: {
+          action: "stop", conversation_id: lockedRun.scope.conversationId,
+          turn_id: lockedRun.scope.turnId, selection_id: lockedPausedSelection.selectionId,
+        },
+      },
+    }, () => true);
+    assert.equal(stopWhilePauseRowLocked.ok, true, "an unrelated exact Stop must settle");
+    if (!stopWhilePauseRowLocked.ok) throw new Error("stop while the Pause row was locked failed");
+    assert.equal(stopWhilePauseRowLocked.data.state, "stopped");
+    assert.equal(await db.auditLog.count({
+      where: { action: "computer_session_stopped", targetId: lockedPausedSelection.sessionId },
+    }), 1);
+  } finally {
+    releaseLockedRow();
+    await lockingTransaction;
+    if (lockedWriter) await lockedWriter;
+  }
+  assert.equal(await db.auditLog.count({ where: { id: lockedAuditId } }), 0,
+    "the rolled-back fixture row never appears");
+  await otherReplica.revokeScope(lockedRun.scope);
+
+  // The dedicated audit client has one real pg connection. While that
+  // connection is held, a second Pause write must fail from the driver's
+  // connectionTimeoutMillis, before Prisma's longer maxWait, and remove its
+  // waiter. The shared application pool is independent, so the exact Stop
+  // still settles and the failed acquire can never write its row later.
+  const acquisitionRun = await runTurn();
+  await store.pause({ scope: acquisitionRun.scope, selectionId: acquisitionRun.selection.selectionId });
+  const acquisitionSelection = await store.confirmPause({
+    scope: acquisitionRun.scope, selection: (await store.read(acquisitionRun.scope))!,
+  });
+  const acquisitionReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: acquisitionSelection.sessionId,
+    selectionId: acquisitionSelection.selectionId,
+    controlEpoch: acquisitionSelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const acquisitionAuditId = desktopComputerPauseAuditId(acquisitionReceipt);
+  const acquisitionAuditFactory = new PrismaPg({
+    connectionString: databaseUrl("computer_control"),
+    ...desktopComputerPauseAuditPoolConfig,
+  });
+  // Reuse the adapter's own typed pg pool; pg types are only a transitive
+  // dependency of the adapter, not an API test dependency.
+  const acquisitionAuditAdapter = await acquisitionAuditFactory.connect();
+  const acquisitionAuditPool = acquisitionAuditAdapter.underlyingDriver();
+  const acquisitionAuditDb = new PrismaClient({
+    adapter: {
+      provider: acquisitionAuditFactory.provider,
+      adapterName: acquisitionAuditFactory.adapterName,
+      connect: async () => acquisitionAuditAdapter,
+    },
+    log: [],
+  });
+  let releaseAuditConnection!: () => void;
+  const auditConnectionHeld = new Promise<void>(resolve => { releaseAuditConnection = resolve; });
+  let auditConnectionReady!: () => void;
+  const auditConnectionReadyPromise = new Promise<void>(resolve => { auditConnectionReady = resolve; });
+  let holdOpen = true;
+  const holdingTransaction = acquisitionAuditDb.$transaction(async tx => {
+    await tx.$queryRawUnsafe("SELECT 1");
+    auditConnectionReady();
+    await auditConnectionHeld;
+  }, { maxWait: 5_000, timeout: 30_000 }).finally(() => { holdOpen = false; });
+  try {
+    await auditConnectionReadyPromise;
+    assert.equal(acquisitionAuditPool.totalCount, 1);
+    assert.equal(acquisitionAuditPool.waitingCount, 0);
+    let acquisitionRejection: unknown;
+    const acquisitionWriter = recordDesktopComputerPauseAudit(acquisitionAuditDb, acquisitionReceipt)
+      .catch(error => { acquisitionRejection = error; });
+    assert.equal(
+      await settleOutcome(acquisitionWriter, 5_000), "settled",
+      "the queued audit acquire must settle while its only connection is held",
+    );
+    assert.equal(holdOpen, true, "the audit connection was still held when the writer rejected");
+    assert.ok(acquisitionRejection instanceof Error, "the queued audit acquire must reject");
+    assert.match(acquisitionRejection.message, /timeout exceeded when trying to connect/,
+      "the driver acquisition timeout, not Prisma's maxWait, rejects the queued writer");
+    assert.equal(acquisitionAuditPool.waitingCount, 0,
+      "the driver removed the timed-out waiter instead of leaving an orphan acquire");
+    assert.equal(acquisitionAuditPool.idleCount, 0);
+
+    const stopWhileAuditHeld = await computerControl.handle({
+      ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+      verifyCredential: async () => true,
+      frame: {
+        type: "computer.control", id: randomUUID(),
+        body: {
+          action: "stop", conversation_id: acquisitionRun.scope.conversationId,
+          turn_id: acquisitionRun.scope.turnId, selection_id: acquisitionSelection.selectionId,
+        },
+      },
+    }, () => true);
+    assert.equal(stopWhileAuditHeld.ok, true, "the shared pool still serves the exact Stop");
+    if (!stopWhileAuditHeld.ok) throw new Error("stop while the audit connection was held failed");
+    assert.equal(stopWhileAuditHeld.data.state, "stopped");
+    assert.equal(await db.auditLog.count({
+      where: { action: "computer_session_stopped", targetId: acquisitionSelection.sessionId },
+    }), 1);
+
+    // Releasing the held connection must not wake a queued writer or insert
+    // the deterministic Pause row after its acquisition already timed out.
+    releaseAuditConnection();
+    releaseAuditConnection = () => {};
+    await holdingTransaction;
+    await new Promise<void>(resolve => setTimeout(resolve, 750));
+    assert.equal(acquisitionAuditPool.waitingCount, 0);
+    assert.equal(await db.auditLog.count({ where: { id: acquisitionAuditId } }), 0,
+      "a timed-out acquire never writes the Pause row later");
+  } finally {
+    releaseAuditConnection();
+    await holdingTransaction.catch(() => undefined);
+    await acquisitionAuditDb.$disconnect().catch(() => undefined);
+    await acquisitionAuditPool.end().catch(() => undefined);
+  }
+  await otherReplica.revokeScope(acquisitionRun.scope);
+
+  // DATABASE_URL can disable the server-side statement timeout at session
+  // scope: pg 8.23.1 parses the connection string after the pool config, and
+  // startup options can also carry `-c statement_timeout=0`. The writer must
+  // set its own short timeout on the transaction so the blocked INSERT still
+  // aborts while the exact audit primary key is locked.
+  const hostileRun = await runTurn();
+  await store.pause({ scope: hostileRun.scope, selectionId: hostileRun.selection.selectionId });
+  const hostileSelection = await store.confirmPause({
+    scope: hostileRun.scope, selection: (await store.read(hostileRun.scope))!,
+  });
+  const hostileReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: hostileSelection.sessionId,
+    selectionId: hostileSelection.selectionId,
+    controlEpoch: hostileSelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const hostileAuditId = desktopComputerPauseAuditId(hostileReceipt);
+  const hostileUrl = new URL(databaseUrl("computer_control"));
+  hostileUrl.searchParams.set("statement_timeout", "0");
+  hostileUrl.searchParams.set("options", "-c statement_timeout=0");
+  const hostileAuditDb = createDesktopComputerPauseAuditClient(hostileUrl.toString());
+  let releaseHostileRow!: () => void;
+  const hostileRowHeld = new Promise<void>(resolve => { releaseHostileRow = resolve; });
+  let hostileRowInserted = false;
+  const hostileLocking = db.$transaction(async tx => {
+    await tx.auditLog.create({
+      data: {
+        id: hostileAuditId, actorId: owner.id, action: "computer_session_paused",
+        targetType: "local_computer_session", targetId: hostileSelection.sessionId,
+        result: "success", metadataJson: {},
+      },
+    });
+    hostileRowInserted = true;
+    await hostileRowHeld;
+    throw new Error("hostile statement timeout fixture rollback");
+  }, { maxWait: 5_000, timeout: 30_000 }).catch(() => undefined);
+  let hostileWriter: Promise<void> | undefined;
+  try {
+    const sessionTimeout = await hostileAuditDb.$queryRaw<Array<{ timeout: string }>>`
+      SELECT current_setting('statement_timeout') AS timeout`;
+    assert.equal(sessionTimeout[0]?.timeout, "0",
+      "the hostile connection URL disables the session-level statement timeout");
+    await waitUntil("the hostile audit row to be inserted", 5_000, async () => hostileRowInserted);
+    let rejection: unknown;
+    hostileWriter = recordDesktopComputerPauseAudit(hostileAuditDb, hostileReceipt)
+      .catch(error => { rejection = error; });
+    assert.equal(await settleOutcome(hostileWriter, 5_000), "settled",
+      "the blocked Pause audit insert settles despite the disabled session statement timeout");
+    assert.ok(rejection instanceof Error, "the blocked Pause audit insert must reject");
+    assert.match(rejection.message, /57014/,
+      "the transaction-local statement timeout aborted the blocked insert while the row was locked");
+    assert.equal(await db.auditLog.count({ where: { id: hostileAuditId } }), 0,
+      "a rejected blocked insert leaves no committed row");
+  } finally {
+    releaseHostileRow();
+    await hostileLocking;
+    if (hostileWriter) await settleOutcome(hostileWriter.catch(() => undefined), 3_000);
+    await settleOutcome(hostileAuditDb.$disconnect().catch(() => undefined), 3_000);
+  }
+  await otherReplica.revokeScope(hostileRun.scope);
+
+  // A connected but silent server must not keep the Pause audit writer, its
+  // pg connection, or Prisma shutdown pending. The loopback proxy forwards the
+  // request to the real disposable PostgreSQL; pg_stat_activity proves the
+  // exact audit INSERT is waiting on the held row before only its responses
+  // are dropped.
+  const silentRun = await runTurn();
+  await store.pause({ scope: silentRun.scope, selectionId: silentRun.selection.selectionId });
+  const silentSelection = await store.confirmPause({
+    scope: silentRun.scope, selection: (await store.read(silentRun.scope))!,
+  });
+  const silentReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: silentSelection.sessionId,
+    selectionId: silentSelection.selectionId,
+    controlEpoch: silentSelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const silentAuditId = desktopComputerPauseAuditId(silentReceipt);
+  const auditSessionPids = async () => new Set(
+    (await db!.$queryRaw<Array<{ pid: number }>>`
+      SELECT pid FROM pg_stat_activity
+      WHERE application_name = ${desktopComputerPauseAuditPoolConfig.application_name}`)
+      .map(row => Number(row.pid)),
+  );
+  const baselineAuditPids = await auditSessionPids();
+  let releaseSilentRow!: () => void;
+  const silentRowHeld = new Promise<void>(resolve => { releaseSilentRow = resolve; });
+  let silentRowInserted = false;
+  const silentLocking = db.$transaction(async tx => {
+    await tx.auditLog.create({
+      data: {
+        id: silentAuditId, actorId: owner.id, action: "computer_session_paused",
+        targetType: "local_computer_session", targetId: silentSelection.sessionId,
+        result: "success", metadataJson: {},
+      },
+    });
+    silentRowInserted = true;
+    await silentRowHeld;
+    throw new Error("silent transport fixture rollback");
+  }, { maxWait: 5_000, timeout: 30_000 }).catch(() => undefined);
+  await waitUntil("the silent audit row to be inserted", 5_000, async () => silentRowInserted);
+  const proxy = await createAuditTransportProxy(port);
+  const transportAuditDb = createDesktopComputerPauseAuditClient(proxy.url("computer_control"));
+  let silentWriter: Promise<void> | undefined;
+  let silentRejection: unknown;
+  try {
+    silentWriter = recordDesktopComputerPauseAudit(transportAuditDb, silentReceipt)
+      .catch(error => { silentRejection = error; });
+    // Positive signal only: the real backend must show the exact INSERT
+    // waiting on the held audit row in pg_stat_activity before responses drop.
+    await waitUntil("the audit INSERT to wait on the held audit row", 5_000, async () => {
+      const active = await db!.$queryRaw<Array<{ wait_event_type: string | null; query: string }>>`
+        SELECT wait_event_type, query FROM pg_stat_activity
+        WHERE application_name = ${desktopComputerPauseAuditPoolConfig.application_name}
+          AND state = 'active'`;
+      return active.some(row =>
+        row.wait_event_type === "Lock" && String(row.query).includes("audit_logs"));
+    });
+    // The INSERT is provably in flight on the real server. Lose only the
+    // responses; requests and the server-side query keep going.
+    proxy.dropServerBytes();
+
+    // The ordinary shared pool is independent: the exact Stop still settles
+    // and writes its own audit row while the Pause audit transport is silent.
+    const stopDuringSilence = await computerControl.handle({
+      ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+      verifyCredential: async () => true,
+      frame: {
+        type: "computer.control", id: randomUUID(),
+        body: {
+          action: "stop", conversation_id: silentRun.scope.conversationId,
+          turn_id: silentRun.scope.turnId, selection_id: silentSelection.selectionId,
+        },
+      },
+    }, () => true);
+    assert.equal(stopDuringSilence.ok, true, "the shared pool still serves the exact Stop");
+    if (!stopDuringSilence.ok) throw new Error("stop during the silent audit transport failed");
+    assert.equal(stopDuringSilence.data.state, "stopped");
+    assert.equal(await db.auditLog.count({
+      where: { action: "computer_session_stopped", targetId: silentSelection.sessionId },
+    }), 1);
+
+    // The transport deadline destroys the actual socket, so the pending write
+    // rejects and the pool/Prisma closure finishes without an outer timeout.
+    assert.equal(await settleOutcome(silentWriter, 6_000), "settled",
+      "a silent server must not keep the Pause audit writer pending");
+    assert.ok(silentRejection instanceof Error, "the silent Pause audit write must reject");
+    assert.equal(await settleOutcome(proxy.waitForClientClose(), 3_000), "settled",
+      "the dedicated audit transport's actual socket closes");
+    // settleOutcome maps rejection to "settled"; require the disconnect itself
+    // to fulfill within the same deadline.
+    const auditClientClosed = transportAuditDb.$disconnect();
+    assert.equal(await settleOutcome(auditClientClosed, 5_000), "settled",
+      "the dedicated audit client closes after the transport deadline");
+    await auditClientClosed;
+    assert.equal(proxy.activeConnections(), 0,
+      "the fixture proxy observes no leaked audit connection before force cleanup");
+  } finally {
+    // Fixture-only deadline: never let a broken candidate hang the white-box.
+    proxy.destroyConnections();
+    releaseSilentRow();
+    await silentLocking;
+    if (silentWriter) await settleOutcome(silentWriter.catch(() => undefined), 3_000);
+    await settleOutcome(transportAuditDb.$disconnect().catch(() => undefined), 5_000);
+    await proxy.close();
+  }
+  assert.equal(await db.auditLog.count({ where: { id: silentAuditId } }), 0,
+    "the transport-killed Pause audit left no committed row");
+  // A healthy writer retries the deterministic key and records it exactly once.
+  await recordDesktopComputerPauseAudit(auditDb, silentReceipt);
+  assert.equal(await db.auditLog.count({ where: { id: silentAuditId } }), 1,
+    "a later healthy write records the same Pause generation exactly once");
+  await waitUntil("the killed audit sessions to be reaped", 5_000, async () => {
+    const current = await auditSessionPids();
+    return [...current].every(pid => baselineAuditPids.has(pid));
+  });
+  await otherReplica.revokeScope(silentRun.scope);
+
+  // Prisma 7.10.1 starts the acquisition maxWait timer before the pg adapter
+  // sends BEGIN. A server that accepts the connection and then stalls only
+  // that BEGIN must not make Prisma reject before the dedicated transport
+  // deadline releases the checked-out connection: with the route's serialized
+  // admission, the next accepted receipt would start while the old checkout
+  // still occupies the one-connection pool and lose pg-pool's own 500 ms
+  // acquisition timeout. The proxy forwards the real BEGIN and withholds only
+  // that connection's responses; a distinct second receipt must still commit.
+  const stalledRun = await runTurn();
+  await store.pause({ scope: stalledRun.scope, selectionId: stalledRun.selection.selectionId });
+  const stalledSelection = await store.confirmPause({
+    scope: stalledRun.scope, selection: (await store.read(stalledRun.scope))!,
+  });
+  const stalledReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: stalledSelection.sessionId,
+    selectionId: stalledSelection.selectionId,
+    controlEpoch: stalledSelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const healthyRun = await runTurn();
+  await store.pause({ scope: healthyRun.scope, selectionId: healthyRun.selection.selectionId });
+  const healthySelection = await store.confirmPause({
+    scope: healthyRun.scope, selection: (await store.read(healthyRun.scope))!,
+  });
+  const healthyReceipt: DesktopComputerPauseReceipt = {
+    ownerId: owner.id, sessionId: healthySelection.sessionId,
+    selectionId: healthySelection.selectionId,
+    controlEpoch: healthySelection.controlEpoch, acknowledgedAt: new Date(),
+  };
+  const stalledAuditId = desktopComputerPauseAuditId(stalledReceipt);
+  const healthyAuditId = desktopComputerPauseAuditId(healthyReceipt);
+  assert.notEqual(stalledAuditId, healthyAuditId,
+    "the two accepted Pause receipts have distinct audit identities");
+  const admissionProxy = await createAuditTransportProxy(port);
+  const admissionAuditDb = createDesktopComputerPauseAuditClient(admissionProxy.url("computer_control"));
+  const admissionBaselinePids = await auditSessionPids();
+  // The route admits Pause audits through pLimit(1); reuse that exact
+  // serialization so the second write starts only when the first settles.
+  const admission = pLimit(1);
+  let stalledRejection: unknown;
+  let healthyRejection: unknown;
+  let stalledPid: number | undefined;
+  let stalledWriter: Promise<void> | undefined;
+  let healthyWriter: Promise<void> | undefined;
+  try {
+    admissionProxy.stallFirstBegin();
+    stalledWriter = admission(() => recordDesktopComputerPauseAudit(admissionAuditDb, stalledReceipt))
+      .catch(error => { stalledRejection = error; });
+    healthyWriter = admission(() => recordDesktopComputerPauseAudit(admissionAuditDb, healthyReceipt))
+      .catch(error => { healthyRejection = error; });
+    // Positive, bounded fixture synchronization: the proxy forwarded the exact
+    // BEGIN, and the real backend is idle inside that open transaction.
+    await waitUntil("the proxy to forward the audit BEGIN", 5_000, async () =>
+      admissionProxy.firstBeginForwarded());
+    await waitUntil("the audit BEGIN to reach the real backend", 5_000, async () => {
+      const rows = await db!.$queryRaw<Array<{ pid: number }>>`
+        SELECT pid FROM pg_stat_activity
+        WHERE application_name = ${desktopComputerPauseAuditPoolConfig.application_name}
+          AND state = 'idle in transaction' AND query = 'BEGIN'`;
+      stalledPid = rows.map(row => Number(row.pid)).find(pid => !admissionBaselinePids.has(pid));
+      return stalledPid !== undefined;
+    });
+    assert.equal(await settleOutcome(stalledWriter, 6_000), "settled",
+      "the stalled BEGIN settles within the transport deadline");
+    assert.ok(stalledRejection instanceof Error, "the stalled BEGIN write must reject");
+    assert.equal(await settleOutcome(healthyWriter, 6_000), "settled",
+      "the next admitted healthy receipt settles");
+    assert.equal(healthyRejection, undefined,
+      "the next admitted write must not fail on the old checkout's acquisition");
+    assert.equal(await db.auditLog.count({ where: { id: stalledAuditId } }), 0,
+      "the stalled BEGIN never committed a row");
+    const healthyRows = await db.auditLog.findMany({ where: { id: healthyAuditId } });
+    assert.equal(healthyRows.length, 1, "the healthy receipt is recorded exactly once");
+    assert.equal(healthyRows[0]?.targetId, healthySelection.sessionId);
+    assert.equal(await db.auditLog.count({
+      where: { id: { in: [stalledAuditId, healthyAuditId] } },
+    }), 1, "only the second accepted receipt produced a row");
+
+    // The stalled transport is the one that closed; the client and its server
+    // session must not linger after the healthy receipt.
+    assert.equal(await settleOutcome(admissionProxy.waitForClientClose(), 3_000), "settled",
+      "the stalled audit transport's actual socket closes");
+    const admissionClientClosed = admissionAuditDb.$disconnect();
+    assert.equal(await settleOutcome(admissionClientClosed, 5_000), "settled",
+      "the dedicated audit client disconnects after the stalled connection ends");
+    await admissionClientClosed;
+    assert.equal(admissionProxy.activeConnections(), 0,
+      "the fixture proxy observes no leaked audit connection");
+    await waitUntil("the stalled audit backend to be reaped", 5_000, async () => {
+      const current = await auditSessionPids();
+      return stalledPid === undefined || !current.has(stalledPid);
+    });
+  } finally {
+    admissionProxy.destroyConnections();
+    if (stalledWriter) await settleOutcome(stalledWriter.catch(() => undefined), 3_000);
+    if (healthyWriter) await settleOutcome(healthyWriter.catch(() => undefined), 3_000);
+    await settleOutcome(admissionAuditDb.$disconnect().catch(() => undefined), 5_000);
+    await admissionProxy.close();
+  }
+  await otherReplica.revokeScope(stalledRun.scope);
+  await otherReplica.revokeScope(healthyRun.scope);
 
   // Stop has the same proof requirement: after the holder TTL elapsed it
   // quiesces the exact recorded holder before reporting stopped.
@@ -1964,8 +2756,18 @@ try {
     { code: "FORBIDDEN" },
   );
 
+  // The dedicated audit client closes cleanly and leaves no server session.
+  await auditDb.$disconnect();
+  auditDb = undefined;
+  await new Promise<void>(resolve => setTimeout(resolve, 50));
+  const auditSessions = await db.$queryRaw<Array<{ count: bigint }>>`
+    SELECT count(*)::bigint AS count FROM pg_stat_activity
+    WHERE application_name = ${desktopComputerPauseAuditPoolConfig.application_name}`;
+  assert.equal(Number(auditSessions[0]?.count), 0, "the dedicated audit client left no connection");
+
   console.log("desktop computer control postgres: ok");
 } finally {
+  await auditDb?.$disconnect().catch(() => undefined);
   await db?.$disconnect().catch(() => undefined);
   await redis.close().catch(() => undefined);
   if (pgStarted) {

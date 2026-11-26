@@ -404,6 +404,7 @@ export const auditMessages = {
     desktop_tool_requested: "デスクトップツールのリクエスト",
     desktop_approval_responded: "デスクトップの承認リクエストに回答",
     computer_session_started: "ローカルコンピュータのセッションを開始",
+    computer_session_paused: "ローカルコンピュータのセッションを一時停止",
     computer_session_stopped: "ローカルコンピュータのセッションを停止",
     computer_permission_granted: "ローカルコンピュータの権限を付与",
     computer_permission_revoked: "ローカルコンピュータの権限を取り消し",

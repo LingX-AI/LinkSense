@@ -16,7 +16,12 @@ import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
 import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
-import type { DesktopComputerControl } from "./modules/desktop-devices/computer-control.js";
+import {
+  createDesktopComputerPauseAuditClient,
+  recordDesktopComputerPauseAudit,
+  type DesktopComputerControl,
+  type DesktopComputerPauseReceipt,
+} from "./modules/desktop-devices/computer-control.js";
 import { DesktopBrowserUse } from "./modules/desktop-devices/browser-use.js";
 import { isDesktopRunActive } from "./modules/desktop-credentials/run-authority.js";
 import { DesktopRunLeases } from "./modules/desktop-credentials/run-leases.js";
@@ -717,6 +722,20 @@ export async function buildApi(
     prefix: "/api/v1/conversations",
     service: new LocalComputerService(services.prisma),
   });
+  // The Mac product control owns one lazy, dedicated audit connection; the
+  // route closes it only after all bounded background writes have settled.
+  let pauseAuditDb: ReturnType<typeof createDesktopComputerPauseAuditClient> | undefined;
+  const pauseAudit = {
+    record: (receipt: DesktopComputerPauseReceipt) => {
+      pauseAuditDb ??= createDesktopComputerPauseAuditClient(config.databaseUrl);
+      return recordDesktopComputerPauseAudit(pauseAuditDb, receipt);
+    },
+    close: async () => {
+      const current = pauseAuditDb;
+      pauseAuditDb = undefined;
+      await current?.$disconnect();
+    },
+  };
   await registerDesktopDeviceRoutes(app, {
     service: new DesktopDeviceService(
       new PrismaDesktopDeviceRepository(services.prisma),
@@ -733,7 +752,11 @@ export async function buildApi(
       artifactTools: config.desktopArtifactsEnabled,
       websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
       computerExecute: desktopComputerControl !== undefined,
-      ...(desktopComputerControl ? { computerControl: desktopComputerControl } : {}),
+      ...(desktopComputerControl ? {
+        computerControl: desktopComputerControl,
+        recordPauseAudit: pauseAudit.record,
+        closePauseAudit: pauseAudit.close,
+      } : {}),
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

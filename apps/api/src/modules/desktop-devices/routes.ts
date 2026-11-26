@@ -3,6 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import rateLimit, { normalizeIP } from "@fastify/rate-limit";
 import type { Redis } from "ioredis";
+import pLimit from "p-limit";
 import { WebSocket, WebSocketServer } from "ws";
 import { z, ZodError } from "zod";
 import {
@@ -45,7 +46,12 @@ import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
 import type { DesktopDeviceRecord } from "./repository.js";
 import type { DesktopDeviceService } from "./service.js";
-import type { DesktopComputerControl, DesktopComputerResumeReceipt } from "./computer-control.js";
+import {
+  desktopComputerPauseAuditId,
+  type DesktopComputerControl,
+  type DesktopComputerPauseReceipt,
+  type DesktopComputerResumeReceipt,
+} from "./computer-control.js";
 
 const deviceParamsSchema = z.strictObject({ id: z.uuid() });
 const revocationCheckIntervalMs = 5_000;
@@ -67,6 +73,13 @@ export async function registerDesktopDeviceRoutes(
     computerExecute?: boolean;
     /** Product M1b selection/control path; absent in the joined fixture lane. */
     computerControl?: Pick<DesktopComputerControl, "handle" | "releaseConnection" | "revokeTurn">;
+    /**
+     * Idempotent Pause audit writer. It runs only after an accepted positive
+     * Pause reply, on supervised background work, and never gates control.
+     */
+    recordPauseAudit?: (receipt: DesktopComputerPauseReceipt) => Promise<void>;
+    /** Closes the writer's lazy dedicated client after its last route work. */
+    closePauseAudit?: () => Promise<void>;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -129,9 +142,49 @@ export async function registerDesktopDeviceRoutes(
     controlSettled: Promise<void> | null;
   }>();
   const backgroundWork = new Set<Promise<void>>();
+  let closing = false;
+  // Pause auditing is best effort and entirely off the control path. At most
+  // one insert is issued at a time, so auditing never consumes more than one
+  // dedicated connection; the pending set bounds the whole backlog and
+  // collapses a duplicate of a still-pending generation by its deterministic
+  // audit id. The writer's driver acquisition, PostgreSQL statement, and
+  // transaction timeouts settle each issued write, so a slot is released only
+  // after the real transaction ended.
+  const pauseAuditAdmission = pLimit(1);
+  const maxPendingPauseAudits = 32;
+  const pendingPauseAuditIds = new Set<string>();
+  const pauseAuditWarning = "desktop computer pause audit was not recorded";
+  /** Reports the fixed warning on a promise that never rejects shutdown. */
+  const warnPauseAudit = (): Promise<void> => Promise.resolve()
+    .then(() => app.log.warn(pauseAuditWarning))
+    .catch(() => undefined);
+  const schedulePauseAudit = (receipt: DesktopComputerPauseReceipt): void => {
+    const record = options.recordPauseAudit;
+    if (closing || !record) return;
+    const auditId = desktopComputerPauseAuditId(receipt);
+    if (pendingPauseAuditIds.has(auditId)) return;
+    if (pendingPauseAuditIds.size >= maxPendingPauseAudits) {
+      // Dropping is itself off the control path: the reply already went out
+      // and even the fixed warning must not delay the transition's settlement.
+      const warning = warnPauseAudit().finally(() => { backgroundWork.delete(warning); });
+      backgroundWork.add(warning);
+      return;
+    }
+    pendingPauseAuditIds.add(auditId);
+    // A write admitted before shutdown but not yet started must not open a new
+    // dedicated connection during teardown; it reports the same fixed warning.
+    // The write already in flight still settles, and closePauseAudit runs only
+    // after every tracked write ends.
+    const tracked = pauseAuditAdmission(() => closing ? warnPauseAudit() : record(receipt))
+      .catch(warnPauseAudit)
+      .finally(() => {
+        pendingPauseAuditIds.delete(auditId);
+        backgroundWork.delete(tracked);
+      });
+    backgroundWork.add(tracked);
+  };
   let subscription: Promise<() => void> | null = null;
   let subscriptionGeneration = 0;
-  let closing = false;
   let revocationCheck: Promise<void> | null = null;
   const revocations = setInterval(() => {
     if (closing || revocationCheck || connected.size === 0) return;
@@ -410,6 +463,10 @@ export async function registerDesktopDeviceRoutes(
                 frame: control.data,
                 ...(current.resumeReceipt === null ? {} : { resumeReceipt: current.resumeReceipt }),
                 onResumed: receipt => { current.resumeReceipt = receipt; },
+                // Emergency Stop never takes this path: its takeover call above
+                // omits the callback, and a superseded Pause reply is refused
+                // before the handler can notify.
+                onPauseAcknowledged: schedulePauseAudit,
               }, reply);
             } finally {
               settle();
@@ -563,6 +620,7 @@ export async function registerDesktopDeviceRoutes(
     await new Promise<void>(resolve => server.close(() => resolve()));
     await revocationCheck;
     await Promise.all(backgroundWork);
+    await options.closePauseAudit?.();
     const unsubscribe = await subscription?.catch(() => undefined);
     unsubscribe?.();
     await execution?.close();

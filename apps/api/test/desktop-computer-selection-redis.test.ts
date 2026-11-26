@@ -388,7 +388,12 @@ describe("M1b product selection Redis CAS", () => {
     const nextSelection = randomUUID();
     const resumed = await store.resume(value, first.selectionId, nextSelection);
     expect(resumed).toMatchObject({ state: "active", selectionId: nextSelection, sessionId: first.sessionId });
-    expect(await store.resume(value, first.selectionId, nextSelection)).toMatchObject({ selectionId: nextSelection });
+    // A true paused->active commit rotates the server control epoch; a lost-ack
+    // retry of the already-active successor writes nothing and keeps it.
+    expect(resumed.controlEpoch).not.toBe(first.controlEpoch);
+    expect(await store.resume(value, first.selectionId, nextSelection)).toMatchObject({
+      selectionId: nextSelection, controlEpoch: resumed.controlEpoch,
+    });
 
     // A paused selection cannot be resumed after expiry, and pause of an
     // expired selection never claims success.

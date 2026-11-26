@@ -116,6 +116,7 @@ const actionMessages = {
   desktop_tool_requested: ["桌面工具请求", "Desktop tool request"],
   desktop_approval_responded: ["已回复桌面审批请求", "Desktop approval request answered"],
   computer_session_started: ["已开启本地电脑会话", "Local computer session started"],
+  computer_session_paused: ["已暂停本地电脑会话", "Local computer session paused"],
   computer_session_stopped: ["已停止本地电脑会话", "Local computer session stopped"],
   computer_permission_granted: ["已授予本地电脑权限", "Local computer permission granted"],
   computer_permission_revoked: ["已撤销本地电脑权限", "Local computer permission revoked"],

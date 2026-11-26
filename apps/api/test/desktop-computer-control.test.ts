@@ -35,8 +35,10 @@ import { sendAppError } from "../src/lib/http.js";
 import {
   DesktopComputerControl,
   DesktopComputerSelectionError,
+  desktopComputerPauseAuditId,
   desktopComputerSelectionKey,
   type DesktopComputerControlStore,
+  type DesktopComputerPauseReceipt,
   type DesktopComputerResumeReceipt,
   type DesktopComputerSelection,
 } from "../src/modules/desktop-devices/computer-control.js";
@@ -297,6 +299,10 @@ class FakeControlStore implements DesktopComputerControlStore {
       throw new DesktopComputerSelectionError("COMPUTER_TARGET_CHANGED");
     }
     selection.selectionId = input.newSelectionId;
+    // Production-like true paused->active commit: the server rotates the
+    // control epoch so an earlier Pause of this same native selection id is a
+    // different generation. The already-active retry above writes nothing.
+    selection.controlEpoch = randomUUID();
     selection.state = "active";
     input.onResumed?.({ predecessor: input.selectionId, successor: snapshot(selection) });
     return selection;
@@ -447,6 +453,24 @@ async function fixture() {
     for (const resolve of started) resolve();
     if (auditGate) await auditGate;
   });
+  // Pause audit supervision is route-owned; this double records the exact
+  // server-proven receipt, can hold or reject the write, and proves that only
+  // one issued write runs at a time.
+  const pauseAudits: DesktopComputerPauseReceipt[] = [];
+  let pauseAuditGate: Promise<void> | undefined;
+  let pauseAuditsInFlight = 0;
+  let pauseAuditsMaxInFlight = 0;
+  const recordPauseAudit = vi.fn(async (receipt: DesktopComputerPauseReceipt) => {
+    pauseAudits.push(receipt);
+    pauseAuditsInFlight += 1;
+    pauseAuditsMaxInFlight = Math.max(pauseAuditsMaxInFlight, pauseAuditsInFlight);
+    try {
+      if (pauseAuditGate) await pauseAuditGate;
+    } finally {
+      pauseAuditsInFlight -= 1;
+    }
+  });
+  const closePauseAudit = vi.fn(async () => {});
   let authorizeFailure: Error | undefined;
   let actAuthorizeFailure: Error | undefined;
   let verifyGate: Promise<void> | undefined;
@@ -566,12 +590,14 @@ async function fixture() {
   registerClientBuildGuard(app, null);
   await registerDesktopDeviceRoutes(app, {
     service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret",
-    execution: transport, computerExecute: true, computerControl: control,
+    execution: transport, computerExecute: true, computerControl: control, recordPauseAudit, closePauseAudit,
   });
   await app.ready();
   const cleanup = async () => { await app.close(); };
   return {
     app, leases, store, control, transport, occupancy, audit, authorize, verifyDispatch, cleanup,
+    pauseAudits, recordPauseAudit, closePauseAudit,
+    pauseAuditMaxInFlight: () => pauseAuditsMaxInFlight,
     nextVerifyStarted: () => new Promise<void>(resolve => { verifyStartResolvers.push(resolve); }),
     nextAuthorizeStarted: () => new Promise<void>(resolve => { authorizeStartResolvers.push(resolve); }),
     setAuthorizeGate: (gate: Promise<void> | undefined) => { authorizeGate = gate; },
@@ -583,6 +609,7 @@ async function fixture() {
     setAuditGate: (gate: Promise<void> | undefined) => { auditGate = gate; },
     setVerifyGate: (gate: Promise<void> | undefined) => { verifyGate = gate; },
     setVerifyFailure: (error: Error | undefined) => { verifyFailure = error; },
+    setPauseAuditGate: (gate: Promise<void> | undefined) => { pauseAuditGate = gate; },
   };
 }
 
@@ -714,6 +741,18 @@ async function select(state: Awaited<ReturnType<typeof fixture>>, socket: WebSoc
   const result = controlResultOf(await frames.until(isControlResult));
   expect(result).toMatchObject({ type: "computer.control.result", id: frame.id, ok: true });
   return result;
+}
+
+/** Adopts the exact observe holder that a Pause/Stop must quiesce and release. */
+async function holdObserve(
+  socket: WebSocket, frames: ReturnType<typeof frameQueue>,
+  scope: DesktopRunScope, runToken: string,
+) {
+  socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+  const observe = commandOf(await frames.until(isCommand));
+  socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+  await frames.until(isToolResult);
+  return observe;
 }
 
 describe("M1b product computer control", () => {
@@ -1012,6 +1051,12 @@ describe("M1b product computer control", () => {
         ok: false, error_code: "COMPUTER_ACCESS_DENIED",
       });
       expect(state.store.selectCalls).toHaveLength(0);
+      socket.send(JSON.stringify(controlFrame("pause", foreign, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: false, error_code: "COMPUTER_ACCESS_DENIED",
+      });
+      await delay(20);
+      expect(state.pauseAudits).toEqual([]);
 
       state.store.failSelect = new AppError("FORBIDDEN");
       socket.send(JSON.stringify(controlFrame("select", scope, selectionA)));
@@ -1125,10 +1170,7 @@ describe("M1b product computer control", () => {
     try {
       const { socket, frames, scope, runToken } = await prepareSocket(state);
       await select(state, socket, frames, scope);
-      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
-      const observe = commandOf(await frames.until(isCommand));
-      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
-      await frames.until(isToolResult);
+      await holdObserve(socket, frames, scope, runToken);
       socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
       const quiesce = commandOf(await frames.until(isCommand));
       socket.send(JSON.stringify(commandResult(quiesce, {
@@ -1138,7 +1180,315 @@ describe("M1b product computer control", () => {
         ok: false, error_code: "COMPUTER_ACTION_FAILED",
       });
       expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.state).toBe("pausing");
+      await delay(20);
+      expect(state.pauseAudits).toEqual([]);
     } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("records one server-proven Pause audit only after the exact reply is accepted", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      const selected = await select(state, socket, frames, scope);
+      if (!selected.ok) throw new Error("select failed");
+      await holdObserve(socket, frames, scope, runToken);
+
+      const pauseFrame = controlFrame("pause", scope, selectionA);
+      socket.send(JSON.stringify(pauseFrame));
+      const quiesce = commandOf(await frames.until(isCommand));
+      // The transition is still awaiting its exact native proof: no audit.
+      expect(state.pauseAudits).toEqual([]);
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: pauseFrame.id, ok: true, data: { state: "paused", session_id: selected.data.session_id },
+      });
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(1));
+      const paused = state.store.selections.get(desktopComputerSelectionKey(scope));
+      expect(state.pauseAudits[0]).toMatchObject({
+        ownerId: owner, sessionId: selected.data.session_id,
+        selectionId: selectionA, controlEpoch: paused?.controlEpoch,
+      });
+      expect(state.pauseAudits[0]!.acknowledgedAt).toBeInstanceOf(Date);
+      // Only the server-proven account/session/generation and the accepted
+      // reply time may cross this seam: no bundle, window, frame, credential,
+      // or free-form input.
+      expect(Object.keys(state.pauseAudits[0]!).sort())
+        .toEqual(["acknowledgedAt", "controlEpoch", "ownerId", "selectionId", "sessionId"]);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("does not record a Pause whose exact holder release is refused", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      await holdObserve(socket, frames, scope, runToken);
+      const release = vi.spyOn(state.occupancy, "release").mockResolvedValue(false);
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      const quiesce = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: false, error_code: "COMPUTER_UNAVAILABLE",
+      });
+      await delay(20);
+      expect(state.pauseAudits).toEqual([]);
+      release.mockRestore();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("drops a duplicate control id and keys a fresh idempotent Pause to one generation", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      const first = controlFrame("pause", scope, selectionA);
+      socket.send(JSON.stringify(first));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: first.id, ok: true, data: { state: "paused" },
+      });
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(1));
+
+      // The exact request id is dropped by the existing replay guard.
+      socket.send(JSON.stringify(first));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: first.id, ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN",
+      });
+      await delay(20);
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+
+      // A fresh request id repeats the idempotent Pause. Its audit identity is
+      // the same trusted generation, so persistence keeps one row.
+      const duplicate = controlFrame("pause", scope, selectionA);
+      socket.send(JSON.stringify(duplicate));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: duplicate.id, ok: true, data: { state: "paused" },
+      });
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(2));
+      expect(state.pauseAudits[1]!.acknowledgedAt).toBeInstanceOf(Date);
+      expect(desktopComputerPauseAuditId(state.pauseAudits[1]!))
+        .toBe(desktopComputerPauseAuditId(state.pauseAudits[0]!));
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("issues one Pause audit at a time, dedupes a pending generation, and bounds the backlog", async () => {
+    const state = await fixture();
+    let release!: () => void;
+    try {
+      state.setPauseAuditGate(new Promise<void>(resolve => { release = resolve; }));
+      const warn = vi.spyOn(state.app.log, "warn");
+      const { socket, frames, scope } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+
+      // The first acknowledged Pause occupies the single issued slot.
+      let current = selectionA;
+      socket.send(JSON.stringify(controlFrame("pause", scope, current)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused" },
+      });
+
+      // Each accepted control reply is the barrier proving its own schedule
+      // already ran. Fill the bounded admission with distinct generations;
+      // none of the queued writes may be invoked while the first is unsettled.
+      for (let index = 0; index < 31; index += 1) {
+        const next = randomUUID();
+        socket.send(JSON.stringify(controlFrame("resume", scope, current, { new_selection_id: next })));
+        expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+          ok: true, data: { state: "active" },
+        });
+        current = next;
+        socket.send(JSON.stringify(controlFrame("pause", scope, current)));
+        expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+          ok: true, data: { state: "paused" },
+        });
+      }
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      expect(state.pauseAuditMaxInFlight()).toBe(1);
+      expect(warn).not.toHaveBeenCalled();
+
+      // A repeat of the live generation is the same audit id: it is
+      // acknowledged and dropped from admission without a second write.
+      socket.send(JSON.stringify(controlFrame("pause", scope, current)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused" },
+      });
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
+
+      // The admission is full: a further distinct generation still gets its
+      // normal Pause reply but is dropped with the one fixed warning.
+      const overflowNext = randomUUID();
+      socket.send(JSON.stringify(controlFrame("resume", scope, current, { new_selection_id: overflowNext })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "active" },
+      });
+      const overflow = controlFrame("pause", scope, overflowNext);
+      socket.send(JSON.stringify(overflow));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: overflow.id, ok: true, data: { state: "paused" },
+      });
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith("desktop computer pause audit was not recorded");
+
+      // Releasing the real settlement gate runs every admitted write, one at a
+      // time, and never the dropped one.
+      release();
+      release = () => {};
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(32), { timeout: 5_000 });
+      expect(state.pauseAuditMaxInFlight()).toBe(1);
+      expect(state.pauseAudits).toHaveLength(32);
+    } finally {
+      release();
+      await state.cleanup();
+    }
+  });
+
+  it("closes the Pause audit client only after admitted writes settle", async () => {
+    const state = await fixture();
+    let release: () => void = () => {};
+    let closed = false;
+    try {
+      state.setPauseAuditGate(new Promise<void>(resolve => { release = resolve; }));
+      state.closePauseAudit.mockImplementationOnce(async () => { closed = true; });
+      const { socket, frames, scope } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused" },
+      });
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(1));
+
+      // Resume installs a distinct generation whose acknowledged Pause is
+      // admitted behind the still-blocked first write.
+      socket.send(JSON.stringify(controlFrame("resume", scope, selectionA, { new_selection_id: selectionB })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "active" },
+      });
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionB)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused" },
+      });
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      const warn = vi.spyOn(state.app.log, "warn");
+
+      // Fastify runs preClose before closing the server and preClose terminates
+      // every socket first, so the close event is the exact shutdown barrier.
+      const socketClosed = once(socket, "close", { signal: AbortSignal.timeout(2_000) });
+      const closing = state.app.close();
+      await socketClosed;
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      expect(state.closePauseAudit).not.toHaveBeenCalled();
+
+      release();
+      release = () => {};
+      await closing;
+      expect(closed).toBe(true);
+      expect(state.closePauseAudit).toHaveBeenCalledTimes(1);
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+      expect(state.pauseAuditMaxInFlight()).toBe(1);
+      expect(warn.mock.calls.filter(([message]) =>
+        message === "desktop computer pause audit was not recorded")).toHaveLength(1);
+    } finally {
+      release();
+      await state.cleanup();
+    }
+  });
+
+  it("does not claim a Pause audit without an accepted receiver", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+
+      // No delivery continuation: the existing successful reply is unchanged,
+      // but nothing here proves a receiver accepted it, so no claim is made.
+      const absentReceipts: DesktopComputerPauseReceipt[] = [];
+      const absent = await state.control.handle({
+        ownerId: owner, deviceId: scope.deviceId, connectionId: scope.connectionId,
+        verifyCredential: async () => true,
+        frame: {
+          type: "computer.control", id: randomUUID(),
+          body: {
+            action: "pause", conversation_id: scope.conversationId,
+            turn_id: scope.turnId, selection_id: selectionA,
+          },
+        },
+        onPauseAcknowledged: receipt => absentReceipts.push(receipt),
+      });
+      expect(absent).toMatchObject({ ok: true, data: { state: "paused" } });
+      expect(absentReceipts).toEqual([]);
+
+      // The same refusal after an explicit receiver answer: the reply is not
+      // accepted and the Pause is not claimed either.
+      socket.send(JSON.stringify(controlFrame("resume", scope, selectionA, { new_selection_id: selectionB })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "active" },
+      });
+      const refusedReceipts: DesktopComputerPauseReceipt[] = [];
+      const refused = await state.control.handle({
+        ownerId: owner, deviceId: scope.deviceId, connectionId: scope.connectionId,
+        verifyCredential: async () => true,
+        frame: {
+          type: "computer.control", id: randomUUID(),
+          body: {
+            action: "pause", conversation_id: scope.conversationId,
+            turn_id: scope.turnId, selection_id: selectionB,
+          },
+        },
+        onPauseAcknowledged: receipt => refusedReceipts.push(receipt),
+      }, () => false);
+      expect(refused).toMatchObject({ ok: false, error_code: "COMPUTER_UNAVAILABLE" });
+      expect(refusedReceipts).toEqual([]);
+      expect(state.recordPauseAudit).not.toHaveBeenCalled();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("settles an exact Stop while the Pause audit is unresolved and warns once when it fails", async () => {
+    const state = await fixture();
+    let failGate!: () => void;
+    const gate = new Promise<void>((_, reject) => { failGate = () => reject(new Error("audit store unavailable")); });
+    try {
+      const { socket, frames, scope, runToken } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      await holdObserve(socket, frames, scope, runToken);
+      state.setPauseAuditGate(gate);
+      const pauseFrame = controlFrame("pause", scope, selectionA);
+      socket.send(JSON.stringify(pauseFrame));
+      const quiesce = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: pauseFrame.id, ok: true, data: { state: "paused" },
+      });
+      await vi.waitFor(() => expect(state.recordPauseAudit).toHaveBeenCalledTimes(1));
+
+      const warn = vi.spyOn(state.app.log, "warn");
+      // The audit write is still unresolved; emergency Stop must settle now.
+      const stopFrame = controlFrame("stop", scope, selectionA);
+      socket.send(JSON.stringify(stopFrame));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        id: stopFrame.id, ok: true, data: { state: "stopped" },
+      });
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.state).toBe("stopped");
+      expect(state.recordPauseAudit).toHaveBeenCalledTimes(1);
+
+      failGate();
+      await vi.waitFor(() => expect(warn)
+        .toHaveBeenCalledWith("desktop computer pause audit was not recorded"));
+      // A failed audit never rewrites the transition or emits another reply.
+      expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.state).toBe("stopped");
+      expect((await frames.settle(20)).filter(isControlResult)).toEqual([]);
+    } finally {
+      failGate();
       await state.cleanup();
     }
   });
@@ -2412,6 +2762,8 @@ describe("M1b product computer control", () => {
         }
         expect(state.store.stopCalls).toHaveLength(1);
         expect(state.store.selections.get(key)?.state).toBe("stopped");
+        // A superseded positive Pause reply must never produce an audit row.
+        expect(state.pauseAudits).toEqual([]);
         expect(await redis.client.exists(localComputerGuiOccupancyKey(scope.deviceId))).toBe(0);
         const afterStop = await frames.settle();
         expect(afterStop.filter(isControlResult)).toEqual([]);
