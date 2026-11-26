@@ -64,6 +64,12 @@ accepted. Open LinkSense directly, sign in if needed, and use **Settings →
 General → This Mac** to pair. Already paired devices do not need to be paired
 again.
 
+An optional Mac new-task guide covers pairing, the
+[default run location](#local-execution) for new tasks, and the system-browser
+extension ([Browser Use](../../docs/development/browser-use.md)). **Skip**
+dismisses it only for the current account and server on this Mac; the guide
+never pairs the device, launches a browser or requests a system permission.
+
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
 enable **Keep Running in the Menu Bar When the Window Closes** there. The
