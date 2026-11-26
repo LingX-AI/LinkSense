@@ -16,6 +16,7 @@ import { skillCreatorCoreMcpModule } from "./core-services/skill-creator-service
 import { skillManagementReadCoreMcpModule, skillManagementWriteCoreMcpModule } from "./core-services/skill-management-service.js"
 import { applicationBuilderCoreMcpModule } from "./core-services/application-builder-service.js"
 import { automationCoreMcpModule } from "./core-services/automation-service.js"
+import { webSiteCoreMcpModule } from "./core-services/web-site-service.js"
 import type {
   CoreMcpCollaborationMode,
   CoreMcpModuleContext,
@@ -42,6 +43,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   skillManagementWriteCoreMcpModule,
   applicationBuilderCoreMcpModule,
   automationCoreMcpModule,
+  webSiteCoreMcpModule,
 ]
 
 export class CoreMcpToolUnavailableError extends Error {

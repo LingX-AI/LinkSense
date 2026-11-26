@@ -6,17 +6,19 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it } from "vitest";
 
-function resultData(raw: unknown): unknown {
+function resultData(raw: unknown, expectedLink?: string): unknown {
   const result = CallToolResultSchema.parse(raw);
   expect(result.isError).toBe(false);
-  expect(result.content).toHaveLength(1);
+  expect(result.content.slice(1)).toEqual(
+    expectedLink === undefined ? [] : [{ type: "text", text: expectedLink }],
+  );
   const content = result.content[0];
   if (content?.type !== "text") throw new Error("missing tool result text");
   return JSON.parse(content.text);
 }
 
 describe("Core automation MCP protocol", () => {
-  it("discovers and calls automation tools over the actual stdio server", async () => {
+  it("discovers and calls automation and site tools over the actual stdio server", async () => {
     const id = "10000000-0000-4000-8000-000000000001";
     const token = "automation-protocol-token-".repeat(3);
     let receivedBody: unknown;
@@ -64,6 +66,7 @@ describe("Core automation MCP protocol", () => {
         "KNOWLEDGE_SERVICE",
         "SKILL_CREATOR",
         "AUTOMATION",
+        "WEB_SITE",
       ]) {
         environment[`LINKSENSE_${prefix}_ENDPOINT`] = endpoint;
         environment[`LINKSENSE_${prefix}_TOKEN`] = token;
@@ -162,6 +165,60 @@ describe("Core automation MCP protocol", () => {
         changes: { schedule },
       });
       expect(resultData(updated)).toEqual(responseBody);
+
+      expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+        "list_sites", "publish_site", "update_site", "unpublish_site", "delete_site",
+      ]));
+      responseBody = { tool: "list_sites", items: [], next_cursor: null };
+      expect(resultData(await client.callTool({ name: "list_sites", arguments: { search: "demo" } }))).toEqual(responseBody);
+      expect(receivedBody).toEqual({ tool: "list_sites", search: "demo", limit: 30 });
+      responseBody = { tool: "publish_site", outcome: "cancelled" };
+      const draft = { file_id: id, name: "Demo site", slug: "DEMO" };
+      expect(resultData(await client.callTool({ name: "publish_site", arguments: { site: draft } }))).toEqual(responseBody);
+      expect(receivedBody).toEqual({ tool: "publish_site", site: { ...draft, slug: "demo", description: "" } });
+      expect(receivedToken).toBe("Bearer " + token);
+      const fabricatedConfirmation = await client.callTool({
+        name: "publish_site", arguments: { site: draft, confirmation: true },
+      });
+      expect(fabricatedConfirmation.isError).toBe(true);
+      expect(receivedBody).toEqual({ tool: "publish_site", site: { ...draft, slug: "demo", description: "" } });
+
+      const timestamp = "2026-11-26T08:00:00.000Z";
+      const site = {
+        id, name: "Demo site", description: "", slug: "demo", status: "published",
+        url: "https://example.test:18173/web/demo",
+        conversation_id: id, source_task_title: "Current", source_file_id: id,
+        release_id: id, file_count: 6, size_bytes: 200,
+        published_at: timestamp, created_at: timestamp, updated_at: timestamp,
+      };
+      for (const { name, args, result } of [
+        { name: "publish_site", args: { site: draft }, result: { tool: "publish_site", outcome: "published", site } },
+        {
+          name: "update_site", args: { site_id: id, changes: { slug: "new-demo" } },
+          result: { tool: "update_site", site: { ...site, slug: "new-demo", url: "https://example.test:18173/web/new-demo" } },
+        },
+      ]) {
+        expect(tools.tools.find(tool => tool.name === name)?.description)
+          .toContain("Use the exact URL as both the link text and target");
+        const path = new URL(result.site.url).pathname;
+        responseBody = { ...result, site: { ...result.site, url_path: path } };
+        expect(resultData(await client.callTool({ name, arguments: args }), `<${result.site.url}>`)).toEqual(result);
+
+        responseBody = { ...result, site: { ...result.site, url: path } };
+        expect((await client.callTool({ name, arguments: args })).isError).toBe(true);
+      }
+
+      responseBody = { tool: "update_site", site: { ...site, status: "disabled" } };
+      expect(resultData(await client.callTool({
+        name: "update_site",
+        arguments: { site_id: id, changes: { name: "Updated unpublished site" } },
+      }))).toEqual(responseBody);
+
+      expect(tools.tools.find(tool => tool.name === "delete_site")?.description).toContain("request_user_form approval card");
+      responseBody = { tool: "delete_site", outcome: "cancelled" };
+      expect(resultData(await client.callTool({ name: "delete_site", arguments: { site_id: id } }))).toEqual(responseBody);
+      expect(receivedBody).toEqual({ tool: "delete_site", site_id: id });
+      expect((await client.callTool({ name: "delete_site", arguments: { site_id: id, confirmed: true } })).isError).toBe(true);
     } finally {
       await client.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

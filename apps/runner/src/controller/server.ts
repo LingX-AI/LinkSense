@@ -1,4 +1,4 @@
-import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
+import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT, WEB_SITE_TOOL_BODY_LIMIT } from "@linksense/shared"
 import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
@@ -74,7 +74,7 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/browser-use/") || request.url.startsWith("/internal/local-browser/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
+    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/") || request.url.startsWith("/internal/web-sites/")) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -186,11 +186,16 @@ export function buildControllerServer(
     "/internal/automations/request-stop",
     "/internal/web-search/search",
     "/internal/automations/execute",
+    "/internal/web-sites/execute",
+    "/internal/web-sites/confirm",
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
   ]) {
-    app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : route === "/internal/automations/execute" ? { bodyLimit: AUTOMATION_TOOL_BODY_LIMIT } : {}) }, async (request, reply) => {
+    const bodyLimit = route === "/internal/connections/execute" ? MICROSOFT_CONNECTION_BODY_LIMIT
+      : route === "/internal/automations/execute" ? AUTOMATION_TOOL_BODY_LIMIT
+      : route.startsWith("/internal/web-sites/") ? WEB_SITE_TOOL_BODY_LIMIT : undefined
+    app.post(route, bodyLimit === undefined ? {} : { bodyLimit }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
       if (!ownerId) {
         return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
@@ -216,7 +221,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
+            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute" || route.startsWith("/internal/web-sites/")
               ? 60_000
             : 15_000,
           controller.signal,

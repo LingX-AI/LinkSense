@@ -15,6 +15,8 @@ import {
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
   type ImagePreviewRegistration,
+  type InternalWebSiteToolConfirm,
+  type InternalWebSiteToolRequest,
   type RunnerStartSettled,
   type SensitiveDataRelayInput,
   type SensitiveDataRelayResult,
@@ -39,6 +41,7 @@ import type { InternalSkillManagementRequest } from "@linksense/shared";
 import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import { automationErrorFromApi } from "./automation-error.js";
+import { webSiteToolErrorFromApi } from "./web-site-tool-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
 import type { ConnectionInput } from "@linksense/shared";
@@ -59,6 +62,7 @@ export interface RunnerEventSink {
     request: AutomationToolRequest;
     signal?: AbortSignal;
   }): Promise<unknown>;
+  manageWebSite?(input: (InternalWebSiteToolRequest | InternalWebSiteToolConfirm) & { signal: AbortSignal }): Promise<unknown>;
   accessConnection?(input: {
     conversationId: string;
     turnId: string;
@@ -522,6 +526,15 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return result;
   }
 
+  async manageWebSite(input: (InternalWebSiteToolRequest | InternalWebSiteToolConfirm) & { signal: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const path = "confirmation" in body ? "/internal/web-sites/confirm" : "/internal/web-sites/execute";
+    const response = await this.request(path, body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    const result = await parseResponseBody(response);
+    if (!response.ok) throw webSiteToolErrorFromApi(response.status, result);
+    return result;
+  }
+
   async searchWeb(input: { conversationId: string; turnId: string; request: WebSearchRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
     const response = await this.request("/internal/web-search/search", body, this.workspaceManager.ownerFor(input.conversationId), signal)
@@ -872,7 +885,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname.startsWith("/internal/web-search/") ? 75_000
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") || pathname.startsWith("/internal/web-sites/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);

@@ -178,6 +178,7 @@ describe("Core MCP module registry", () => {
       "skill_management_write",
       "application_builder",
       "automations",
+      "web_sites",
     ])
     expect(registry.modules.map((module) => module.key)).toEqual([
       "automation_monitoring",
@@ -195,6 +196,7 @@ describe("Core MCP module registry", () => {
       "skill_management_write",
       "application_builder",
       "automations",
+      "web_sites",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual(
       coreMcpToolNamesFor("default"),
