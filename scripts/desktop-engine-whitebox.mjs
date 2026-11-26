@@ -4,12 +4,15 @@ import { randomUUID } from "node:crypto";
 import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { desktopTarget } from "./desktop.mjs";
 import { extractDesktopArtifact, parseDesktopResources, verifyDesktopResource } from "./desktop-resources.mjs";
 
 const fixtureTitle = "LinkSense AX Whitebox";
+const scrollTitles = ["LinkSense AX Scroll Target", "LinkSense AX Scroll Peer"];
 const engineFiles = ["bin/agent-desktop", "bin/agent-desktop-macos-helper"];
 
 const fixtureSource = `
@@ -29,6 +32,64 @@ final class FixtureWindow: NSWindow {
   override var canBecomeKey: Bool { false }
 }
 
+final class FlippedDocumentView: NSView {
+  override var isFlipped: Bool { true }
+}
+
+var scrollFixtures: [ScrollFixture] = []
+var scrollArmed = false
+
+func writeScrollEvidence() {
+  guard scrollFixtures.count == 2 else { return }
+  guard let output = UserDefaults.standard.string(forKey: "LinkSenseWhiteboxScroll") else { exit(1) }
+  let views: [[String: Any]] = scrollFixtures.map { fixture in
+    var view: [String: Any] = ["title": fixture.title, "y": Double(fixture.clipView.bounds.origin.y)]
+    if let excursion = fixture.excursion { view["excursion"] = excursion }
+    return view
+  }
+  do {
+    let payload: [String: Any] = ["version": 1, "views": views]
+    let data = try JSONSerialization.data(withJSONObject: payload)
+    try data.write(to: URL(fileURLWithPath: output), options: .atomic)
+  } catch { exit(1) }
+}
+
+final class ScrollFixture: NSObject {
+  let title: String
+  let fixtureWindow: FixtureWindow
+  let scrollView: NSScrollView
+  let clipView: NSClipView
+  var baseline = 0.0
+  var excursion: Double?
+
+  init(title: String, origin: NSPoint) {
+    self.title = title
+    let createdWindow = FixtureWindow(contentRect: NSRect(x: origin.x, y: origin.y, width: 420, height: 200),
+      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    let createdScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
+    fixtureWindow = createdWindow
+    scrollView = createdScrollView
+    clipView = createdScrollView.contentView
+    super.init()
+    createdWindow.title = title
+    createdScrollView.hasVerticalScroller = true
+    createdScrollView.autohidesScrollers = false
+    createdScrollView.scrollerStyle = .legacy
+    createdScrollView.documentView = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 420, height: 1_200))
+    clipView.postsBoundsChangedNotifications = true
+    NotificationCenter.default.addObserver(self, selector: #selector(boundsChanged(_:)),
+      name: NSView.boundsDidChangeNotification, object: clipView)
+    createdWindow.contentView!.addSubview(createdScrollView)
+    clipView.scroll(to: NSPoint(x: 0, y: 0))
+  }
+
+  @objc func boundsChanged(_ notification: Notification) {
+    let y = Double(clipView.bounds.origin.y)
+    if scrollArmed, y != baseline, excursion == nil { excursion = y }
+    writeScrollEvidence()
+  }
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let window = FixtureWindow(contentRect: NSRect(x: 100, y: 100, width: 480, height: 180),
@@ -42,9 +103,17 @@ button.frame = NSRect(x: 20, y: 60, width: 440, height: 32)
 let result = NSTextField(labelWithString: "Waiting for whitebox input")
 result.frame = NSRect(x: 20, y: 20, width: 440, height: 28)
 for view in [field, button, result] { window.contentView!.addSubview(view) }
+let targetScroll = ScrollFixture(title: "${scrollTitles[0]}", origin: NSPoint(x: 100, y: 400))
+let peerScroll = ScrollFixture(title: "${scrollTitles[1]}", origin: NSPoint(x: 600, y: 400))
+scrollFixtures = [targetScroll, peerScroll]
 window.orderFrontRegardless()
+targetScroll.fixtureWindow.orderFrontRegardless()
+peerScroll.fixtureWindow.orderFrontRegardless()
+for fixture in scrollFixtures { fixture.baseline = Double(fixture.clipView.bounds.origin.y) }
+scrollArmed = true
+writeScrollEvidence()
 Timer.scheduledTimer(withTimeInterval: 90, repeats: false) { _ in app.terminate(nil) }
-withExtendedLifetime([window, field, button, result, actions]) { app.run() }
+withExtendedLifetime([window, field, button, result, actions, targetScroll, peerScroll]) { app.run() }
 `;
 
 const execFileAsync = promisify(execFile);
@@ -60,8 +129,16 @@ const element = z.lazy(() => z.object({
   ref_id: z.string().regex(/^@s[a-z0-9]+:e[0-9]+$/u).optional(),
   children: z.array(element).default([]),
 }));
-const snapshot = z.object({
-  complete: z.literal(true), window: z.object({ id: z.string(), title: z.literal(fixtureTitle) }), tree: element,
+const snapshot = title => z.object({
+  complete: z.literal(true), window: z.object({ id: z.string(), title: z.literal(title) }), tree: element,
+});
+const scrollEvidence = z.object({
+  version: z.literal(1),
+  views: z.array(z.object({
+    title: z.string().min(1).max(120),
+    y: z.number().refine(Number.isFinite),
+    excursion: z.number().refine(Number.isFinite).optional(),
+  })).length(2),
 });
 
 function decodeJSON(text) {
@@ -128,6 +205,7 @@ async function main() {
   let app;
   let appOutcome;
   let failed = false;
+  let receipt;
   try {
     const session = await execFileAsync("xcrun", ["swift", "-e", `
       import ApplicationServices
@@ -171,6 +249,7 @@ async function main() {
     const executable = path.join(contents, "MacOS", "LinkSenseAXWhitebox");
     const source = path.join(directory, "fixture.swift");
     const state = path.join(directory, "applied.txt");
+    const scrollState = path.join(directory, "scroll-evidence.json");
     await mkdir(path.dirname(executable), { recursive: true });
     await writeFile(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -187,36 +266,91 @@ async function main() {
       source, "-o", executable,
     ], { ...commandOptions, timeout: 30_000 });
     await execFileAsync("codesign", ["--force", "--sign", "-", bundle], { ...commandOptions, timeout: 10_000 });
-    app = execFileAsync(executable, ["-LinkSenseWhiteboxOutput", state],
+    app = execFileAsync(executable,
+      ["-LinkSenseWhiteboxOutput", state, "-LinkSenseWhiteboxScroll", scrollState],
       { ...commandOptions, timeout: 90_000 });
     appOutcome = app.then(() => null, error => error);
     await call(["wait", "--app", appName, "--window", fixtureTitle, "--timeout", "10000"]);
     const windows = windowList.parse(await call(["list-windows", "--app", appName]));
-    const owned = windows.filter(window => window.pid === app.child.pid && window.title === fixtureTitle);
-    assert.equal(owned.length, 1, "Exactly one window must belong to the spawned fixture");
-    const windowId = owned[0].id;
-    const observe = async () => {
-      const result = snapshot.parse(await call(["snapshot", "--app", appName, "--window-id", windowId]));
-      assert.equal(result.window.id, windowId, "The snapshot must belong to the spawned fixture");
+    const selectWindow = title => {
+      const owned = windows.filter(window => window.pid === app.child.pid && window.title === title);
+      assert.equal(owned.length, 1, `Exactly one window titled ${title} must belong to the spawned fixture`);
+      return owned[0].id;
+    };
+    const windowId = selectWindow(fixtureTitle);
+    const scrollWindowIds = scrollTitles.map(selectWindow);
+    assert.equal(new Set([windowId, ...scrollWindowIds]).size, scrollTitles.length + 1,
+      "Every synthetic fixture window must have a distinct window ID");
+    const observe = async (id, title) => {
+      const result = snapshot(title).parse(await call(["snapshot", "--app", appName, "--window-id", id]));
+      assert.equal(result.window.id, id, `The snapshot for ${title} must keep its exact window ID`);
       return result;
     };
-    let observed = await observe();
+    let observed = await observe(windowId, fixtureTitle);
     const fields = nodes(observed.tree).filter(node => node.role === "textfield" && node.name === "Whitebox input");
     assert.equal(fields.length, 1, "The isolated fixture must expose exactly one input");
     assert.ok(fields[0].ref_id);
     const text = "LinkSense AX 白盒 123";
     await call(["type", fields[0].ref_id, text]);
-    observed = await observe();
+    observed = await observe(windowId, fixtureTitle);
     const buttons = nodes(observed.tree).filter(node => node.role === "button" && node.name === "Apply whitebox input");
     assert.equal(buttons.length, 1, "The isolated fixture must expose exactly one apply action");
     assert.ok(buttons[0].ref_id);
     await call(["click", buttons[0].ref_id]);
     assert.ok(await readFile(state, "utf8") === text, "AX type and click must reach the actual application");
-    observed = await observe();
+    observed = await observe(windowId, fixtureTitle);
     assert.ok(nodes(observed.tree).some(node => node.name === `Applied: ${text}` || node.value === `Applied: ${text}`),
       "A fresh AX snapshot must confirm the action's visible result");
+    const readScrollEvidence = async () => {
+      // The spawned fixture is the only writer, and it writes atomically inside this private temporary
+      // directory; the trusted file size is validated before parsing rather than capped during the read.
+      const raw = await readFile(scrollState, "utf8");
+      assert.ok(raw.length <= 4_096, "Scroll evidence must stay bounded");
+      const evidence = scrollEvidence.parse(decodeJSON(raw));
+      assert.deepEqual(evidence.views.map(view => view.title).sort(), [...scrollTitles].sort(),
+        "Scroll evidence must describe exactly the two fixture views");
+      // The fixture latches any peer bounds change after the initial baseline, so a y excursion that
+      // reverts before this read still fails here instead of passing on a restored endpoint.
+      const peer = evidence.views.find(view => view.title === scrollTitles[1]);
+      assert.ok(peer.excursion === undefined,
+        `The untouched peer scroll view must not move (latched y ${peer.excursion})`);
+      return new Map(evidence.views.map(view => [view.title, view.y]));
+    };
+    const scrollAreaRef = (result, title) => {
+      // Ordinary full snapshot; the scroll area is matched by its documented role only.
+      const areas = nodes(result.tree).filter(node => node.role === "scrollarea");
+      assert.equal(areas.length, 1, `${title} must expose exactly one scroll area`);
+      assert.ok(areas[0].ref_id, `${title} must expose a qualified scroll area ref`);
+      return areas[0].ref_id;
+    };
+    // Snapshot the peer first so the target's qualified ref is the freshest one before the single scroll call.
+    scrollAreaRef(await observe(scrollWindowIds[1], scrollTitles[1]), scrollTitles[1]);
+    const targetRef = scrollAreaRef(await observe(scrollWindowIds[0], scrollTitles[0]), scrollTitles[0]);
+    const baseline = await readScrollEvidence();
+    const targetBaseline = baseline.get(scrollTitles[0]);
+    const peerBaseline = baseline.get(scrollTitles[1]);
+    assert.equal(targetBaseline, 0, "The target scroll view must start at the top of its flipped document");
+    assert.equal(peerBaseline, 0, "The peer scroll view must start at the top of its flipped document");
+    // One semantic scroll call, no headed, wheel, coordinate or alternate dispatch.
+    await call(["scroll", targetRef, "--direction", "down", "--amount", "1"]);
+    // A flipped document scrolls down by increasing the clip view's origin.y. AppKit may post the bounds
+    // change asynchronously, so wait a bounded monotonic time for the fixture's own observation, never for
+    // AX success. The abortable timer keeps the short sleeps responsive to the existing interruption signal.
+    const evidenceDeadline = performance.now() + 5_000;
+    let finalEvidence = await readScrollEvidence();
+    while (finalEvidence.get(scrollTitles[0]) <= targetBaseline && performance.now() < evidenceDeadline) {
+      await delay(100, undefined, { signal: interruption.signal });
+      finalEvidence = await readScrollEvidence();
+    }
+    const targetFinal = finalEvidence.get(scrollTitles[0]);
+    const peerFinal = finalEvidence.get(scrollTitles[1]);
+    assert.ok(targetFinal > targetBaseline,
+      `The target scroll view must move downward from its baseline (${targetBaseline} -> ${targetFinal})`);
+    assert.equal(peerFinal, peerBaseline,
+      `The untouched peer scroll view must not move (${peerBaseline} -> ${peerFinal})`);
     assert.equal(app.child.exitCode, null, "The fixture exited before the test completed");
     assert.equal(app.child.signalCode, null, "The fixture was terminated before the test completed");
+    receipt = `(target y ${targetBaseline} -> ${targetFinal}, peer y ${peerBaseline} -> ${peerFinal})`;
     interruption.signal.throwIfAborted();
   } catch (error) {
     failed = true;
@@ -239,7 +373,7 @@ async function main() {
     }
   }
   interruption.signal.throwIfAborted();
-  console.log(`PASS: staged macOS ${target.split("/")[1]} agent-desktop ${release.versions.agent_desktop}: snapshot, Unicode type, semantic click and observed effect`);
+  console.log(`PASS: staged macOS ${target.split("/")[1]} agent-desktop ${release.versions.agent_desktop}: snapshot, Unicode type, semantic click, observed effect and headless scroll movement ${receipt}`);
 }
 
 main().catch(error => {
