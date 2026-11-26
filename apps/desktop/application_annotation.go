@@ -53,13 +53,6 @@ func desktopServerOrigin(server *url.URL) (string, error) {
 			host = net.JoinHostPort(name, port)
 		}
 	}
-	if scheme == "http" {
-		hostname := strings.ToLower(server.Hostname())
-		ip := net.ParseIP(hostname)
-		if hostname != "localhost" && (ip == nil || !ip.IsLoopback()) {
-			return "", errors.New("DESKTOP_SERVER_HTTPS_REQUIRED")
-		}
-	}
 	return scheme + "://" + host, nil
 }
 

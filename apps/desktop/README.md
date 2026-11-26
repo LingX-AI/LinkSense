@@ -34,10 +34,11 @@ pnpm desktop:build -- --platform windows/amd64 --server-url https://linksense.ex
 
 The server origin is supplied by the packager with `--server-url` (or the
 build-time `LINKSENSE_DESKTOP_SERVER_URL` environment variable) and linked into
-the executable. End users are never asked for a URL. Only HTTPS is accepted,
-with HTTP allowed for loopback development servers. Installed releases ignore
-runtime URL environment variables and the former `config.json`; development
-uses the origin passed to `desktop:dev`.
+the executable. End users are never asked for a URL. HTTP and HTTPS origins are
+accepted; HTTPS is recommended where available, and self-hosted intranet
+deployments commonly use HTTP. Installed releases ignore runtime URL
+environment variables and the former `config.json`; development uses the origin
+passed to `desktop:dev`.
 
 Sign-in opens the system browser at the packaged server. An existing browser
 session continues automatically; otherwise the existing Web login, registration
@@ -205,7 +206,7 @@ The ordinary Web and Windows layouts keep their existing behavior.
 To enable **Check for updates**, supply the update directories and the
 base64 Ed25519 public key at build time. Signed artifacts are a macOS build
 feature; Windows keeps the legacy `LINKSENSE_DESKTOP_UPDATE_FEED` contract
-below. Stable and beta are separate HTTPS directories:
+below. Stable and beta are separate HTTP(S) directories:
 
 | Variable | Purpose |
 | --- | --- |
@@ -213,7 +214,7 @@ below. Stable and beta are separate HTTPS directories:
 | `LINKSENSE_DESKTOP_UPDATE_BETA_URL` | macOS beta asset directory. Additive: it requires `LINKSENSE_DESKTOP_UPDATE_URL` and is required for prerelease candidates. |
 | `LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` | Base64 Ed25519 public key embedded in the app. Required with any update source. |
 | `LINKSENSE_DESKTOP_VERSION` | Optional strict SemVer version for this candidate, at most 40 characters (the `desktop_devices.app_version` column and its registration schema). It changes the bundle, artifact and manifest version. Never reuse or lower a published version; MyGo only offers a version newer than the running one. |
-| `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL` | Fixed HTTPS installer/support page, macOS only. Required for signed `--macos-release` builds; optional for development test builds. Requires `LINKSENSE_DESKTOP_UPDATE_URL`; not used for legacy check-only builds. |
+| `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL` | Fixed installer/support page, macOS only. Required for signed `--macos-release` builds; optional for development test builds. Requires `LINKSENSE_DESKTOP_UPDATE_URL`; not used for legacy check-only builds. |
 | `LINKSENSE_DESKTOP_UPDATE_FEED` | Legacy full manifest URL. It remains update-check-only, including old GitHub/CDN URLs that redirect, and uses only the old `MYGO_LDFLAGS` injection. |
 
 The checked-in default is `apps/desktop/version.mjs`; bump it with the
@@ -279,7 +280,7 @@ that the stock SDK's archive and delta signatures do not. The app fetches
 `<feed>.signed` and never falls back to an unsigned manifest on the signed
 path; legacy check-only builds keep their old feed and never use the
 envelope. A `--macos-release` build with a stable update directory but
-without a signing key or HTTPS installer URL fails instead of producing a
+without a signing key or installer URL fails instead of producing a
 release that cannot update or has no manual fallback, and signing refuses to
 run unless the packaged runtime smoke ran on the target platform. Release
 notes come from an `apps/desktop/CHANGELOG.md` section for the version when
@@ -303,10 +304,10 @@ updater; the old build cannot gain installation or a fallback retroactively.
 
 No live update destination is selected or activated by this repository. The
 stable and beta directories are approved release inputs; use placeholders
-until an approved HTTPS origin exists. The release operator needs a Developer
+until an approved origin exists. The release operator needs a Developer
 ID Application certificate, the `linksense-desktop-notary` Keychain profile,
-the approved directories, the update public key, the fixed HTTPS
-installer/support URL and a signing key in a secret store or a `0600` file.
+the approved directories, the update public key, the fixed installer/support
+URL and a signing key in a secret store or a `0600` file.
 
 1. Choose the version and channel. Set `LINKSENSE_DESKTOP_VERSION` to a
    strict SemVer version; a prerelease identifier (`-beta.1`) selects beta
@@ -392,10 +393,11 @@ enabled only by an explicit `LINKSENSE_DESKTOP_UPDATE_URL` build.
 
 Runtime restrictions:
 
-- Production builds require HTTPS update URLs. Loopback HTTP is accepted
-  only for the legacy `LINKSENSE_DESKTOP_UPDATE_FEED` in development, and
-  `--macos-release` rejects it. The packaged server origin has the same
-  restriction.
+- Update URLs and the packaged server origin may use HTTP or HTTPS. HTTPS is
+  recommended where available; self-hosted intranet deployments commonly use
+  plain HTTP. The signed update envelope is the update integrity boundary, and
+  the packaged origin is fixed at build time, so intranet HTTP does not relax
+  which server an installed app talks to.
 - The URL-directory source does not follow redirects; serve the directory
   directly over TLS. Legacy package feeds keep MyGo's check-only redirect
   behavior.
@@ -427,13 +429,14 @@ Never roll back by publishing an older manifest: clients do not downgrade.
 Real-Mac update fixtures are separate from Developer ID signing,
 notarization and installed-upgrade acceptance:
 
-1. Use a test key pair from `go tool mygo keygen` and a test HTTPS origin
-   whose certificate the isolated Mac trusts. Build the fixture candidate
-   with that origin as `LINKSENSE_DESKTOP_UPDATE_URL` (and beta URL), so its
-   manifest names the test origin, plus a test HTTPS
-   `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`. Never use the production private
-   key or a live release root for fixtures. A legacy loopback HTTP feed may be used
-   only for check-only development, not for signed artifacts.
+1. Use a test key pair from `go tool mygo keygen` and a test origin the
+   isolated Mac can reach (HTTPS with a trusted certificate, or an isolated
+   intranet HTTP origin). Build the fixture candidate with that origin as
+   `LINKSENSE_DESKTOP_UPDATE_URL` (and beta URL), so its manifest names the
+   test origin, plus a test `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL`. Never use
+   the production private key or a live release root for fixtures. A legacy
+   loopback HTTP feed may be used only for check-only development, not for
+   signed artifacts.
 2. Install the previous verified DMG on an isolated Apple silicon Mac and
    confirm the baseline: sign-in, local runtime and an update check.
 3. Publish the candidate archive, deltas, raw manifest and then the
@@ -561,7 +564,8 @@ compatibility before rollback; consult the feature gates below.
 
 The app supervises the bundled Node process over a private pipe. Mac device
 execution is off by default and `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`
-is accepted only by the development/test API. The gateway negotiates execution
+is accepted by development/test deployments, and by production only with the
+separate `LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED=true` release flag. The gateway negotiates execution
 protocol v2; clients below v2 retain device presence. Upgrade every API replica
 and task-recovery consumer before enabling the switch in a shared environment.
 The PostgreSQL fixture can also verify the packaged Go bridge and local Codex
@@ -1175,12 +1179,13 @@ recovery consumers running until selections have expired or retired and cleanup
 has drained; then roll back. Do not delete selection, quiesce or outbox records
 by hand. A reconnect never resumes an old selection.
 
-Production is intentionally not enabled. The API refuses local execution when
-`NODE_ENV=production`, so the computer-use switch cannot be turned on there.
-Enabling it would require the gates above plus an explicit privacy disclosure,
-not just this documentation. Native Codex history has no retention or delete
-control in this slice, so any typed or observed text or images Codex stored
-there remain outside LinkSense audit redaction.
+Production stays blocked by default. The API refuses local execution when
+`NODE_ENV=production` unless `LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED=true`
+is set as an explicit release decision; the computer-use switch then follows
+the same production gate. Enabling it still requires the gates above plus an
+explicit privacy disclosure, not just this documentation. Native Codex history
+has no retention or delete control in this slice, so any typed or observed text
+or images Codex stored there remain outside LinkSense audit redaction.
 
 #### Joined fixtures and receipts
 

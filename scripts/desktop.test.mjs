@@ -31,12 +31,15 @@ function inspectDesktopConfig(release, command, extra = {}) {
     { env: environment, encoding: "utf8" }));
 }
 
-test("release builds require an explicit, safe server origin", () => {
+test("desktop builds require an explicit server origin without credentials", () => {
   assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
   assert.equal(desktopBuildServerUrl("https://example.com:443/"), "https://example.com:443");
   assert.equal(desktopBuildServerUrl("http://localhost:80"), "http://localhost:80");
   assert.equal(desktopBuildServerUrl("http://127.0.0.1:4000"), "http://127.0.0.1:4000");
-  for (const raw of [undefined, "", "http://example.com", "https://user:pass@example.com",
+  // Self-hosted intranet deployments may use plain HTTP.
+  assert.equal(desktopBuildServerUrl("http://example.com"), "http://example.com");
+  assert.equal(desktopBuildServerUrl("http://192.168.2.210:19090"), "http://192.168.2.210:19090");
+  for (const raw of [undefined, "", "https://user:pass@example.com", "http://user:pass@example.com",
     "https://example.com/path", "https://example.com?token=secret", "https://example.com#",
     "https://example.com -X main.other=value", "https://exa'mple.com"]) {
     assert.throws(() => desktopBuildServerUrl(raw));
@@ -64,10 +67,14 @@ test("legacy update feeds remain check-only and keep the old linker contract", (
     LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key,
   }, "darwin/arm64");
   assert.equal(local.legacyFeed, "http://127.0.0.1:8080/update-darwin-arm64.json");
+  const intranet = desktopUpdateConfiguration({
+    LINKSENSE_DESKTOP_UPDATE_FEED: "http://updates.example.test/update.json",
+    LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key,
+  }, "darwin/arm64");
+  assert.equal(intranet.legacyFeed, "http://updates.example.test/update.json");
   for (const invalid of [
     { LINKSENSE_DESKTOP_UPDATE_FEED: feed },
     { LINKSENSE_DESKTOP_UPDATE_FEED: "https://user@updates.example.test/update.json", LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key },
-    { LINKSENSE_DESKTOP_UPDATE_FEED: "http://updates.example.test/update.json", LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key },
     { LINKSENSE_DESKTOP_UPDATE_FEED: feed + " -X main.host=other", LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key },
     { LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY: key },
   ]) {
@@ -126,7 +133,17 @@ test("update roots and installer URLs reject unsafe or ambiguous values", () => 
     ...base, LINKSENSE_DESKTOP_UPDATE_URL: root,
     LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL: "https://linksense.example.test/download?channel=stable",
   }, "darwin/arm64").installerUrl, "https://linksense.example.test/download?channel=stable");
-  for (const invalid of ["http://updates.example.test", "http://localhost:8080/stable",
+  assert.equal(desktopUpdateConfiguration({
+    ...base, LINKSENSE_DESKTOP_UPDATE_URL: "http://updates.example.test/stable",
+  }, "darwin/arm64").stableRoot, "http://updates.example.test/stable");
+  assert.equal(desktopUpdateConfiguration({
+    ...base, LINKSENSE_DESKTOP_UPDATE_URL: "http://localhost:8080/stable",
+  }, "darwin/arm64").stableRoot, "http://localhost:8080/stable");
+  assert.equal(desktopUpdateConfiguration({
+    ...base, LINKSENSE_DESKTOP_UPDATE_URL: root,
+    LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL: "http://linksense.example.test/download",
+  }, "darwin/arm64").installerUrl, "http://linksense.example.test/download");
+  for (const invalid of [
     "https://user:pass@updates.example.test",
     "https://updates.example.test/stable?x=1", "https://updates.example.test/stable#x",
     "https://updates.example.test/stable -X main.other=value",
@@ -134,7 +151,7 @@ test("update roots and installer URLs reject unsafe or ambiguous values", () => 
     "https://updates.example.test/stable\u0000"]) {
     assert.throws(() => desktopUpdateConfiguration({ ...base, LINKSENSE_DESKTOP_UPDATE_URL: invalid }, "darwin/arm64"));
   }
-  for (const invalid of ["http://linksense.example.test/download", "https://user@linksense.example.test/download",
+  for (const invalid of ["https://user@linksense.example.test/download",
     "https://linksense.example.test/download#fragment", "https://linksense.example.test/download -X main.other=value"]) {
     assert.throws(() => desktopUpdateConfiguration({
       ...base, LINKSENSE_DESKTOP_UPDATE_URL: root, LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL: invalid,
@@ -449,7 +466,7 @@ test("release builds require update signing and a manual installer URL but never
     ["tool", "mygo", "build", "-platform", "windows/amd64", "-sign", "-", "-skip-notarize"]);
 });
 
-test("macOS release requires native ARM64, HTTPS and an explicit Developer ID team", () => {
+test("macOS release requires native ARM64 and an explicit Developer ID team", () => {
   const server = "https://example.test";
   const identity = "Developer ID Application: Fixture (ABCDE12345)";
   assert.equal(desktopMacosReleaseTeam("darwin/arm64", server, identity, "darwin", "arm64"), "ABCDE12345");
@@ -461,7 +478,7 @@ test("macOS release requires native ARM64, HTTPS and an explicit Developer ID te
     "Developer ID Application: Fixture (abcde12345)"]) {
     assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", server, invalid, "darwin", "arm64"), /Developer ID Application/u);
   }
-  assert.throws(() => desktopMacosReleaseTeam("darwin/arm64", "http://localhost", identity, "darwin", "arm64"), /HTTPS/u);
+  assert.equal(desktopMacosReleaseTeam("darwin/arm64", "http://192.168.2.210:19090", identity, "darwin", "arm64"), "ABCDE12345");
 });
 
 test("the macOS release signer token carries the exact existing Developer ID requirement", () => {

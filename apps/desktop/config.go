@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -26,11 +25,11 @@ func parseServerURL(raw string) (*url.URL, error) {
 		(u.Path != "" && u.Path != "/") || u.Opaque != "" || strings.ContainsAny(raw, "?#\r\n\x00") {
 		return nil, errors.New("DESKTOP_SERVER_URL_INVALID")
 	}
-	host := strings.ToLower(u.Hostname())
-	ip := net.ParseIP(host)
-	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
-		return nil, errors.New("DESKTOP_SERVER_HTTPS_REQUIRED")
+	// Self-hosted deployments commonly run on an intranet without TLS; the
+	// signed desktop build trusts the origin it was packaged with, not the
+	// transport. HTTPS is still recommended where it is available.
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return nil, errors.New("DESKTOP_SERVER_URL_INVALID")
 	}
 	u.Host = strings.ToLower(u.Host)
 	u.Path, u.RawPath = "", ""

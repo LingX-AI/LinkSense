@@ -7,14 +7,17 @@ import (
 func TestServerURLRequiresAnOriginWithoutCredentials(t *testing.T) {
 	for _, raw := range []string{
 		"", "file:///tmp/app", "https://user:password@example.com",
-		"http://example.com", "https://example.com/path", "https://example.com/?token=value",
+		"https://example.com/path", "https://example.com/?token=value",
 		"https://example.com/#fragment", "javascript:alert(1)",
 	} {
 		if _, err := parseServerURL(raw); err == nil {
 			t.Fatalf("accepted an invalid server origin: %q", raw)
 		}
 	}
-	for _, raw := range []string{"https://example.com/", "http://localhost:4000", "http://127.0.0.1:4000", "http://[::1]:4000"} {
+	for _, raw := range []string{
+		"https://example.com/", "http://example.com", "http://192.168.2.210:19090",
+		"http://localhost:4000", "http://127.0.0.1:4000", "http://[::1]:4000",
+	} {
 		if _, err := parseServerURL(raw); err != nil {
 			t.Fatalf("rejected valid server origin %q: %v", raw, err)
 		}

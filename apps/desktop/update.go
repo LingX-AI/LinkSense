@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -1068,7 +1067,7 @@ func validUpdateInstaller(raw string) (string, bool) {
 		return "", false
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil ||
 		u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "\x00\r\n") {
 		return "", false
 	}
@@ -1078,7 +1077,8 @@ func validUpdateInstaller(raw string) (string, bool) {
 // desktopUpdateSource is the minimal transport of the self-hosted feeds. The
 // manifest is fetched from the configured URL with ".signed" appended and is
 // authenticated as a detached Ed25519 envelope; the verified JSON bytes are
-// returned unchanged to MyGo. Artifacts stay same-origin HTTPS downloads.
+// returned unchanged to MyGo. Artifacts stay same-origin HTTP(S) downloads;
+// the signed envelope, not TLS, is the integrity boundary.
 type desktopUpdateSource struct {
 	manifestURL string // exact configured URL covered by the signature
 	signedURL   string // manifestURL + ".signed"
@@ -1132,26 +1132,10 @@ func parseDesktopUpdateURL(raw string) (*url.URL, error) {
 		u.RawQuery != "" || u.ForceQuery {
 		return nil, errors.New("DESKTOP_UPDATE_URL_FORBIDDEN")
 	}
-	if !updateHTTPSAllowed(u) {
-		return nil, errors.New("DESKTOP_UPDATE_HTTPS_REQUIRED")
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return nil, errors.New("DESKTOP_UPDATE_URL_FORBIDDEN")
 	}
 	return u, nil
-}
-
-func updateHTTPSAllowed(u *url.URL) bool {
-	if u.Scheme == "https" {
-		return true
-	}
-	return u.Scheme == "http" && loopbackHost(u.Hostname())
-}
-
-func loopbackHost(host string) bool {
-	host = strings.ToLower(host)
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func (s *desktopUpdateSource) Manifest(ctx context.Context, _ bool) (io.ReadCloser, error) {

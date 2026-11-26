@@ -39,10 +39,9 @@ export function desktopTestArguments(platform = process.platform, arch = process
 export function desktopBuildServerUrl(raw) {
   if (!raw || /[\s"'\\?#]/u.test(raw)) throw new Error("Supply --server-url with the LinkSense server origin");
   const url = new URL(raw);
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
-    !(url.protocol === "https:" || (url.protocol === "http:" && loopback))) {
-    throw new Error("Desktop server URL must be an HTTPS origin (loopback HTTP is allowed for development)");
+    !(url.protocol === "https:" || url.protocol === "http:")) {
+    throw new Error("Desktop server URL must be an HTTP(S) origin without credentials, path, query or fragment");
   }
   const explicitDefaultPort = (url.protocol === "https:" && /:443\/?$/u.test(raw)) ? ":443"
     : (url.protocol === "http:" && /:80\/?$/u.test(raw)) ? ":80" : "";
@@ -68,7 +67,6 @@ export function desktopMacosReleaseTeam(target, server, identity, platform = pro
   if (platform !== "darwin" || arch !== "arm64" || target !== "darwin/arm64") {
     throw new Error("--macos-release requires a native Apple silicon Mac and the darwin/arm64 target");
   }
-  if (new URL(server).protocol !== "https:") throw new Error("--macos-release requires an HTTPS server origin");
   const match = /^Developer ID Application: .+ \(([A-Z0-9]{10})\)$/u.exec(identity ?? "");
   if (!match || /[\u0000-\u001f\u007f]/u.test(identity)) {
     throw new Error("--macos-release requires LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY with a Developer ID Application certificate and Team ID");
@@ -305,9 +303,6 @@ async function main() {
     const identity = process.env.LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY;
     const team = values["macos-release"] ? desktopMacosReleaseTeam(target, server, identity) : undefined;
     if (!team && identity) throw new Error("LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY requires --macos-release");
-    if (team && update.legacyFeed && new URL(update.legacyFeed).protocol !== "https:") {
-      throw new Error("--macos-release requires an HTTPS update feed");
-    }
     const stagedKey = update.signedArtifacts
       ? await stageDesktopUpdatePrivateKey(update.privateKey) : undefined;
     const privateKeyFile = stagedKey?.file ?? (update.signedArtifacts ? update.privateKeyFile : undefined);

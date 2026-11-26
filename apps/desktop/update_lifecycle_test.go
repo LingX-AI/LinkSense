@@ -849,7 +849,7 @@ func TestReadOnlyUpdateReturnsUnavailableWithInstallerFallback(t *testing.T) {
 
 func TestInvalidUpdateFeedFailsClosed(t *testing.T) {
 	u, h := newUpdateFixture(t, func(_ *desktopUpdates, _ *updateHarness) {
-		desktopUpdateFeed = "http://public.example.test/update-darwin-arm64.json"
+		desktopUpdateFeed = "file:///tmp/update-darwin-arm64.json"
 	})
 	state := u.stateRequest()
 	if state.State != UpdateUnavailable || state.InstallAvailable {
@@ -874,15 +874,15 @@ func TestInvalidUpdateFeedFailsClosed(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallerIsExplicitHTTPSOnly(t *testing.T) {
+func TestUpdateInstallerAllowsHTTPAndHTTPS(t *testing.T) {
 	for _, test := range []struct {
 		raw  string
 		want string
 	}{
 		{"https://updates.example.test/install", "https://updates.example.test/install"},
 		{"https://updates.example.test/install?lang=zh", "https://updates.example.test/install?lang=zh"},
-		{"http://updates.example.test/install", ""},
-		{"http://127.0.0.1:8080/install", ""},
+		{"http://updates.example.test/install", "http://updates.example.test/install"},
+		{"http://127.0.0.1:8080/install", "http://127.0.0.1:8080/install"},
 		{"https://user@updates.example.test/install", ""},
 		{"https://updates.example.test/install#fragment", ""},
 		{"javascript:alert(1)", ""},
@@ -1204,7 +1204,7 @@ func TestDesktopUpdateSourceStallsOnlyItsOwnFetch(t *testing.T) {
 	}
 }
 
-func TestDesktopUpdateURLRequiresHTTPSOrLoopback(t *testing.T) {
+func TestDesktopUpdateURLAllowsHTTPAndHTTPS(t *testing.T) {
 	for _, test := range []struct {
 		raw string
 		ok  bool
@@ -1213,8 +1213,8 @@ func TestDesktopUpdateURLRequiresHTTPSOrLoopback(t *testing.T) {
 		{"http://127.0.0.1:8080/app/update.json", true},
 		{"http://localhost/app/update.json", true},
 		{"http://[::1]:8080/app/update.json", true},
-		{"http://updates.example.test/app/update.json", false},
-		{"http://10.0.0.1/app/update.json", false},
+		{"http://updates.example.test/app/update.json", true},
+		{"http://10.0.0.1/app/update.json", true},
 		{"https://user:pass@updates.example.test/app/update.json", false},
 		{"https://updates.example.test/app/update.json?token=1", false},
 		{"https://updates.example.test/app/update.json?", false},

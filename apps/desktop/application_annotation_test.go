@@ -19,6 +19,8 @@ func TestDesktopServerOriginMatchesWebViewOriginSerialization(t *testing.T) {
 		{"http://127.0.0.1:80", "http://127.0.0.1"},
 		{"http://127.0.0.2:4000", "http://127.0.0.2:4000"},
 		{"http://[::1]:8080", "http://[::1]:8080"},
+		{"http://example.com", "http://example.com"},
+		{"http://192.168.2.210:19090", "http://192.168.2.210:19090"},
 		{"https://[::1]:443", "https://[::1]"},
 	} {
 		server, err := url.Parse(test.raw)
@@ -31,9 +33,9 @@ func TestDesktopServerOriginMatchesWebViewOriginSerialization(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
-		"", "https://", "mygo://localhost", "http://example.com",
-		"https://user:password@example.com", "https://example.com/path",
-		"https://example.com?token=value",
+		"", "https://", "mygo://localhost",
+		"https://user:password@example.com", "http://user:password@example.com",
+		"https://example.com/path", "https://example.com?token=value",
 	} {
 		server, err := url.Parse(raw)
 		if err != nil {
@@ -77,8 +79,9 @@ func TestDesktopApplicationAnnotationPreloadIsDarwinOnlyFirstParty(t *testing.T)
 	if got := desktopApplicationAnnotationPreload("darwin", resources, nil); got != "" {
 		t.Fatalf("a missing server produced a preload: %q", got)
 	}
-	if got := desktopApplicationAnnotationPreload("darwin", resources, mustURL(t, "http://example.com")); got != "" {
-		t.Fatalf("a non-loopback HTTP server produced a preload: %q", got)
+	if got := desktopApplicationAnnotationPreload("darwin", resources, mustURL(t, "http://example.com")); !strings.Contains(
+		got, `"serverOrigin":"http://example.com"`) {
+		t.Fatalf("a self-hosted HTTP server did not produce the expected preload: %q", got)
 	}
 
 	// Packaged apps merge platform resources into Contents/Resources.

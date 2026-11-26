@@ -57,7 +57,7 @@ function desktopUpdateVersion(raw, label = "LINKSENSE_DESKTOP_VERSION") {
   return parsed;
 }
 
-function desktopUpdateUrl(raw, { label, loopback = false, query = false, directory = false }) {
+function desktopUpdateUrl(raw, { label, query = false, directory = false }) {
   if (!raw) return undefined;
   if (typeof raw !== "string" || raw.length > maximumUpdateUrlLength ||
     /[\s\u0000-\u001f\u007f"'\\]/u.test(raw)) {
@@ -69,11 +69,10 @@ function desktopUpdateUrl(raw, { label, loopback = false, query = false, directo
   } catch {
     throw new Error(`${label} must be an absolute URL`);
   }
-  const loopbackHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  const secure = url.protocol === "https:" || (loopback && url.protocol === "http:" && loopbackHost);
-  if (!secure || url.username || url.password || url.hash || raw.includes("#") ||
+  if ((url.protocol !== "https:" && url.protocol !== "http:") ||
+    url.username || url.password || url.hash || raw.includes("#") ||
     (!query && (url.search || raw.includes("?")))) {
-    throw new Error(`${label} must use HTTPS${loopback ? " (or loopback HTTP)" : ""} without credentials${query ? "" : ", query"} or fragment`);
+    throw new Error(`${label} must use HTTP or HTTPS without credentials${query ? "" : ", query"} or fragment`);
   }
   if (directory && url.pathname.replace(/\/+$/u, "").endsWith(".json")) {
     throw new Error(`${label} must be the directory that holds the update files, not a manifest URL`);
