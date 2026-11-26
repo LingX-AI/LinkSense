@@ -49,6 +49,10 @@ var (
 	// desktopMacosSignerToken is written only by a --macos-release build.
 	// Every other build leaves it empty and fails closed.
 	desktopMacosSignerToken string
+	// desktopInternalComputerProof is compiled only into an ad hoc internal
+	// build. It selects the prepared runtime-hash proof; a release build keeps
+	// the signer-token proof and never falls back.
+	desktopInternalComputerProof = "false"
 	// desktopMacosCodesignPath is the fixed system tool in production; tests
 	// replace it with a synthetic executable, so no real signature or
 	// Keychain state is touched.

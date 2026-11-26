@@ -37,6 +37,16 @@ vi.mock("./desktop-file-root-api", () => ({
   updateDesktopFileRoot: rootsApi.update,
 }))
 
+vi.mock("@/features/desktop-computer-permissions/computer-permission-adapter", () => ({
+  checkComputerPermission: vi.fn(async () => ({
+    kind: "accessibility", status: "granted", reason: "checked",
+  })),
+}))
+
+vi.mock("@/features/desktop-computer-permissions/desktop-computer-permission-guide", () => ({
+  DesktopComputerPermissionGuide: () => null,
+}))
+
 import i18n from "@/i18n"
 import { DesktopDevicesSettings } from "./desktop-devices-settings"
 import { desktopDevicesMessages } from "./messages"

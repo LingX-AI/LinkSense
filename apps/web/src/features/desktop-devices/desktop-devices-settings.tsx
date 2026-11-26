@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { checkComputerPermission } from "@/features/desktop-computer-permissions/computer-permission-adapter"
+import { DesktopComputerPermissionGuide } from "@/features/desktop-computer-permissions/desktop-computer-permission-guide"
 import {
   SettingsFieldGroup,
   SettingsFieldRow,
@@ -105,6 +107,14 @@ export function DesktopDevicesSettings({
   })
   const status = statusQuery.data
   const [addMode, setAddMode] = useState<"read" | "write">("read")
+  const [permissionGuideOpen, setPermissionGuideOpen] = useState(false)
+  const permission = useQuery({
+    queryKey: ["desktop-computer-permission", ownerId],
+    queryFn: ({ signal }) => checkComputerPermission("accessibility", signal),
+    enabled: mac && Boolean(ownerId),
+    retry: false,
+    staleTime: 0,
+  })
   const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null)
   const roots = useQuery({
     queryKey: desktopFileRootsQueryKey(ownerId ?? ""),
@@ -341,6 +351,52 @@ export function DesktopDevicesSettings({
         ) : null}
         <p className="form-hint">{t("desktopDevices.folderAccessHint")}</p>
       </div>
+
+      <SettingsFieldGroup>
+        <SettingsFieldRow
+          id="desktop-computer-permission"
+          label={t("desktopDevices.desktopPermissionTitle")}
+          hint={t("desktopDevices.desktopPermissionDescription")}
+          controlWidth="compact"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <Badge
+              variant={
+                permission.data?.status === "granted"
+                  ? "success"
+                  : permission.data?.reason === "unsupported" ||
+                      permission.data?.reason === "notPackaged"
+                    ? "outline"
+                    : "secondary"
+              }
+            >
+              {permission.data?.status === "granted"
+                ? t("desktopDevices.desktopPermissionGranted")
+                : permission.data?.reason === "unsupported" ||
+                    permission.data?.reason === "notPackaged"
+                  ? t("desktopDevices.desktopPermissionUnavailable")
+                  : t("desktopDevices.desktopPermissionMissing")}
+            </Badge>
+            {permission.data?.status !== "granted" ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPermissionGuideOpen(true)}
+              >
+                {t("desktopDevices.desktopPermissionAction")}
+              </Button>
+            ) : null}
+          </div>
+        </SettingsFieldRow>
+      </SettingsFieldGroup>
+      <DesktopComputerPermissionGuide
+        kind="accessibility"
+        open={permissionGuideOpen}
+        onOpenChange={(open) => {
+          setPermissionGuideOpen(open)
+          if (!open) void permission.refetch()
+        }}
+      />
 
       <AlertDialog
         open={removeTarget !== null}

@@ -1,7 +1,32 @@
 import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
+import { computerFailureCodes } from "./computer-use.js";
 import { desktopDeviceAppVersionSchema } from "./desktop-device.js";
+import {
+  localComputerActInputSchema,
+  localComputerActResultSchema,
+  localComputerActOperation,
+  localComputerControlResultSchema,
+  localComputerObserveInputSchema,
+  localComputerObserveOperation,
+  localComputerObserveResultSchema,
+  localComputerPauseInputSchema,
+  localComputerPauseOperation,
+  localComputerResumeInputSchema,
+  localComputerResumeOperation,
+  localComputerSelectInputSchema,
+  localComputerSelectOperation,
+  localComputerSelectResultSchema,
+  localComputerStatusInputSchema,
+  localComputerStatusOperation,
+  localComputerStatusResultSchema,
+  localComputerStopInputSchema,
+  localComputerStopOperation,
+  localComputerWaitInputSchema,
+  localComputerWaitOperation,
+  localComputerWaitResultSchema,
+} from "./desktop-cloud-computer.js";
 import {
   localFilesCreateInputSchema,
   localFilesCreateResultSchema,
@@ -27,6 +52,13 @@ export const DESKTOP_CLOUD_TOOL_PROTOCOL_HEADER = "x-linksense-desktop-cloud-too
 export const DESKTOP_CLOUD_TOOL_OPERATIONS_HEADER = "x-linksense-desktop-cloud-tool-operations";
 export const desktopCloudToolProtocolVersion = 1;
 export const desktopCloudToolLifetimeMs = 30_000;
+/** A native window picker waits for a person, so select gets a longer frame. */
+export const desktopCloudToolSelectLifetimeMs = 120_000;
+export function desktopCloudToolLifetimeFor(operation: DesktopCloudToolOperation): number {
+  return operation === "local_computer.select"
+    ? desktopCloudToolSelectLifetimeMs
+    : desktopCloudToolLifetimeMs;
+}
 
 export const localToolsPingOperation = "local_tools.ping" as const;
 export const localFilesRootsOperation = "local_files.roots" as const;
@@ -46,6 +78,14 @@ export const desktopCloudToolOperationSchema = z.enum([
   localFilesWriteOperation,
   localFilesCreateOperation,
   localFilesDeleteOperation,
+  localComputerStatusOperation,
+  localComputerSelectOperation,
+  localComputerObserveOperation,
+  localComputerActOperation,
+  localComputerWaitOperation,
+  localComputerPauseOperation,
+  localComputerResumeOperation,
+  localComputerStopOperation,
 ]);
 export type DesktopCloudToolOperation = z.infer<typeof desktopCloudToolOperationSchema>;
 
@@ -75,6 +115,8 @@ export const desktopCloudToolErrorCodeSchema = z.enum([
   "DESKTOP_FILE_TOO_LARGE",
   "DESKTOP_FILE_UNSUPPORTED",
   "DESKTOP_FILE_UNAVAILABLE",
+  "COMPUTER_CANCELED",
+  ...computerFailureCodes,
 ]);
 export type DesktopCloudToolErrorCode = z.infer<typeof desktopCloudToolErrorCodeSchema>;
 
@@ -87,6 +129,14 @@ export const desktopCloudToolInputSchemaFor = {
   [localFilesWriteOperation]: localFilesWriteInputSchema,
   [localFilesCreateOperation]: localFilesCreateInputSchema,
   [localFilesDeleteOperation]: localFilesDeleteInputSchema,
+  [localComputerStatusOperation]: localComputerStatusInputSchema,
+  [localComputerSelectOperation]: localComputerSelectInputSchema,
+  [localComputerObserveOperation]: localComputerObserveInputSchema,
+  [localComputerActOperation]: localComputerActInputSchema,
+  [localComputerWaitOperation]: localComputerWaitInputSchema,
+  [localComputerPauseOperation]: localComputerPauseInputSchema,
+  [localComputerResumeOperation]: localComputerResumeInputSchema,
+  [localComputerStopOperation]: localComputerStopInputSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export const desktopCloudToolDataSchemaFor = {
@@ -98,6 +148,14 @@ export const desktopCloudToolDataSchemaFor = {
   [localFilesWriteOperation]: localFilesWriteResultSchema,
   [localFilesCreateOperation]: localFilesCreateResultSchema,
   [localFilesDeleteOperation]: localFilesDeleteResultSchema,
+  [localComputerStatusOperation]: localComputerStatusResultSchema,
+  [localComputerSelectOperation]: localComputerSelectResultSchema,
+  [localComputerObserveOperation]: localComputerObserveResultSchema,
+  [localComputerActOperation]: localComputerActResultSchema,
+  [localComputerWaitOperation]: localComputerWaitResultSchema,
+  [localComputerPauseOperation]: localComputerControlResultSchema,
+  [localComputerResumeOperation]: localComputerControlResultSchema,
+  [localComputerStopOperation]: localComputerControlResultSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export type DesktopCloudToolInputFor<O extends DesktopCloudToolOperation> =
@@ -115,6 +173,14 @@ export const desktopCloudToolInvocationSchema = z.discriminatedUnion("operation"
   z.strictObject({ operation: z.literal(localFilesWriteOperation), input: localFilesWriteInputSchema }),
   z.strictObject({ operation: z.literal(localFilesCreateOperation), input: localFilesCreateInputSchema }),
   z.strictObject({ operation: z.literal(localFilesDeleteOperation), input: localFilesDeleteInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerStatusOperation), input: localComputerStatusInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerSelectOperation), input: localComputerSelectInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerObserveOperation), input: localComputerObserveInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerActOperation), input: localComputerActInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerWaitOperation), input: localComputerWaitInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerPauseOperation), input: localComputerPauseInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerResumeOperation), input: localComputerResumeInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerStopOperation), input: localComputerStopInputSchema }),
 ]);
 export type DesktopCloudToolInvocation = z.infer<typeof desktopCloudToolInvocationSchema>;
 
@@ -135,6 +201,14 @@ export const desktopCloudToolRequestSchema = z.discriminatedUnion("operation", [
   requestFor(localFilesWriteOperation),
   requestFor(localFilesCreateOperation),
   requestFor(localFilesDeleteOperation),
+  requestFor(localComputerStatusOperation),
+  requestFor(localComputerSelectOperation),
+  requestFor(localComputerObserveOperation),
+  requestFor(localComputerActOperation),
+  requestFor(localComputerWaitOperation),
+  requestFor(localComputerPauseOperation),
+  requestFor(localComputerResumeOperation),
+  requestFor(localComputerStopOperation),
 ]);
 export type DesktopCloudToolRequest = z.infer<typeof desktopCloudToolRequestSchema>;
 
@@ -155,6 +229,14 @@ export const desktopCloudToolResultSchema = z.union([
   successFor(localFilesWriteOperation),
   successFor(localFilesCreateOperation),
   successFor(localFilesDeleteOperation),
+  successFor(localComputerStatusOperation),
+  successFor(localComputerSelectOperation),
+  successFor(localComputerObserveOperation),
+  successFor(localComputerActOperation),
+  successFor(localComputerWaitOperation),
+  successFor(localComputerPauseOperation),
+  successFor(localComputerResumeOperation),
+  successFor(localComputerStopOperation),
   z.strictObject({
     type: z.literal("cloud_tool.result"),
     id: uuidSchema,

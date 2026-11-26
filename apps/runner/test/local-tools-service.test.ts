@@ -43,7 +43,9 @@ describe("local tools core MCP module", () => {
     expect(module.tools.map(tool => tool.name)).toEqual([
       "local_tools_ping", "local_files_roots", "local_files_list", "local_files_read",
       "local_files_search", "local_files_write", "local_files_create",
-      "local_files_delete",
+      "local_files_delete", "local_computer_status", "local_computer_select",
+      "local_computer_observe", "local_computer_act", "local_computer_wait",
+      "local_computer_pause", "local_computer_resume", "local_computer_stop",
     ]);
     const result = await module.callTool({
       toolName: "local_files_write",

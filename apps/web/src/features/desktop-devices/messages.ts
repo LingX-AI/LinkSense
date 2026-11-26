@@ -33,6 +33,12 @@ type DesktopDevicesMessages = {
   folderAddFailed: string
   folderRemoveFailed: string
   folderModeFailed: string
+  desktopPermissionTitle: string
+  desktopPermissionDescription: string
+  desktopPermissionGranted: string
+  desktopPermissionMissing: string
+  desktopPermissionUnavailable: string
+  desktopPermissionAction: string
   signOutRevoke: string
   signOutRevokeFailed: string
   signOutRevokeUnconfirmed: string
@@ -78,6 +84,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "无法添加文件夹，请重试。",
     folderRemoveFailed: "无法移除文件夹，请重试。",
     folderModeFailed: "无法修改文件夹权限，请重试。",
+    desktopPermissionTitle: "桌面控制权限",
+    desktopPermissionDescription:
+      "云端任务操作本机窗口前，需要 macOS 的辅助功能权限。授权后不会自动选择窗口。",
+    desktopPermissionGranted: "已授权",
+    desktopPermissionMissing: "需要授权",
+    desktopPermissionUnavailable: "不可用",
+    desktopPermissionAction: "检查并授权",
     signOutRevoke: "同时撤销这台 Mac 的授权",
     signOutRevokeFailed:
       "无法确认已撤销这台 Mac 的授权。请重试，或取消勾选后只退出登录。",
@@ -125,6 +138,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "Could not add the folder. Try again.",
     folderRemoveFailed: "Could not remove the folder. Try again.",
     folderModeFailed: "Could not change folder access. Try again.",
+    desktopPermissionTitle: "Desktop control permission",
+    desktopPermissionDescription:
+      "macOS Accessibility permission is required before a cloud task can act on a local window. Granting it does not select a window.",
+    desktopPermissionGranted: "Granted",
+    desktopPermissionMissing: "Permission needed",
+    desktopPermissionUnavailable: "Unavailable",
+    desktopPermissionAction: "Check and grant",
     signOutRevoke: "Also revoke access for this Mac",
     signOutRevokeFailed:
       "Could not confirm that access was revoked for this Mac. Try again, or uncheck the option to just sign out.",
@@ -173,6 +193,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "No se pudo añadir la carpeta. Inténtalo de nuevo.",
     folderRemoveFailed: "No se pudo quitar la carpeta. Inténtalo de nuevo.",
     folderModeFailed: "No se pudo cambiar el acceso. Inténtalo de nuevo.",
+    desktopPermissionTitle: "Permiso de control del escritorio",
+    desktopPermissionDescription:
+      "Se requiere el permiso de Accesibilidad de macOS para que una tarea en la nube actúe en una ventana local. Concederlo no selecciona ninguna ventana.",
+    desktopPermissionGranted: "Concedido",
+    desktopPermissionMissing: "Falta el permiso",
+    desktopPermissionUnavailable: "No disponible",
+    desktopPermissionAction: "Comprobar y conceder",
     signOutRevoke: "Revocar también el acceso de este Mac",
     signOutRevokeFailed:
       "No se pudo confirmar la revocación del acceso de este Mac. Inténtalo de nuevo o desmarca la opción para cerrar sesión sin repetir la revocación.",
@@ -221,6 +248,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "Não foi possível adicionar a pasta. Tente novamente.",
     folderRemoveFailed: "Não foi possível remover a pasta. Tente novamente.",
     folderModeFailed: "Não foi possível alterar o acesso. Tente novamente.",
+    desktopPermissionTitle: "Permissão de controle da área de trabalho",
+    desktopPermissionDescription:
+      "A permissão de Acessibilidade do macOS é necessária para uma tarefa na nuvem agir em uma janela local. Concedê-la não seleciona uma janela.",
+    desktopPermissionGranted: "Concedida",
+    desktopPermissionMissing: "Permissão necessária",
+    desktopPermissionUnavailable: "Indisponível",
+    desktopPermissionAction: "Verificar e conceder",
     signOutRevoke: "Revogar também o acesso deste Mac",
     signOutRevokeFailed:
       "Não foi possível confirmar a revogação do acesso deste Mac. Tente novamente ou desmarque a opção para apenas sair.",
@@ -269,6 +303,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "Impossible d’ajouter le dossier. Réessayez.",
     folderRemoveFailed: "Impossible de retirer le dossier. Réessayez.",
     folderModeFailed: "Impossible de modifier l’accès. Réessayez.",
+    desktopPermissionTitle: "Autorisation de contrôle du bureau",
+    desktopPermissionDescription:
+      "L’autorisation Accessibilité de macOS est requise pour qu’une tâche cloud agisse sur une fenêtre locale. L’accorder ne sélectionne aucune fenêtre.",
+    desktopPermissionGranted: "Accordée",
+    desktopPermissionMissing: "Autorisation requise",
+    desktopPermissionUnavailable: "Indisponible",
+    desktopPermissionAction: "Vérifier et accorder",
     signOutRevoke: "Révoquer aussi l’accès de ce Mac",
     signOutRevokeFailed:
       "Impossible de confirmer la révocation de l’accès de ce Mac. Réessayez ou décochez l’option pour simplement vous déconnecter.",
@@ -317,6 +358,13 @@ export const desktopDevicesMessages = {
     folderAddFailed: "フォルダーを追加できませんでした。もう一度お試しください。",
     folderRemoveFailed: "フォルダーを削除できませんでした。もう一度お試しください。",
     folderModeFailed: "アクセスを変更できませんでした。もう一度お試しください。",
+    desktopPermissionTitle: "デスクトップ操作の権限",
+    desktopPermissionDescription:
+      "クラウドタスクがローカルウィンドウを操作するには、macOS のアクセシビリティ権限が必要です。許可してもウィンドウは選択されません。",
+    desktopPermissionGranted: "許可済み",
+    desktopPermissionMissing: "権限が必要",
+    desktopPermissionUnavailable: "利用不可",
+    desktopPermissionAction: "確認して許可",
     signOutRevoke: "この Mac のアクセス権も取り消す",
     signOutRevokeFailed:
       "この Mac のアクセス権が取り消されたことを確認できませんでした。もう一度お試しいただくか、チェックを外してログアウトのみ行ってください。",

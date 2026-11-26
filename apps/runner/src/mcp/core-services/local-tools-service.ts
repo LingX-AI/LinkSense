@@ -9,6 +9,15 @@ import {
   localFilesRootsOperation,
   localFilesSearchOperation,
   localFilesToolNames,
+  localComputerActOperation,
+  localComputerObserveOperation,
+  localComputerPauseOperation,
+  localComputerResumeOperation,
+  localComputerSelectOperation,
+  localComputerStatusOperation,
+  localComputerStopOperation,
+  localComputerToolNames,
+  localComputerWaitOperation,
   localFilesWriteOperation,
   localToolsPingOperation,
   localToolsPingToolName,
@@ -232,6 +241,118 @@ const localToolSpecs = [
       },
     },
   },
+  {
+    name: localComputerToolNames.status,
+    operation: localComputerStatusOperation,
+    tool: {
+      name: localComputerToolNames.status,
+      description:
+        "Report macOS Accessibility permission, the agent-desktop version, and the current five-minute window selection on the Mac. Call this before selecting a window.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { title: "Desktop status", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.select,
+    operation: localComputerSelectOperation,
+    tool: {
+      name: localComputerToolNames.select,
+      description:
+        "Ask the Mac user to choose one window with the native picker. Only the returned selection_id crosses the lane; the window title, app and bundle stay on the Mac. The selection expires after five minutes and can be paused, resumed or stopped.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { title: "Select a Mac window", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.observe,
+    operation: localComputerObserveOperation,
+    tool: {
+      name: localComputerToolNames.observe,
+      description:
+        "Read the accessibility tree of the selected Mac window. Returns an observation_id and refs for the current controls; values and descriptions stay on the Mac.",
+      inputSchema: {
+        type: "object",
+        properties: { selection_id: rootId },
+        required: ["selection_id"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Observe the Mac window", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.act,
+    operation: localComputerActOperation,
+    tool: {
+      name: localComputerToolNames.act,
+      description:
+        "Click or type into a ref from the latest observation of the selected Mac window. The ref must belong to that observation; one act is admitted at a time and the result reports whether the UI changed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          selection_id: rootId,
+          action: { type: "string", enum: ["click", "type"] },
+          observation_id: { type: "string" },
+          ref: { type: "string" },
+          text: { type: "string", maxLength: 8000 },
+          timeout_ms: { type: "integer", minimum: 100, maximum: 20000, default: 8000 },
+        },
+        required: ["selection_id", "action", "observation_id", "ref"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Act on the Mac window", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.wait,
+    operation: localComputerWaitOperation,
+    tool: {
+      name: localComputerToolNames.wait,
+      description:
+        "Wait until a ref from the latest observation becomes actionable, up to the bounded timeout. This is a read-only wait on the selected Mac window.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          selection_id: rootId,
+          observation_id: { type: "string" },
+          ref: { type: "string" },
+          timeout_ms: { type: "integer", minimum: 100, maximum: 20000, default: 8000 },
+        },
+        required: ["selection_id", "observation_id", "ref"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Wait for the Mac window", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.pause,
+    operation: localComputerPauseOperation,
+    tool: {
+      name: localComputerToolNames.pause,
+      description: "Pause input to the selected Mac window. Observation and input are closed until resume.",
+      inputSchema: { type: "object", properties: { selection_id: rootId }, required: ["selection_id"], additionalProperties: false },
+      annotations: { title: "Pause desktop control", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.resume,
+    operation: localComputerResumeOperation,
+    tool: {
+      name: localComputerToolNames.resume,
+      description: "Resume the paused selection and extend its five-minute window. A fresh observation is required before the next act.",
+      inputSchema: { type: "object", properties: { selection_id: rootId }, required: ["selection_id"], additionalProperties: false },
+      annotations: { title: "Resume desktop control", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+  },
+  {
+    name: localComputerToolNames.stop,
+    operation: localComputerStopOperation,
+    tool: {
+      name: localComputerToolNames.stop,
+      description: "Stop desktop control and close the selected Mac window. A new selection needs another native picker.",
+      inputSchema: { type: "object", properties: { selection_id: rootId }, required: ["selection_id"], additionalProperties: false },
+      annotations: { title: "Stop desktop control", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+  },
 ] as const satisfies ReadonlyArray<{
   name: string;
   operation: DesktopCloudToolOperation;
@@ -274,7 +395,7 @@ export function localToolsCoreMcpModules(input: {
                 "content-type": "application/json",
               },
               body: JSON.stringify({ operation: spec.operation, input }),
-              signal: withRequestTimeout(call.signal, 35_000),
+              signal: withRequestTimeout(call.signal, spec.operation === localComputerSelectOperation ? 125_000 : 35_000),
             });
             const result: unknown = await response.json();
             if (!response.ok) {

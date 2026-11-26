@@ -3,7 +3,7 @@ import {
   desktopCloudToolCancelSchema,
   desktopCloudToolDataSchemaFor,
   desktopCloudToolInvocationSchema,
-  desktopCloudToolLifetimeMs,
+  desktopCloudToolLifetimeFor,
   desktopCloudToolOperationSchema,
   desktopCloudToolRequestSchema,
   desktopCloudToolResultSchema,
@@ -273,7 +273,8 @@ export class DesktopCloudToolGateway {
       throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
     }
     const id = randomUUID();
-    const expiresAt = new Date(Date.now() + desktopCloudToolLifetimeMs).toISOString();
+    const lifetime = desktopCloudToolLifetimeFor(invocation.operation);
+    const expiresAt = new Date(Date.now() + lifetime).toISOString();
     const frame = desktopCloudToolRequestSchema.parse({
       type: "cloud_tool.request",
       id,
@@ -287,7 +288,7 @@ export class DesktopCloudToolGateway {
     this.inFlight.set(connection.connectionId, (this.inFlight.get(connection.connectionId) ?? 0) + 1);
     const data = await new Promise<DesktopCloudToolData>((resolve, reject) => {
       const settle = (error: DesktopCloudToolError) => this.settle(id, error);
-      const timer = setTimeout(() => settle(new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")), desktopCloudToolLifetimeMs);
+      const timer = setTimeout(() => settle(new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")), lifetime);
       const abort = () => {
         if (connection.send(JSON.stringify(desktopCloudToolCancelSchema.parse({
           type: "cloud_tool.cancel", id, operation: invocation.operation,
@@ -338,7 +339,7 @@ export class DesktopCloudToolGateway {
     const data = await new Promise<DesktopCloudToolData>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settleRemote(requestId, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")),
-        desktopCloudToolLifetimeMs,
+        desktopCloudToolLifetimeFor(invocation.operation),
       );
       let executeDelivered = false;
       let cancelRequested = false;

@@ -13,6 +13,11 @@ export interface ArtifactDownloadSaved {
   name: string;
 }
 
+export interface CloudComputerControlStatus {
+  state: string;
+  expiresAt?: string;
+}
+
 /** CompletionNotificationInput carries only IDs and the localized status. */
 export interface CompletionNotificationInput {
   userId: string;
@@ -251,6 +256,8 @@ export const Desktop = {
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearMacSession: bind<[MacSignOutOptions], void>("Desktop.ClearMacSession", (options: MacSignOutOptions) => [options]),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
+  cloudComputerControl: bind<[string, string, string], CloudComputerControlStatus>("Desktop.CloudComputerControl", (conversationID: string, turnID: string, action: string) => [conversationID, turnID, action]),
+  cloudComputerStatus: bind<[], CloudComputerControlStatus>("Desktop.CloudComputerStatus", () => []),
   /**
    * ComputerControl is the closed M1b control binding. It is available only to
    * the trusted main page and supports exactly the six documented actions. A

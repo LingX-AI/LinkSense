@@ -322,8 +322,10 @@ async function main() {
       const { runtime, manifestBytes } = await prepareDesktopResources(target);
       // Only a Developer ID release compiles the trusted signer token. Every
       // other build leaves it empty, so the runtime verifier fails closed.
-      const ldflags = desktopSigningLdflags(server, update,
-        team ? { team, application: runtime.application } : undefined, process.env.MYGO_LDFLAGS);
+      const ldflags = `${desktopSigningLdflags(server, update,
+        team ? { team, application: runtime.application } : undefined, process.env.MYGO_LDFLAGS)}${
+        !team && target.startsWith("darwin/") ? " -X main.desktopInternalComputerProof=true" : ""
+      }`.trim();
       const build = path.join(desktop, "build");
       await mkdir(build, { recursive: true });
       const updateEnvironment = desktopUpdateChildEnvironment(update, privateKeyFile);

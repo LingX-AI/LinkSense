@@ -255,6 +255,34 @@ describe("internal desktop cloud tool route", () => {
     }));
   });
 
+  it("dispatches the cloud desktop status lane and audits it without a root", async () => {
+    const { app, cloudTools, sent, connectionId, audit } = await fixture({
+      operations: ["local_computer.status"],
+    });
+    const pending = request(app, {
+      operation: "local_computer.status", input: {},
+    });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const frame = sent[0]!;
+    expect(frame).toMatchObject({
+      type: "cloud_tool.request", operation: "local_computer.status", input: {},
+    });
+    cloudTools.receive(connectionId, {
+      type: "cloud_tool.result", id: frame.id, operation: "local_computer.status", ok: true,
+      data: {
+        state: "idle", available: true,
+        permissions: { accessibility: "granted" },
+      },
+    });
+    const response = await pending;
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ state: "idle", available: true });
+    expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
+      action: "desktop_tool_requested",
+      metadata: expect.objectContaining({ operation: "local_computer.status" }),
+    }));
+  });
+
   it("rejects a request that does not carry the runner secret", async () => {
     const { app } = await fixture();
     const response = await app.inject({

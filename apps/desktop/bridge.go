@@ -101,9 +101,10 @@ type deviceConnection struct {
 	// files maps server root IDs to local folders; nil when this host has no
 	// file-root store (fixtures and non-product builds). cloudCancels stops
 	// in-flight local file work when a newer socket or the API cancels it.
-	files        *localFileRoots
-	cloudMu      sync.Mutex
-	cloudCancels map[string]context.CancelFunc
+	files         *localFileRoots
+	cloudComputer cloudComputerHost
+	cloudMu       sync.Mutex
+	cloudCancels  map[string]context.CancelFunc
 
 	controlMu      sync.Mutex
 	controlPending map[string]*pendingComputerControl
@@ -144,6 +145,7 @@ const (
 	desktopCloudToolCreateOperation           = "local_files.create"
 	desktopCloudToolDeleteOperation           = "local_files.delete"
 	desktopCloudToolLifetime                  = 30 * time.Second
+	desktopCloudToolSelectLifetime            = 120 * time.Second
 	desktopCloudToolMaxFrameBytes             = 8 << 20
 )
 
@@ -380,6 +382,14 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			desktopCloudToolWriteOperation,
 			desktopCloudToolCreateOperation,
 			desktopCloudToolDeleteOperation,
+			cloudComputerStatusOperation,
+			cloudComputerSelectOperation,
+			cloudComputerObserveOperation,
+			cloudComputerActOperation,
+			cloudComputerWaitOperation,
+			cloudComputerPauseOperation,
+			cloudComputerResumeOperation,
+			cloudComputerStopOperation,
 		}, ","))
 	}
 	// The bundled runtime starts with the app. A socket dialed before it is
@@ -703,6 +713,21 @@ var desktopCloudToolOperations = []string{
 	desktopCloudToolWriteOperation,
 	desktopCloudToolCreateOperation,
 	desktopCloudToolDeleteOperation,
+	cloudComputerStatusOperation,
+	cloudComputerSelectOperation,
+	cloudComputerObserveOperation,
+	cloudComputerActOperation,
+	cloudComputerWaitOperation,
+	cloudComputerPauseOperation,
+	cloudComputerResumeOperation,
+	cloudComputerStopOperation,
+}
+
+func cloudToolLifetimeFor(operation string) time.Duration {
+	if operation == "local_computer.select" {
+		return desktopCloudToolSelectLifetime
+	}
+	return desktopCloudToolLifetime
 }
 
 func cloudToolOperationKnown(operation string) bool {
@@ -740,10 +765,11 @@ func parseCloudToolFrame(data []byte) (cloudToolFrame, bool, error) {
 		return frame, true, nil
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, request.ExpiresAt)
+	lifetime := cloudToolLifetimeFor(request.Operation)
 	// Symmetric clock-skew tolerance; a Mac a few seconds off must still serve
 	// a request whose lifetime started on the API clock.
-	if err != nil || expiresAt.Before(time.Now().Add(-desktopCloudToolLifetime)) ||
-		expiresAt.After(time.Now().Add(2*desktopCloudToolLifetime)) {
+	if err != nil || expiresAt.Before(time.Now().Add(-lifetime)) ||
+		expiresAt.After(time.Now().Add(2*lifetime)) {
 		frame.ExpiresAt = time.Time{}
 		return frame, true, nil
 	}
@@ -837,6 +863,28 @@ func (connection *deviceConnection) clearCloudTools() {
 	}
 }
 
+func (connection *deviceConnection) startCloudComputerTool(socket *websocket.Conn, frame cloudToolFrame) {
+	ctx, cancel := context.WithDeadline(connection.ctx, frame.ExpiresAt)
+	connection.cloudMu.Lock()
+	if previous := connection.cloudCancels[frame.ID]; previous != nil {
+		previous()
+	}
+	connection.cloudCancels[frame.ID] = cancel
+	connection.cloudMu.Unlock()
+	go func() {
+		data, code := connection.cloudComputer.handle(
+			ctx, frame.ID, connection.credential.OwnerID, connection.credential.DeviceID,
+			frame.Operation, frame.Input,
+		)
+		response := cloudToolResult(frame.ID, frame.Operation, data, code)
+		connection.cloudMu.Lock()
+		delete(connection.cloudCancels, frame.ID)
+		connection.cloudMu.Unlock()
+		cancel()
+		_ = writeCloudToolResponse(socket, response)
+	}()
+}
+
 // handleCloudToolFrame consumes the independent cloud-tool lane. Ping is
 // answered immediately; file work runs off the read loop so pings, cancels and
 // a second bounded call stay responsive.
@@ -855,6 +903,14 @@ func (connection *deviceConnection) handleCloudToolFrame(socket *websocket.Conn,
 	if frame.ExpiresAt.IsZero() {
 		return true, writeCloudToolResponse(socket,
 			cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_TOOL_UNAVAILABLE"))
+	}
+	if cloudComputerOperationKnown(frame.Operation) {
+		if connection.cloudComputer == nil {
+			return true, writeCloudToolResponse(socket,
+				cloudToolFailure(frame.ID, frame.Operation, "COMPUTER_UNAVAILABLE"))
+		}
+		connection.startCloudComputerTool(socket, frame)
+		return true, nil
 	}
 	if connection.files == nil {
 		return true, writeCloudToolResponse(socket,

@@ -142,8 +142,18 @@ func (d *Desktop) shellMenus(tx locales.Messages) (*mygo.Menu, *mygo.Menu) {
 	// Emergency pause and stop must not block the main thread on the
 	// acknowledgement. The native menu and tray act on the host's current
 	// selection, so they pass the empty selection id reserved for that path.
-	pauseComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyPauseComputer("") }
-	stopComputer := func(*mygo.MenuItem, *mygo.Window) { go d.emergencyStopComputer("") }
+	pauseComputer := func(*mygo.MenuItem, *mygo.Window) {
+		go func() {
+			d.emergencyPauseComputer("")
+			d.emergencyPauseCloudComputer()
+		}()
+	}
+	stopComputer := func(*mygo.MenuItem, *mygo.Window) {
+		go func() {
+			d.emergencyStopComputer("")
+			d.emergencyStopCloudComputer()
+		}()
+	}
 	exportDiagnostics := func(*mygo.MenuItem, *mygo.Window) { d.startDiagnosticsExport(tx) }
 	goBack := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(false) }
 	goForward := func(*mygo.MenuItem, *mygo.Window) { d.stepMainWindowHistory(true) }

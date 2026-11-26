@@ -83,6 +83,28 @@ describe("desktop cloud tool gateway", () => {
     await expect(pendingSecond).rejects.toBeInstanceOf(DesktopCloudToolError);
   });
 
+  it("dispatches a cloud computer status invocation", async () => {
+    const gateway = new DesktopCloudToolGateway();
+    const sent: Array<Record<string, unknown>> = [];
+    const connectionId = randomUUID();
+    await gateway.register({
+      ownerId: owner, deviceId: device, connectionId,
+      operations: new Set(["local_computer.status"]),
+      verifyCredential: async () => true,
+      send: frame => { sent.push(JSON.parse(frame)); return true; },
+    });
+    const pending = gateway.execute(owner, {
+      operation: "local_computer.status", input: {},
+    }, new AbortController().signal);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    gateway.receive(connectionId, {
+      type: "cloud_tool.result", id: sent[0]!.id, operation: "local_computer.status",
+      ok: true, data: { state: "idle", available: true, permissions: { accessibility: "granted" } },
+    });
+    await expect(pending).resolves.toMatchObject({ deviceId: device });
+    gateway.close();
+  });
+
   it("dispatches only to the device that owns the granted root", async () => {
     const gateway = new DesktopCloudToolGateway();
     const otherDevice = "20000000-0000-4000-8000-000000000002";

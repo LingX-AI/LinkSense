@@ -52,8 +52,21 @@ func desktopComputerShortcutEligible(desktop *Desktop) bool {
 	return desktopComputerDriverEligible(desktop)
 }
 
+func desktopComputerRuntimeProof() (computerRuntimeProof, bool) {
+	if desktopMacosSignerToken != "" {
+		return computerRuntimeProof{Kind: computerRuntimeProofSigned}, true
+	}
+	if desktopInternalComputerProof == "true" {
+		return computerRuntimeProof{Kind: computerRuntimeProofPrepared}, true
+	}
+	return computerRuntimeProof{}, false
+}
+
 func desktopComputerDriverEligible(desktop *Desktop) bool {
-	if desktop == nil || desktop.dataRoot == "" || desktopMacosSignerToken == "" {
+	if desktop == nil || desktop.dataRoot == "" {
+		return false
+	}
+	if _, ok := desktopComputerRuntimeProof(); !ok {
 		return false
 	}
 	root, err := desktopComputerRuntimeRoot()
@@ -116,7 +129,11 @@ func (platform darwinComputerPlatform) pickTarget(ctx context.Context, desktop *
 	}
 	// The signed proof is verified here, on the user's gesture, before the
 	// driver is allowed to list a single window.
-	driver, err := newComputerDriverDarwin(ctx, root, stateParent, computerRuntimeProof{Kind: computerRuntimeProofSigned})
+	proof, ok := desktopComputerRuntimeProof()
+	if !ok {
+		return computerSelectedTarget{}, errComputerPickerUnavailable
+	}
+	driver, err := newComputerDriverDarwin(ctx, root, stateParent, proof)
 	if err != nil {
 		return computerSelectedTarget{}, errComputerPickerUnavailable
 	}
@@ -173,8 +190,11 @@ func (platform darwinComputerPlatform) newExecutor(ctx context.Context, desktop 
 	if err := driverTarget.validate(); err != nil {
 		return nil, errComputerInvalid
 	}
-	executor, err := newComputerExecutorDarwin(ctx, driverTarget, selection, root, stateParent,
-		computerRuntimeProof{Kind: computerRuntimeProofSigned})
+	proof, ok := desktopComputerRuntimeProof()
+	if !ok {
+		return nil, errComputerUnavailable
+	}
+	executor, err := newComputerExecutorDarwin(ctx, driverTarget, selection, root, stateParent, proof)
 	if err != nil {
 		return nil, errComputerUnavailable
 	}
