@@ -508,9 +508,9 @@ func TestNativeMacSessionRestoreRetriesWithoutLosingLaunchLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The restored account has no paired device, so any device connection would
-	// be a side effect of restoring the session rather than user intent. Keep an
-	// existing fake pairing so this test does not reset another fixture's state.
+	// Login now enrolls the signed-in Mac in the background. Clear the stored
+	// credential so this journey proves the restore itself enrolls, while
+	// keeping any previous fake pairing to restore after the test.
 	deviceKey := serverCredentialKey(desktop.server, "device")
 	previousDevice, deviceErr := nativeWhitebox.store.Get(deviceKey)
 	if deviceErr != nil && !errors.Is(deviceErr, mygo.ErrSecretNotFound) {
@@ -651,8 +651,8 @@ func TestNativeMacSessionRestoreRetriesWithoutLosingLaunchLink(t *testing.T) {
 		t.Fatalf("restoring the launch link submitted %d turns and opened %d browsers", turns, browsers)
 	}
 	_, deviceCredentialErr := nativeWhitebox.store.Get(deviceKey)
-	if device := desktop.currentDevice(); device != nil || !errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound) {
-		t.Fatalf("restoring the launch link started a device connection or created a credential: connectionNonNil=%t credentialNotAbsent=%t", device != nil, !errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound))
+	if device := desktop.currentDevice(); device == nil || errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound) {
+		t.Fatalf("restoring the launch link did not auto-enroll the Mac: connectionNil=%t credentialAbsent=%t", device == nil, errors.Is(deviceCredentialErr, mygo.ErrSecretNotFound))
 	}
 	stored, err = nativeWhitebox.store.Get(session.secretKey())
 	var refreshed storedRefreshSession
