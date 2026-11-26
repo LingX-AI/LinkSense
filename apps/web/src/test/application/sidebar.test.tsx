@@ -706,7 +706,7 @@ describe("LinkSense application", () => {
     const pinIcon = pinButton.querySelector("svg")
     const archiveIcon = archiveButton.querySelector("svg")
     expect(pinIcon).toHaveClass("size-4")
-    expect(archiveIcon).toHaveClass("size-4")
+    expect(archiveIcon).toHaveClass("size-3.5", "-translate-y-px")
     expect(pinIcon).toHaveAttribute("aria-hidden", "true")
     expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
@@ -1073,13 +1073,9 @@ describe("LinkSense application", () => {
     })
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
-      "sidebar-pin-filled"
+      "sidebar-pin-off"
     )
-    expect(unpinButton.querySelector("svg")).toHaveClass("size-4")
-    expect(unpinButton.querySelector("svg")).toHaveAttribute(
-      "stroke-width",
-      "0"
-    )
+    expect(unpinButton.querySelector("svg")).toHaveClass("size-3.5")
     await interaction.click(unpinButton)
 
     await waitFor(() => {

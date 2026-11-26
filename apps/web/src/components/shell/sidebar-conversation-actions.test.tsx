@@ -61,12 +61,12 @@ describe("SidebarConversationActions", () => {
     expect(callbacks.onArchive).toHaveBeenCalledOnce()
   })
 
-  it("shows the filled pin and unpin label for a pinned task", () => {
+  it("shows the unpin icon and unpin label for a pinned task", () => {
     renderActions(true)
     const pin = screen.getByRole("button", { name: unpinLabel })
     expect(pin.querySelector("svg")).toHaveAttribute(
       "data-icon",
-      "sidebar-pin-filled"
+      "sidebar-pin-off"
     )
   })
 

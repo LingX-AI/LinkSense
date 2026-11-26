@@ -1,5 +1,5 @@
 import { useEffect, useId } from "react"
-import { Archive, Pin } from "lucide-react"
+import { Archive, Pin, PinOff } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -71,13 +71,15 @@ export function SidebarConversationActions(props: SidebarConversationActionsProp
         }
       >
         <SidebarActionIcon>
-          <Pin
-            className="size-4"
-            fill={pinned ? "currentColor" : "none"}
-            strokeWidth={pinned ? 0 : undefined}
-            data-icon={pinned ? "sidebar-pin-filled" : undefined}
-            aria-hidden="true"
-          />
+          {pinned ? (
+            <PinOff
+              className="size-3.5"
+              data-icon="sidebar-pin-off"
+              aria-hidden="true"
+            />
+          ) : (
+            <Pin className="size-4" aria-hidden="true" />
+          )}
         </SidebarActionIcon>
       </TooltipTrigger>
       <TooltipTrigger
