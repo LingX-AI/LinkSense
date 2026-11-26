@@ -6,3 +6,11 @@
 # Verified internal callback URL assertion, not a credential. Only this exact
 # historical finding is excluded; future commits and other findings are scanned.
 bf10ae15c516e0b4222571d8ef13056903179e33:apps/runner/test/controller-server.test.ts:generic-api-key:705
+
+# Synthetic analytics API key used only by the web-site analytics test fixture.
+# Only this exact historical finding is excluded.
+f88bd9976108ad95a7310013d5a0c2953a2e57c2:apps/api/test/web-site-analytics.test.ts:generic-api-key:4
+
+# Synthetic masking fixture tokens used only by the privacy-masking regression
+# test. Only this exact historical finding is excluded.
+fcc2d1c04524b5f5e3fc12cf751296ae0aa48048:apps/runner/test/privacy-masking.test.ts:generic-api-key:60
