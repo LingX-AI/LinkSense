@@ -20,7 +20,7 @@ function InputGroup({
       className={cn(
         "group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-transparent bg-field transition-colors duration-200 outline-none has-[[data-slot=input-group-control]:focus-visible]:bg-field-focus has-[[data-slot][aria-invalid=true]]:border-destructive has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5",
         variant === "outlined" &&
-          "h-10 border-border focus-within:ring-1 focus-within:ring-ring focus-within:not-has-aria-invalid:border-ring hover:not-focus-within:not-has-disabled:not-has-aria-invalid:border-input-hover has-aria-invalid:ring-destructive",
+          "h-9 border-border focus-within:ring-1 focus-within:ring-ring focus-within:not-has-aria-invalid:border-ring hover:not-focus-within:not-has-disabled:not-has-aria-invalid:border-input-hover has-aria-invalid:ring-destructive",
         className
       )}
       {...props}

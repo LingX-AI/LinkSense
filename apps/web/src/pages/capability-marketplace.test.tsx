@@ -938,7 +938,7 @@ describe("capability marketplace pages", () => {
     const searchbox = screen.getByRole("searchbox", { name: "搜索技能" })
     expect(searchbox).toBeVisible()
     const inputGroup = searchbox.closest('[data-slot="input-group"]')
-    expect(inputGroup).toHaveClass("h-10", "rounded-lg", "bg-field")
+    expect(inputGroup).toHaveClass("h-9", "rounded-lg", "bg-field")
     const searchRow = inputGroup?.parentElement
     const addButton = screen.getByRole("button", { name: "添加技能" })
     expect(searchRow).toHaveClass("capability-center-search-row")
