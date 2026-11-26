@@ -23,6 +23,15 @@
   实际验证过的版本。
 - 旧代码：本地执行/M1b 代码停用保留，打包时不再带运行时。
 
+### 任务目标：只有云端
+
+- 新任务一律在云端 runner 执行；UI 不提供 Run location，也没有默认运行位置设置。
+- 移除：新任务 Run location、设置里的 Default run location、Continue on this Mac /
+  Continue on the cloud computer、执行目标徽标。
+- 设备/配对不再是执行目标，只用于本机工具（文件/桌面/浏览器）；设置页改为“本机工具”。
+- API 对新的 `execution_target=local` 创建请求返回明确不可用；保留历史字段和已有
+  local 会话只读，不迁移、不重放、不新建本地回合。
+
 ## 2. 架构
 
 ```text
