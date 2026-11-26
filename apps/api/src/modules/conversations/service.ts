@@ -1,10 +1,9 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
-import { assertPairedDesktopDevice, conversationContinuationId, lockContinuationSource, readContinuationSource } from "./execution-target.js";
 import { lockDesktopConversation, type DesktopStartProjectionFence } from "../desktop-credentials/run-authority.js";
 import { snapshotRecoveredDesktopRunLease } from "../desktop-credentials/run-leases.js";
 import { endLocalComputerSessions } from "../local-computer/repository.js";
 import { resolveDesktopArtifactFileChanges } from "../files/desktop-artifact-references.js";
-import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
+import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
@@ -34,8 +33,8 @@ import { assertApplicationRuntimeCurrent } from "../applications/runtime-version
 import type { ApplicationRuntimeConfiguration } from "../applications/service.js";
 import type { PublishedCapability } from "../applications/published-definition.js";
 import { createHash } from "node:crypto";
-import { access, constants, mkdir, rm } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { access, constants } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { z } from "zod";
 import { v5 as uuidv5 } from "uuid";
 
@@ -132,7 +131,6 @@ import {
   type ReasoningEffort,
   type OfficeAnnotationInput,
   type OfficeAnnotationDisplay,
-  conversationContinuationResultSchema,
   type InteractiveApplicationMessageSource,
   type PresentationAnnotation,
   type PresentationAnnotationInput,
@@ -723,12 +721,6 @@ const turnStartIntentSchema = z.strictObject({
       message: "plan_revision_requires_plan_mode",
     });
   }
-});
-
-const continuationReceiptMetadataSchema = z.strictObject({
-  source_conversation_id: z.uuid(),
-  source_target: conversationExecutionTargetSchema,
-  execution_target: conversationExecutionTargetSchema,
 });
 
 type TurnStartIntent = z.infer<typeof turnStartIntentSchema>;
@@ -3501,169 +3493,20 @@ export class ConversationService {
     });
   }
 
-  async continueConversation(
-    ownerId: string,
-    sourceConversationId: string,
-    input: {
-      requestId: string;
-      executionTarget: ConversationExecutionTarget;
-      desktopDeviceId: string | null;
-      fallbackLocale?: Locale;
-    },
-    context: AuditContext,
-  ) {
-    // UUIDs are case-insensitive; normalize before scoping the deterministic key.
-    const normalizedOwnerId = z.uuid().parse(ownerId).toLowerCase();
-    const normalizedSourceId = z.uuid().parse(sourceConversationId).toLowerCase();
-    const normalizedRequestId = z.uuid().parse(input.requestId).toLowerCase();
-    const execution = conversationExecutionSelectionSchema.parse({
-      execution_target: input.executionTarget,
-      desktop_device_id: input.desktopDeviceId === null
-        ? null
-        : z.uuid().parse(input.desktopDeviceId).toLowerCase(),
-    });
-    const destinationId = conversationContinuationId(
-      normalizedOwnerId,
-      normalizedSourceId,
-      normalizedRequestId,
-    );
-    return this.withActiveUserRuntimeLease(normalizedOwnerId, async () => {
-      const lock = await this.acquireConversationLock(normalizedSourceId);
-      try {
-        // Read the receipt only under the source lock: the destination row and
-        // its audit receipt commit in one transaction, so unlocked reads can
-        // straddle that commit and falsely conflict.
-        const committed = await this.readContinuationReplay(
-          normalizedOwnerId,
-          destinationId,
-          normalizedSourceId,
-          execution,
-        );
-        if (committed) return committed;
-        // Reject an ineligible source before any workspace or runtime work.
-        const source = await readContinuationSource(
-          this.prisma,
-          normalizedOwnerId,
-          normalizedSourceId,
-          execution.execution_target,
-        );
-        if (execution.execution_target === "local") {
-          const deviceId = z.uuid().parse(execution.desktop_device_id);
-          await assertPairedDesktopDevice(
-            this.prisma,
-            normalizedOwnerId,
-            deviceId,
-            "darwin",
-          );
-          // Direct POSTs must not trust the Web readiness hint. This is a
-          // creation-time check, not a reservation: a disconnect after commit
-          // is still rejected when the first turn is admitted.
-          await this.runner.assertDesktopDeviceAvailable(deviceId, true);
-        }
-        const created = await this.createConversation(
-          normalizedOwnerId,
-          input.fallbackLocale,
-          undefined,
-          {
-            conversationId: destinationId,
-            execution,
-            continuation: {
-              sourceConversationId: normalizedSourceId,
-              audit: context,
-            },
-          },
-        );
-        return conversationContinuationResultSchema.parse({
-          conversation: projectConversation(
-            created,
-            created.lastTurnStatus ?? "idle",
-          ),
-          source: { id: source.id, title: source.title },
-        });
-      } finally {
-        await this.redis
-          .releaseConversationLock(normalizedSourceId, lock)
-          .catch(() => undefined);
-      }
-    });
-  }
-
-  private async readContinuationReplay(
-    ownerId: string,
-    destinationId: string,
-    sourceConversationId: string,
-    execution: ConversationExecutionSelection,
-  ) {
-    const [existing, receipts] = await Promise.all([
-      this.prisma.conversation.findUnique({ where: { id: destinationId } }),
-      this.prisma.auditLog.findMany({
-        where: {
-          actorId: ownerId,
-          action: "conversation_continued",
-          targetType: "conversation",
-          targetId: destinationId,
-          result: "success",
-        },
-        orderBy: { createdAt: "asc" },
-        take: 2,
-      }),
-    ]);
-    if (!existing && receipts.length === 0) return null;
-    // A pre-created row or a surviving receipt is not itself an accepted
-    // continuation; only the exact committed destination plus its audit proves it.
-    if (!existing || existing.ownerId !== ownerId || receipts.length !== 1) {
-      throw new AppError("CONFLICT");
-    }
-    const metadata = continuationReceiptMetadataSchema.safeParse(
-      receipts[0]?.metadataJson,
-    );
-    if (
-      !metadata.success ||
-      metadata.data.source_conversation_id.toLowerCase() !== sourceConversationId ||
-      metadata.data.execution_target !== execution.execution_target
-    ) {
-      throw new AppError("CONFLICT");
-    }
-    const source = await this.prisma.conversation.findFirst({
-      where: { id: sourceConversationId, ownerId },
-      select: { id: true, title: true, executionTarget: true },
-    });
-    if (!source) throw new AppError("CONVERSATION_NOT_FOUND");
-    if (source.title.length < 1 || source.title.length > 240) {
-      throw new AppError("CONFLICT");
-    }
-    if ((source.executionTarget ?? "cloud") !== metadata.data.source_target) {
-      throw new AppError("CONFLICT");
-    }
-    if (
-      (existing.executionTarget ?? "cloud") !== execution.execution_target ||
-      (existing.desktopDeviceId ?? null) !== (execution.desktop_device_id ?? null)
-    ) {
-      throw new AppError("CONFLICT");
-    }
-    return conversationContinuationResultSchema.parse({
-      conversation: projectConversation(
-        existing,
-        existing.lastTurnStatus ?? "idle",
-      ),
-      source: { id: source.id, title: source.title },
-    });
-  }
-
   async getSideChat(ownerId: string, conversationId: string): Promise<SideChat | null> {
     await this.assertOwner(ownerId, conversationId);
     const row = await this.prisma.conversation.findFirst({ where: { ownerId, sideChatParentId: conversationId } });
     return row ? projectSideChat(row) : null;
   }
 
-  async openSideChat(ownerId: string, conversationId: string, selection: SideChatSelection, desktopLocalExecutionEnabled: boolean): Promise<SideChat> {
+  async openSideChat(ownerId: string, conversationId: string, selection: SideChatSelection): Promise<SideChat> {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
       const parent = await this.assertOwner(ownerId, conversationId);
       if (parent.sideChatParentId) throw new AppError("CONFLICT");
       const roles = await readConversationDevelopmentRoles(this.prisma, ownerId, [parent]);
       if (roles.has(parent.id)) throw new AppError("CONFLICT");
       const existing = await this.getSideChat(ownerId, conversationId);
-      if (!existing && parent.executionTarget === "local" && !desktopLocalExecutionEnabled) throw new AppError("RUNNER_UNAVAILABLE");
+      if (!existing && parent.executionTarget === "local") throw new AppError("DESKTOP_LOCAL_TARGET_RETIRED");
       if (
         existing &&
         existing.reference.source_message_id === selection.source_message_id &&
@@ -7978,15 +7821,12 @@ export class ConversationService {
       projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
       execution?: ConversationExecutionSelection;
-      continuation?: { sourceConversationId: string; audit: AuditContext };
     },
     prewarmedConversationId?: string,
   ) {
     const execution = options?.execution ?? conversationExecutionSelectionSchema.parse({});
-    const local = execution.execution_target === "local";
-    if (local) {
-      await assertPairedDesktopDevice(this.prisma, ownerId, z.uuid().parse(execution.desktop_device_id), options?.continuation ? "darwin" : undefined);
-      prewarmedConversationId = undefined;
+    if (execution.execution_target === "local") {
+      throw new AppError("DESKTOP_LOCAL_TARGET_RETIRED");
     }
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
     const applicationRuntime = options?.resolvedApplicationRuntime ?? (application
@@ -8003,13 +7843,10 @@ export class ConversationService {
       if (reused) return reused;
     }
     const serviceSessionId = application?.id;
-    const workspaceRelPath = options?.sideChat?.workspaceRelPath ?? (local
-      ? serviceWorkspaceRelativePath(ownerId, id)
-      : serviceSessionId
+    const workspaceRelPath = options?.sideChat?.workspaceRelPath ?? (serviceSessionId
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
       : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null));
     let claimedPrewarm = false;
-    let localStagingRoot: string | null = null;
     if (prewarmedConversationId) {
       const collision = await this.prisma.conversation.findUnique({
         where: { id: prewarmedConversationId },
@@ -8030,9 +7867,7 @@ export class ConversationService {
         ? await this.runner.inspectPrewarmedConversation(id, ownerId).catch(() => null)
         : null;
       let runtime: { agentsTemplateVersion: string | null; runtimeGeneration: string };
-      if (local) {
-        runtime = { agentsTemplateVersion: null, runtimeGeneration: crypto.randomUUID() };
-      } else if (prewarmedRuntime) {
+      if (prewarmedRuntime) {
         runtime = prewarmedRuntime;
       } else {
         const reservedRuntime = claimedPrewarm
@@ -8054,15 +7889,6 @@ export class ConversationService {
         ownerId,
         workspaceRelPath,
       );
-      if (local) {
-        if (!options?.sideChat) {
-          const root = dirname(dirname(workspace));
-          await ensureSharedWorkspaceDirectory(this.workspaceRoot, dirname(root));
-          await mkdir(root, { mode: workspacePermissionPolicy.sharedDirectory });
-          localStagingRoot = root;
-        }
-        await ensureSharedWorkspaceDirectory(this.workspaceRoot, workspace);
-      }
       await Promise.all(
         ["attachments", "artifacts", "temp"].map((directory) =>
           ensureSharedWorkspaceDirectory(
@@ -8077,10 +7903,6 @@ export class ConversationService {
         where: { runtimePrincipalId: ownerId }, select: { preferredLocale: true },
       });
       return await this.prisma.$transaction(async (tx) => {
-        if (local) await assertPairedDesktopDevice(tx, ownerId, z.uuid().parse(execution.desktop_device_id), options?.continuation ? "darwin" : undefined);
-        const continuationSource = options?.continuation
-          ? await lockContinuationSource(tx, ownerId, options.continuation.sourceConversationId, execution.execution_target)
-          : null;
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
@@ -8163,38 +7985,16 @@ export class ConversationService {
             occurredAt: created.createdAt,
           },
         });
-        if (options?.continuation && continuationSource) {
-          // The receipt commits with the destination row. A failed audit write
-          // rolls both back instead of leaving an unaudited task.
-          await new AuditService(tx).write({
-            ...options.continuation.audit,
-            actorId: ownerId,
-            action: "conversation_continued",
-            targetType: "conversation",
-            targetId: created.id,
-            result: "success",
-            metadata: {
-              source_conversation_id: options.continuation.sourceConversationId,
-              source_target: continuationSource.executionTarget,
-              execution_target: execution.execution_target,
-            },
-          });
-        }
         return created;
       });
     } catch (error) {
-      if (localStagingRoot && !await this.prisma.conversation.findUnique({ where: { id }, select: { id: true } })) {
-        await rm(localStagingRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-      }
       if (options?.reusePinnedCreation) {
         const existing = await this.prisma.conversation.findUnique({ where: { id } });
         if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
       }
-      if (!local) {
-        await this.cleanup
-          .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
-          .catch(() => undefined);
-      }
+      await this.cleanup
+        .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
+        .catch(() => undefined);
       throw error;
     }
   }
@@ -9978,6 +9778,9 @@ export class ConversationService {
     let checkedModelTransitionSource: ResolvedModelTransitionRuntime | null | undefined;
     try {
       const conversation = await this.assertOwner(ownerId, conversationId);
+      if (conversation.executionTarget === "local") {
+        throw new AppError("DESKTOP_LOCAL_TARGET_RETIRED");
+      }
       const desktop = conversation.executionTarget === "local";
       const submittedAnnotation = submissionOfficeAnnotation(submission);
       const directDefaultTurn = !submission.goal && !regeneration &&

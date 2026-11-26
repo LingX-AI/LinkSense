@@ -40,6 +40,7 @@ const desktopActivityRules: Readonly<
   Record<DesktopActivityAction, DesktopActivityRule>
 > = {
   desktop_device_paired: { targetType: "desktop_device" },
+  desktop_device_registered: { targetType: "desktop_device" },
   desktop_device_renamed: { targetType: "desktop_device" },
   desktop_device_revoked: { targetType: "desktop_device" },
   desktop_approval_responded: { targetType: "conversation_desktop_approval" },

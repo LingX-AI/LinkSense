@@ -1,7 +1,3 @@
-import {
-  desktopDeviceRenameInputSchema,
-  desktopPairingCodeSchema,
-} from "@linksense/shared"
 import { z } from "zod"
 
 import { isMacDesktopHost } from "./desktop-adapter"
@@ -22,6 +18,8 @@ const nativeDeviceStatusSchema = z
   .object({
     state: desktopDeviceStateSchema,
     deviceId: z.uuid().optional(),
+    errorCode: z.string().optional(),
+    localToolsDisabled: z.boolean().optional(),
     executionReady: z.boolean().optional(),
     computerReady: z.boolean().optional(),
     conversationReferenceReadReady: z.boolean().optional(),
@@ -33,6 +31,9 @@ export type DesktopDeviceState = z.infer<typeof desktopDeviceStateSchema>
 export type DesktopDeviceStatus = {
   deviceId?: string
   state: DesktopDeviceState
+  errorCode?: string
+  /** True when the user disabled local tools on this installation. */
+  localToolsDisabled?: boolean
   /**
    * True only when the native host reports a ready execution link. Older hosts
    * omit the field, which means false.
@@ -56,6 +57,8 @@ export function parseDesktopDeviceStatus(value: unknown): DesktopDeviceStatus {
   return {
     deviceId: parsed.deviceId,
     state: parsed.state,
+    ...(parsed.errorCode ? { errorCode: parsed.errorCode } : {}),
+    ...(parsed.localToolsDisabled ? { localToolsDisabled: true } : {}),
     executionReady: parsed.executionReady === true,
     computerReady: parsed.computerReady === true,
     conversationReferenceReadReady:
@@ -73,28 +76,30 @@ export async function readDesktopDeviceStatus(
   return parseDesktopDeviceStatus(value)
 }
 
-export async function pairDesktopDevice(
-  code: string,
-  name: string
-): Promise<DesktopDeviceStatus> {
-  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  const parsedCode = desktopPairingCodeSchema.parse(code)
-  const parsedName = desktopDeviceRenameInputSchema.parse({ name }).name
-  const value: unknown = await Desktop.pairDevice(parsedCode, parsedName)
-  return parseDesktopDeviceStatus(value)
-}
-
 /**
- * Resumes the Mac's stored device credential for the verified Web user. The
- * native host verifies the owner, session, and credential again; this call
- * never pairs a device and is a no-op outside a macOS host.
+ * Ensures the verified Web user's Mac is registered and connected. The native
+ * host proves the account again, rotates the device credential, and connects.
+ * There is no pairing code and no user action; outside a macOS host this is a
+ * no-op.
  */
-export async function resumeDesktopDeviceForAuthRestore(
+export async function ensureDesktopDeviceForAuthRestore(
   ownerId: string
 ): Promise<DesktopDeviceStatus | null> {
   if (!isMacDesktopHost()) return null
   const parsedOwner = z.uuid().safeParse(ownerId)
   if (!parsedOwner.success) return null
-  const value: unknown = await Desktop.resumeDevice(parsedOwner.data)
+  const value: unknown = await Desktop.ensureDevice(parsedOwner.data, false)
+  return parseDesktopDeviceStatus(value)
+}
+
+/**
+ * Applies the explicit local-tools toggle. Enabling re-registers with the
+ * server so an earlier revocation is cleared by the user's decision only.
+ */
+export async function setDesktopLocalToolsEnabled(
+  enabled: boolean
+): Promise<DesktopDeviceStatus> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  const value: unknown = await Desktop.setLocalToolsEnabled(enabled)
   return parseDesktopDeviceStatus(value)
 }

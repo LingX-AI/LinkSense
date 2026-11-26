@@ -111,6 +111,7 @@ const actionMessages = {
   credential_usage_commit_failed: ["凭证使用记录提交失败", "Credential usage record failed"],
   credential_used: ["已使用凭证", "Credential used"],
   desktop_device_paired: ["已配对桌面设备", "Desktop device paired"],
+  desktop_device_registered: ["已连接本机工具", "Local tools connected"],
   desktop_device_renamed: ["已重命名桌面设备", "Desktop device renamed"],
   desktop_device_revoked: ["已撤销桌面设备", "Desktop device revoked"],
   desktop_tool_requested: ["桌面工具请求", "Desktop tool request"],

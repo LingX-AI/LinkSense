@@ -33,13 +33,7 @@ import {
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
 import { DesktopActivityDisclosure } from "@/features/desktop-activity/desktop-activity-disclosure"
-import { desktopExecutionDefaultTargetKey } from "@/features/desktop-execution/desktop-execution-default-target"
-import { DesktopExecutionDefaultTargetSettings } from "@/features/desktop-execution/desktop-execution-default-target-settings"
-import {
-  desktopDeviceSettingsHeadingId,
-  desktopExecutionDefaultTargetAnchorId,
-} from "@/features/desktop-execution/desktop-execution-target"
-import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
+import { desktopDeviceSettingsHeadingId } from "@/features/desktop-execution/desktop-execution-target"
 import {
   personalizationSettingsSchema,
   personalUsageProfileSchema,
@@ -132,17 +126,12 @@ export function SettingsGeneralPage() {
   const { t } = useTranslation()
   const location = useLocation()
   const { user, refreshUser } = useAuth()
-  const defaultTargetKey = desktopExecutionDefaultTargetKey(user?.id)
   const showThisMac = isMacDesktopHost() && user !== null
   useEffect(() => {
     const anchor = location.hash.slice(1)
     if (
       anchor !== "browser-extension" &&
-      !(
-        showThisMac &&
-        (anchor === desktopDeviceSettingsHeadingId ||
-          anchor === desktopExecutionDefaultTargetAnchorId)
-      )
+      !(showThisMac && anchor === desktopDeviceSettingsHeadingId)
     )
       return
     const target = document.getElementById(anchor)
@@ -298,18 +287,6 @@ export function SettingsGeneralPage() {
             <DesktopUpdateControl />
           </SettingsCard>
         )}
-        {isMacDesktopHost() && user && (
-          <SettingsCard
-            header={
-              <SettingsSectionHeader
-                id="local-workspace-heading"
-                title={t("localWorkspace.title")}
-              />
-            }
-          >
-            <LocalWorkspaceSettings key={user.id} />
-          </SettingsCard>
-        )}
         {showThisMac && (
           <SettingsCard
             header={
@@ -321,13 +298,6 @@ export function SettingsGeneralPage() {
               />
             }
           >
-            {defaultTargetKey && (
-              <DesktopExecutionDefaultTargetSettings
-                key={defaultTargetKey}
-                preferenceKey={defaultTargetKey}
-                anchorId={desktopExecutionDefaultTargetAnchorId}
-              />
-            )}
             <DesktopDevicesSettings key={user.id} ownerId={user.id} />
             <DesktopActivityDisclosure
               key={`desktop-activity-${user.id}`}

@@ -9,6 +9,7 @@ import { desktopApprovalDecisionSchema } from "./conversation-forms.js";
  */
 export const desktopActivityActionSchema = z.enum([
   "desktop_device_paired",
+  "desktop_device_registered",
   "desktop_device_renamed",
   "desktop_device_revoked",
   "desktop_approval_responded",

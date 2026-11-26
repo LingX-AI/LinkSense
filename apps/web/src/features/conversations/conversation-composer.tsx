@@ -466,7 +466,6 @@ type ConversationComposerProps = Readonly<{
   onSelectedIdsChange: (ids: string[]) => void
   showKnowledgeBaseButton?: boolean
   projectPicker?: ReactNode
-  executionTargetPicker?: ReactNode
   knowledgeBases?: KnowledgeBase[]
   knowledgeBasesLoading?: boolean
   knowledgeBasesError?: boolean
@@ -562,7 +561,6 @@ export const ConversationComposer = forwardRef<
     onSelectedIdsChange,
     showKnowledgeBaseButton = true,
     projectPicker,
-    executionTargetPicker,
     knowledgeBases = [],
     knowledgeBasesLoading,
     knowledgeBasesError,
@@ -2568,17 +2566,6 @@ export const ConversationComposer = forwardRef<
                   )}
               </PopoverContent>
             </Popover>
-          )}
-
-          {executionTargetPicker && (
-            <>
-              <span
-                className="h-4 w-px shrink-0 bg-divider"
-                data-slot="composer-separator"
-                aria-hidden="true"
-              />
-              {executionTargetPicker}
-            </>
           )}
 
           {!managedApplicationName && goalMode && (

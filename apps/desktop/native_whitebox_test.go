@@ -44,6 +44,7 @@ var nativeWhitebox struct {
 	api           atomic.Pointer[nativeWhiteboxAPI]
 	completion    atomic.Bool
 	bootstrapFail atomic.Bool
+	deviceRevoked atomic.Bool
 }
 
 type nativeDeviceSignOutRequests struct {
@@ -201,6 +202,7 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 		}
 		if cloudAuthorized(w, r) {
 			deviceSignOut.accepted.Add(1)
+			nativeWhitebox.deviceRevoked.Store(true)
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]bool{"revoked": true}})
 		}
 		return
@@ -273,6 +275,39 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refres
 		data = user
 	case "/api/v1/auth/social/providers":
 		data = map[string]any{"providers": []any{}}
+	case devicesPath + "/register":
+		if !cloudAuthorized(w, r) {
+			return
+		}
+		if nativeWhitebox.deviceRevoked.Load() {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "DESKTOP_LOCAL_TOOLS_DISABLED"})
+			return
+		}
+		var input struct {
+			DeviceID   string `json:"device_id"`
+			Name       string `json:"name"`
+			Platform   string `json:"platform"`
+			Arch       string `json:"arch"`
+			AppVersion string `json:"app_version"`
+			Reenable   bool   `json:"reenable"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		credential := deviceFixtureCredential()
+		if input.DeviceID != "" && input.DeviceID != credential.DeviceID {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		data = map[string]any{
+			"token": credential.Token, "owner_id": credential.OwnerID,
+			"device": publicDevice{
+				ID: credential.DeviceID, Name: input.Name, Platform: input.Platform, Arch: input.Arch,
+				AppVersion: input.AppVersion, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			},
+		}
 	case "/api/v1/desktop/devices/pair":
 		var input struct {
 			Code         string             `json:"code"`
@@ -460,6 +495,10 @@ func TestNativeSharedUILoginAndSecureSessionRestore(t *testing.T) {
 }
 
 func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
+	nativeWhitebox.deviceRevoked.Store(false)
+	nativeWhitebox.desktop.localToolsRevoked.Store(false)
+	defer nativeWhitebox.deviceRevoked.Store(false)
+	defer nativeWhitebox.desktop.localToolsRevoked.Store(false)
 	nativeWhiteboxSession(t, true)
 	desktop := nativeWhitebox.desktop
 	desktop.openMainWindow()
@@ -543,7 +582,7 @@ func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		// The wrong-owner request above closed the live connection. Restore it
 		// as the verified account before opening the sign-out dialog.
-		resume := fmt.Sprintf(`mygo.call("Desktop.ResumeDevice", %q)`, credential.OwnerID)
+		resume := fmt.Sprintf(`mygo.call("Desktop.EnsureDevice", %q, false)`, credential.OwnerID)
 		if _, err := page.Eval(resume); err != nil {
 			t.Fatal(err)
 		}
@@ -597,9 +636,9 @@ func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
 			t.Fatal("confirmed Mac revoke left the local pairing in the credential store")
 		}
 		signIn()
-		result, err := page.Eval(resume + `.then(status => status.state === "unpaired" && !status.deviceId)`)
+		result, err := page.Eval(resume + `.then(status => status.state === "revoked" && status.errorCode === "DESKTOP_LOCAL_TOOLS_DISABLED")`)
 		if err != nil || result != true {
-			t.Fatalf("the verified account could resume a revoked pairing: %v (%v)", result, err)
+			t.Fatalf("the verified account revived a revoked pairing: %v (%v)", result, err)
 		}
 		if attempts, accepted := requests.attempted.Load(), requests.accepted.Load(); attempts != 1 || accepted != 1 {
 			t.Fatalf("Mac sign-out should send exactly one authorized DELETE for its device; attempted=%d accepted=%d", attempts, accepted)

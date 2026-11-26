@@ -30,7 +30,7 @@ import {
   clearDesktopSession,
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
-import { resumeDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
+import { ensureDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
 import type { MacSignOutOptions } from "@/adapters/desktop/mygo"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
@@ -282,21 +282,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [resetAccountState, status]
   )
 
-  // Resume the Mac's stored device credential only after a verified Web
-  // session names the owner. The native host fences the owner and sign-out
-  // again; this never pairs a device or retries beyond one native call.
+  // Register and connect this Mac only after a verified Web session names the
+  // owner. The native host fences the owner and sign-out again; there is no
+  // pairing action. A transient network failure retries until the account or
+  // route changes, without blocking the UI.
   useEffect(() => {
     if (status !== "authenticated" || !user?.id) {
       resumedDesktopOwnerRef.current = null
       return
     }
     if (resumedDesktopOwnerRef.current === user.id) return
-    resumedDesktopOwnerRef.current = user.id
-    void resumeDesktopDeviceForAuthRestore(user.id).catch(() => {
-      if (resumedDesktopOwnerRef.current === user.id) {
+    let retry: number | undefined
+    let cancelled = false
+    let attempts = 0
+    const ensure = () => {
+      resumedDesktopOwnerRef.current = user.id
+      void ensureDesktopDeviceForAuthRestore(user.id).catch((error: unknown) => {
+        if (cancelled || resumedDesktopOwnerRef.current !== user.id) return
         resumedDesktopOwnerRef.current = null
-      }
-    })
+        if (
+          attempts >= 2 ||
+          (error instanceof Error &&
+            ["FORBIDDEN", "VALIDATION_ERROR", "AUTH_REQUIRED"].includes(
+              error.message
+            ))
+        )
+          return
+        attempts += 1
+        retry = window.setTimeout(() => {
+          if (!cancelled) ensure()
+        }, 10_000 * attempts)
+      })
+    }
+    ensure()
+    return () => {
+      cancelled = true
+      if (retry !== undefined) window.clearTimeout(retry)
+    }
   }, [status, user?.id])
 
   const effectiveStatus =

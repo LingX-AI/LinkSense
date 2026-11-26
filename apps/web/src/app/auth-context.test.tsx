@@ -23,7 +23,7 @@ import { useAuth } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
 import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
-import { resumeDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
+import { ensureDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
@@ -76,7 +76,7 @@ vi.mock("@/adapters/desktop/desktop-adapter", () => ({
 }))
 
 vi.mock("@/adapters/desktop/desktop-device-adapter", () => ({
-  resumeDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
+  ensureDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
 }))
 
 const user: User = {
@@ -202,7 +202,7 @@ describe("AuthProvider session restoration", () => {
     vi.mocked(setAccessToken).mockClear()
     vi.mocked(setAppLanguage).mockClear()
     vi.mocked(clearDesktopSession).mockReset().mockResolvedValue(undefined)
-    vi.mocked(resumeDesktopDeviceForAuthRestore)
+    vi.mocked(ensureDesktopDeviceForAuthRestore)
       .mockReset()
       .mockResolvedValue(null)
   })
@@ -233,7 +233,7 @@ describe("AuthProvider session restoration", () => {
 
     await expectAuthStatus("authenticated")
     await waitFor(() =>
-      expect(resumeDesktopDeviceForAuthRestore).toHaveBeenCalledExactlyOnceWith(
+      expect(ensureDesktopDeviceForAuthRestore).toHaveBeenCalledExactlyOnceWith(
         user.id
       )
     )

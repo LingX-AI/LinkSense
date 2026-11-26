@@ -231,6 +231,8 @@ export const errorMessages: Record<ErrorCode, string> = {
  RUNNER_UNAVAILABLE: "Le service d’exécution est indisponible. Réessayez plus tard.",
  RUNNER_OPERATION_UNCERTAIN: "Il n’est pas encore confirmé que votre Mac a exécuté cette opération. Attendez la mise à jour de son état avant de la renvoyer.",
  DESKTOP_DEVICE_REVOKED: "L’accès à ce Mac a été révoqué. Le contenu existant a été conservé. Vérifiez sur le Mac où la tâche s’est arrêtée.",
+ DESKTOP_LOCAL_TARGET_RETIRED: "L’exécution locale n’est plus disponible. Les nouvelles tâches s’exécutent uniquement dans le cloud.",
+ DESKTOP_LOCAL_TOOLS_DISABLED: "Les outils locaux sont désactivés sur ce Mac. Réactivez-les dans les réglages.",
  DEPLOYMENT_STOPPED: "Cette tâche a été arrêtée pour une mise à jour du système. Le contenu existant est conservé. Vérifiez la progression avant de continuer manuellement.",
  EXECUTION_SERVICE_INCOMPATIBLE: "Les versions du service d’exécution sont incompatibles. Réessayez plus tard. Si le problème persiste, contactez un administrateur.",
  AUTH_INVALID_CREDENTIALS: "E-mail ou mot de passe invalide.",
@@ -292,6 +294,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 export const auditMessages = {
  actions: {
    desktop_device_paired: "Ordinateur associé",
+   desktop_device_registered: "Outils locaux connectés",
    desktop_device_renamed: "Ordinateur renommé",
    desktop_device_revoked: "Accès de l’ordinateur révoqué",
    desktop_tool_requested: "Requête d’outil de bureau",

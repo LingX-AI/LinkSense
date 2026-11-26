@@ -17,6 +17,7 @@ import {
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
+  desktopDeviceRegisterInputSchema,
   desktopDeviceRenameInputSchema,
   desktopDeviceRenameResultSchema,
   desktopAttachmentProtocolVersion,
@@ -92,6 +93,13 @@ export async function registerDesktopDeviceRoutes(
     routes.post("/pairing", { bodyLimit: 1024, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async request => {
       z.strictObject({}).parse(request.body);
       return ok(await service.pairing(request.authUser!.id, request.authUser!.authValidAfter), request.id);
+    });
+    routes.post("/register", { bodyLimit: 4096, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async request => {
+      const body = desktopDeviceRegisterInputSchema.parse(request.body);
+      return ok(
+        await service.register(request.authUser!.id, request.authUser!.authValidAfter, body),
+        request.id,
+      );
     });
     routes.get("/", async request =>
       ok(desktopDeviceListSchema.parse(await service.list(request.authUser!.id)), request.id));

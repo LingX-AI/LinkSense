@@ -716,6 +716,38 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
     expect((await app.inject({ url: "/api/v1/desktop/devices", headers: { authorization: "Bearer other" } })).json().data.items).toEqual([]);
   });
 
+  it("registers the same installation idempotently and never returns the stored token hash", async () => {
+    const { app } = await fixture();
+    expect((await app.inject({ method: "POST", url: "/api/v1/desktop/devices/register", payload: registration })).statusCode).toBe(401);
+    const installationId = "60000000-0000-4000-8000-000000000001";
+    const first = await app.inject({
+      method: "POST", url: "/api/v1/desktop/devices/register", headers,
+      payload: { ...registration, installation_id: installationId },
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    const deviceId: string = first.json().data.device.id;
+    const second = await app.inject({
+      method: "POST", url: "/api/v1/desktop/devices/register", headers,
+      payload: { ...registration, installation_id: installationId, device_id: deviceId },
+    });
+    expect(second.statusCode, second.body).toBe(200);
+    expect(second.json().data.device.id).toBe(deviceId);
+    expect(second.json().data.token).not.toBe(first.json().data.token);
+    const list = await app.inject({ url: "/api/v1/desktop/devices", headers });
+    expect(list.json().data.items).toHaveLength(1);
+    expect(list.body).not.toContain(first.json().data.token);
+    expect(list.body).not.toContain(second.json().data.token);
+    expect((await app.inject({
+      method: "POST", url: "/api/v1/desktop/devices/register", headers,
+      payload: { ...registration, installation_id: installationId, device_id: deviceId, owner_id: other },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST", url: "/api/v1/desktop/devices/register",
+      headers: { authorization: "Bearer other" },
+      payload: { ...registration, installation_id: installationId, device_id: deviceId },
+    })).statusCode).toBe(403);
+  });
+
   it("rate-limits code creation without throttling ordinary device status reads", async () => {
     const { app } = await fixture();
     for (let index = 0; index < 10; index++) {

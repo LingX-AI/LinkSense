@@ -38,30 +38,22 @@ describe("side chat routes", () => {
     const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
     const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
     expect(response.statusCode, response.body).toBe(200);
-    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, false);
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
   });
 
-  it("passes enabled desktop local execution policy to the side-chat service", async () => {
-    const { app, openSideChat } = await conversationRouteFixture(null, false, { desktopLocalExecutionEnabled: true });
+  it("maps a retired local side chat to the explicit retirement error", async () => {
+    const { app, openSideChat } = await conversationRouteFixture();
+    openSideChat.mockRejectedValueOnce(new AppError("DESKTOP_LOCAL_TARGET_RETIRED"));
     const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
     const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
-    expect(response.statusCode, response.body).toBe(200);
-    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, true);
-  });
-
-  it("maps a rejected local side chat to the existing unavailable error", async () => {
-    const { app, openSideChat } = await conversationRouteFixture(null, false, { desktopLocalExecutionEnabled: false });
-    openSideChat.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
-    const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
-    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
-    expect(response.statusCode, response.body).toBe(503);
+    expect(response.statusCode, response.body).toBe(409);
     expect(response.json()).toMatchObject({
       success: false,
-      error_code: "RUNNER_UNAVAILABLE",
-      message_key: "errors.runner.unavailable",
+      error_code: "DESKTOP_LOCAL_TARGET_RETIRED",
+      message_key: "errors.desktopTargetRetired",
       request_id: expect.any(String),
     });
-    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection, false);
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
   });
 
   it("rejects oversized quotes and unexpected parent IDs before creating a conversation", async () => {
@@ -258,26 +250,33 @@ describe("conversation create route", () => {
     });
   });
 
-  it("passes an explicit local device and rejects inconsistent execution selections", async () => {
+  it("retires explicit local creation and rejects inconsistent execution selections", async () => {
     const { app, create } = await conversationRouteFixture(null, false, {
       desktopLocalExecutionEnabled: true,
     });
     const device = "10000000-0000-4000-8000-000000000009";
-    expect((await app.inject({
+    const local = await app.inject({
       method: "POST", url: "/conversations", payload: { execution_target: "local", desktop_device_id: device },
-    })).statusCode).toBe(201);
-    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({ executionTarget: "local", desktopDeviceId: device }));
-    create.mockClear();
+    });
+    expect(local.statusCode, local.body).toBe(409);
+    expect(local.json()).toMatchObject({ error_code: "DESKTOP_LOCAL_TARGET_RETIRED" });
+    expect(create).not.toHaveBeenCalled();
     for (const payload of [
-      { execution_target: "local" }, { execution_target: "cloud", desktop_device_id: device },
-      { execution_target: "local", desktop_device_id: "invalid" }, { execution_target: "hybrid" },
+      { execution_target: "local" }, { execution_target: "local", desktop_device_id: "invalid" },
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/conversations", payload });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json()).toMatchObject({ error_code: "DESKTOP_LOCAL_TARGET_RETIRED" });
+    }
+    for (const payload of [
+      { execution_target: "cloud", desktop_device_id: device }, { execution_target: "hybrid" },
     ]) {
       expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
     }
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("rejects a valid local task with the existing unavailable error before the service when desktop execution is disabled", async () => {
+  it("retires local creation before the service even when the old local flag is off", async () => {
     const logLines: Record<string, unknown>[] = [];
     const { app, create, config } = await conversationRouteFixture(null, false, { logLines });
     expect(config.desktopLocalExecutionEnabled).toBe(false);
@@ -289,12 +288,12 @@ describe("conversation create route", () => {
       payload: { execution_target: "local", desktop_device_id: device },
     });
 
-    expect(response.statusCode, response.body).toBe(503);
+    expect(response.statusCode, response.body).toBe(409);
     expect(response.json()).toMatchObject({
       success: false,
-      error_code: "RUNNER_UNAVAILABLE",
-      message_key: "errors.runner.unavailable",
-      message: "执行服务暂不可用，请稍后重试。",
+      error_code: "DESKTOP_LOCAL_TARGET_RETIRED",
+      message_key: "errors.desktopTargetRetired",
+      message: "本机运行已停用，新任务只在云端执行。",
       request_id: expect.any(String),
     });
     expect(create).not.toHaveBeenCalled();
@@ -302,7 +301,7 @@ describe("conversation create route", () => {
     expect(logLines[0]).toMatchObject({
       event: "desktop_local_execution_denied",
       target: "local",
-      reason_code: "desktop_local_execution_disabled",
+      reason_code: "desktop_local_target_retired",
       reqId: expect.any(String),
     });
     expect(JSON.stringify(logLines)).not.toContain(device);
@@ -329,12 +328,12 @@ describe("conversation create route", () => {
 
   it("keeps invalid bodies and unauthenticated requests ahead of the desktop admission gate", async () => {
     const { app, create } = await conversationRouteFixture();
-    for (const payload of [
-      { execution_target: "local" },
-      { execution_target: "hybrid" },
-    ]) {
-      expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
-    }
+    expect((await app.inject({
+      method: "POST", url: "/conversations", payload: { execution_target: "local" },
+    })).statusCode).toBe(409);
+    expect((await app.inject({
+      method: "POST", url: "/conversations", payload: { execution_target: "hybrid" },
+    })).statusCode).toBe(400);
     expect(create).not.toHaveBeenCalled();
 
     const unauthenticated = await conversationRouteFixture(null, false, { authenticated: false });
@@ -361,184 +360,6 @@ describe("conversation create route", () => {
 
     expect(response.statusCode).toBe(400);
     expect(create).not.toHaveBeenCalled();
-  });
-});
-
-describe("conversation continuation route", () => {
-  const device = "10000000-0000-4000-8000-000000000009";
-
-  it("continues a cloud source through the authenticated owner and returns the source reference", async () => {
-    const { app, continueConversation } = await conversationRouteFixture();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      headers: { "user-agent": "Browser" },
-      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
-    });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(response.json()).toMatchObject({
-      success: true,
-      data: { source: { id: CONVERSATION_ID, title: "Source task" } },
-    });
-    expect(continueConversation).toHaveBeenCalledWith(
-      OWNER_ID,
-      CONVERSATION_ID,
-      {
-        requestId: IDEMPOTENCY_KEY,
-        executionTarget: "cloud",
-        desktopDeviceId: null,
-        fallbackLocale: "zh-CN",
-      },
-      expect.objectContaining({ userAgent: "Browser" }),
-    );
-  });
-
-  it("passes an explicit paired Mac for a local continuation", async () => {
-    const { app, continueConversation } = await conversationRouteFixture(null, false, {
-      desktopLocalExecutionEnabled: true,
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload: {
-        request_id: IDEMPOTENCY_KEY,
-        execution_target: "local",
-        desktop_device_id: device,
-      },
-    });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(continueConversation).toHaveBeenCalledWith(
-      OWNER_ID,
-      CONVERSATION_ID,
-      expect.objectContaining({
-        executionTarget: "local",
-        desktopDeviceId: device,
-      }),
-      expect.any(Object),
-    );
-  });
-
-  it.each([
-    { request_id: IDEMPOTENCY_KEY },
-    { execution_target: "cloud" },
-    { request_id: "not-a-uuid", execution_target: "cloud" },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "hybrid" },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "local" },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", desktop_device_id: device },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", owner_id: OWNER_ID },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", project_id: PROJECT_ID },
-    { request_id: IDEMPOTENCY_KEY, execution_target: "cloud", prewarmed_conversation_id: PROJECT_ID },
-  ])("rejects a non-explicit or over-specified body %j before calling the service", async (payload) => {
-    const { app, continueConversation } = await conversationRouteFixture(null, false, {
-      desktopLocalExecutionEnabled: true,
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload,
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(continueConversation).not.toHaveBeenCalled();
-  });
-
-  it("keeps cloud creation independent from the cloud continuation rollout flag", async () => {
-    const { app, create, config } = await conversationRouteFixture(null, false, {
-      desktopCloudTargetEnabled: false,
-    });
-    expect(config.desktopCloudTargetEnabled).toBe(false);
-
-    const creation = await app.inject({
-      method: "POST",
-      url: "/conversations",
-      payload: {},
-    });
-    expect(creation.statusCode, creation.body).toBe(201);
-    expect(create).toHaveBeenCalled();
-  });
-
-  it("rejects a disabled cloud continuation without falling back or calling the service", async () => {
-    const logLines: Record<string, unknown>[] = [];
-    const { app, continueConversation } = await conversationRouteFixture(null, false, {
-      desktopCloudTargetEnabled: false,
-      logLines,
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
-    });
-
-    expect(response.statusCode, response.body).toBe(503);
-    expect(response.json()).toMatchObject({ error_code: "RUNNER_UNAVAILABLE" });
-    expect(continueConversation).not.toHaveBeenCalled();
-    expect(logLines).toContainEqual(expect.objectContaining({
-      event: "desktop_conversation_continuation_denied",
-      target: "cloud",
-      reason_code: "desktop_cloud_target_disabled",
-    }));
-  });
-
-  it("rejects a disabled local continuation without falling back or calling the service", async () => {
-    const logLines: Record<string, unknown>[] = [];
-    const { app, continueConversation } = await conversationRouteFixture(null, false, {
-      desktopLocalExecutionEnabled: false,
-      logLines,
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload: {
-        request_id: IDEMPOTENCY_KEY,
-        execution_target: "local",
-        desktop_device_id: device,
-      },
-    });
-
-    expect(response.statusCode, response.body).toBe(503);
-    expect(continueConversation).not.toHaveBeenCalled();
-    expect(logLines).toContainEqual(expect.objectContaining({
-      event: "desktop_conversation_continuation_denied",
-      target: "local",
-      reason_code: "desktop_local_execution_disabled",
-    }));
-    expect(JSON.stringify(logLines)).not.toContain(device);
-  });
-
-  it("requires authentication before validating or dispatching", async () => {
-    const { app, continueConversation } = await conversationRouteFixture(null, false, {
-      authenticated: false,
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
-    });
-
-    expect(response.statusCode).toBe(401);
-    expect(continueConversation).not.toHaveBeenCalled();
-  });
-
-  it("maps service rejection without exposing internal details", async () => {
-    const { app, continueConversation } = await conversationRouteFixture();
-    continueConversation.mockRejectedValueOnce(new AppError("CONFLICT"));
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/continuations`,
-      payload: { request_id: IDEMPOTENCY_KEY, execution_target: "cloud" },
-    });
-
-    expect(response.statusCode, response.body).toBe(409);
-    expect(response.json()).toMatchObject({ error_code: "CONFLICT" });
   });
 });
 
@@ -1744,10 +1565,6 @@ async function conversationRouteFixture(
   const get = vi.fn(async () => ({ conversation: { id: CONVERSATION_ID }, messages: [] }));
   const getReferencedSources = vi.fn(async () => ({ items: [{ url: "https://example.test/guide", title: "Guide" }] }));
   const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
-  const continueConversation = vi.fn(async () => ({
-    conversation: { id: TURN_ID, owner_id: OWNER_ID, title: "Continued task" },
-    source: { id: CONVERSATION_ID, title: "Source task" },
-  }));
   const clearArchived = vi.fn(async () => ({ deleted_count: 2, failed_tasks: [] }));
   const reorder = vi.fn(async (_ownerId: string, input: {
     group: "pinned" | "recent";
@@ -1808,8 +1625,7 @@ async function conversationRouteFixture(
     status: "starting" as const,
   }));
   const getSideChat = vi.fn(async () => null);
-  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection, desktopLocalExecutionEnabled: boolean) => {
-    void desktopLocalExecutionEnabled;
+  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection) => {
     return {
       conversation_id: TURN_ID,
       parent_conversation_id: parentId,
@@ -2010,7 +1826,6 @@ async function conversationRouteFixture(
         list,
         get,
         create,
-        continueConversation,
         clearArchived,
         reorder,
         patch,
@@ -2053,7 +1868,6 @@ async function conversationRouteFixture(
     list,
     get,
     create,
-    continueConversation,
     clearArchived,
     reorder,
     patch,

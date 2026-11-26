@@ -628,3 +628,23 @@ func TestAccountExpiryAndImpossibleLifetimesAreBounded(t *testing.T) {
 		t.Fatal("a cleared account was still usable")
 	}
 }
+
+func TestWorkspaceAccountAccessTokenNeverCrossesAnAccountGeneration(t *testing.T) {
+	account := &workspaceAccount{}
+	expiresAt := time.Now().Add(time.Hour)
+	account.setForRefresh(accountFixture, expiresAt, time.Time{})
+	lease, ok := account.lease()
+	if !ok {
+		t.Fatal("missing lease")
+	}
+	if !account.setAccessToken(lease, "session-access-token", expiresAt) {
+		t.Fatal("access token was not bound")
+	}
+	if token, ok := account.currentAccessToken(); !ok || token != "session-access-token" {
+		t.Fatalf("unexpected access token: %q (%v)", token, ok)
+	}
+	account.setForRefresh(otherAccountFixture, expiresAt, time.Time{})
+	if token, ok := account.currentAccessToken(); ok {
+		t.Fatalf("a switched account reused the previous token: %q", token)
+	}
+}

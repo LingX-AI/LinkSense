@@ -38,6 +38,9 @@ type DeviceConnectionStatus struct {
 	// revoked, disconnected, shut-down, or account-invalidated connections
 	// report false.
 	ExecutionReady bool `json:"executionReady,omitempty"`
+	// LocalToolsDisabled reports the user's persisted local-tools preference on
+	// this installation. It is independent of the server device revocation.
+	LocalToolsDisabled bool `json:"localToolsDisabled,omitempty"`
 	// ComputerReady reports that the live socket negotiated the computer
 	// operation, the runtime link for that exact generation is still live, and
 	// this host can build a signed, packaged computer driver. An older server

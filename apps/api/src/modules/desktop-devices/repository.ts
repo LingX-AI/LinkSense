@@ -16,9 +16,23 @@ export function isCurrentDeviceCredential(
     device.authValidAfter.getTime() === owner.authValidAfter.getTime();
 }
 
+export type DesktopDeviceRegisterOutcome =
+  | { state: "ok"; device: DesktopDeviceRecord }
+  | { state: "revoked" }
+  | { state: "not_found" };
+
 export interface DesktopDeviceRepository {
   createPairing(ownerId: string, authValidAfter: Date, codeHash: string, expiresAt: Date, now: Date): Promise<void>;
   consumePairing(codeHash: string, tokenHash: string, registration: DesktopDeviceRegistration, now: Date): Promise<DesktopDeviceRecord | null>;
+  register(
+    ownerId: string,
+    authValidAfter: Date,
+    tokenHash: string,
+    registration: DesktopDeviceRegistration,
+    identity: { deviceId: string | null; installationId: string | null },
+    reenable: boolean,
+    now: Date,
+  ): Promise<DesktopDeviceRegisterOutcome>;
   findCredential(tokenHash: string): Promise<DeviceCredentialRecord | null>;
   listOwned(ownerId: string): Promise<DesktopDeviceRecord[]>;
   findOwned(ownerId: string, deviceId: string): Promise<DesktopDeviceRecord | null>;
@@ -77,6 +91,76 @@ export class PrismaDesktopDeviceRepository implements DesktopDeviceRepository {
       });
       await writeDeviceAudit(tx, pairing.ownerId, device.id, "desktop_device_paired");
       return device;
+    });
+  }
+
+  async register(
+    ownerId: string, authValidAfter: Date, tokenHash: string,
+    registration: DesktopDeviceRegistration, identity: { deviceId: string | null; installationId: string | null },
+    reenable: boolean, now: Date,
+  ): Promise<DesktopDeviceRegisterOutcome> {
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${ownerId}::uuid FOR SHARE`;
+      const owner = await tx.user.findUnique({
+        where: { id: ownerId }, select: { status: true, authValidAfter: true },
+      });
+      if (owner?.status !== "active") throw new AppError("FORBIDDEN");
+      if (owner.authValidAfter.getTime() !== authValidAfter.getTime()) throw new AppError("AUTH_SESSION_EXPIRED");
+      // The installation id is the durable identity. It survives Keychain
+      // credential deletion so a revoked installation cannot enroll again as a
+      // fresh row. The device id is only a fallback for older clients.
+      let existing = identity.installationId
+        ? await tx.desktopDevice.findFirst({
+            where: { ownerId, installationId: identity.installationId },
+            select: { id: true, revokedAt: true },
+          })
+        : null;
+      // An installation upgraded from the pairing build has a device row but
+      // no installation id yet. Adopt that exact owned row instead of leaving
+      // an orphan and creating a duplicate.
+      if (!existing && identity.deviceId) {
+        existing = await tx.desktopDevice.findFirst({
+          where: { id: identity.deviceId, ownerId },
+          select: { id: true, revokedAt: true },
+        });
+      }
+      if (existing) {
+        if (existing.revokedAt && !reenable) return { state: "revoked" };
+        const [locked] = await tx.$queryRaw<Array<{ id: string; revokedAt: Date | null }>>`
+          SELECT id, revoked_at AS "revokedAt" FROM desktop_devices
+          WHERE id = ${existing.id}::uuid AND owner_id = ${ownerId}::uuid
+          FOR UPDATE`;
+        if (!locked) return { state: "not_found" };
+        if (locked.revokedAt && !reenable) return { state: "revoked" };
+        const updated = await tx.desktopDevice.update({
+          where: { id: locked.id },
+          data: {
+            tokenHash, name: registration.name, platform: registration.platform, arch: registration.arch,
+            appVersion: registration.app_version, capabilitiesJson: registration.capabilities,
+            ...(identity.installationId ? { installationId: identity.installationId } : {}),
+            authValidAfter: owner.authValidAfter, updatedAt: now,
+            ...(reenable ? { revokedAt: null } : {}),
+          },
+        });
+        // Routine token rotation on every launch is not a lifecycle event.
+        // Audit only the explicit re-enable of a revoked installation.
+        if (locked.revokedAt && reenable) {
+          await writeDeviceAudit(tx, ownerId, locked.id, "desktop_device_registered");
+        }
+        return { state: "ok", device: updated };
+      }
+      if (identity.deviceId && !identity.installationId) return { state: "not_found" };
+      const device = await tx.desktopDevice.create({
+        data: {
+          ownerId, installationId: identity.installationId, tokenHash,
+          authValidAfter: owner.authValidAfter, name: registration.name,
+          platform: registration.platform, arch: registration.arch,
+          appVersion: registration.app_version, capabilitiesJson: registration.capabilities,
+          createdAt: now,
+        },
+      });
+      await writeDeviceAudit(tx, ownerId, device.id, "desktop_device_registered");
+      return { state: "ok", device };
     });
   }
 

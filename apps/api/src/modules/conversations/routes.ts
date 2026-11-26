@@ -5,7 +5,6 @@ import {
   conversationShareCreateSchema,
   sideChatSelectionSchema,
   conversationCollaborationModeSchema,
-  conversationContinuationInputSchema,
   conversationCreateInputSchema,
   conversationHistoryQuerySchema,
   conversationSourcesSchema,
@@ -186,7 +185,7 @@ export const conversationRoutes: FastifyPluginAsync<{
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
     const selection = sideChatSelectionSchema.parse(request.body);
-    return reply.send(ok(await services.conversations.openSideChat(user.id, id, selection, services.config.desktopLocalExecutionEnabled), request.id));
+    return reply.send(ok(await services.conversations.openSideChat(user.id, id, selection), request.id));
   });
 
   app.get("/", async (request, reply) => {
@@ -227,15 +226,17 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    const body = conversationCreateInputSchema.parse(request.body);
-    if (body.execution_target === "local" && !services.config.desktopLocalExecutionEnabled) {
+    // Retire the target before strict validation: a bare local request is a
+    // retired capability, not a malformed cloud request.
+    if ((request.body as { execution_target?: unknown } | null)?.execution_target === "local") {
       request.log.warn({
         event: "desktop_local_execution_denied",
         target: "local",
-        reason_code: "desktop_local_execution_disabled",
+        reason_code: "desktop_local_target_retired",
       });
-      throw new AppError("RUNNER_UNAVAILABLE");
+      throw new AppError("DESKTOP_LOCAL_TARGET_RETIRED");
     }
+    const body = conversationCreateInputSchema.parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
       executionTarget: body.execution_target,
@@ -250,43 +251,6 @@ export const conversationRoutes: FastifyPluginAsync<{
         services.system.defaultLocale,
       ),
     });
-    return reply.code(201).send(ok(result, request.id));
-  });
-
-  app.post("/:id/continuations", async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    const { id } = uuidParamsSchema.parse(request.params);
-    const body = conversationContinuationInputSchema.parse(request.body);
-    const denied =
-      body.execution_target === "local"
-        ? !services.config.desktopLocalExecutionEnabled
-        : !services.config.desktopCloudTargetEnabled;
-    if (denied) {
-      request.log.warn({
-        event: "desktop_conversation_continuation_denied",
-        target: body.execution_target,
-        reason_code:
-          body.execution_target === "local"
-            ? "desktop_local_execution_disabled"
-            : "desktop_cloud_target_disabled",
-      });
-      throw new AppError("RUNNER_UNAVAILABLE");
-    }
-    const result = await services.conversations.continueConversation(
-      user.id,
-      id,
-      {
-        requestId: body.request_id,
-        executionTarget: body.execution_target,
-        desktopDeviceId: body.desktop_device_id,
-        fallbackLocale: resolveLocale(
-          request,
-          user.preferredLocale,
-          services.system.defaultLocale,
-        ),
-      },
-      auditContext(request),
-    );
     return reply.code(201).send(ok(result, request.id));
   });
 

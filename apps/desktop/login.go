@@ -81,17 +81,6 @@ func (d *Desktop) handleOpenURL(raw string) {
 		d.acceptLoginCallback(raw)
 		return
 	}
-	if runtime.GOOS == "darwin" && strings.HasPrefix(raw, desktopPairingDeepLinkPrefix) {
-		if origin := pairingDeepLinkOrigin(raw); origin != nil {
-			// The packaged origin and main window are set during startup.
-			mygo.App.WhenReady(func() {
-				if pairingDeepLinkMatchesServer(origin, d.server) {
-					d.navigateMainWindow(desktopPairingSettingsPath)
-				}
-			})
-		}
-		return
-	}
 	if route, err := conversationDeepLink(raw); err == nil {
 		if runtime.GOOS != "darwin" {
 			mygo.RunOnMain(func() {

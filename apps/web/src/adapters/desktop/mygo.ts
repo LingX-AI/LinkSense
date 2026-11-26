@@ -135,6 +135,11 @@ export interface DeviceConnectionStatus {
    */
   executionReady?: boolean;
   /**
+   * LocalToolsDisabled reports the user's persisted local-tools preference on
+   * this installation. It is independent of the server device revocation.
+   */
+  localToolsDisabled?: boolean;
+  /**
    * ComputerReady reports that the live socket negotiated the computer
    * operation, the runtime link for that exact generation is still live, and
    * this host can build a signed, packaged computer driver. An older server
@@ -249,6 +254,13 @@ export const Desktop = {
    */
   computerControl: bind<[string, string, string], ComputerControlStatus>("Desktop.ComputerControl", (conversationID: string, turnID: string, action: string) => [conversationID, turnID, action]),
   deviceStatus: bind<[], DeviceConnectionStatus>("Desktop.DeviceStatus", () => []),
+  /**
+   * EnsureDevice is the post-login enrollment path. It registers this
+   * installation idempotently with the account proven by the native refresh,
+   * rotates the device credential, and opens the socket. No user action or
+   * pairing code is involved.
+   */
+  ensureDevice: bind<[string, boolean], DeviceConnectionStatus>("Desktop.EnsureDevice", (ownerID: string, reenable: boolean) => [ownerID, reenable]),
   getUpdateState: bind<[], DesktopUpdateResult>("Desktop.GetUpdateState", () => []),
   /**
    * GuideComputerPermission uses MyGo's permissionflow.Guide: it opens the
@@ -286,6 +298,7 @@ export const Desktop = {
    */
   revealArtifactDownload: bind<[string], void>("Desktop.RevealArtifactDownload", (handle: string) => [handle]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
+  setLocalToolsEnabled: bind<[boolean], DeviceConnectionStatus>("Desktop.SetLocalToolsEnabled", (enabled: boolean) => [enabled]),
   /**
    * SetLocale makes the macOS app language follow an explicit language choice
    * made in the shared UI. The caller is checked before any work and again when

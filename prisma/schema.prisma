@@ -949,6 +949,7 @@ model Conversation {
 model DesktopDevice {
   id               String    @id @default(uuid()) @db.Uuid
   ownerId          String    @map("owner_id") @db.Uuid
+  installationId   String?   @map("installation_id") @db.Uuid
   name             String    @db.VarChar(120)
   platform         String    @db.VarChar(32)
   arch             String    @db.VarChar(32)
@@ -961,6 +962,7 @@ model DesktopDevice {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@unique([ownerId, installationId], map: "desktop_devices_owner_installation_key")
   @@index([ownerId, revokedAt], map: "desktop_devices_owner_revoked_idx")
   @@map("desktop_devices")
 }

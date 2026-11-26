@@ -5882,6 +5882,14 @@ export const enUS = {
       "en-US"
     ),
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "en-US"),
+    desktopTargetRetired: localizedErrorMessage(
+      "DESKTOP_LOCAL_TARGET_RETIRED",
+      "en-US"
+    ),
+    desktopLocalToolsDisabled: localizedErrorMessage(
+      "DESKTOP_LOCAL_TOOLS_DISABLED",
+      "en-US"
+    ),
     desktopPrivacyMaskingUnavailable: localizedErrorMessage(
       "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
       "en-US"

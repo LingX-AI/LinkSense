@@ -38,6 +38,11 @@ type workspaceAccount struct {
 	// delivery can wait on the session without canceling on every refresh.
 	sessionCtx    context.Context
 	cancelSession context.CancelFunc
+	// accessToken is the short-lived token from the same native refresh that
+	// proved this account. It stays in memory and is used only for the
+	// authenticated local-tools registration call.
+	accessToken   string
+	accessExpires time.Time
 	// onClear releases relays that must not outlive this account, such as a
 	// pending workspace cleanup. It is installed once during startup.
 	onClear func()
@@ -104,6 +109,9 @@ func (a *workspaceAccount) setForRefreshIf(
 	expired := previous != "" && !now.Before(a.expiresAt)
 	replaced := previous != "" && (previous != id || expired)
 	if previous != id || expired {
+		// A new account generation must never reuse the previous session's
+		// short-lived access token.
+		a.accessToken, a.accessExpires = "", time.Time{}
 		a.generation++
 		if a.cancelSession != nil {
 			a.cancelSession()
@@ -128,6 +136,7 @@ func (a *workspaceAccount) setOnClear(callback func()) {
 func (a *workspaceAccount) clear() {
 	a.mu.Lock()
 	a.id, a.expiresAt = "", time.Time{}
+	a.accessToken, a.accessExpires = "", time.Time{}
 	// Invalidate every lease issued to the previous session, including a later
 	// sign-in that happens to receive the same account id.
 	a.generation++
@@ -170,6 +179,32 @@ func (a *workspaceAccount) matches(lease accountLease) bool {
 		time.Now().Before(a.expiresAt)
 }
 
+// setAccessToken binds a short-lived native token to the exact account
+// generation the refresh proved. A stale response cannot replace a newer
+// session's token.
+func (a *workspaceAccount) setAccessToken(lease accountLease, token string, expiresAt time.Time) bool {
+	if token == "" || !expiresAt.After(time.Now()) {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if lease.id == "" || a.id != lease.id || a.generation != lease.generation ||
+		!time.Now().Before(a.expiresAt) {
+		return false
+	}
+	a.accessToken, a.accessExpires = token, expiresAt
+	return true
+}
+
+func (a *workspaceAccount) currentAccessToken() (string, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.accessToken == "" || !time.Now().Before(a.accessExpires) || a.id == "" {
+		return "", false
+	}
+	return a.accessToken, true
+}
+
 // withLease runs fn only while this exact account session is still current and
 // holds the read lease until fn returns. It is used at the private pipe's
 // admission point so a cleanup frame is written only under a valid lease; the
@@ -192,6 +227,8 @@ type refreshSessionEnvelope struct {
 		User struct {
 			ID string `json:"id"`
 		} `json:"user"`
+		AccessToken             string `json:"access_token"`
+		AccessTokenExpiresAt    string `json:"access_token_expires_at"`
 		RefreshSessionExpiresAt string `json:"refresh_session_expires_at"`
 	} `json:"data"`
 }
@@ -267,6 +304,13 @@ func (t *sessionTransport) captureRefreshAccount(response *http.Response, proof 
 	published := account.setForRefreshIf(envelope.Data.User.ID, expiresAt, proof.credentialExpiry, func() bool {
 		return !t.signOutPending.Load() && t.authEpoch.Load() == proof.epoch
 	})
+	if published {
+		if lease, ok := account.lease(); ok {
+			if accessExpires, parseErr := time.Parse(time.RFC3339Nano, envelope.Data.AccessTokenExpiresAt); parseErr == nil {
+				account.setAccessToken(lease, envelope.Data.AccessToken, accessExpires)
+			}
+		}
+	}
 	return !published
 }
 

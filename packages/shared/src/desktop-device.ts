@@ -31,6 +31,11 @@ export const desktopDeviceTokenSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 export const desktopDevicePairInputSchema = desktopDeviceRegistrationSchema.extend({
   code: desktopPairingCodeSchema,
 });
+export const desktopDeviceRegisterInputSchema = desktopDeviceRegistrationSchema.extend({
+  device_id: uuidSchema.nullable().optional(),
+  installation_id: uuidSchema,
+  reenable: z.boolean().default(false),
+});
 export const desktopPairingSchema = z.strictObject({
   code: desktopPairingCodeSchema,
   expires_at: timestampSchema,

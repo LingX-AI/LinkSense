@@ -3,6 +3,7 @@ import {
   desktopDeviceCapabilitiesSchema,
   desktopDevicePairInputSchema,
   desktopDevicePairResultSchema,
+  desktopDeviceRegisterInputSchema,
   desktopDeviceSchema,
   desktopDeviceTokenSchema,
   type DesktopDevice,
@@ -35,6 +36,20 @@ export class DesktopDeviceService {
     const row = await this.repository.consumePairing(sha256(code), sha256(token), registration, this.now());
     if (!row) throw new AppError("AUTH_SESSION_EXPIRED");
     return desktopDevicePairResultSchema.parse({ token, owner_id: row.ownerId, device: projectDevice(row, false) });
+  }
+
+  async register(ownerId: string, authValidAfter: Date, input: unknown): Promise<{ token: string; owner_id: string; device: DesktopDevice }> {
+    const { device_id: deviceId, installation_id: installationId, reenable, ...registration } = desktopDeviceRegisterInputSchema.parse(input);
+    const token = randomBytes(32).toString("hex");
+    const outcome = await this.repository.register(
+      ownerId, authValidAfter, sha256(token), registration,
+      { deviceId: deviceId ?? null, installationId: installationId ?? null }, reenable, this.now(),
+    );
+    if (outcome.state === "not_found") throw new AppError("FORBIDDEN");
+    if (outcome.state === "revoked") throw new AppError("DESKTOP_LOCAL_TOOLS_DISABLED");
+    return desktopDevicePairResultSchema.parse({
+      token, owner_id: outcome.device.ownerId, device: projectDevice(outcome.device, false),
+    });
   }
 
   async authenticate(token: string): Promise<DesktopDeviceRecord | null> {

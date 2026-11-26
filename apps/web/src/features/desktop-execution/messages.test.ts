@@ -4,10 +4,6 @@ import { supportedLocales } from "@linksense/shared"
 import i18n from "@/i18n"
 import { desktopExecutionMessages } from "./messages"
 
-function interpolationTokens(value: string): string[] {
-  return [...value.matchAll(/\{\{[^{}]+\}\}/gu)].map(([token]) => token).sort()
-}
-
 describe("desktop execution messages", () => {
   it("provides every key in every supported locale", () => {
     const sourceKeys = Object.keys(desktopExecutionMessages["en-US"]).sort()
@@ -37,31 +33,6 @@ describe("desktop execution messages", () => {
     }
   })
 
-  it("keeps interpolation tokens consistent", () => {
-    for (const locale of supportedLocales) {
-      const messages = desktopExecutionMessages[locale]
-      expect(interpolationTokens(messages.targetBadge)).toEqual(["{{target}}"])
-      for (const key of [
-        "continuationTitle",
-        "continuationDescription",
-        "continuationConfirm",
-      ] as const) {
-        expect(interpolationTokens(messages[key]), `${locale}.${key}`).toEqual([
-          "{{destination}}",
-        ])
-      }
-      for (const key of [
-        "continuationOriginalAndFiles",
-        "continuationReferenceNote",
-        "continuationAuditAndReturn",
-      ] as const) {
-        expect(interpolationTokens(messages[key]), `${locale}.${key}`).toEqual(
-          []
-        )
-      }
-    }
-  })
-
   it("is merged into i18next for every supported locale", () => {
     for (const locale of supportedLocales) {
       for (const key of Object.keys(
@@ -79,10 +50,9 @@ describe("desktop execution messages", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
     for (const key of [
-      "deviceOffline",
-      "defaultTarget",
-      "defaultTargetSaveFailed",
-      "continuationFailed",
+      "cloudTargetUnavailable",
+      "noTargetAvailable",
+      "deviceChanged",
     ] as const) {
       expect(fallback.t(`desktopExecution.${key}`, { lng: "en-US" })).toBe(
         desktopExecutionMessages["zh-CN"][key]

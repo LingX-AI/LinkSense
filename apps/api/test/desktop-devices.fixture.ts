@@ -32,13 +32,52 @@ export class MemoryDesktopDeviceRepository implements DesktopDeviceRepository {
     if (!owner || owner.status !== "active" || pairing.authValidAfter.getTime() !== owner.authValidAfter.getTime()) return null;
     pairing.consumed = true;
     const row: DesktopDeviceRecord = {
-      id: randomUUID(), ownerId: pairing.ownerId, name: registration.name, platform: registration.platform,
+      id: randomUUID(), ownerId: pairing.ownerId, installationId: null,
+      name: registration.name, platform: registration.platform,
       arch: registration.arch, appVersion: registration.app_version, capabilitiesJson: registration.capabilities,
       tokenHash, authValidAfter: owner.authValidAfter, lastSeenAt: null, revokedAt: null, createdAt: now, updatedAt: now,
     };
     this.devices.set(row.id, row);
     this.writes.push({ tokenHash });
     return row;
+  }
+
+  async register(
+    ownerId: string, authValidAfter: Date, tokenHash: string,
+    registration: DesktopDeviceRegistration, identity: { deviceId: string | null; installationId: string | null },
+    reenable: boolean, now: Date,
+  ) {
+    const owner = this.owners.get(ownerId);
+    if (owner?.status !== "active") throw new AppError("FORBIDDEN");
+    if (owner.authValidAfter.getTime() !== authValidAfter.getTime()) throw new AppError("AUTH_SESSION_EXPIRED");
+    let found = identity.installationId
+      ? [...this.devices.values()].find(row => row.ownerId === ownerId && row.installationId === identity.installationId)
+      : undefined;
+    if (!found && identity.deviceId) {
+      found = this.devices.get(identity.deviceId.toLowerCase());
+    }
+    if (found) {
+      if (found.ownerId !== ownerId) return { state: "not_found" as const };
+      if (found.revokedAt && !reenable) return { state: "revoked" as const };
+      Object.assign(found, {
+        tokenHash, name: registration.name, platform: registration.platform, arch: registration.arch,
+        appVersion: registration.app_version, capabilitiesJson: registration.capabilities,
+        installationId: identity.installationId ?? found.installationId,
+        authValidAfter: owner.authValidAfter, updatedAt: now, revokedAt: reenable ? null : found.revokedAt,
+      });
+      this.writes.push({ tokenHash });
+      return { state: "ok" as const, device: found };
+    }
+    if (identity.deviceId && !identity.installationId) return { state: "not_found" as const };
+    const row: DesktopDeviceRecord = {
+      id: randomUUID(), ownerId, installationId: identity.installationId,
+      name: registration.name, platform: registration.platform,
+      arch: registration.arch, appVersion: registration.app_version, capabilitiesJson: registration.capabilities,
+      tokenHash, authValidAfter: owner.authValidAfter, lastSeenAt: null, revokedAt: null, createdAt: now, updatedAt: now,
+    };
+    this.devices.set(row.id, row);
+    this.writes.push({ tokenHash });
+    return { state: "ok" as const, device: row };
   }
 
   async findCredential(tokenHash: string): Promise<DeviceCredentialRecord | null> {

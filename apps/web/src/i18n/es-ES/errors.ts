@@ -352,6 +352,14 @@ export const errorMessages = {
     turnStartClosed:
       "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "es-ES"),
+    desktopTargetRetired: localizedErrorMessage(
+      "DESKTOP_LOCAL_TARGET_RETIRED",
+      "es-ES"
+    ),
+    desktopLocalToolsDisabled: localizedErrorMessage(
+      "DESKTOP_LOCAL_TOOLS_DISABLED",
+      "es-ES"
+    ),
     desktopPrivacyMaskingUnavailable: localizedErrorMessage(
       "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
       "es-ES"

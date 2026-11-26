@@ -1613,6 +1613,22 @@ export const errorCatalog = {
       "en-US": "The previous submission has ended. This request was not run. Please submit it again.",
     },
   },
+  DESKTOP_LOCAL_TARGET_RETIRED: {
+    message_key: "errors.desktopTargetRetired",
+    http_status: 409,
+    messages: {
+      "zh-CN": "本机运行已停用，新任务只在云端执行。",
+      "en-US": "Local execution is retired. New tasks run in the cloud only.",
+    },
+  },
+  DESKTOP_LOCAL_TOOLS_DISABLED: {
+    message_key: "errors.desktopLocalToolsDisabled",
+    http_status: 403,
+    messages: {
+      "zh-CN": "本机工具已在这台 Mac 上停用。请在设置中重新启用。",
+      "en-US": "Local tools are disabled on this Mac. Re-enable them in Settings.",
+    },
+  },
   RUNNER_UNAVAILABLE: {
     message_key: "errors.runner.unavailable",
     http_status: 503,

@@ -17,7 +17,6 @@ import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
 import { UsageAnalyticsService } from "../../src/modules/usage/service.js";
-import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
 import { MemoryDesktopDeviceCoordinator } from "../desktop-devices.fixture.js";
 import { verifyDesktopExecutionProjection } from "./desktop-execution-projection.js";
 
@@ -206,7 +205,6 @@ try {
   assert.equal(stored.tokenHash, sha256(issued.token));
   assert.notEqual(stored.tokenHash, issued.token);
   assert.equal((await service.authenticate(issued.token))?.ownerId, owner);
-  await assert.rejects(assertPairedDesktopDevice(db, other, stored.id), { code: "FORBIDDEN" });
   // An authenticated reconnect refreshes the installed version, including a manual rollback.
   const firstConnection = await service.connect(stored);
   await service.refreshAppVersion(stored, firstConnection, "1.2.3");
@@ -228,7 +226,6 @@ try {
   assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: legacyDevice.id } })).appVersion, "0.1.0");
   const localThread = randomUUID();
   const localConversation = await db.$transaction(async tx => {
-    await assertPairedDesktopDevice(tx, owner, stored.id);
     return tx.conversation.create({ data: {
       ownerId: owner, title: "Local task", titleSource: "manual", archiveStatus: "active",
       workspaceRelPath: `${owner}/services/${randomUUID()}/home/workspace`,
@@ -455,7 +452,6 @@ try {
   await service.revoke(owner, stored.id);
   assert.deepEqual((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).revokedAt, revoked.revokedAt);
   await assert.rejects(service.rename(owner, stored.id, "Revoked device"), { code: "FORBIDDEN" });
-  await assert.rejects(assertPairedDesktopDevice(db, owner, stored.id), { code: "FORBIDDEN" });
   assert.equal(await service.authenticate(issued.token), null);
   await service.refreshAppVersion(stored, winningConnection, "3.0.0");
   assert.equal((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).appVersion, "2.0.0");

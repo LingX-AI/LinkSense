@@ -5412,6 +5412,14 @@ export const zhCN = {
       "zh-CN"
     ),
     desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "zh-CN"),
+    desktopTargetRetired: localizedErrorMessage(
+      "DESKTOP_LOCAL_TARGET_RETIRED",
+      "zh-CN"
+    ),
+    desktopLocalToolsDisabled: localizedErrorMessage(
+      "DESKTOP_LOCAL_TOOLS_DISABLED",
+      "zh-CN"
+    ),
     desktopPrivacyMaskingUnavailable: localizedErrorMessage(
       "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
       "zh-CN"

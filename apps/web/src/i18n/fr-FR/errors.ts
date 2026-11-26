@@ -339,6 +339,14 @@ export const errors = {
   runnerUnavailable:
     "Le service d’exécution est indisponible. Réessayez plus tard.",
   desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "fr-FR"),
+  desktopTargetRetired: localizedErrorMessage(
+    "DESKTOP_LOCAL_TARGET_RETIRED",
+    "fr-FR"
+  ),
+  desktopLocalToolsDisabled: localizedErrorMessage(
+    "DESKTOP_LOCAL_TOOLS_DISABLED",
+    "fr-FR"
+  ),
   desktopPrivacyMaskingUnavailable: localizedErrorMessage(
     "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
     "fr-FR"

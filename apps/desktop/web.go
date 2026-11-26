@@ -48,6 +48,10 @@ type Desktop struct {
 	openBrowser   func(string) error
 	localRuntime  *runtimeSupervisor
 	updates       *desktopUpdates
+	// localToolsRevoked persists the server's revocation in process memory so
+	// status reads keep reporting it after the one registration reply. Only an
+	// explicit local-tools re-enable attempts a revive.
+	localToolsRevoked atomic.Bool
 	// computer is the M1b product control host. It is nil on platforms and
 	// builds that cannot construct the signed driver, which keeps the device
 	// operation and the binding unavailable.
@@ -91,6 +95,9 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 	// newer generation may have replaced the connection after the account lock
 	// was dropped, so clearInvalidatedDevice re-checks the current lease.
 	d.account.setOnClear(func() {
+		// Revocation is an account-scoped server fact; a later sign-in must
+		// re-check it instead of inheriting the previous account's status.
+		d.localToolsRevoked.Store(false)
 		// A pending or completed save belongs to the invalidated sign-in and
 		// must never offer Finder for what is now another account's file.
 		d.downloads.discardAll()

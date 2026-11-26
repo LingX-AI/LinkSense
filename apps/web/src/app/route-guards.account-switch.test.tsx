@@ -49,7 +49,7 @@ vi.mock("@/adapters/desktop/desktop-adapter", async (importOriginal) => ({
 }))
 
 vi.mock("@/adapters/desktop/desktop-device-adapter", () => ({
-  resumeDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
+  ensureDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
 }))
 
 const applicationPath =
