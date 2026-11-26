@@ -2,7 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import {
+  browserUseFailure,
+  browserUseResultSchema,
   desktopCloudToolInvocationSchema,
+  localBrowserExecuteOperation,
   localFilesRootsOperation,
 } from "@linksense/shared";
 
@@ -14,6 +17,7 @@ import {
   desktopCloudToolExecuteBodySchema,
   type DesktopCloudToolGateway,
 } from "./cloud-tools.js";
+import type { BrowserUseService } from "../browser-use/service.js";
 import type { DesktopFileRootService } from "./file-roots.js";
 
 const writeFileOperations = new Set([
@@ -32,6 +36,7 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
   sharedSecret: string;
   cloudTools: DesktopCloudToolGateway;
   fileRoots: Pick<DesktopFileRootService, "list" | "resolve">;
+  browser: Pick<BrowserUseService, "execute">;
   audit: Pick<AuditService, "write">;
 }> = async (app, options) => {
   app.addHook("onRequest", async (request, reply) => {
@@ -87,6 +92,39 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
     }
 
     const startedAt = Date.now();
+    if (invocation.operation === localBrowserExecuteOperation) {
+      const startedAt = Date.now();
+      const controller = new AbortController();
+      const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+      reply.raw.once("close", abort);
+      if (reply.raw.destroyed) abort();
+      try {
+        const result = invocation.input.action === "open_site"
+          ? browserUseFailure("BROWSER_USE_ACCESS_DENIED")
+          : browserUseResultSchema.parse(await options.browser.execute(
+              ownerId, body.conversationId, invocation.input, controller.signal,
+            ));
+        await options.audit.write({
+          actorId: ownerId,
+          action: "desktop_tool_requested",
+          targetType: "desktop_device",
+          targetId: null,
+          result: result.ok ? "success" : "failed",
+          metadata: {
+            operation: invocation.operation,
+            conversation_id: body.conversationId,
+            turn_id: body.turnId,
+            browser_action: invocation.input.action,
+            duration_ms: Date.now() - startedAt,
+            ...(result.ok ? {} : { reason_code: result.code }),
+          },
+        }).catch(() => undefined);
+        return result;
+      } finally {
+        reply.raw.off("close", abort);
+      }
+    }
+
     const rootId = "root_id" in invocation.input ? invocation.input.root_id : null;
     const relativePath = "path" in invocation.input ? invocation.input.path ?? null : null;
     const auditDenied = async (reasonCode: string, rootAlias?: string) => {

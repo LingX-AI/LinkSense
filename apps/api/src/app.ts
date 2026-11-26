@@ -785,6 +785,7 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
     cloudTools: desktopCloudTools,
     fileRoots: desktopFileRoots,
+    browser,
     audit: services.audit,
   });
   app.addHook("preClose", async () => desktopCloudTools.close());

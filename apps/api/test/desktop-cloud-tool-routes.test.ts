@@ -45,6 +45,9 @@ async function fixture(options: {
     });
   }
   const audit = { write: vi.fn(async () => undefined) };
+  const browser = { execute: vi.fn(async () => ({
+    ok: true as const, browser: "local" as const, data: { connected: true },
+  })) };
   const fileRoots = {
     list: vi.fn(async () => [{
       id: root, device_id: device, name: "Fixture root",
@@ -64,10 +67,11 @@ async function fixture(options: {
     sharedSecret: secret,
     cloudTools,
     fileRoots,
+    browser,
     audit,
   });
   await app.ready();
-  return { app, cloudTools, sent, connectionId, prisma, audit, fileRoots };
+  return { app, cloudTools, sent, connectionId, prisma, audit, fileRoots, browser };
 }
 
 function request(app: ReturnType<typeof Fastify>, payload: Record<string, unknown>) {
@@ -280,6 +284,24 @@ describe("internal desktop cloud tool route", () => {
     expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
       action: "desktop_tool_requested",
       metadata: expect.objectContaining({ operation: "local_computer.status" }),
+    }));
+  });
+
+  it("dispatches the local browser lane without a Mac connection and audits the action", async () => {
+    const { app, browser, audit } = await fixture({ online: false });
+    const response = await request(app, {
+      operation: "local_browser.execute", input: { action: "status" },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(browser.execute).toHaveBeenCalledWith(
+      owner, conversation, { action: "status" }, expect.any(AbortSignal),
+    );
+    expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
+      action: "desktop_tool_requested",
+      result: "success",
+      metadata: expect.objectContaining({
+        operation: "local_browser.execute", browser_action: "status",
+      }),
     }));
   });
 

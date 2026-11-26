@@ -4,6 +4,11 @@ import { timestampSchema, uuidSchema } from "./common.js";
 import { computerFailureCodes } from "./computer-use.js";
 import { desktopDeviceAppVersionSchema } from "./desktop-device.js";
 import {
+  localBrowserExecuteInputSchema,
+  localBrowserExecuteOperation,
+  localBrowserExecuteResultSchema,
+} from "./desktop-cloud-browser.js";
+import {
   localComputerActInputSchema,
   localComputerActResultSchema,
   localComputerActOperation,
@@ -90,6 +95,7 @@ export const desktopCloudToolOperationSchema = z.enum([
   localComputerResumeOperation,
   localComputerStopOperation,
   localComputerExtendedOperation,
+  localBrowserExecuteOperation,
 ]);
 export type DesktopCloudToolOperation = z.infer<typeof desktopCloudToolOperationSchema>;
 
@@ -142,6 +148,7 @@ export const desktopCloudToolInputSchemaFor = {
   [localComputerResumeOperation]: localComputerResumeInputSchema,
   [localComputerStopOperation]: localComputerStopInputSchema,
   [localComputerExtendedOperation]: localComputerExtendedInputSchema,
+  [localBrowserExecuteOperation]: localBrowserExecuteInputSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export const desktopCloudToolDataSchemaFor = {
@@ -162,6 +169,7 @@ export const desktopCloudToolDataSchemaFor = {
   [localComputerResumeOperation]: localComputerControlResultSchema,
   [localComputerStopOperation]: localComputerControlResultSchema,
   [localComputerExtendedOperation]: localComputerExtendedResultSchema,
+  [localBrowserExecuteOperation]: localBrowserExecuteResultSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export type DesktopCloudToolInputFor<O extends DesktopCloudToolOperation> =
@@ -188,6 +196,7 @@ export const desktopCloudToolInvocationSchema = z.discriminatedUnion("operation"
   z.strictObject({ operation: z.literal(localComputerResumeOperation), input: localComputerResumeInputSchema }),
   z.strictObject({ operation: z.literal(localComputerStopOperation), input: localComputerStopInputSchema }),
   z.strictObject({ operation: z.literal(localComputerExtendedOperation), input: localComputerExtendedInputSchema }),
+  z.strictObject({ operation: z.literal(localBrowserExecuteOperation), input: localBrowserExecuteInputSchema }),
 ]);
 export type DesktopCloudToolInvocation = z.infer<typeof desktopCloudToolInvocationSchema>;
 
@@ -217,6 +226,7 @@ export const desktopCloudToolRequestSchema = z.discriminatedUnion("operation", [
   requestFor(localComputerResumeOperation),
   requestFor(localComputerStopOperation),
   requestFor(localComputerExtendedOperation),
+  requestFor(localBrowserExecuteOperation),
 ]);
 export type DesktopCloudToolRequest = z.infer<typeof desktopCloudToolRequestSchema>;
 
@@ -246,6 +256,7 @@ export const desktopCloudToolResultSchema = z.union([
   successFor(localComputerResumeOperation),
   successFor(localComputerStopOperation),
   successFor(localComputerExtendedOperation),
+  successFor(localBrowserExecuteOperation),
   z.strictObject({
     type: z.literal("cloud_tool.result"),
     id: uuidSchema,

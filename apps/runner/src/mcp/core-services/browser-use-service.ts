@@ -4,6 +4,7 @@ import {
   browserUseRequestSchema,
   browserUseResultSchema,
   browserUseFailure,
+  localBrowserExecuteOperation,
 } from "@linksense/shared";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -117,17 +118,25 @@ export const browserUseCoreMcpModule: CoreMcpModuleDefinition = {
             !browserUseReadOnly(request)
           )
             return asTool(browserUseFailure("BROWSER_USE_ACCESS_DENIED"));
-          const endpoint = new URL(
-            "browser-use",
-            z.url().parse(environment.LINKSENSE_CURRENT_USER_ENDPOINT),
-          );
+          const localEndpoint = environment.LINKSENSE_LOCAL_TOOLS_ENDPOINT;
+          const localToken = environment.LINKSENSE_LOCAL_TOOLS_TOKEN;
+          const endpoint = localEndpoint
+            ? z.url().parse(localEndpoint)
+            : new URL(
+                "browser-use",
+                z.url().parse(environment.LINKSENSE_CURRENT_USER_ENDPOINT),
+              );
           const response = await fetcher(endpoint, {
             method: "POST",
             headers: {
-              authorization: `Bearer ${z.string().min(32).parse(environment.LINKSENSE_CURRENT_USER_TOKEN)}`,
+              authorization: `Bearer ${localEndpoint
+                ? z.string().min(32).parse(localToken)
+                : z.string().min(32).parse(environment.LINKSENSE_CURRENT_USER_TOKEN)}`,
               "content-type": "application/json",
             },
-            body: JSON.stringify(input.nativeCallId ? { input: request, nativeCallId: input.nativeCallId } : request),
+            body: JSON.stringify(localEndpoint
+              ? { operation: localBrowserExecuteOperation, input: request }
+              : input.nativeCallId ? { input: request, nativeCallId: input.nativeCallId } : request),
             signal: withRequestTimeout(input.signal, 40_000),
           });
           if (!response.ok)

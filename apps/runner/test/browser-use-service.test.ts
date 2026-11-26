@@ -53,6 +53,36 @@ it("binds requests to the native task endpoint and returns screenshots as MCP im
     data: "AQID",
   });
 });
+it("routes the browser lane through the cloud local-tool endpoint when present", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ ok: true, browser: "local", data: { connected: true } })),
+  );
+  const module = browserUseCoreMcpModule.create({
+    environment: {
+      ...environment,
+      LINKSENSE_LOCAL_TOOLS_ENDPOINT: "http://127.0.0.1/mcp-local-tools/task/execute",
+      LINKSENSE_LOCAL_TOOLS_TOKEN: "y".repeat(32),
+    },
+    workspaceRoot: "/tmp",
+    fetch: fetcher,
+  });
+  const response = await module.callTool({
+    toolName: "browser_use",
+    argumentsValue: { action: "status" },
+    signal: new AbortController().signal,
+  });
+  expect(response.isError).toBe(false);
+  expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+    "http://127.0.0.1/mcp-local-tools/task/execute",
+  );
+  expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+    operation: "local_browser.execute", input: { action: "status" },
+  });
+  expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+    authorization: `Bearer ${"y".repeat(32)}`,
+  });
+});
+
 it("rejects Plan mutations and malformed inputs before contacting the browser", async () => {
   const fetcher = vi.fn();
   const module = browserUseCoreMcpModule.create({
