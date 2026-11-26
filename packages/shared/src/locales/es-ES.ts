@@ -44,6 +44,7 @@ export const errorMessages = {
   "APPLICATION_DEVELOPMENT_NOT_FOUND": "Esta aplicación no está disponible. Vuelve a Mis aplicaciones.",
   "APPLICATION_DEVELOPMENT_SOURCE_CHANGED": "La aplicación ha cambiado. Revisa la vista previa más reciente antes de instalar.",
   "WEB_SITE_NOT_FOUND": "Este sitio no está disponible o se ha dejado de compartir",
+  "WEB_SITE_CHANGED": "El sitio ha cambiado. Revisa sus datos actuales y vuelve a intentarlo",
   "WEB_SITE_SLUG_TAKEN": "Esta dirección ya está reservada. Elige otra",
   "WEB_SITE_SOURCE_UNAVAILABLE": "Selecciona un archivo HTML disponible en la tarea de origen",
   "WEB_SITE_RESOURCES_MISSING": "Falta un recurso de la página ({{path}}). Pide al asistente de la tarea original que guarde la página junto con sus recursos antes de publicar",

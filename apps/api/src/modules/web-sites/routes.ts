@@ -6,23 +6,15 @@ import { attachmentContentDisposition } from "../../lib/content-disposition.js";
 import { ok } from "../../lib/http.js";
 import { errorDetails, normalizeError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
-import type { WebSiteService } from "./service.js";
+import { webSiteCursorSchema, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
 
 const idParams = z.object({ id: z.uuid() });
-const cursorSchema = z.string().max(100).transform((value, context) => {
-  const [time, id] = value.split("|");
-  if (!z.iso.datetime().safeParse(time).success || !z.uuid().safeParse(id).success || !time || !id) {
-    context.addIssue({ code: "custom", message: "Invalid cursor" });
-    return z.NEVER;
-  }
-  return { updatedAt: new Date(time), id };
-});
 export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService }> = async (app, { service }) => {
   app.addHook("preHandler", app.authenticate);
   app.get("/", async (request, reply) => {
-    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: cursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
+    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: webSiteCursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
     return reply.send(ok(await service.list((request as AuthenticatedRequest).authUser.id, {
       limit: query.limit,
       ...(query.search !== undefined ? { search: query.search } : {}),

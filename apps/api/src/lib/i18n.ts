@@ -13,6 +13,7 @@ import { backendMessages as frMessages } from "./locales/fr-FR.js";
 import { backendMessages as jaMessages } from "./locales/ja-JP.js";
 import { channelIdentityMessages } from "./locales/channel-identities.js";
 import { supplementalBackendMessages } from "./locales/supplemental.js";
+import { webSiteToolMessages } from "./locales/web-site-tools.js";
 
 type SourceLocale = "zh-CN" | "en-US";
 
@@ -371,6 +372,7 @@ function backendTranslationResource(locale: Locale): Record<string, string> {
       ...backendMessages[locale],
       ...auditFlatTranslations(locale),
       ...supplementalBackendMessages[locale],
+      ...webSiteToolMessages[locale],
     };
   }
   const source = locale;
@@ -405,7 +407,7 @@ function backendTranslationResource(locale: Locale): Record<string, string> {
     "audit.export.actorName": chinese ? "操作人名称" : "Actor Name",
     "audit.export.actorEmail": chinese ? "操作人邮箱" : "Actor Email",
   };
-  return { ...resource, ...supplementalBackendMessages[locale] };
+  return { ...resource, ...supplementalBackendMessages[locale], ...webSiteToolMessages[locale] };
 }
 
 await backendI18n.init({

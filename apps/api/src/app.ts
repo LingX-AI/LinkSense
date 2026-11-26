@@ -56,6 +56,8 @@ import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
+import { internalWebSiteToolRoutes } from "./modules/web-sites/internal-routes.js";
+import { WebSiteToolService } from "./modules/web-sites/tool-service.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -603,6 +605,11 @@ export async function buildApi(
   await app.register(siteIconRoutes, { prefix: "/api/v1", services });
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
+  await app.register(internalWebSiteToolRoutes, {
+    prefix: "/internal/web-sites",
+    service: new WebSiteToolService(services.prisma, services.webSites, services.config.publicBaseUrl),
+    sharedSecret: services.config.runnerSharedSecret,
+  });
   await app.register(internalConversationReferenceRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalAutomationMonitoringRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalSkillCreatorRoutes, {

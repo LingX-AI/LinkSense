@@ -45,6 +45,7 @@ export function siteFixture() {
     publicSite: vi.fn<WebSiteStore["publicSite"]>(async () => row),
     source: vi.fn<WebSiteStore["source"]>(async () => source),
     sources: vi.fn<WebSiteStore["sources"]>(async () => [{ id: fileId, filename: "index.html", created_at: now.toISOString() }]),
+    taskSources: vi.fn<WebSiteStore["taskSources"]>(async () => [{ id: fileId, filename: "index.html", created_at: now.toISOString() }]),
     create: vi.fn<WebSiteStore["create"]>(async () => row),
     update: vi.fn<WebSiteStore["update"]>(async () => row),
     publish: vi.fn<WebSiteStore["publish"]>(async () => row),

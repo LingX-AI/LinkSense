@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient, Prisma } from "../src/generated/prisma/client.js";
 import { WebSiteRepository } from "../src/modules/web-sites/repository.js";
-import { fileId, ownerId, siteFixture, siteId } from "./web-sites.fixture.js";
+import { fileId, ownerId, releaseId, siteFixture, siteId } from "./web-sites.fixture.js";
 
 function fixture(owned = true) {
   const tx = {
@@ -35,6 +35,24 @@ describe("website permanent deletion", () => {
   it("does not delete anything when the site is absent or belongs to another user", async () => {
     const { repository, tx } = fixture(false);
     await expect(repository.delete(ownerId, siteId)).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
+    expect(tx.webSiteRelease.deleteMany).not.toHaveBeenCalled();
+    expect(tx.webSiteAddress.deleteMany).not.toHaveBeenCalled();
+    expect(tx.webSite.delete).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: "New name" },
+    { slug: "new-slug" },
+    { status: "disabled" },
+    { currentReleaseId: "50000000-0000-4000-8000-000000000002" },
+  ])("rejects approval for a changed site before removing its rows (%o)", async change => {
+    const { repository, tx } = fixture();
+    const site = siteFixture().row.site;
+    tx.$queryRaw.mockResolvedValueOnce([{ ...site, ...change }]);
+    await expect(repository.delete(ownerId, siteId, {
+      name: site.name, slug: site.slug, status: "published", release_id: releaseId,
+    })).rejects.toMatchObject({ code: "WEB_SITE_CHANGED" });
     expect(tx.webSiteRelease.deleteMany).not.toHaveBeenCalled();
     expect(tx.webSiteAddress.deleteMany).not.toHaveBeenCalled();
     expect(tx.webSite.delete).not.toHaveBeenCalled();

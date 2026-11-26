@@ -44,6 +44,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   APPLICATION_DEVELOPMENT_NOT_FOUND: "このアプリケーションは利用できません。「マイアプリケーション」に戻ってください。",
   APPLICATION_DEVELOPMENT_SOURCE_CHANGED: "アプリケーションが変更されました。インストール前に最新のプレビューを確認してください。",
   WEB_SITE_NOT_FOUND: "このサイトは利用できないか、共有が停止されています",
+  WEB_SITE_CHANGED: "サイトが変更されました。最新の情報を確認してからやり直してください",
   WEB_SITE_SLUG_TAKEN: "このアドレスは既に使用されています。別のアドレスを選択してください",
   WEB_SITE_SOURCE_UNAVAILABLE: "作成元のタスクから利用可能な HTML 成果物を選択してください",
   WEB_SITE_RESOURCES_MISSING: "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",

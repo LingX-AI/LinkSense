@@ -1,12 +1,22 @@
 import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
-import { webBundleManifestSchema, webSiteSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteUpdate } from "@linksense/shared";
+import { z } from "zod";
+import { webBundleManifestSchema, webSiteSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteTarget, type WebSiteUpdate } from "@linksense/shared";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { AppError } from "../../lib/errors.js";
 import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.js";
 import { bundleSize, prepareWebResource } from "./resources.js";
 
 import { WebArtifactResources } from "./artifact-resources.js";
+
+export const webSiteCursorSchema = z.string().max(100).transform((value, context) => {
+  const [time, id] = value.split("|");
+  if (!time || !id || !z.iso.datetime().safeParse(time).success || !z.uuid().safeParse(id).success) {
+    context.addIssue({ code: "custom", message: "Invalid cursor" });
+    return z.NEVER;
+  }
+  return { updatedAt: new Date(time), id };
+});
 
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
@@ -22,13 +32,21 @@ export class WebSiteService {
     return projectSite(await this.store.create(ownerId, input, { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() }, sourceTitle, manifest));
   }
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> { return projectSite(await this.store.update(ownerId, id, input)); }
-  async publish(ownerId: string, id: string, fileId: string): Promise<WebSite> {
+  async get(ownerId: string, id: string): Promise<WebSite> { return projectSite(await this.store.owned(ownerId, id)); }
+  async sourceDetails(ownerId: string, fileId: string): Promise<{ conversationId: string; taskTitle: string; filename: string }> {
+    const { conversation, file } = await this.store.source(ownerId, null, fileId);
+    return { conversationId: conversation.id, taskTitle: conversation.title, filename: file.filename };
+  }
+  async publish(ownerId: string, id: string, fileId: string, expected?: WebSiteTarget): Promise<WebSite> {
     await this.store.owned(ownerId, id);
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
-    return projectSite(await this.store.publish(ownerId, id, conversationId, fileId, randomUUID(), manifest));
+    return projectSite(await this.store.publish(ownerId, id, conversationId, fileId, randomUUID(), manifest, expected));
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
-  delete(ownerId: string, id: string): Promise<void> { return this.store.delete(ownerId, id); }
+  taskSources(ownerId: string, conversationId: string) { return this.store.taskSources(ownerId, conversationId); }
+  delete(ownerId: string, id: string, expected?: WebSiteTarget): Promise<void> {
+    return this.store.delete(ownerId, id, expected);
+  }
   async publicEntry(slug: string): Promise<{ title: string; path: string }> {
     const { site, release } = await this.store.publicSite(slug);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);

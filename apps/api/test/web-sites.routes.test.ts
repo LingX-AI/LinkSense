@@ -147,7 +147,7 @@ describe("website HTTP boundary", () => {
     expect((await fixture.app.inject({ url: "/api/v1/web-sites?cursor=garbage", headers })).statusCode).toBe(400);
     expect(fixture.store.update).not.toHaveBeenCalled();
     expect((await fixture.app.inject({ method: "DELETE", url: `/api/v1/web-sites/${siteId}`, headers })).statusCode).toBe(204);
-    expect(fixture.store.delete).toHaveBeenCalledWith(ownerId, siteId);
+    expect(fixture.store.delete).toHaveBeenCalledWith(ownerId, siteId, undefined);
   });
   it("finds the owner's site for an original HTML file and rejects an invalid file ID", async () => {
     const fixture = await setup();
