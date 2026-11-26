@@ -767,3 +767,30 @@ func computerExecutorDriverCode(err error) string {
 	}
 	return computerExecutorActionFailed
 }
+
+// extended runs one internal-build command against the exact host-picked
+// target. It never changes the observation binding; the driver still validates
+// refs for scroll/drag and clears stale refs before input.
+func (e *computerExecutorDarwin) extended(ctx context.Context, selection m1bComputerSelection, request computerExtendedRequest) computerExtendedResult {
+	if ctx == nil {
+		return computerExtendedResult{Error: computerExecutorInvalid}
+	}
+	if failure := e.failure(selection, true); failure != "" {
+		return computerExtendedResult{Error: failure}
+	}
+	e.mu.Lock()
+	driver := e.driver
+	target := e.target
+	closed := e.closed
+	e.mu.Unlock()
+	if closed {
+		return computerExtendedResult{Error: computerExecutorUnavailable}
+	}
+	extended, ok := driver.(computerExtendedDriver)
+	if !ok {
+		return computerExtendedResult{Error: computerExecutorUnavailable}
+	}
+	return extended.Extended(ctx, target, request)
+}
+
+var _ computerExtendedExecutor = (*computerExecutorDarwin)(nil)

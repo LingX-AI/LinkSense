@@ -390,6 +390,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			cloudComputerPauseOperation,
 			cloudComputerResumeOperation,
 			cloudComputerStopOperation,
+			cloudComputerExtendedOperation,
 		}, ","))
 	}
 	// The bundled runtime starts with the app. A socket dialed before it is
@@ -721,6 +722,7 @@ var desktopCloudToolOperations = []string{
 	cloudComputerPauseOperation,
 	cloudComputerResumeOperation,
 	cloudComputerStopOperation,
+	cloudComputerExtendedOperation,
 }
 
 func cloudToolLifetimeFor(operation string) time.Duration {

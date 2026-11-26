@@ -8,6 +8,9 @@ import {
   localComputerActResultSchema,
   localComputerActOperation,
   localComputerControlResultSchema,
+  localComputerExtendedInputSchema,
+  localComputerExtendedOperation,
+  localComputerExtendedResultSchema,
   localComputerObserveInputSchema,
   localComputerObserveOperation,
   localComputerObserveResultSchema,
@@ -86,6 +89,7 @@ export const desktopCloudToolOperationSchema = z.enum([
   localComputerPauseOperation,
   localComputerResumeOperation,
   localComputerStopOperation,
+  localComputerExtendedOperation,
 ]);
 export type DesktopCloudToolOperation = z.infer<typeof desktopCloudToolOperationSchema>;
 
@@ -137,6 +141,7 @@ export const desktopCloudToolInputSchemaFor = {
   [localComputerPauseOperation]: localComputerPauseInputSchema,
   [localComputerResumeOperation]: localComputerResumeInputSchema,
   [localComputerStopOperation]: localComputerStopInputSchema,
+  [localComputerExtendedOperation]: localComputerExtendedInputSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export const desktopCloudToolDataSchemaFor = {
@@ -156,6 +161,7 @@ export const desktopCloudToolDataSchemaFor = {
   [localComputerPauseOperation]: localComputerControlResultSchema,
   [localComputerResumeOperation]: localComputerControlResultSchema,
   [localComputerStopOperation]: localComputerControlResultSchema,
+  [localComputerExtendedOperation]: localComputerExtendedResultSchema,
 } satisfies Record<DesktopCloudToolOperation, z.ZodType>;
 
 export type DesktopCloudToolInputFor<O extends DesktopCloudToolOperation> =
@@ -181,6 +187,7 @@ export const desktopCloudToolInvocationSchema = z.discriminatedUnion("operation"
   z.strictObject({ operation: z.literal(localComputerPauseOperation), input: localComputerPauseInputSchema }),
   z.strictObject({ operation: z.literal(localComputerResumeOperation), input: localComputerResumeInputSchema }),
   z.strictObject({ operation: z.literal(localComputerStopOperation), input: localComputerStopInputSchema }),
+  z.strictObject({ operation: z.literal(localComputerExtendedOperation), input: localComputerExtendedInputSchema }),
 ]);
 export type DesktopCloudToolInvocation = z.infer<typeof desktopCloudToolInvocationSchema>;
 
@@ -209,6 +216,7 @@ export const desktopCloudToolRequestSchema = z.discriminatedUnion("operation", [
   requestFor(localComputerPauseOperation),
   requestFor(localComputerResumeOperation),
   requestFor(localComputerStopOperation),
+  requestFor(localComputerExtendedOperation),
 ]);
 export type DesktopCloudToolRequest = z.infer<typeof desktopCloudToolRequestSchema>;
 
@@ -237,6 +245,7 @@ export const desktopCloudToolResultSchema = z.union([
   successFor(localComputerPauseOperation),
   successFor(localComputerResumeOperation),
   successFor(localComputerStopOperation),
+  successFor(localComputerExtendedOperation),
   z.strictObject({
     type: z.literal("cloud_tool.result"),
     id: uuidSchema,

@@ -10,14 +10,15 @@ import (
 )
 
 const (
-	cloudComputerStatusOperation  = "local_computer.status"
-	cloudComputerSelectOperation  = "local_computer.select"
-	cloudComputerObserveOperation = "local_computer.observe"
-	cloudComputerActOperation     = "local_computer.act"
-	cloudComputerWaitOperation    = "local_computer.wait"
-	cloudComputerPauseOperation   = "local_computer.pause"
-	cloudComputerResumeOperation  = "local_computer.resume"
-	cloudComputerStopOperation    = "local_computer.stop"
+	cloudComputerStatusOperation   = "local_computer.status"
+	cloudComputerSelectOperation   = "local_computer.select"
+	cloudComputerObserveOperation  = "local_computer.observe"
+	cloudComputerActOperation      = "local_computer.act"
+	cloudComputerWaitOperation     = "local_computer.wait"
+	cloudComputerPauseOperation    = "local_computer.pause"
+	cloudComputerResumeOperation   = "local_computer.resume"
+	cloudComputerStopOperation     = "local_computer.stop"
+	cloudComputerExtendedOperation = "local_computer.extended"
 )
 
 func cloudComputerOperationKnown(operation string) bool {
@@ -25,7 +26,8 @@ func cloudComputerOperationKnown(operation string) bool {
 	case cloudComputerStatusOperation, cloudComputerSelectOperation,
 		cloudComputerObserveOperation, cloudComputerActOperation,
 		cloudComputerWaitOperation, cloudComputerPauseOperation,
-		cloudComputerResumeOperation, cloudComputerStopOperation:
+		cloudComputerResumeOperation, cloudComputerStopOperation,
+		cloudComputerExtendedOperation:
 		return true
 	default:
 		return false

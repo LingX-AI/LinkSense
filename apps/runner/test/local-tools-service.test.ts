@@ -46,6 +46,7 @@ describe("local tools core MCP module", () => {
       "local_files_delete", "local_computer_status", "local_computer_select",
       "local_computer_observe", "local_computer_act", "local_computer_wait",
       "local_computer_pause", "local_computer_resume", "local_computer_stop",
+      "local_computer_extended",
     ]);
     const result = await module.callTool({
       toolName: "local_files_write",

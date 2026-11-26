@@ -132,3 +132,33 @@ func TestCloudComputerFailsClosedWithoutAccessibility(t *testing.T) {
 		t.Fatalf("select code = %s", code)
 	}
 }
+
+func (executor *controlTestExecutor) extended(context.Context, m1bComputerSelection, computerExtendedRequest) computerExtendedResult {
+	return computerExtendedResult{OK: true, Effect: "done"}
+}
+
+func TestCloudComputerExtendedRequiresInternalBuild(t *testing.T) {
+	computer, _ := cloudComputerFixture(t)
+	ctx := context.Background()
+	owner := "10000000-0000-4000-8000-000000000001"
+	device := "20000000-0000-4000-8000-000000000001"
+	selected, code := computer.handle(ctx, "select", owner, device, cloudComputerSelectOperation, cloudComputerJSON(t, map[string]any{}))
+	if code != "" {
+		t.Fatalf("select code = %s", code)
+	}
+	selectionID := selected.(map[string]any)["selection_id"].(string)
+	extendedInput := cloudComputerJSON(t, map[string]any{
+		"selection_id": selectionID, "action": "scroll",
+		"observation_id": controlObservation, "ref": "@obs123:e1",
+	})
+	if _, code := computer.handle(ctx, "extended", owner, device, cloudComputerExtendedOperation, extendedInput); code != "COMPUTER_UNAVAILABLE" {
+		t.Fatalf("release extended code = %s", code)
+	}
+	previous := desktopInternalComputerProof
+	desktopInternalComputerProof = "true"
+	t.Cleanup(func() { desktopInternalComputerProof = previous })
+	data, code := computer.handle(ctx, "extended", owner, device, cloudComputerExtendedOperation, extendedInput)
+	if code != "" || !data.(computerExtendedResult).OK {
+		t.Fatalf("internal extended = %+v %s", data, code)
+	}
+}

@@ -26,6 +26,25 @@ type cloudComputerActInput struct {
 	TimeoutMS     int    `json:"timeout_ms"`
 }
 
+type cloudComputerExtendedInput struct {
+	SelectionID   string `json:"selection_id"`
+	Action        string `json:"action"`
+	ObservationID string `json:"observation_id"`
+	Ref           string `json:"ref"`
+	ToRef         string `json:"to_ref"`
+	Direction     string `json:"direction"`
+	Amount        int    `json:"amount"`
+	Combo         string `json:"combo"`
+	App           string `json:"app"`
+	WindowAction  string `json:"window_action"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	X             int    `json:"x"`
+	Y             int    `json:"y"`
+	Text          string `json:"text"`
+	TimeoutMS     int    `json:"timeout_ms"`
+}
+
 type cloudComputerWaitInput struct {
 	SelectionID   string `json:"selection_id"`
 	ObservationID string `json:"observation_id"`
@@ -250,6 +269,47 @@ func (c *cloudComputer) wait(ctx context.Context, selectionID string, raw json.R
 	}))
 }
 
+func (c *cloudComputer) extended(ctx context.Context, selectionID string, raw json.RawMessage) (any, string) {
+	if desktopInternalComputerProof != "true" {
+		return nil, "COMPUTER_UNAVAILABLE"
+	}
+	var input cloudComputerExtendedInput
+	if !decodeCloudComputerInput(raw, &input) || input.SelectionID != selectionID {
+		return nil, "COMPUTER_INVALID"
+	}
+	selection, executor, failure := c.selectionFor(selectionID)
+	if failure != "" {
+		return nil, failure
+	}
+	if !c.gate.open() {
+		return nil, "COMPUTER_ACCESS_DENIED"
+	}
+	extended, ok := executor.(computerExtendedExecutor)
+	if !ok {
+		return nil, "COMPUTER_UNAVAILABLE"
+	}
+	if input.TimeoutMS == 0 {
+		input.TimeoutMS = m1bComputerDefaultTimeout
+	}
+	if input.Direction == "" {
+		input.Direction = "down"
+	}
+	if input.Amount == 0 {
+		input.Amount = 3
+	}
+	result := extended.extended(ctx, selection, computerExtendedRequest{
+		Action: input.Action, ObservationID: input.ObservationID,
+		Ref: input.Ref, ToRef: input.ToRef, Direction: input.Direction,
+		Amount: input.Amount, Combo: input.Combo, App: input.App,
+		WindowAction: input.WindowAction, Width: input.Width, Height: input.Height,
+		X: input.X, Y: input.Y, Text: input.Text, TimeoutMS: input.TimeoutMS,
+	})
+	if result.Error != "" {
+		return nil, result.Error
+	}
+	return result, ""
+}
+
 func (c *cloudComputer) pause(selectionID string) (any, string) {
 	selection, executor, failure := c.selectionFor(selectionID)
 	if failure != "" {
@@ -327,7 +387,8 @@ func (c *cloudComputer) handle(
 		cloudComputerWaitOperation,
 		cloudComputerPauseOperation,
 		cloudComputerResumeOperation,
-		cloudComputerStopOperation:
+		cloudComputerStopOperation,
+		cloudComputerExtendedOperation:
 		var selection cloudComputerSelectionInput
 		if json.Unmarshal(input, &selection) != nil || !validUUID(selection.SelectionID) {
 			return nil, "COMPUTER_INVALID"
@@ -343,6 +404,8 @@ func (c *cloudComputer) handle(
 			return c.pause(selection.SelectionID)
 		case cloudComputerResumeOperation:
 			return c.resume(selection.SelectionID)
+		case cloudComputerExtendedOperation:
+			return c.extended(ctx, selection.SelectionID, input)
 		default:
 			return c.stopSelection(selection.SelectionID)
 		}
