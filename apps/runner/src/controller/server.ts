@@ -193,6 +193,7 @@ export function buildControllerServer(
     "/internal/current-user/info",
     "/internal/browser-use/execute",
     "/internal/local-browser/execute",
+    "/internal/local-tools/execute",
     "/internal/conversation-references/read",
     "/internal/automations/request-stop",
     "/internal/web-search/search",
@@ -206,6 +207,7 @@ export function buildControllerServer(
   ]) {
     const bodyLimit = route === "/internal/connections/execute" ? MICROSOFT_CONNECTION_BODY_LIMIT
       : route === "/internal/automations/execute" ? AUTOMATION_TOOL_BODY_LIMIT
+      : route === "/internal/local-tools/execute" ? 8 * 1024 * 1024
       : route.startsWith("/internal/web-sites/") ? WEB_SITE_TOOL_BODY_LIMIT : undefined
     app.post(route, bodyLimit === undefined ? {} : { bodyLimit }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
@@ -232,6 +234,8 @@ export function buildControllerServer(
             : route.startsWith("/internal/image-generation/")
               ? 180_000
             : route === "/internal/runner/process-exit"
+              ? 130_000
+            : route === "/internal/local-tools/execute"
               ? 130_000
             : route === "/internal/application-builder" || route === "/internal/web-sites" || route.startsWith("/internal/web-sites/") || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
               ? 60_000
