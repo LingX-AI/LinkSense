@@ -79,6 +79,13 @@ Local tools are authorized per task and per resource: the user chooses folders,
 a window, or a browser tab in the task that needs it. The app never prompts for
 a pairing code and never opens a browser for enrollment.
 
+A cloud task created with `desktop_tools_enabled` gets the separate
+`local_tools_ping` tool. The cloud runner calls the API device gateway, the API
+rechecks the account, cloud task, running turn, per-task grant and online Mac,
+and only then sends a `cloud_tool.request` over the same device WebSocket. The
+Mac answers locally without a bundled runtime. Offline, unauthorized, expired
+and cancelled calls fail closed; the API records bounded audit metadata.
+
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
 enable **Keep Running in the Menu Bar When the Window Closes** there. The

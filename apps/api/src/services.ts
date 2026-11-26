@@ -5,6 +5,7 @@ import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
 import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
 import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
 import { RedisPublicKnowledgeCoordinator } from "./modules/public-knowledge/coordinator.js";
+import { desktopDevicePresenceLeaseMilliseconds } from "./modules/desktop-devices/coordinator.js";
 import { createPublicKnowledgeRetriever } from "./modules/public-knowledge/retrieval.js";
 import { BullMqPublicKnowledgeQueue } from "./modules/public-knowledge/queue.js";
 import { createLogger } from "./lib/logger.js";
@@ -1038,7 +1039,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     return this.capabilityMaterializer.withPublicationStartFence(
       { ownerId: input.userId, conversationId: input.conversationId, ...(input.capabilityScope?.serviceSessionId ? { serviceSessionId: input.capabilityScope.serviceSessionId } : {}) },
       async () => {
-        const [catalog, mcpRuntime] = await Promise.all([
+        const [catalog, mcpRuntime, desktopToolsEnvironment] = await Promise.all([
           this.#resolveCatalog(input),
           input.capabilityScope
             ? this.#resolveApplicationMcpRuntime(
@@ -1046,6 +1047,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
                 input.capabilityScope,
               )
             : this.mcpServers.resolveRuntime(input.userId),
+          this.#desktopToolsEnvironment(input.userId, input.conversationId),
         ]);
         let materialized: ReconciledUserHomeCapabilities;
         try {
@@ -1074,16 +1076,18 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
             { cause: error },
           );
         }
+        const environment: Record<string, string> = {
+          ...catalog.environment,
+          ...mcpRuntime.environment,
+          ...desktopToolsEnvironment,
+        };
         return {
           capabilities: catalog.executionCapabilities,
           capabilityGeneration: materialized.generation,
           capabilityVerification: materialized.verification,
           mcpServers: mcpRuntime.servers,
           mcpGeneration: mcpRuntime.generation,
-          environment: {
-            ...catalog.environment,
-            ...mcpRuntime.environment,
-          },
+          environment,
           credentialUsageReceipts: catalog.credentialUsageReceipts,
           mcpCredentialUsageReceipts: mcpRuntime.credentialUsageReceipts,
         };
@@ -1373,15 +1377,15 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
             !matchesResolvedCapabilityState(
               {
                 capabilities: input.capabilities,
-                environment: input.environment,
+                environment: capabilityStateEnvironment(input.environment),
                 credentialUsageReceipts: input.credentialUsageReceipts,
               },
               {
                 capabilities: current.executionCapabilities,
-                environment: {
+                environment: capabilityStateEnvironment({
                   ...current.environment,
                   ...currentMcp.environment,
-                },
+                }),
                 credentialUsageReceipts: current.credentialUsageReceipts,
               },
             ) ||
@@ -1408,8 +1412,40 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     }
   }
 
+  /**
+   * The per-task local-tool switch is part of the worker environment but not
+   * of the capability catalog. Presence is only exposed while a Mac is
+   * actually reachable; the tool call itself still fails closed when the
+   * device drops later.
+   */
+  async #desktopToolsEnvironment(
+    userId: string,
+    conversationId: string,
+  ): Promise<Record<string, string>> {
+    const [conversation, onlineDevice] = await Promise.all([
+      this.prisma.conversation.findFirst({
+        where: { id: conversationId, ownerId: userId },
+        select: { desktopToolsEnabled: true },
+      }),
+      this.prisma.desktopDevice.findFirst({
+        where: {
+          ownerId: userId,
+          revokedAt: null,
+          lastSeenAt: {
+            gte: new Date(Date.now() - desktopDevicePresenceLeaseMilliseconds),
+          },
+        },
+        select: { id: true },
+      }),
+    ]);
+    return conversation?.desktopToolsEnabled && onlineDevice
+      ? { LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" }
+      : {};
+  }
+
   async resolveStartIntentRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -1619,6 +1655,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
 
   async resolveRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -1712,7 +1749,16 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         input.mcpServers ?? [],
       );
     }
-    return { environment: { ...environment, ...mcp.environment } };
+    const desktopToolsEnvironment = input.conversationId
+      ? await this.#desktopToolsEnvironment(input.userId, input.conversationId)
+      : {};
+    return {
+      environment: {
+        ...environment,
+        ...mcp.environment,
+        ...desktopToolsEnvironment,
+      },
+    };
   }
 
   async #resolveApplicationMcpRecovery(input: {
@@ -1793,6 +1839,25 @@ export function createRunningTurnCapabilityPublicationGuard(
     ]);
     return runningTurn === null && startIntent === null;
   };
+}
+
+/**
+ * Per-task switches are resolved from the conversation row, not from the
+ * capability catalog the start barrier re-reads. They must not make the
+ * catalog look stale and fail the start with CONFLICT.
+ */
+const taskControlEnvironmentKeys = new Set([
+  "LINKSENSE_DESKTOP_CLOUD_TOOLS",
+]);
+
+function capabilityStateEnvironment(
+  environment: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([key]) => !taskControlEnvironmentKeys.has(key),
+    ),
+  );
 }
 
 function matchesResolvedCapabilityState(

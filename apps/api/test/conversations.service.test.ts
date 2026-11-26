@@ -1492,6 +1492,27 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("never reuses a prewarmed worker for a task that grants local tools", async () => {
+    const fixture = await conversationFixture();
+    const reservationId = "71000000-0000-4000-8000-000000000003";
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+
+    await fixture.service.create(OWNER_ID, {
+      collaborationMode: "default",
+      prewarmedConversationId: reservationId,
+      desktopToolsEnabled: true,
+    });
+
+    expect(fixture.redis.claimConversationPrewarm).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectPrewarmedConversation).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: expect.not.stringMatching(reservationId),
+        desktopToolsEnabled: true,
+      }),
+    });
+  });
+
   it("claims a reserved runtime without waiting for app-server prewarm to finish", async () => {
     const fixture = await conversationFixture();
     const reservationId = "71000000-0000-4000-8000-000000000002";
@@ -9199,6 +9220,7 @@ describe("ConversationService pending and turn materialization", () => {;;;
       expect(fixture.preflight.resolveStartIntentRecovery).toHaveBeenCalledWith(
         {
           userId: OWNER_ID,
+          conversationId: CONVERSATION_ID,
           capabilities: intent.capabilitiesJson,
           mcpServers: intent.mcpServersJson,
         },

@@ -17,6 +17,7 @@ import { sendAppError } from "../src/lib/http.js";
 import { RedisDesktopDeviceCoordinator, type DesktopExecutionBinding } from "../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
+import { DesktopCloudToolGateway } from "../src/modules/desktop-devices/cloud-tools.js";
 import { registerClientBuildGuard } from "../src/plugins/client-build.js";
 import { MemoryDesktopDeviceRepository } from "./desktop-devices.fixture.js";
 import { createRedisFixture } from "./fixtures/redis.js";
@@ -68,11 +69,12 @@ async function fixture(
     };
   });
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+  const cloudTools = new DesktopCloudToolGateway();
   await registerDesktopDeviceRoutes(app, {
-    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution, ...tools,
+    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution, cloudTools, ...tools,
   });
   await app.ready();
-  return { app, service, coordinator, repository, execution, authority, recover };
+  return { app, service, coordinator, repository, execution, authority, recover, cloudTools };
 }
 
 async function paired(app: ReturnType<typeof Fastify>, platform = registration.platform) {
@@ -746,6 +748,47 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
       headers: { authorization: "Bearer other" },
       payload: { ...registration, installation_id: installationId, device_id: deviceId },
     })).statusCode).toBe(403);
+  });
+
+  it("negotiates the cloud tool lane independently of execution", async () => {
+    const { app, cloudTools } = await fixture();
+    const device = await paired(app);
+    const socket = new WebSocket(await socketUrl(app), {
+      headers: {
+        "x-linksense-desktop-cloud-tools": "1",
+        "x-linksense-desktop-cloud-tool-operations": "local_tools.ping",
+      },
+    });
+    sockets.push(socket);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("open", resolve);
+      socket.once("error", reject);
+    });
+    socket.send(JSON.stringify({ type: "hello", token: device.token, protocol_version: 1 }));
+    const ready = await readFrame(socket);
+    expect(ready).toMatchObject({
+      type: "ready",
+      device_id: device.device.id,
+      cloud_tool_protocol_version: 1,
+      cloud_tool_operations: ["local_tools.ping"],
+    });
+    const pending = cloudTools.execute(
+      owner, "local_tools.ping", { message: "hello" }, new AbortController().signal,
+    );
+    const request = await readFrame(socket) as { id: string; type: string; operation: string };
+    expect(request).toMatchObject({
+      type: "cloud_tool.request", operation: "local_tools.ping",
+      input: { message: "hello" },
+    });
+    socket.send(JSON.stringify({
+      type: "cloud_tool.result", id: request.id, operation: "local_tools.ping",
+      ok: true, data: { message: "hello", platform: "darwin", app_version: "1.2.3" },
+    }));
+    await expect(pending).resolves.toMatchObject({
+      deviceId: device.device.id,
+      data: { message: "hello", platform: "darwin" },
+    });
+    socket.close();
   });
 
   it("rate-limits code creation without throttling ordinary device status reads", async () => {

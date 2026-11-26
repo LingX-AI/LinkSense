@@ -281,6 +281,7 @@ export interface ConversationPreflight {
   ): Promise<void>;
   resolveRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -289,6 +290,7 @@ export interface ConversationPreflight {
   }>;
   resolveStartIntentRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -1300,6 +1302,9 @@ export class ConversationService {
     const [resolved, modelRuntime] = await Promise.all([
       this.preflight.resolveRecovery({
         userId: ownerId,
+        ...(parsed.data.conversationId
+          ? { conversationId: parsed.data.conversationId }
+          : {}),
         capabilities: parsed.data.capabilitiesJson,
         mcpServers: parsed.data.mcpServersJson,
         ...(recoveryApplication?.applicationId
@@ -2089,6 +2094,7 @@ export class ConversationService {
       const resolved = await Promise.all([
         this.preflight.resolveStartIntentRecovery({
           userId: intent.ownerId,
+          conversationId: intent.conversationId,
           capabilities: intent.capabilitiesJson,
           mcpServers: intent.mcpServersJson,
           ...(intent.applicationId
@@ -3469,6 +3475,7 @@ export class ConversationService {
       projectId?: string | null;
       executionTarget?: ConversationExecutionTarget;
       desktopDeviceId?: string | null;
+      desktopToolsEnabled?: boolean;
     },
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
@@ -3479,6 +3486,7 @@ export class ConversationService {
         {
           collaborationMode: input.collaborationMode,
           projectId: input.projectId ?? null,
+          desktopToolsEnabled: input.desktopToolsEnabled === true,
           execution: conversationExecutionSelectionSchema.parse({
             execution_target: input.executionTarget,
             desktop_device_id: input.desktopDeviceId,
@@ -7816,6 +7824,7 @@ export class ConversationService {
       pinned?: boolean;
       reusePinnedCreation?: boolean;
       collaborationMode?: ConversationCollaborationMode;
+      desktopToolsEnabled?: boolean;
       conversationId?: string;
       projectId?: string | null;
       projectSourceConversationId?: string;
@@ -7847,7 +7856,7 @@ export class ConversationService {
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
       : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null));
     let claimedPrewarm = false;
-    if (prewarmedConversationId) {
+    if (prewarmedConversationId && !options?.desktopToolsEnabled) {
       const collision = await this.prisma.conversation.findUnique({
         where: { id: prewarmedConversationId },
         select: { id: true },
@@ -7859,6 +7868,10 @@ export class ConversationService {
         options?.collaborationMode,
       );
       if (!claimedPrewarm) id = crypto.randomUUID();
+    } else if (prewarmedConversationId) {
+      // Prewarm starts before the task grant exists, so its worker can never
+      // advertise the local-tool lane. Start a fresh worker at the first turn.
+      if (!options?.conversationId) id = crypto.randomUUID();
     }
     // Only a newly allocated or successfully claimed runtime belongs to this
     // creation attempt. Ownership-check failures must never enqueue its cleanup.
@@ -7946,6 +7959,7 @@ export class ConversationService {
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
             executionTarget: execution.execution_target,
+            desktopToolsEnabled: options?.desktopToolsEnabled === true,
             desktopDeviceId: execution.desktop_device_id,
             runtimeGeneration: runtime.runtimeGeneration,
             codexThreadId: prewarmedRuntime?.codexThreadId ?? null,

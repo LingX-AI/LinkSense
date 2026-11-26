@@ -795,6 +795,7 @@ type ManagedProcess = {
   skillManagementToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
+  localToolsToken: string;
   computerToken: string;
   webSearchToken: string;
   automationToken: string;
@@ -1824,6 +1825,7 @@ export class AppServerProcessPool {
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
+        const localToolsToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
         reservedProcessSlot = false;
         managed = await this.getOrCreate(
@@ -1860,6 +1862,10 @@ export class AppServerProcessPool {
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
+              ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
+                LINKSENSE_LOCAL_TOOLS_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-local-tools/${input.conversationId}/execute`,
+                LINKSENSE_LOCAL_TOOLS_TOKEN: localToolsToken,
+              } : {}),
               ...(this.options.desktopComputerEnabled ? {
                 LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
                 LINKSENSE_COMPUTER_TOKEN: computerToken,
@@ -4393,6 +4399,7 @@ export class AppServerProcessPool {
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
+        const localToolsToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
           {
             ...recoveryStartInput,
@@ -4427,6 +4434,10 @@ export class AppServerProcessPool {
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
+              ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
+                LINKSENSE_LOCAL_TOOLS_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-local-tools/${input.conversationId}/execute`,
+                LINKSENSE_LOCAL_TOOLS_TOKEN: localToolsToken,
+              } : {}),
               ...(this.options.desktopComputerEnabled ? {
                 LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
                 LINKSENSE_COMPUTER_TOKEN: computerToken,
@@ -5211,6 +5222,29 @@ export class AppServerProcessPool {
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || managed.activeCollaborationMode === "plan" || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     if (!this.options.eventSink.requestMonitoringStop) throw new ConversationReferenceRequestError(503);
     return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
+  }
+
+  async localToolsExecute(
+    conversationId: string,
+    token: string,
+    input: import("@linksense/shared").DesktopCloudToolPingInput,
+    signal: AbortSignal,
+  ): Promise<import("@linksense/shared").DesktopCloudToolPingResult> {
+    const managed = this.processes.get(conversationId);
+    if (
+      this.shuttingDown || !managed || managed.closing || !managed.activeTurnId ||
+      !managed.activeProjectionTurnId || managed.activeCollaborationMode !== "default" ||
+      !safeTokenEqual(token, managed.localToolsToken)
+    ) {
+      throw new ConversationReferenceRequestError(403);
+    }
+    if (!this.options.eventSink.localToolsExecute) throw new ConversationReferenceRequestError(503);
+    const turnId = managed.activeProjectionTurnId;
+    const result = await this.options.eventSink.localToolsExecute({ conversationId, turnId, input, signal });
+    if (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId) {
+      throw new ConversationReferenceRequestError(409);
+    }
+    return result;
   }
 
   async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal, nativeCallId?: string): Promise<unknown> {
@@ -6443,6 +6477,7 @@ export class AppServerProcessPool {
         skillManagementToken,
         interactiveFormToken,
         currentUserToken,
+        localToolsToken: input.environment.LINKSENSE_LOCAL_TOOLS_TOKEN ?? "",
         computerToken: computerToken ?? "",
         webSearchToken,
         automationToken,

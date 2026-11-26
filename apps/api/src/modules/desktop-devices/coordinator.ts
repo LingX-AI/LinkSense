@@ -2,7 +2,9 @@ import type { Redis } from "ioredis";
 import { z } from "zod";
 import { desktopNoticeChannel, subscribeDesktopNotices, type DesktopNotice } from "./notices.js";
 
-const leaseMilliseconds = 45_000;
+/** A Mac is treated as online while its current connection stays inside this lease. */
+export const desktopDevicePresenceLeaseMilliseconds = 45_000;
+const leaseMilliseconds = desktopDevicePresenceLeaseMilliseconds;
 /** The single current-connection key shared by presence and GUI occupancy checks. */
 export const desktopDeviceConnectionKey = (id: string) => `linksense:desktop-devices:${id}:connection`;
 const presenceKey = desktopDeviceConnectionKey;

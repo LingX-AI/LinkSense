@@ -9,6 +9,7 @@ import {
   browserUseResultSchema,
   computerExecuteResultSchema,
   desktopArtifactReceiptSchema,
+  localToolsPingOperation,
   desktopArtifactUploadLifetimeMs,
   desktopComputerExecuteLifetimeMs,
   RUNNER_EVENT_BATCH_MAX_COUNT,
@@ -145,6 +146,12 @@ export interface RunnerEventSink {
     signal?: AbortSignal;
   }): Promise<unknown>;
   browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
+  localToolsExecute?(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").DesktopCloudToolPingInput;
+    signal?: AbortSignal;
+  }): Promise<import("@linksense/shared").DesktopCloudToolPingResult>;
   computerExecute?(input: {
     conversationId: string;
     turnId: string;
@@ -632,6 +639,25 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return value;
   }
 
+  async localToolsExecute(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").DesktopCloudToolPingInput;
+    signal?: AbortSignal;
+  }): Promise<import("@linksense/shared").DesktopCloudToolPingResult> {
+    const { signal, ...body } = input;
+    const response = await this.request(
+      "/internal/local-tools/execute",
+      { ...body, operation: localToolsPingOperation },
+      this.workspaceManager.ownerFor(input.conversationId),
+      signal,
+    );
+    const result = await parseResponseBody(response);
+    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
+    const { desktopCloudToolPingResultSchema } = await import("@linksense/shared");
+    return desktopCloudToolPingResultSchema.parse(result);
+  }
+
   async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
     const request = () => this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
@@ -1049,6 +1075,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/computer-use/execute"
         ? desktopComputerExecuteLifetimeMs + 2_000
+      : pathname === "/internal/local-tools/execute"
+        ? 12_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
       : pathname === "/internal/file-service/register-artifact" && this.options.desktopOutboxScope

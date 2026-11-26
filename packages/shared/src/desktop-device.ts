@@ -69,6 +69,9 @@ export const desktopDeviceReadySchema = z.strictObject({
   connection_id: uuidSchema,
   protocol_version: z.literal(desktopProtocolVersion),
   heartbeat_interval_ms: z.literal(15_000),
+  // Additive cloud-tool negotiation; old servers and Macs omit it.
+  cloud_tool_protocol_version: z.literal(1).optional(),
+  cloud_tool_operations: z.array(z.string().min(1).max(64)).max(32).optional(),
 });
 export const desktopDeviceServerFrameSchema = z.discriminatedUnion("type", [
   desktopDeviceReadySchema,

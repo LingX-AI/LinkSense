@@ -850,6 +850,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-web-site/") ||
       request.url.startsWith("/mcp-web-search/") ||
       request.url.startsWith("/mcp-current-user/") ||
+      request.url.startsWith("/mcp-local-tools/") ||
       request.url.startsWith("/mcp-automations/") ||
       request.url.startsWith("/mcp-connections/") ||
       request.url.startsWith("/mcp-user/")
@@ -1549,6 +1550,26 @@ export function buildRunnerServer(
       }
     },
   );
+
+  app.post<{ Params: { conversationId: string } }>("/mcp-local-tools/:conversationId/execute", { bodyLimit: 4_096 }, async (request, reply) => {
+    const { desktopCloudToolPingInputSchema } = await import("@linksense/shared");
+    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+    const conversationId = uuid.safeParse(request.params.conversationId);
+    const body = z.strictObject({ input: desktopCloudToolPingInputSchema }).safeParse(request.body);
+    if (!token) return reply.code(401).send({ error_code: "FORBIDDEN" });
+    if (!conversationId.success || !body.success) return reply.code(400).send({ error_code: "VALIDATION_ERROR" });
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once("close", abort);
+    try {
+      return await pool.localToolsExecute(conversationId.data, token, body.data.input, controller.signal);
+    } catch (error) {
+      const status = error instanceof ConversationReferenceRequestError ? error.statusCode : 503;
+      return reply.code(status).send({ error_code: status === 403 ? "FORBIDDEN" : "DESKTOP_TOOL_UNAVAILABLE" });
+    } finally {
+      reply.raw.off("close", abort);
+    }
+  });
 
   app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/referenced-conversation", async (request, reply) => {
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");

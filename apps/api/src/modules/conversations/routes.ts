@@ -241,6 +241,7 @@ export const conversationRoutes: FastifyPluginAsync<{
       collaborationMode: body.collaboration_mode,
       executionTarget: body.execution_target,
       desktopDeviceId: body.desktop_device_id,
+      ...(body.desktop_tools_enabled ? { desktopToolsEnabled: true } : {}),
       ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
       ...(body.prewarmed_conversation_id
         ? { prewarmedConversationId: body.prewarmed_conversation_id }

@@ -16,6 +16,9 @@ import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
 import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
+import { DesktopCloudToolGateway } from "./modules/desktop-devices/cloud-tools.js";
+import { RedisDesktopCloudToolRelay } from "./modules/desktop-devices/cloud-tool-relay.js";
+import { internalDesktopCloudToolRoutes } from "./modules/desktop-devices/cloud-tool-routes.js";
 import {
   createDesktopComputerPauseAuditClient,
   recordDesktopComputerPauseAudit,
@@ -737,6 +740,11 @@ export async function buildApi(
     },
     warn: message => app.log.warn(message),
   }) : undefined;
+  const desktopCloudTools = new DesktopCloudToolGateway();
+  await desktopCloudTools.start(
+    new RedisDesktopCloudToolRelay(services.redis.client),
+    { warn: (meta, message) => app.log.warn(meta, message) },
+  );
   await registerDesktopDeviceRoutes(app, {
     service: new DesktopDeviceService(
       new PrismaDesktopDeviceRepository(services.prisma),
@@ -744,6 +752,7 @@ export async function buildApi(
     ),
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
+    cloudTools: desktopCloudTools,
     ...(desktopExecution ? {
       execution: desktopExecution,
       knowledgeTools: services.knowledgeSearch !== null,
@@ -760,6 +769,14 @@ export async function buildApi(
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });
+  await app.register(internalDesktopCloudToolRoutes, {
+    prefix: "/internal",
+    prisma: services.prisma,
+    sharedSecret: services.config.runnerSharedSecret,
+    cloudTools: desktopCloudTools,
+    audit: services.audit,
+  });
+  app.addHook("preClose", async () => desktopCloudTools.close());
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",
     service: services.conversationAutomations,

@@ -10,9 +10,11 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/egoist/mygo/netproxy"
@@ -125,6 +127,11 @@ const (
 	desktopConversationReferenceHeader        = "X-LinkSense-Desktop-Conversation-Reference"
 	desktopConversationReferenceVersion       = 1
 	desktopAppVersionHeader                   = "X-LinkSense-Desktop-App-Version"
+	desktopCloudToolHeader                    = "X-LinkSense-Desktop-Cloud-Tools"
+	desktopCloudToolOperationsHeader          = "X-LinkSense-Desktop-Cloud-Tool-Operations"
+	desktopCloudToolVersion                   = 1
+	desktopCloudToolPingOperation             = "local_tools.ping"
+	cloudToolLifetime                         = 10 * time.Second
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
@@ -346,12 +353,19 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			headers.Set(desktopAppVersionHeader, version)
 		}
 	}
+	// Cloud tools do not depend on a local runtime. Their separate negotiation
+	// keeps the read-only lane available after the runtime was retired.
+	if runtime.GOOS == "darwin" {
+		headers.Set(desktopCloudToolHeader, strconv.Itoa(desktopCloudToolVersion))
+		headers.Set(desktopCloudToolOperationsHeader, desktopCloudToolPingOperation)
+	}
 	// The bundled runtime starts with the app. A socket dialed before it is
 	// ready would stay presence-only until the next reconnect, so wait a
 	// bounded time for the first offer. A failed runtime still connects as
 	// presence-only after the deadline.
 	offerDeadline := time.Now().Add(8 * time.Second)
 	for connection.runtime != nil && !connection.runtime.ready.Load() &&
+		connection.runtime.pipe.Load() != nil &&
 		time.Now().Before(offerDeadline) && connection.ctx.Err() == nil {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -616,6 +630,20 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		if interceptM1BComputerFrame(computer, data) {
 			continue
 		}
+		if handled, response, cloudErr := cloudToolResponse(data); handled {
+			if cloudErr != nil {
+				return true, "DESKTOP_PROTOCOL_ERROR"
+			}
+			if response != nil {
+				writeContext, cancelWrite := context.WithTimeout(connection.ctx, 5*time.Second)
+				writeErr := socket.Write(writeContext, websocket.MessageText, response)
+				cancelWrite()
+				if writeErr != nil {
+					return false, "RUNNER_UNAVAILABLE"
+				}
+			}
+			continue
+		}
 		if link == nil || !isDesktopExecutionInput(data) {
 			return true, "DESKTOP_PROTOCOL_ERROR"
 		}
@@ -628,6 +656,92 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			return false, "RUNNER_UNAVAILABLE"
 		}
 	}
+}
+
+// cloudToolResponse consumes the independent cloud-tool lane. A request is
+// served synchronously on this socket; a cancel has no work to stop because the
+// only Phase 1 operation is an immediate read.
+func cloudToolResponse(data []byte) (bool, []byte, error) {
+	var header struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(data, &header) != nil ||
+		(header.Type != "cloud_tool.request" && header.Type != "cloud_tool.cancel") {
+		return false, nil, nil
+	}
+	if header.Type == "cloud_tool.cancel" {
+		var cancel struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
+			Operation string `json:"operation"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&cancel) != nil || !validUUID(cancel.ID) ||
+			cancel.Operation != desktopCloudToolPingOperation {
+			return true, nil, errors.New("DESKTOP_PROTOCOL_ERROR")
+		}
+		return true, nil, nil
+	}
+	var request struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		Operation string `json:"operation"`
+		Input     struct {
+			Message string `json:"message"`
+		} `json:"input"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&request) != nil || !validUUID(request.ID) ||
+		request.Operation != desktopCloudToolPingOperation {
+		return true, nil, errors.New("DESKTOP_PROTOCOL_ERROR")
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, request.ExpiresAt)
+	// Symmetric clock-skew tolerance; a Mac a few seconds off must still serve
+	// a request whose 10s lifetime started on the API clock.
+	if err != nil || expiresAt.Before(time.Now().Add(-cloudToolLifetime)) ||
+		expiresAt.After(time.Now().Add(2*cloudToolLifetime)) {
+		return true, cloudToolFailure(request.ID, request.Operation, "DESKTOP_TOOL_UNAVAILABLE"), nil
+	}
+	message := strings.TrimSpace(request.Input.Message)
+	if message == "" || utf8.RuneCountInString(message) > 200 || !utf8.ValidString(message) {
+		return true, cloudToolFailure(request.ID, request.Operation, "DESKTOP_TOOL_UNAVAILABLE"), nil
+	}
+	response, err := json.Marshal(struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		Operation string `json:"operation"`
+		OK        bool   `json:"ok"`
+		Data      struct {
+			Message    string `json:"message"`
+			Platform   string `json:"platform"`
+			AppVersion string `json:"app_version"`
+		} `json:"data"`
+	}{
+		Type: "cloud_tool.result", ID: request.ID, Operation: request.Operation, OK: true,
+		Data: struct {
+			Message    string `json:"message"`
+			Platform   string `json:"platform"`
+			AppVersion string `json:"app_version"`
+		}{Message: message, Platform: runtime.GOOS, AppVersion: desktopRegistrationVersion()},
+	})
+	if err != nil {
+		return true, nil, err
+	}
+	return true, response, nil
+}
+
+func cloudToolFailure(id, operation, code string) []byte {
+	response, _ := json.Marshal(struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		Operation string `json:"operation"`
+		OK        bool   `json:"ok"`
+		ErrorCode string `json:"error_code"`
+	}{"cloud_tool.result", id, operation, false, code})
+	return response
 }
 
 func isDesktopExecutionInput(data []byte) bool {
@@ -652,6 +766,8 @@ type deviceReady struct {
 	ToolVersion                  *int     `json:"tool_protocol_version,omitempty"`
 	ToolOperations               []string `json:"tool_operations,omitempty"`
 	ComputerStatusVersion        *int     `json:"computer_status_version,omitempty"`
+	CloudToolVersion             *int     `json:"cloud_tool_protocol_version,omitempty"`
+	CloudToolOperations          []string `json:"cloud_tool_operations,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -671,6 +787,10 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) ||
 		(ready.ComputerStatusVersion != nil && (*ready.ComputerStatusVersion != desktopComputerStatusVersion ||
 			ready.ExecutionVersion == nil || ready.ToolVersion == nil)) ||
+		(ready.CloudToolVersion != nil && *ready.CloudToolVersion != desktopCloudToolVersion) ||
+		(ready.CloudToolVersion == nil && len(ready.CloudToolOperations) > 0) ||
+		(ready.CloudToolVersion != nil && len(ready.CloudToolOperations) > 0 &&
+			!slices.Equal(ready.CloudToolOperations, []string{desktopCloudToolPingOperation})) ||
 		(len(ready.ToolOperations) > 0 && ready.ToolVersion == nil) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}

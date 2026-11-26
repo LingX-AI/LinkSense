@@ -163,6 +163,29 @@ describe("HttpRunnerEventSink", () => {
     } finally { await sink.close(); }
   });
 
+  it("sends the operation the local-tool API contract requires", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const result = { message: "hello", platform: "darwin", app_version: "1.3.1" };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(result));
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    try {
+      await expect(sink.localToolsExecute({
+        conversationId, turnId: ownerId, input: { message: "hello" },
+      })).resolves.toEqual(result);
+      const [url, init] = fetchMock.mock.calls[0] ?? [];
+      expect(String(url)).toBe("http://api:4000/internal/local-tools/execute");
+      expect(init).toMatchObject({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer runner-secret", "x-linksense-owner-id": ownerId,
+        }),
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        conversationId, turnId: ownerId, operation: "local_tools.ping", input: { message: "hello" },
+      });
+    } finally { await sink.close(); }
+  });
+
   it("preserves an API internal image error through the relay without retries or sensitive details", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error_code: "INTERNAL_ERROR", message: "synthetic-private-token", request_id: "request-1" }, { status: 500 }));

@@ -63,6 +63,7 @@ export const conversationCreateInputSchema = conversationExecutionSelectionSchem
   collaboration_mode: conversationCollaborationModeSchema.default("default"),
   prewarmed_conversation_id: uuidSchema.optional(),
   project_id: uuidSchema.nullable().optional(),
+  desktop_tools_enabled: z.boolean().default(false),
 });
 export const threadGoalStatusSchema = z.enum([
   "active",

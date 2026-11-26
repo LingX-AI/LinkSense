@@ -25,6 +25,10 @@ import {
   desktopComputerControlSchema,
   desktopComputerStatusProtocolVersion,
   desktopConversationReferenceProtocolVersion,
+  desktopCloudToolOperationSchema,
+  desktopCloudToolProtocolVersion,
+  DESKTOP_CLOUD_TOOL_OPERATIONS_HEADER,
+  DESKTOP_CLOUD_TOOL_PROTOCOL_HEADER,
   desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
@@ -70,6 +74,8 @@ export async function registerDesktopDeviceRoutes(
     websiteArtifacts?: boolean;
     /** Fixture-only negotiation gate; app.ts enables it only for the product controller. */
     computerExecute?: boolean;
+    /** Cloud task -> Mac read-only tool lane; independent of local execution. */
+    cloudTools?: Pick<import("./cloud-tools.js").DesktopCloudToolGateway, "register" | "receive">;
     /** Product M1b selection/control path; absent in the joined fixture lane. */
     computerControl?: Pick<DesktopComputerControl, "handle" | "releaseConnection" | "revokeTurn">;
     /**
@@ -144,6 +150,8 @@ export async function registerDesktopDeviceRoutes(
     resumeReceipt: DesktopComputerResumeReceipt | null;
     /** Resolves once the open transition's handler has fully settled. */
     controlSettled: Promise<void> | null;
+    detachCloudTools?: () => void;
+    cloudTools: boolean;
   }>();
   const backgroundWork = new Set<Promise<void>>();
   let closing = false;
@@ -217,6 +225,14 @@ export async function registerDesktopDeviceRoutes(
     const reportedAppVersion = desktopDeviceAppVersionSchema.safeParse(request.headers[DESKTOP_APP_VERSION_HEADER]);
     const supportsExecution = execution !== undefined &&
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
+    const supportsCloudTools = options.cloudTools !== undefined &&
+      request.headers[DESKTOP_CLOUD_TOOL_PROTOCOL_HEADER] === String(desktopCloudToolProtocolVersion);
+    const cloudToolOffer = supportsCloudTools ? request.headers[DESKTOP_CLOUD_TOOL_OPERATIONS_HEADER] : undefined;
+    const offeredCloudTools = typeof cloudToolOffer === "string"
+      ? new Set(cloudToolOffer.split(",")) : new Set<string>();
+    const cloudToolOperations = supportsCloudTools
+      ? desktopCloudToolOperationSchema.options.filter(operation => offeredCloudTools.has(operation))
+      : [];
     const supportsAttachments = supportsExecution &&
       request.headers[DESKTOP_ATTACHMENT_PROTOCOL_HEADER] === String(desktopAttachmentProtocolVersion);
     const supportsConversationReference = supportsExecution &&
@@ -257,6 +273,7 @@ export async function registerDesktopDeviceRoutes(
     const handle = async (raw: string) => {
       const current = connected.get(socket);
       const value: unknown = JSON.parse(raw);
+      if (current?.cloudTools && options.cloudTools?.receive(current.connectionId, value)) return;
       if (current?.execution) {
         const result = desktopExecutionResultSchema.safeParse(value);
         if (result.success) {
@@ -469,6 +486,7 @@ export async function registerDesktopDeviceRoutes(
             ready: false, controls: new Set(), controlInFlight: null,
             controlKind: null, controlTarget: null, controlTakeover: null,
             resumeReceipt: null, controlSettled: null,
+            cloudTools: device.platform === "darwin" && cloudToolOperations.length > 0,
           };
           connected.set(socket, state);
           app.log.info({
@@ -487,6 +505,10 @@ export async function registerDesktopDeviceRoutes(
           const ready = {
             type: "ready", device_id: device.id, connection_id: connectionId,
             protocol_version: desktopProtocolVersion, heartbeat_interval_ms: 15_000,
+            ...(state.cloudTools ? {
+              cloud_tool_protocol_version: desktopCloudToolProtocolVersion,
+              cloud_tool_operations: cloudToolOperations,
+            } : {}),
           };
           let readySent = false;
           if (state.execution && execution) {
@@ -524,6 +546,18 @@ export async function registerDesktopDeviceRoutes(
           }) : ready));
           readySent = true;
           state.ready = true;
+          if (state.cloudTools && options.cloudTools) {
+            state.detachCloudTools = await options.cloudTools.register({
+              ownerId: device.ownerId, deviceId: device.id, connectionId,
+              operations: new Set(cloudToolOperations),
+              verifyCredential: () => service.hasCurrentCredential(device),
+              send: frame => {
+                if (!readySent || socket.readyState !== WebSocket.OPEN || socket.bufferedAmount >= desktopExecutionMaxFrameBytes) return false;
+                socket.send(frame, error => { if (error) socket.terminate(); });
+                return true;
+              },
+            });
+          }
           if (reportedAppVersion.success) {
             // Descriptive metadata only; readiness and the message handler must not wait for it.
             const refresh = service.refreshAppVersion(device, connectionId, reportedAppVersion.data)
@@ -576,6 +610,7 @@ export async function registerDesktopDeviceRoutes(
       clearInterval(heartbeat);
       const current = connected.get(socket);
       connected.delete(socket);
+      current?.detachCloudTools?.();
       current?.detach?.();
       if (current) {
         void service.coordinator.disconnect(current.device.id, current.connectionId)

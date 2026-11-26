@@ -12,6 +12,7 @@ describe("conversation execution selections", () => {
     expect(conversationExecutionSelectionSchema.parse({})).toEqual({ execution_target: "cloud", desktop_device_id: null });
     expect(conversationCreateInputSchema.parse({})).toEqual({
       collaboration_mode: "default", execution_target: "cloud", desktop_device_id: null,
+      desktop_tools_enabled: false,
     });
     expect(conversationCreateInputSchema.parse({ execution_target: "local", desktop_device_id: device }))
       .toMatchObject({ execution_target: "local", desktop_device_id: device });

@@ -307,6 +307,17 @@ describe("conversation create route", () => {
     expect(JSON.stringify(logLines)).not.toContain(device);
   });
 
+  it("passes the per-task local-tools grant into creation", async () => {
+    const { app, create } = await conversationRouteFixture();
+    const response = await app.inject({
+      method: "POST", url: "/conversations", payload: { desktop_tools_enabled: true },
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({
+      desktopToolsEnabled: true,
+    }));
+  });
+
   it("keeps cloud task creation available when the desktop cloud entry is disabled", async () => {
     const { app, create, config } = await conversationRouteFixture(null, false, {
       desktopCloudTargetEnabled: false,

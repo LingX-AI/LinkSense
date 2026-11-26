@@ -910,6 +910,7 @@ model Conversation {
   agentsTemplateVersion           String?   @map("agents_template_version") @db.VarChar(80)
   collaborationMode               String    @default("default") @map("collaboration_mode") @db.VarChar(24)
   executionTarget                 String    @default("cloud") @map("execution_target") @db.VarChar(16)
+  desktopToolsEnabled             Boolean   @default(false) @map("desktop_tools_enabled")
   desktopDeviceId                 String?   @map("desktop_device_id") @db.Uuid
   runtimeGeneration               String    @map("runtime_generation") @db.Uuid
   preferredModel                  String?   @map("preferred_model") @db.VarChar(240)

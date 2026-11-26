@@ -19,6 +19,7 @@ import { applicationBuilderCoreMcpModule } from "./core-services/application-bui
 import { webSiteCoreMcpModule } from "./core-services/web-site-service.js"
 import { automationCoreMcpModule } from "./core-services/automation-service.js"
 import { computerUseRelayCoreMcpModules } from "./core-services/computer-use-relay.js"
+import { localToolsCoreMcpModules } from "./core-services/local-tools-service.js"
 import type {
   CoreMcpCollaborationMode,
   CoreMcpModuleContext,
@@ -93,6 +94,7 @@ export function createCoreMcpRegistry(
     // A macOS supervised worker advertises computer tools only from the
     // environment process-pool writes after computer.execute negotiation.
     ...computerUseRelayCoreMcpModules({ environment: context.environment, mode, ...(context.fetch ? { fetch: context.fetch } : {}) }),
+    ...localToolsCoreMcpModules({ environment: context.environment }),
     ...(input.extraModules ?? []),
   ].filter((definition) => definition.modes.includes(mode))
   const modules = definitions.map((definition) => definition.create(context))
