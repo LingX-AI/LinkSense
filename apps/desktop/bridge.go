@@ -343,6 +343,15 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			headers.Set(desktopAppVersionHeader, version)
 		}
 	}
+	// The bundled runtime starts with the app. A socket dialed before it is
+	// ready would stay presence-only until the next reconnect, so wait a
+	// bounded time for the first offer. A failed runtime still connects as
+	// presence-only after the deadline.
+	offerDeadline := time.Now().Add(8 * time.Second)
+	for connection.runtime != nil && !connection.runtime.ready.Load() &&
+		time.Now().Before(offerDeadline) && connection.ctx.Err() == nil {
+		time.Sleep(100 * time.Millisecond)
+	}
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	offerComputerStatus := offerExecution && connection.computer != nil
 	offerConversationReference := offerExecution && runtime.GOOS == "darwin"
