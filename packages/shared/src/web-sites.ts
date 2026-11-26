@@ -10,10 +10,13 @@ export const webSiteCreateSchema = z.strictObject({
   description: z.string().trim().max(1_000).default(""),
   slug: webSiteSlugSchema.optional(),
 });
-export const webSiteUpdateSchema = z.strictObject({
+export const webSiteMetadataFields = {
   name: z.string().trim().min(1).max(240).optional(),
   description: z.string().trim().max(1_000).optional(),
   slug: webSiteSlugSchema.optional(),
+};
+export const webSiteUpdateSchema = z.strictObject({
+  ...webSiteMetadataFields,
   status: webSiteStatusSchema.optional(),
 }).refine(value => Object.keys(value).length > 0);
 export const webSitePublishSchema = z.strictObject({ file_id: z.uuid() });

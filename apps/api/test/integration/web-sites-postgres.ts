@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { webSiteSchema, htmlPreviewSourceSchema } from "@linksense/shared";
+import { webSiteSchema, htmlPreviewSourceSchema, webSiteToolApprovalSchema, webSiteToolResultSchema } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { testConfig } from "../test-config.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -141,7 +141,7 @@ try {
   await writeFile(join(publicDirectory, "data.json"), JSON.stringify({ message: "配套 JSON 数据加载成功" }));
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第一版";');
   await writeFile(join(publicDirectory, "assets/main.js"), `import {label} from "/assets/counter.js";document.querySelector('#version').textContent=label;let count=0;document.querySelector('#counter').onclick=()=>{document.querySelector('#counter').textContent='点击 '+(++count)};const data=await fetch('./data.json').then(r=>r.json());document.querySelector('#data').textContent=data.message;let protectedCount=0;try{void parent.document.body}catch{protectedCount++}try{if(localStorage.getItem('linksense.auth.access-session')===null)protectedCount++}catch{protectedCount++}document.querySelector('#isolation').textContent='隔离检查 '+protectedCount+'/2';await document.fonts.ready;document.querySelector('#fonts').textContent=document.fonts.check('16px Demo')?'配套字体加载成功':'字体加载失败';`);
-  await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
+  const siteTurn = await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
   const register = () => services!.files.registerArtifact({ ownerId: owner.id, conversationId: task.id, codexTurnId: "qa-turn", workspaceRelativePath: "artifacts/site/index.html", displayName: "山海集.html", mimeType: "text/html", webRootRelativePath: "artifacts/site" });
   const first = await register();
   const site = await createSite(first.file_id, "shanhai-demo");
@@ -214,7 +214,114 @@ try {
   assert.equal((await api.inject("/web/test")).statusCode, 200);
   await createSite(legacy.id);
   console.log("PASS: permanent deletion releases every address; same and different owners can reuse it; old releases stay inaccessible; concurrent publishers cannot claim the same address.");
+
+  const siteTool = (path: "execute" | "confirm", body: object, actor = owner.id, conversationId = task.id, turnId = siteTurn.id) => api.inject({
+    method: "POST",
+    url: "/internal/web-sites/" + path,
+    headers: { authorization: "Bearer " + config.runnerSharedSecret, "x-linksense-owner-id": actor },
+    payload: { conversationId, turnId, ...body },
+  });
+  const runSiteTool = async (request: object) => {
+    const response = await siteTool("execute", { request });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+  const confirmSiteTool = async (approval: ReturnType<typeof webSiteToolApprovalSchema.parse>) => {
+    const response = await siteTool("confirm", { confirmation: approval.confirmation });
+    assert.equal(response.statusCode, 200, response.body);
+    return webSiteToolResultSchema.parse(response.json());
+  };
+  const existingList = webSiteToolResultSchema.parse(await runSiteTool({ tool: "list_sites", search: "shanhai-published" }));
+  assert(existingList.tool === "list_sites" && existingList.items.some(entry => entry.id === site.id));
+  const sources = webSiteToolResultSchema.parse(await runSiteTool({ tool: "publish_site" }));
+  assert(sources.tool === "publish_site" && sources.outcome === "sources" && sources.sources.some(file => file.id === second.file_id));
+  assert.equal((await siteTool("execute", {
+    request: { tool: "publish_site", site: { file_id: reuseForeignFile.id, name: "Private HTML" } },
+  })).statusCode, 409);
+
+  const publishRequest = { tool: "publish_site", site: { file_id: second.file_id, name: "对话站点", slug: "conversation-site" } };
+  const createApproval = webSiteToolApprovalSchema.parse(await runSiteTool(publishRequest));
+  assert.equal(await db.webSite.count({ where: { slug: "conversation-site" } }), 0);
+  assert.equal((await api.inject("/web/conversation-site")).statusCode, 404);
+  const created = await confirmSiteTool(createApproval);
+  assert(created.tool === "publish_site" && created.outcome === "published");
+  const toolSite = created.site;
+  assert.equal(toolSite.url, publicBaseUrl + "/web/conversation-site");
+  assert.equal((await api.inject(new URL(toolSite.url).pathname)).statusCode, 200);
+  const duplicate = webSiteToolResultSchema.parse(await runSiteTool(publishRequest));
+  assert(duplicate.tool === "publish_site" && duplicate.outcome === "existing" && duplicate.site.id === toolSite.id);
+  assert.equal(duplicate.site.url, toolSite.url);
+
+  const replacement = { tool: "update_site", site_id: toolSite.id, changes: { file_id: first.file_id } };
+  const staleApproval = webSiteToolApprovalSchema.parse(await runSiteTool(replacement));
+  const renamed = webSiteToolResultSchema.parse(await runSiteTool({
+    tool: "update_site", site_id: toolSite.id, changes: { name: "更名后的站点", slug: "conversation-site-renamed" },
+  }));
+  assert(renamed.tool === "update_site" && "site" in renamed);
+  assert.equal(renamed.site.url, publicBaseUrl + "/web/conversation-site-renamed");
+  const conflict = await siteTool("confirm", { confirmation: staleApproval.confirmation });
+  assert.equal(conflict.statusCode, 409, conflict.body);
+  assert.equal(conflict.json().error_code, "WEB_SITE_CHANGED");
+  assert.equal((await db.webSite.findUniqueOrThrow({ where: { id: toolSite.id } })).currentReleaseId, toolSite.release_id);
+
+  const updated = await confirmSiteTool(webSiteToolApprovalSchema.parse(await runSiteTool(replacement)));
+  assert(updated.tool === "update_site" && "site" in updated);
+  assert.equal(updated.site.url, renamed.site.url);
+  const updatedPath = new URL(updated.site.url).pathname;
+  assert.notEqual(updated.site.release_id, toolSite.release_id);
+  const updatedEntry = await services.webSites.publicEntry(updated.site.slug);
+  assert.match((await api.inject(updatedEntry.path.replace("index.html", "assets/counter.js"))).body, /第一版/u);
+  const unpublish = webSiteToolResultSchema.parse(await runSiteTool({ tool: "unpublish_site", site_id: toolSite.id }));
+  assert(unpublish.tool === "unpublish_site");
+  assert.equal(unpublish.site.status, "disabled");
+  assert.equal(unpublish.site.release_id, updated.site.release_id);
+  assert.equal((await api.inject(updatedPath)).statusCode, 404);
+  assert.equal((await api.inject(updatedEntry.path)).statusCode, 404);
+  const unpublishedUpdate = webSiteToolResultSchema.parse(await runSiteTool({ ...replacement, changes: { file_id: second.file_id } }));
+  assert(unpublishedUpdate.tool === "update_site" && "site" in unpublishedUpdate && unpublishedUpdate.site.status === "disabled");
+  assert.notEqual(unpublishedUpdate.site.release_id, updated.site.release_id);
+  assert.equal(unpublishedUpdate.site.url, updated.site.url);
+  assert.equal((await api.inject(updatedPath)).statusCode, 404);
+  assert.equal(await db.webSiteAddress.count({ where: { siteId: toolSite.id } }), 2);
+  assert.equal(await db.webSiteRelease.count({ where: { siteId: toolSite.id } }), 3);
+
+  const foreignToolTask = await db.conversation.create({ data: { ownerId: other.id, title: "Another user's chat", titleSource: "manual", archiveStatus: "active", workspaceRelPath: other.id + "/home/workspace", runtimeGeneration: randomUUID() } });
+  const foreignToolTurn = await db.conversationTurn.create({ data: { conversationId: foreignToolTask.id, submittedBy: other.id, sequenceNo: 1, codexThreadId: "foreign-mcp-thread", codexTurnId: "foreign-mcp-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
+  const foreignList = await siteTool("execute", { request: { tool: "list_sites", search: "conversation-site" } }, other.id, foreignToolTask.id, foreignToolTurn.id);
+  assert.equal(foreignList.statusCode, 200, foreignList.body);
+  assert.deepEqual(foreignList.json().items, []);
+  const deleteRequest = { tool: "delete_site", site_id: toolSite.id };
+  const prepareDelete = { request: deleteRequest, requiresDeleteApproval: true };
+  assert.equal((await siteTool("execute", prepareDelete, other.id, foreignToolTask.id, foreignToolTurn.id)).statusCode, 404);
+  assert.equal((await api.inject({ method: "PATCH", url: prefix + "/" + toolSite.id, headers, payload: { status: "published" } })).statusCode, 200);
+  assert.equal((await api.inject(updatedPath)).statusCode, 200);
+  assert.equal((await siteTool("execute", { request: deleteRequest })).statusCode, 400);
+  const pendingRemoval = await siteTool("execute", prepareDelete);
+  assert.equal(pendingRemoval.statusCode, 200, pendingRemoval.body);
+  const staleRemoval = webSiteToolApprovalSchema.parse(pendingRemoval.json());
+  assert(staleRemoval.confirmation.tool === "delete_site");
+  assert.equal((await api.inject(updatedPath)).statusCode, 200);
+
+  await runSiteTool({ tool: "update_site", site_id: toolSite.id, changes: { name: "等待删除期间更名" } });
+  const deletionConflict = await siteTool("confirm", { confirmation: staleRemoval.confirmation });
+  assert.equal(deletionConflict.statusCode, 409, deletionConflict.body);
+  assert.equal(deletionConflict.json().error_code, "WEB_SITE_CHANGED");
+  assert.equal((await api.inject(updatedPath)).statusCode, 200);
+  assert.equal(await db.webSiteRelease.count({ where: { siteId: toolSite.id } }), 3);
+
+  const freshRemoval = await siteTool("execute", prepareDelete);
+  assert.equal(freshRemoval.statusCode, 200, freshRemoval.body);
+  const approval = webSiteToolApprovalSchema.parse(freshRemoval.json());
+  assert.deepEqual(await confirmSiteTool(approval), deleteRequest);
+  assert.equal((await api.inject(updatedPath)).statusCode, 404);
+  assert.equal(await db.webSite.count({ where: { id: toolSite.id } }), 0);
+  assert.equal(await db.webSiteAddress.count({ where: { siteId: toolSite.id } }), 0);
+  assert.equal(await db.webSiteRelease.count({ where: { siteId: toolSite.id } }), 0);
+  assert(await db.conversationFile.findUnique({ where: { id: second.file_id } }));
+  console.log("PASS: conversation site tools read existing sites, confirm and deduplicate creation, reject stale approvals, unpublish, isolate owners, and confirm deletion without removing artifacts.");
+
   await db.conversationTurn.updateMany({ where: { conversationId: task.id }, data: { status: "completed", completedAt: new Date() } });
+  assert.equal((await siteTool("confirm", { confirmation: createApproval.confirmation })).statusCode, 403);
   console.log("PASS: additive migration preserves existing rows; real registration/storage; owner authorization; UUID/slug; concurrent creation; immutable updates; stop/resume; rename; download; delete/recreate.");
   const previewUrl = `/api/v1/conversations/${task.id}/files/${first.file_id}/html-preview`;
   assert.equal((await api.inject({ method: "POST", url: previewUrl, payload: {} })).statusCode, 401);

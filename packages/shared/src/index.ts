@@ -70,6 +70,7 @@ export * from "./application-version.js";
 export * from "./application-distribution.js";
 export * from "./client-build.js";
 export * from "./web-sites.js";
+export * from "./web-site-tools.js";
 export * from "./html-preview.js";
 export * from "./html-preview-shell-document.js";
 export * from "./application-development.js";

@@ -44,6 +44,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "APPLICATION_DEVELOPMENT_NOT_FOUND": "Este aplicativo está indisponível. Volte a Meus aplicativos.",
   "APPLICATION_DEVELOPMENT_SOURCE_CHANGED": "O aplicativo mudou. Revise a visualização mais recente antes de instalar.",
   "WEB_SITE_NOT_FOUND": "Este site está indisponível ou o compartilhamento foi interrompido",
+  "WEB_SITE_CHANGED": "O site foi alterado. Confira as informações atuais e tente novamente",
   "WEB_SITE_SLUG_TAKEN": "Este endereço já está reservado. Escolha outro endereço",
   "WEB_SITE_SOURCE_UNAVAILABLE": "Selecione um arquivo HTML gerado disponível na tarefa de origem",
   "WEB_SITE_RESOURCES_MISSING": "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",

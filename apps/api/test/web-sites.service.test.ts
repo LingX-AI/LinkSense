@@ -45,7 +45,7 @@ describe("website publishing service", () => {
     const result = await fixture.service.publish(ownerId, siteId, fileId);
     expect(fixture.store.owned).toHaveBeenCalledWith(ownerId, siteId);
     expect(fixture.store.source).toHaveBeenCalledWith(ownerId, null, fileId);
-    expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, newTaskId, fileId, expect.any(String), fixture.manifest);
+    expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, newTaskId, fileId, expect.any(String), fixture.manifest, undefined);
     expect(result).toMatchObject({ id: siteId, url_path: "/web/sample", name: "Sample", description: "", status, conversation_id: newTaskId, source_task_title: "Redesigned page" });
     expect(result.release_id).not.toBe(releaseId);
   });
@@ -54,7 +54,7 @@ describe("website publishing service", () => {
     fixture.row.site.conversationId = null;
     fixture.row.site.status = "disabled";
     await expect(fixture.service.publish(ownerId, siteId, fileId)).resolves.toMatchObject({ id: siteId, status: "disabled" });
-    expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, taskId, fileId, expect.any(String), fixture.manifest);
+    expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, taskId, fileId, expect.any(String), fixture.manifest, undefined);
   });
   it("does not read source content or publish when the target site belongs to someone else", async () => {
     const fixture = siteFixture();

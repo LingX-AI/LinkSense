@@ -152,6 +152,9 @@ describe("published service routing", () => {
     expect((await server.inject({ method: "POST", url: "/internal/skills/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/application-builder", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/automations/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    for (const url of ["/internal/web-sites/execute", "/internal/web-sites/confirm"]) {
+      expect((await server.inject({ method: "POST", url, headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    }
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
     expect(fetchMock).not.toHaveBeenCalled()
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers, payload: { conversationId: session, events: [] } })).statusCode).toBe(200)
@@ -725,6 +728,30 @@ describe("controller authentication and routing", () => {
       expect(timeoutSpy).toHaveBeenCalledWith(60_000)
     } finally {
       timeoutSpy.mockRestore()
+      await server.close()
+    }
+  })
+
+  it("relays site management and approval only for an authenticated owner worker", async () => {
+    const { server } = await createServer()
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      for (const operation of ["execute", "confirm"] as const) {
+        const url = "/internal/web-sites/" + operation
+        const payload = { conversationId: ownerId, turnId: otherOwnerId }
+        const inject = (authorization: string) => server.inject({
+          method: "POST", url, headers: { authorization, "x-linksense-owner-id": ownerId }, payload,
+        })
+        expect((await inject("Bearer " + ownerWorkerSecret(otherOwnerId, secret))).statusCode).toBe(401)
+        expect((await inject("Bearer " + ownerWorkerSecret(ownerId, secret))).statusCode).toBe(200)
+        const forwarded = fetchMock.mock.lastCall
+        expect(String(forwarded?.[0])).toBe("http://api:4000" + url)
+        expect(new Headers(forwarded?.[1]?.headers).get("authorization")).toBe("Bearer " + secret)
+        expect(new Headers(forwarded?.[1]?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
       await server.close()
     }
   })

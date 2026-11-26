@@ -10,7 +10,6 @@ import {
 } from "@linksense/shared"
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
-import { request as requestHttp } from "undici"
 
 import {
   requestUserFormSafetyInstructions,
@@ -18,6 +17,7 @@ import {
 } from "../../interactive-form-instructions.js"
 import {
   failureToolResult,
+  requestBlockingCoreMcpBroker,
   successToolResult,
   withRequestTimeout,
   type CoreMcpModuleDefinition,
@@ -310,13 +310,11 @@ export const interactiveFormCoreMcpModule = {
             body: JSON.stringify({ message: arguments_.message, ...formRequest }),
             signal: input.signal,
           } as const
-          // Fetch's transport-level header deadline is inappropriate while a
-          // human is answering. Keep the existing broker, using undici's
-          // documented timeout controls for this one long-lived request.
           const response = request !== globalThis.fetch
             ? await request(endpoint, options)
-            : await requestFormBroker(endpoint, options)
+            : await requestBlockingCoreMcpBroker(endpoint, options)
           if (!response.ok) {
+            if ("discard" in response) await response.discard()
             return failureToolResult({ code: "INTERACTIVE_FORM_UNAVAILABLE", retryable: response.status >= 500 })
           }
           const result = conversationUserInputResponseSchema.parse(
@@ -337,22 +335,6 @@ export const interactiveFormCoreMcpModule = {
     }
   },
 } satisfies CoreMcpModuleDefinition
-
-async function requestFormBroker(endpoint: string, options: {
-  method: "POST"
-  headers: Record<string, string>
-  body: string
-  signal: AbortSignal
-}): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
-  const response = await requestHttp(endpoint, {
-    ...options,
-    headersTimeout: 0,
-    bodyTimeout: 0,
-  })
-  const ok = response.statusCode >= 200 && response.statusCode < 300
-  if (!ok) await response.body.dump()
-  return { ok, status: response.statusCode, json: () => response.body.json() }
-}
 
 function buildFormRequest(
   input: z.infer<typeof interactiveFormArgumentsSchema>,
