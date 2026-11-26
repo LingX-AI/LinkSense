@@ -67,7 +67,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "本地任务执行尚未就绪。",
     pairTitle: "配对这台 Mac",
     pairDescription:
-      "创建一次性配对码并直接发送给这台 Mac，以启用本地任务。配对码不会在界面显示或保存。",
+      "一次性配对码会直接发送到这台 Mac，此设置页不会显示它。本地任务以你的 macOS 用户身份运行，不使用独立容器或单独的 macOS 用户；Codex 工作区沙箱和命令审批仍然生效，桌面控制需要另外授权。",
     pairNameLabel: "设备名称",
     pairNameHint: "1–120 个字符，用于在设备列表中识别这台 Mac。",
     pairNamePlaceholder: "例如：工作用 Mac",
@@ -125,7 +125,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "Local task execution is not ready yet.",
     pairTitle: "Pair this Mac",
     pairDescription:
-      "Create a one-time pairing code and send it directly to this Mac to enable local tasks. The code is never shown or stored in the app.",
+      "A one-time code is sent directly to this Mac and isn’t shown in Settings. Local tasks run under your macOS account, not in a container or a separate macOS account; Codex workspace sandboxing and command approval still apply, and desktop control needs separate authorization.",
     pairNameLabel: "Device name",
     pairNameHint:
       "1–120 characters. This name identifies this Mac in your device list.",
@@ -184,7 +184,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "La ejecución local aún no está lista.",
     pairTitle: "Vincular este Mac",
     pairDescription:
-      "Crea un código de un solo uso y lo envía directamente a este Mac para habilitar las tareas locales. El código no se muestra ni se guarda en la aplicación.",
+      "Un código de un solo uso se envía directamente a este Mac y no se muestra en esta página de ajustes. Las tareas locales se ejecutan con tu usuario de macOS, no en un contenedor ni en una cuenta de macOS aparte; el aislamiento del espacio de trabajo de Codex y la aprobación de comandos siguen aplicándose, y el control del escritorio requiere una autorización aparte.",
     pairNameLabel: "Nombre del dispositivo",
     pairNameHint:
       "De 1 a 120 caracteres. Este nombre aparece en la lista de dispositivos.",
@@ -245,7 +245,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "A execução local ainda não está pronta.",
     pairTitle: "Parear este Mac",
     pairDescription:
-      "Crie um código de uso único e envie-o diretamente a este Mac para habilitar tarefas locais. O código não é exibido nem armazenado no aplicativo.",
+      "Um código de uso único é enviado diretamente para este Mac e não aparece nesta página de configurações. As tarefas locais são executadas com o seu usuário do macOS, não em um contêiner nem em uma conta separada do macOS; o isolamento do espaço de trabalho do Codex e a aprovação de comandos continuam valendo, e o controle da área de trabalho exige uma autorização separada.",
     pairNameLabel: "Nome do dispositivo",
     pairNameHint:
       "De 1 a 120 caracteres. Este nome aparece na lista de dispositivos.",
@@ -305,7 +305,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "L’exécution locale n’est pas encore prête.",
     pairTitle: "Associer ce Mac",
     pairDescription:
-      "Créez un code à usage unique et envoyez-le directement à ce Mac pour activer les tâches locales. Le code n’est ni affiché ni stocké dans l’application.",
+      "Un code à usage unique est envoyé directement à ce Mac et n’apparaît pas sur cette page de réglages. Les tâches locales s’exécutent sous votre compte utilisateur macOS, pas dans un conteneur ni sous un autre compte macOS ; le bac à sable de l’espace de travail Codex et l’approbation des commandes s’appliquent toujours, et le contrôle du bureau nécessite une autorisation distincte.",
     pairNameLabel: "Nom de l’appareil",
     pairNameHint:
       "De 1 à 120 caractères. Ce nom apparaît dans la liste des appareils.",
@@ -366,7 +366,7 @@ export const desktopDevicesMessages = {
     executionNotReady: "ローカル実行の準備ができていません。",
     pairTitle: "この Mac をペアリング",
     pairDescription:
-      "1 回限りのコードを作成し、この Mac に直接送信してローカルタスクを有効にします。コードは表示されず、アプリにも保存されません。",
+      "1 回限りのコードはこの Mac に直接送信され、この設定ページには表示されません。ローカルタスクはお使いの macOS ユーザーとして実行され、独立したコンテナや別の macOS アカウントは使用しません。Codex のワークスペースサンドボックスとコマンド承認は引き続き適用され、デスクトップ操作には別途の許可が必要です。",
     pairNameLabel: "デバイス名",
     pairNameHint: "1〜120 文字。デバイス一覧に表示される名前です。",
     pairNamePlaceholder: "例：仕事用 Mac",

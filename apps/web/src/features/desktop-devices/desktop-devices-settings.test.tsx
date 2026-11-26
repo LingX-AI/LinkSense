@@ -134,6 +134,9 @@ describe("desktop device settings", () => {
     const messages = desktopDevicesMessages["zh-CN"]
     renderSettings(ownerA)
 
+    const form = await screen.findByRole("form", { name: messages.pairTitle })
+    expect(within(form).getByText(messages.pairDescription)).toBeVisible()
+
     const pairButton = await screen.findByRole("button", {
       name: messages.pairAction,
     })
