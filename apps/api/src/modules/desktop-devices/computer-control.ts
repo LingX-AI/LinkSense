@@ -31,6 +31,7 @@ import type {
 } from "../local-computer/authorization.js";
 import {
   localComputerGuiOccupancyKey,
+  type LocalComputerGuiAcquireResult,
   type LocalComputerGuiHeld,
   type LocalComputerGuiOccupancy,
 } from "../local-computer/occupancy.js";
@@ -396,6 +397,11 @@ if lease.state ~= 'paused' or lease.selectionId ~= ARGV[2] then
   return cjson.encode({status='conflict'})
 end
 if lease.expiresAt <= now then return cjson.encode({status='timeout'}) end
+-- A paused row is resumable only while its admitted-input marker is the
+-- explicit known-idle null written by select/renew/resume. A retained object
+-- names the predecessor's possible input and must never be carried onto the
+-- successor, and a missing legacy field cannot prove idleness either.
+if lease.pendingInput ~= cjson.null then return cjson.encode({status='conflict'}) end
 lease.selectionId = ARGV[3]
 lease.state = 'active'
 local ttl = math.floor(lease.expiresAt + tonumber(ARGV[4]) - now)
@@ -1130,6 +1136,17 @@ export class PrismaDesktopComputerControl implements DesktopComputerControlStore
           sessionId: existing.sessionId, bundleId: existing.bundleId, requireGrants: true, now,
         });
         if (session.expiresAt.getTime() !== existing.expiresAt) throw accessDenied();
+        // A paused row left by a pre-fix failed Pause can retain the exact
+        // predecessor holder even though its admitted-input marker is already
+        // known idle. Advancing A to B would carry that holder past its
+        // selection and make an exact Stop of either id unmatched, so refuse
+        // the resume and leave A paused and stoppable. A holder for any other
+        // selection, session, bundle, or connection is unrelated occupancy and
+        // is neither rejected nor released here.
+        if (existing.state === "paused") {
+          const held = await this.occupancy?.read(scope.deviceId);
+          if (held && matchesHeld(held, scope, existing)) throw targetChanged();
+        }
         const stored = await this.selections.resume(scope, existing.selectionId, next);
         written = stored;
         return stored;
@@ -1606,10 +1623,50 @@ export class DesktopComputerControl {
         // Product lane only: the explicit authorized observe holds the lease
         // through this grant's expiry, so a later act approved after minutes
         // of native deliberation still matches the exact same holder.
-        const acquired = await this.host.occupancy.acquire({
-          authorization, selectionId, throughAuthorizationExpiry: true,
-        });
-        if (acquired.status !== "acquired") return acquireComputerExecuteFailure(acquired);
+        //
+        // The acquisition runs under the existing conversation lock, after a
+        // fresh exact read. The reads above can be overtaken while they await
+        // authorize/connection: Pause may release A and Resume install B before
+        // this point. Acquiring then would publish a holder for the dead
+        // predecessor that no exact Stop could ever match. Under the lock the
+        // acquire is either ordered before that Pause (which quiesces and
+        // releases it) or it sees the paused/successor row and installs
+        // nothing. No native command or wait happens while the lock is held.
+        let acquired: LocalComputerGuiAcquireResult | undefined;
+        let current: DesktopComputerSelection | undefined;
+        let refused = false;
+        try {
+          await this.host.verifyDispatch({
+            scope, sessionId: selection.sessionId, grantId: authorization.grantId,
+            capability, bundleId: selection.bundleId, expiresAt: authorization.expiresAt,
+            requestKind: body.kind,
+          }, async () => {
+            if (!await this.host.store.bindingLive(scope)) return false;
+            const live = await this.activeSelection(scope);
+            if (!live || live.state !== "active" || live.selectionId !== selectionId ||
+                live.sessionId !== selection.sessionId || live.bundleId !== selection.bundleId ||
+                live.connectionId !== scope.connectionId ||
+                live.controlEpoch !== selection.controlEpoch) {
+              refused = true;
+              return false;
+            }
+            const result = await this.host.occupancy.acquire({
+              authorization, selectionId, throughAuthorizationExpiry: true,
+            });
+            acquired = result;
+            if (result.status !== "acquired") {
+              refused = true;
+              return false;
+            }
+            current = live;
+            return true;
+          });
+        } catch (error) {
+          // Only this callback's refusal is mapped to a target change. A denied
+          // grant/session or a transaction failure stays a genuine dispatch
+          // error and is mapped by the outer handler.
+          if (!refused) throw error;
+        }
         // An acquire may be a new holder or the exact one a repeated/concurrent
         // observe is already using. A stale selection, an expired window, or
         // any typed failure (including COMPUTER_UNAVAILABLE, which can be the
@@ -1618,11 +1675,10 @@ export class DesktopComputerControl {
         // the exact pause/stop/turn/connection/revoke lifecycle release or the
         // bounded authorization expiry removes it. Never create a second
         // flight table or retry the observe here.
-        const current = await this.activeSelection(scope);
-        if (!current || current.selectionId !== selectionId || current.sessionId !== selection.sessionId ||
-            current.connectionId !== scope.connectionId || current.controlEpoch !== selection.controlEpoch) {
-          return computerExecuteFailure("COMPUTER_TARGET_CHANGED");
+        if (acquired && acquired.status !== "acquired") {
+          return acquireComputerExecuteFailure(acquired);
         }
+        if (!acquired || !current) return computerExecuteFailure("COMPUTER_TARGET_CHANGED");
         const expiresAt = Math.min(
           toolExpiresAt, authorization.expiresAt.getTime(), acquired.expiresAt, current.expiresAt,
         );
@@ -2044,11 +2100,22 @@ export class DesktopComputerControl {
     const ack = await this.quiesce(scope, paused, holderId);
     if (!ack.ok) throw new DesktopComputerSelectionError(ack.code);
     // The exact quiesce proof clears only the pending UUID captured above.
-    if (pending) await this.host.store.clearInput(scope, paused, pending.holderId, pending.commandId)
-      .catch(() => false);
+    // A refused or failed clear is not an idle selection: only the same live
+    // row carrying the explicit known-idle null may stand in for it. A write
+    // error or a legacy record without the field proves nothing, so the Pause
+    // stays unacknowledged and A remains exactly stoppable.
+    if (pending) {
+      const cleared = await this.host.store.clearInput(scope, paused, pending.holderId, pending.commandId)
+        .catch(() => false);
+      if (!cleared && !await this.idlePausedSelection(scope, paused)) throw unavailable();
+    }
     const confirmed = paused.state === "paused"
       ? paused : await this.host.store.confirmPause({ scope, selection: paused });
-    await this.host.occupancy.release(scope.deviceId, holderId).catch(() => false);
+    // The exact holder must leave with the acknowledged Pause. A compare-and-
+    // release failure is only acceptable when that same holder is provably no
+    // longer current; an unrelated holder is never released or treated as it.
+    const released = await this.host.occupancy.release(scope.deviceId, holderId).catch(() => false);
+    if (!released && await this.holderStillCurrent(scope.deviceId, holderId)) throw unavailable();
     return confirmed;
   }
 
@@ -2118,6 +2185,42 @@ export class DesktopComputerControl {
     if (!held) return null;
     if (!matchesHeld(held, scope, selection)) throw targetChanged();
     return held;
+  }
+
+  /**
+   * Substitute proof for a refused/failed exact input-marker clear: the same
+   * live paused generation must still be current and its marker must be the
+   * explicit known-idle null. A legacy record without the field is rejected by
+   * the strict store parser and therefore never reaches this comparison.
+   */
+  private async idlePausedSelection(
+    scope: DesktopRunScope,
+    selection: DesktopComputerSelection,
+  ): Promise<boolean> {
+    let current: DesktopComputerSelection | null;
+    try {
+      current = await this.host.store.read(scope);
+    } catch {
+      return false;
+    }
+    if (!current) return false;
+    if (current.selectionId !== selection.selectionId ||
+        current.sessionId !== selection.sessionId ||
+        current.controlEpoch !== selection.controlEpoch ||
+        current.connectionId !== selection.connectionId ||
+        current.bundleId !== selection.bundleId ||
+        current.expiresAt !== selection.expiresAt) return false;
+    if (current.state !== "pausing" && current.state !== "paused") return false;
+    return current.pendingInput === null;
+  }
+
+  /** A read failure never proves the exact holder is gone, so it stays current. */
+  private async holderStillCurrent(deviceId: string, holderId: string): Promise<boolean> {
+    try {
+      return (await this.host.occupancy.read(deviceId))?.holderId === holderId;
+    } catch {
+      return true;
+    }
   }
 
   private async activeSelection(scope: DesktopRunScope): Promise<DesktopComputerSelection | null> {

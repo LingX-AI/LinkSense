@@ -678,6 +678,42 @@ try {
   }), { code: "COMPUTER_TARGET_CHANGED" });
   await store.stop({ scope: receiptRun.scope, selectionId: receiptReplacement.selectionId });
 
+  // A same-id renewal of successor B is a new generation, so the recorded A
+  // receipt no longer aliases it: the delayed Stop naming A must refuse without
+  // stopping or revoking B, while the exact B Stop still ends that session.
+  const renewRun = await runTurn();
+  const renewPredecessor = renewRun.selection.selectionId;
+  const renewSuccessor = randomUUID();
+  await store.pause({ scope: renewRun.scope, selectionId: renewPredecessor });
+  await store.confirmPause({ scope: renewRun.scope, selection: (await store.read(renewRun.scope))! });
+  const renewReceipts: DesktopComputerResumeReceipt[] = [];
+  const renewResumed = await store.resume({
+    scope: renewRun.scope, selectionId: renewPredecessor, newSelectionId: renewSuccessor,
+    onResumed: receipt => { renewReceipts.push(receipt); },
+  });
+  assert.equal(renewReceipts.length, 1);
+  const renewedSuccessor = await store.select({
+    scope: renewRun.scope, selectionId: renewSuccessor, bundleId,
+  });
+  assert.equal(renewedSuccessor.sessionId, renewResumed.sessionId);
+  assert.notEqual(renewedSuccessor.controlEpoch, renewResumed.controlEpoch);
+  assert.ok(renewedSuccessor.expiresAt > renewResumed.expiresAt);
+  await assert.rejects(store.stop({
+    scope: renewRun.scope, selectionId: renewPredecessor, receipt: renewReceipts[0]!,
+  }), { code: "COMPUTER_TARGET_CHANGED" });
+  const afterStaleReceipt = await store.read(renewRun.scope);
+  assert.equal(afterStaleReceipt?.selectionId, renewSuccessor);
+  assert.equal(afterStaleReceipt?.state, "active");
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: renewResumed.sessionId },
+  })).status, "active");
+  assert.equal((await store.stop({
+    scope: renewRun.scope, selectionId: renewSuccessor,
+  })).state, "stopped");
+  assert.equal((await db.localComputerSession.findUniqueOrThrow({
+    where: { id: renewResumed.sessionId },
+  })).status, "ended");
+
   // A first positive check followed by a revoke before the Lua CAS rolls the
   // speculative session/grant rows back and writes nothing.
   const race = await createTurn();
@@ -816,6 +852,81 @@ try {
   }]);
   assert.equal((await store.read(stopPending.scope))?.pendingInput, null);
   await otherReplica.revokeScope(stopPending.scope);
+
+  // A paused predecessor left by a pre-fix Pause can retain the admitted-input
+  // marker (with its holder TTL already elapsed) or the exact orphaned holder
+  // while its marker is the known-idle null. Resume must refuse both without
+  // writing or recording a receipt; the exact Stop must still revoke A,
+  // quiesce the recorded holder, and release only that holder.
+  for (const retained of ["marker", "holder"] as const) {
+    const parked = await runTurn();
+    const parkedHolder = await putHolder(parked.scope, parked.selection);
+    let parkedCommandId: string | undefined;
+    if (retained === "marker") {
+      parkedCommandId = randomUUID();
+      assert.equal(await store.claimInput({
+        scope: parked.scope, selection: parked.selection,
+        holderId: parkedHolder, commandId: parkedCommandId,
+      }), true);
+      // The marker outlives the holder TTL and alone names the exact holder.
+      await redis.client.del(localComputerGuiOccupancyKey(device.id));
+    }
+    await store.pause({ scope: parked.scope, selectionId: parked.selection.selectionId });
+    await store.confirmPause({ scope: parked.scope, selection: (await store.read(parked.scope))! });
+    const parkedBeforeResume = await store.read(parked.scope);
+    assert.equal(parkedBeforeResume?.state, "paused");
+    if (retained === "marker") {
+      assert.equal(parkedBeforeResume?.pendingInput?.commandId, parkedCommandId);
+      assert.equal(parkedBeforeResume?.pendingInput?.holderId, parkedHolder);
+      assert.equal(await occupancy.read(device.id), null);
+    } else {
+      assert.equal(parkedBeforeResume?.pendingInput, null);
+      assert.equal((await occupancy.read(device.id))?.holderId, parkedHolder);
+    }
+    const parkedRaw = await redis.client.get(desktopComputerSelectionKey(parked.scope));
+    let parkedReceipts = 0;
+    await assert.rejects(store.resume({
+      scope: parked.scope, selectionId: parked.selection.selectionId,
+      newSelectionId: randomUUID(), onResumed: () => { parkedReceipts += 1; },
+    }), { code: "COMPUTER_TARGET_CHANGED" });
+    assert.equal(parkedReceipts, 0, "a refused resume records no receipt");
+    assert.deepEqual(await store.read(parked.scope), parkedBeforeResume);
+    assert.equal(await redis.client.get(desktopComputerSelectionKey(parked.scope)), parkedRaw);
+    assert.equal((await db.localComputerSession.findUniqueOrThrow({
+      where: { id: parked.selection.sessionId },
+    })).status, "active");
+    if (retained === "holder") {
+      assert.equal((await occupancy.read(device.id))?.holderId, parkedHolder);
+    }
+
+    // Stop remains the safety control: it ends exactly A's session and sends
+    // exactly one quiesce for the recorded holder before the positive reply.
+    transportCalls.length = 0;
+    const parkedStop = await computerControl.handle({
+      ownerId: owner.id, deviceId: device.id, connectionId: replacementConnection,
+      verifyCredential: async () => true,
+      frame: {
+        type: "computer.control", id: randomUUID(),
+        body: {
+          action: "stop", conversation_id: parked.scope.conversationId,
+          turn_id: parked.scope.turnId, selection_id: parked.selection.selectionId,
+        },
+      },
+    });
+    assert.equal(parkedStop.ok, true);
+    if (!parkedStop.ok) throw new Error("stop failed");
+    assert.equal(parkedStop.data.state, "stopped");
+    assert.deepEqual(transportCalls, [{
+      holderId: parkedHolder, selectionId: parked.selection.selectionId, kind: "quiesce",
+    }]);
+    assert.equal((await store.read(parked.scope))?.state, "stopped");
+    assert.equal((await store.read(parked.scope))?.pendingInput, null);
+    assert.equal(await redis.client.exists(localComputerGuiOccupancyKey(device.id)), 0);
+    assert.equal((await db.localComputerSession.findUniqueOrThrow({
+      where: { id: parked.selection.sessionId },
+    })).status, "ended");
+    await otherReplica.revokeScope(parked.scope);
+  }
 
   // A public stop holds the same conversation lock as final dispatch
   // admission: it cannot commit before the single socket send, and the lock is

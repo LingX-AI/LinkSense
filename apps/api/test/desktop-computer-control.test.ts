@@ -452,6 +452,8 @@ async function fixture() {
   let verifyGate: Promise<void> | undefined;
   let verifyFailure: Error | undefined;
   let verifyStartResolvers: Array<() => void> = [];
+  let authorizeGate: Promise<void> | undefined;
+  let authorizeStartResolvers: Array<() => void> = [];
   const authorize = vi.fn(async (input: {
     scope: DesktopRunScope;
     capability: "computer.observe" | "computer.act";
@@ -462,10 +464,15 @@ async function fixture() {
     }
     const selection = await store.read(input.scope);
     if (!selection) throw new AppError("FORBIDDEN");
-    return {
+    const authorization: LocalComputerActionAuthorization = {
       scope: input.scope, sessionId: selection.sessionId, grantId: randomUUID(),
       capability: input.capability, bundleId: input.bundleId, expiresAt: new Date(Date.now() + 120_000),
     };
+    const started = authorizeStartResolvers;
+    authorizeStartResolvers = [];
+    for (const resolve of started) resolve();
+    if (authorizeGate) await authorizeGate;
+    return authorization;
   });
   const verifyDispatch = vi.fn(async (
     _input: {
@@ -566,6 +573,8 @@ async function fixture() {
   return {
     app, leases, store, control, transport, occupancy, audit, authorize, verifyDispatch, cleanup,
     nextVerifyStarted: () => new Promise<void>(resolve => { verifyStartResolvers.push(resolve); }),
+    nextAuthorizeStarted: () => new Promise<void>(resolve => { authorizeStartResolvers.push(resolve); }),
+    setAuthorizeGate: (gate: Promise<void> | undefined) => { authorizeGate = gate; },
     nextAuditStarted: () => new Promise<void>(resolve => { auditStartResolvers.push(resolve); }),
     nextFinalCheckStarted: () => new Promise<void>(resolve => { store.finalCheckStartResolvers.push(resolve); }),
     setFinalCheckGate: (gate: Promise<void> | undefined) => { store.finalCheckGate = gate; },
@@ -1175,6 +1184,51 @@ describe("M1b product computer control", () => {
     }
   });
 
+  it("does not publish a late observe holder after Pause releases A and Resume installs B", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      const occupancyKey = localComputerGuiOccupancyKey(device.id);
+
+      // Hold the observe after its authorization was computed for A but before
+      // it may acquire. Pause/Resume then settle while it waits.
+      let releaseAuthorize!: () => void;
+      state.setAuthorizeGate(new Promise<void>(resolve => { releaseAuthorize = resolve; }));
+      const authorizeStarted = state.nextAuthorizeStarted();
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      await authorizeStarted;
+
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      expect(controlResultOf(await frames.until(isControlResult)))
+        .toMatchObject({ ok: true, data: { state: "paused" } });
+      socket.send(JSON.stringify(controlFrame("resume", scope, selectionA, { new_selection_id: selectionB })));
+      expect(controlResultOf(await frames.until(isControlResult)))
+        .toMatchObject({ ok: true, data: { state: "active", selection_id: selectionB } });
+      expect(await redis.client.exists(occupancyKey)).toBe(0);
+
+      state.setAuthorizeGate(undefined);
+      releaseAuthorize();
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "COMPUTER_TARGET_CHANGED" },
+      });
+
+      // No predecessor holder was published and no command was sent.
+      expect(await redis.client.exists(occupancyKey)).toBe(0);
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+
+      // The successor remains cleanly stoppable: no orphan A holder can make
+      // the exact Stop of B fail as a mismatched target.
+      socket.send(JSON.stringify(controlFrame("stop", scope, selectionB)));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "stopped", selection_id: selectionB },
+      });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
+    } finally {
+      await state.cleanup();
+    }
+  });
+
   it("stops, revokes every later use, and releases after the exact native ack", async () => {
     const state = await fixture();
     try {
@@ -1568,13 +1622,13 @@ describe("M1b product computer control", () => {
       expect(await frames.until(isToolResult)).toMatchObject({
         ok: true, data: { kind: "wait", result: { result: "timed_out", waited_ms: 8_000 } },
       });
-      // Observe admission/publication plus the wait's admission transaction and
-      // exact post-result recheck.
-      expect(state.verifyDispatch).toHaveBeenCalledTimes(4);
-      expect(state.verifyDispatch.mock.calls[2]?.[0]).toMatchObject({
+      // Observe acquisition/admission/publication plus the wait's admission
+      // transaction and exact post-result recheck.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(5);
+      expect(state.verifyDispatch.mock.calls[3]?.[0]).toMatchObject({
         capability: "computer.observe", requestKind: "wait",
       });
-      expect(state.verifyDispatch.mock.calls[3]?.[0]).toMatchObject({
+      expect(state.verifyDispatch.mock.calls[4]?.[0]).toMatchObject({
         scope, sessionId: observe.body.session_id, capability: "computer.observe", requestKind: "wait",
       });
       const selection = state.store.selections.get(desktopComputerSelectionKey(scope));
@@ -1904,6 +1958,73 @@ describe("M1b product computer control", () => {
         ok: true, data: { state: "paused" },
       });
       expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("does not acknowledge pause until the exact marker is idle and the exact holder is released", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } = await prepareSocket(state);
+      const key = desktopComputerSelectionKey(scope);
+      const occupancyKey = localComputerGuiOccupancyKey(device.id);
+      await select(state, socket, frames, scope);
+      socket.send(JSON.stringify(toolRequest("observe", scope, runToken)));
+      const observe = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(observe, { kind: "observe", result: observation })));
+      await frames.until(isToolResult);
+      socket.send(JSON.stringify(toolRequest("act", scope, runToken)));
+      const act = commandOf(await frames.until(isCommand));
+      await waitFor(() => state.store.selections.get(key)?.pendingInput != null);
+      expect(state.store.selections.get(key)?.pendingInput).toMatchObject({
+        holderId: observe.body.holder_id, commandId: act.id,
+      });
+
+      // A clear write error is not proof that the admitted act is over, and the
+      // exact marker and holder stay for the next exact proof.
+      const clearInput = vi.spyOn(state.store, "clearInput")
+        .mockRejectedValueOnce(new Error("redis write failed"));
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      const firstQuiesce = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(firstQuiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: false, error_code: "COMPUTER_UNAVAILABLE",
+      });
+      expect(clearInput).toHaveBeenCalledTimes(1);
+      expect(state.store.selections.get(key)).toMatchObject({ state: "pausing" });
+      expect(state.store.selections.get(key)?.pendingInput).toMatchObject({ commandId: act.id });
+      expect(JSON.parse(await redis.client.get(occupancyKey) ?? "null")).toMatchObject({
+        holderId: observe.body.holder_id,
+      });
+      clearInput.mockRestore();
+
+      // A refused release with the exact holder still current is not proof
+      // that this holder left, even though the exact marker was cleared.
+      const release = vi.spyOn(state.occupancy, "release").mockResolvedValueOnce(false);
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      const secondQuiesce = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(secondQuiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: false, error_code: "COMPUTER_UNAVAILABLE",
+      });
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(state.store.selections.get(key)).toMatchObject({ state: "paused" });
+      expect(state.store.selections.get(key)?.pendingInput).toBeNull();
+      expect(JSON.parse(await redis.client.get(occupancyKey) ?? "null")).toMatchObject({
+        holderId: observe.body.holder_id,
+      });
+      release.mockRestore();
+
+      // Only the real compare-and-release of that exact holder acknowledges
+      // the Pause; no unrelated occupancy is touched.
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      const thirdQuiesce = commandOf(await frames.until(isCommand));
+      socket.send(JSON.stringify(commandResult(thirdQuiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused", selection_id: selectionA },
+      });
+      expect(await redis.client.exists(occupancyKey)).toBe(0);
     } finally {
       await state.cleanup();
     }
@@ -2706,9 +2827,9 @@ describe("M1b product computer control", () => {
         ok: true, data: { kind: "wait", result: { result: "met", waited_ms: 4 } },
       });
       expect((await frames.settle()).filter(frame => frame.type === "command" || frame.type === "tool.result")).toEqual([]);
-      // Observe admission/publication, wait admission, and the final wait
-      // publication compare.
-      expect(state.verifyDispatch).toHaveBeenCalledTimes(4);
+      // Observe acquisition/admission/publication, wait admission, and the
+      // final wait publication compare.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(5);
       const publication = state.verifyDispatch.mock.calls.at(-1);
       expect(publication?.[0]).toMatchObject({
         scope, sessionId: command.body.session_id, grantId: waitAuthorization.grantId,
@@ -3016,9 +3137,9 @@ describe("M1b product computer control", () => {
       expect(await frames.until(isToolResult)).toMatchObject({
         ok: true, data: { kind: "failure", error: "COMPUTER_UNAVAILABLE" },
       });
-      // Observe admission/publication plus the wait admission; the wait
-      // publication never ran.
-      expect(state.verifyDispatch).toHaveBeenCalledTimes(3);
+      // Observe acquisition/admission/publication plus the wait admission; the
+      // wait publication never ran.
+      expect(state.verifyDispatch).toHaveBeenCalledTimes(4);
       expect(state.store.selections.get(desktopComputerSelectionKey(scope))?.pendingInput).toBeNull();
     } finally {
       await state.cleanup();
