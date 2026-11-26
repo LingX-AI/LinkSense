@@ -79,8 +79,7 @@ export const desktopServerOriginSchema = z.url().refine(value => {
   const url = URL.parse(value);
   return url !== null && !url.username && !url.password && url.pathname === "/" &&
     !value.includes("?") && !value.includes("#") &&
-    (url.protocol === "https:" || (url.protocol === "http:" &&
-      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)));
+    (url.protocol === "https:" || url.protocol === "http:");
 }).transform(value => new URL(value).origin);
 const desktopModelAccessSchema = z.strictObject({
   model: modelIdentifierSchema,

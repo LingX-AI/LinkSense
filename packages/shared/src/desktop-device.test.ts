@@ -7,9 +7,26 @@ import {
   desktopDeviceRegistrationSchema,
   desktopDeviceSchema,
   desktopRunCredentialsSchema,
+  desktopServerOriginSchema,
 } from "./desktop-device.js";
 
 const registration = { name: "Work laptop", platform: "darwin", arch: "arm64", app_version: "0.1.0" };
+
+describe("desktop server origin", () => {
+  it("accepts HTTP and HTTPS intranet origins without credentials or paths", () => {
+    expect(desktopServerOriginSchema.parse("http://192.168.2.210:19090"))
+      .toBe("http://192.168.2.210:19090");
+    expect(desktopServerOriginSchema.parse("https://linksense.example.test"))
+      .toBe("https://linksense.example.test");
+    for (const invalid of [
+      "http://user:password@192.168.2.210:19090",
+      "http://192.168.2.210:19090/path",
+      "http://192.168.2.210:19090?x=1",
+      "http://192.168.2.210:19090#x",
+      "file:///tmp/app",
+    ]) expect(() => desktopServerOriginSchema.parse(invalid)).toThrow();
+  });
+});
 
 describe("desktop device trust boundaries", () => {
   it("accepts only purpose-scoped model access and rejects cloud credentials even when nested", () => {
