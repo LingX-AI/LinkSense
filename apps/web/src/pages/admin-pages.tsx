@@ -3994,8 +3994,12 @@ function ModelSettingsPage() {
   const { t } = useTranslation()
   const { bootstrap } = useBootstrap()
   const knowledgeEnabled = bootstrap?.knowledge?.enabled !== false
+  const [searchParams] = useSearchParams()
   const [selectedChannelId, setSelectedChannelId] = useState("")
-  const [selectedTab, setSelectedTab] = useState<ModelSettingsTab>("channels")
+  const [selectedTab, setSelectedTab] = useState<ModelSettingsTab>(() => {
+    const requestedTab = searchParams.get("tab")
+    return isModelSettingsTab(requestedTab) ? requestedTab : "channels"
+  })
   const activeTab =
     selectedTab === "knowledge" && !knowledgeEnabled ? "channels" : selectedTab
   const [tabRenderVersions, setTabRenderVersions] = useState<
@@ -4268,6 +4272,18 @@ type ModelSettingsTab =
   | "voiceTranscription"
   | "imageGeneration"
   | "webSearch"
+
+const modelSettingsTabs: ReadonlyArray<ModelSettingsTab> = [
+  "channels",
+  "knowledge",
+  "voiceTranscription",
+  "imageGeneration",
+  "webSearch",
+]
+
+function isModelSettingsTab(value: string | null): value is ModelSettingsTab {
+  return modelSettingsTabs.some((tab) => tab === value)
+}
 
 type AuthenticationProvider = "smtp" | "oidc" | "teams"
 type AuthenticationMode = AuthenticationSettings["smtp"]["mode"]

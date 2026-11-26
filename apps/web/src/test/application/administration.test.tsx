@@ -656,6 +656,18 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
+  it("opens the voice transcription tab from a settings deep link", async () => {
+    installApiMock()
+    renderApp("/admin/models?tab=voiceTranscription")
+
+    expect(
+      await screen.findByRole("heading", { name: "模型设置" })
+    ).toBeVisible()
+    expect(
+      await screen.findByRole("tab", { name: "语音转文字模型" })
+    ).toHaveAttribute("aria-selected", "true")
+  })
+
   it("orders administrator navigation with system update last", async () => {
     installApiMock()
     renderApp("/admin/users")

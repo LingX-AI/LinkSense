@@ -2516,6 +2516,8 @@ export const ptBR = {
     voiceDemoTranscript:
       "[Demonstração de voz] Resuma os pontos principais da reunião de hoje e crie uma lista de ações.",
     voiceNotConfigured: "A transcrição de voz não foi configurada",
+    voiceNotConfiguredHint:
+      "<configure>Configurar</configure> a transcrição de voz",
     voiceServiceUnavailable:
       "A transcrição de voz está temporariamente indisponível. Tente novamente mais tarde.",
     voiceStop: "Parar entrada por voz",

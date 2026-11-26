@@ -44,6 +44,7 @@ import {
   isVoiceInputDemoEnabled,
   useVoiceInputDemo,
 } from "@/features/conversations/use-voice-input-demo"
+import { VoiceNotConfiguredHint } from "@/features/conversations/voice-not-configured-hint"
 import {
   maximumConversationReferences,
   type ModelPreference,
@@ -842,6 +843,8 @@ export const ConversationComposer = forwardRef<
   const voiceBusy = voice.phase !== "idle"
   const voiceAvailable =
     voiceDemoEnabled || voiceTranscriptionAvailability === "available"
+  const voiceNotConfigured =
+    !voiceDemoEnabled && voiceTranscriptionAvailability === "not_configured"
   const voiceTooltipKey = voiceDemoEnabled
     ? "conversation.voiceDemoStart"
     : voiceTranscriptionAvailability === "not_configured"
@@ -2738,7 +2741,13 @@ export const ConversationComposer = forwardRef<
                   />
                 </Button>
               </TooltipTrigger>
-              <ActionTooltipContent>{t(voiceTooltipKey)}</ActionTooltipContent>
+              <ActionTooltipContent>
+                {voiceNotConfigured ? (
+                  <VoiceNotConfiguredHint />
+                ) : (
+                  t(voiceTooltipKey)
+                )}
+              </ActionTooltipContent>
             </Tooltip>
           )}
 

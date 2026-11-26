@@ -2480,6 +2480,8 @@ export const jaJP = {
     voiceDemoTranscript:
       "【音声デモ】今日の会議の要点をまとめ、対応事項のリストを作成してください。",
     voiceNotConfigured: "音声文字起こしは未設定です",
+    voiceNotConfiguredHint:
+      "音声文字起こしを<configure>設定</configure>",
     voiceServiceUnavailable:
       "音声文字起こしを一時的に利用できません。しばらくしてから再試行してください。",
     voiceStop: "音声入力を停止",

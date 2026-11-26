@@ -52,6 +52,7 @@ import {
   appendVoiceTranscript,
   getVoiceInputFailureMessage,
 } from "@/features/conversations/voice-input-utils"
+import { VoiceNotConfiguredHint } from "@/features/conversations/voice-not-configured-hint"
 import { normalizeLanguage } from "@/i18n"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
@@ -150,6 +151,8 @@ export function OfficeSelectionPrompt<TSelection>({
     checkedVoiceTranscriptionAvailability
   const voiceBusy = voice.phase !== "idle"
   const voiceAvailable = voiceTranscriptionAvailability === "available"
+  const voiceNotConfigured =
+    voiceTranscriptionAvailability === "not_configured"
   const voiceTooltipKey =
     voiceTranscriptionAvailability === "not_configured"
       ? "conversation.voiceNotConfigured"
@@ -412,7 +415,11 @@ export function OfficeSelectionPrompt<TSelection>({
                       </InputGroupButton>
                     </TooltipTrigger>
                     <ActionTooltipContent>
-                      {t(voiceTooltipKey)}
+                      {voiceNotConfigured ? (
+                        <VoiceNotConfiguredHint />
+                      ) : (
+                        t(voiceTooltipKey)
+                      )}
                     </ActionTooltipContent>
                   </Tooltip>
                 )}

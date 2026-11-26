@@ -2204,6 +2204,8 @@ export const enUS = {
     voiceDemoTranscript:
       "[Voice demo] Summarize the key points from today’s meeting and create a list of action items.",
     voiceNotConfigured: "Speech-to-text has not been configured",
+    voiceNotConfiguredHint:
+      "<configure>Configure</configure> speech-to-text",
     voiceServiceUnavailable:
       "Speech-to-text is temporarily unavailable. Try again later.",
     voiceStop: "Stop voice input",

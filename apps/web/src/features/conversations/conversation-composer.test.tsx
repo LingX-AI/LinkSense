@@ -17,6 +17,7 @@ import {
   maximumConversationReferences,
 } from "@linksense/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router-dom"
 
 import {
   ConversationComposer,
@@ -164,7 +165,8 @@ function installAudioAnalysis(
 }
 
 function renderComposer(
-  overrides: Partial<React.ComponentProps<typeof ConversationComposer>> = {}
+  overrides: Partial<React.ComponentProps<typeof ConversationComposer>> = {},
+  options: { router?: boolean } = {}
 ) {
   const props: React.ComponentProps<typeof ConversationComposer> = {
     value: "Existing text",
@@ -190,7 +192,11 @@ function renderComposer(
     onError: vi.fn(),
     ...overrides,
   }
-  return { props, ...render(<ConversationComposer {...props} />) }
+  const composer = <ConversationComposer {...props} />
+  return {
+    props,
+    ...render(options.router ? <MemoryRouter>{composer}</MemoryRouter> : composer),
+  }
 }
 
 function renderStatefulComposer(
@@ -1417,7 +1423,10 @@ describe("conversation voice input", () => {
 
   it("disables and grays the microphone with guidance when speech to text is not configured", async () => {
     const interaction = userEvent.setup()
-    renderComposer({ voiceTranscriptionAvailability: "not_configured" })
+    renderComposer(
+      { voiceTranscriptionAvailability: "not_configured" },
+      { router: true }
+    )
 
     const voiceButton = screen.getByRole("button", { name: "语音输入" })
     expect(voiceButton).toBeDisabled()
@@ -1427,7 +1436,7 @@ describe("conversation voice input", () => {
     expect(trigger).not.toBeNull()
     await interaction.hover(trigger!)
     const tooltip = await screen.findByRole("tooltip", {
-      name: "语音转文字服务尚未配置",
+      name: "配置语音转文字服务",
     })
     expect(tooltip).toBeVisible()
     expect(tooltip).toHaveClass(
@@ -1436,7 +1445,9 @@ describe("conversation voice input", () => {
       "bg-[var(--app-popover)]",
       "text-[var(--app-text)]"
     )
-    expect(tooltip.childElementCount).toBe(0)
+    expect(
+      within(tooltip).getByRole("link", { name: "配置" })
+    ).toHaveAttribute("href", "/admin/models?tab=voiceTranscription")
   })
 
   it("lets a local demo fill the draft without calling the unconfigured voice service", async () => {

@@ -2046,6 +2046,8 @@ export const zhCN = {
     voiceDemoTranscript:
       "【语音演示】请帮我整理今天的会议重点，并生成一份待办事项清单。",
     voiceNotConfigured: "语音转文字服务尚未配置",
+    voiceNotConfiguredHint:
+      "<configure>配置</configure>语音转文字服务",
     voiceServiceUnavailable: "语音转文字服务暂时不可用，请稍后重试。",
     voiceStop: "停止语音输入",
     voiceRecording: "正在录音",

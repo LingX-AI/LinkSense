@@ -206,6 +206,8 @@ export const conversation = {
   voiceDemoTranscript:
     "[Démo vocale] Résume les points clés de la réunion d’aujourd’hui et crée une liste d’actions.",
   voiceNotConfigured: "La transcription vocale n’est pas configurée",
+  voiceNotConfiguredHint:
+    "<configure>Configurer</configure> la transcription vocale",
   voiceServiceUnavailable:
     "La transcription vocale est temporairement indisponible. Réessayez plus tard.",
   voiceStop: "Arrêter la saisie vocale",

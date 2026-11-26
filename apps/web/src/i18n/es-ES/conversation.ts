@@ -213,6 +213,8 @@ export const conversationMessages = {
     voiceDemoTranscript:
       "[Demostración de voz] Resume los puntos clave de la reunión de hoy y crea una lista de tareas.",
     voiceNotConfigured: "La transcripción de voz no está configurada",
+    voiceNotConfiguredHint:
+      "<configure>Configurar</configure> la transcripción de voz",
     voiceServiceUnavailable:
       "La transcripción de voz no está disponible temporalmente. Inténtalo más tarde.",
     voiceStop: "Detener entrada de voz",
