@@ -98,7 +98,7 @@ export function SidebarConversationActions(props: SidebarConversationActionsProp
         }
       >
         <SidebarActionIcon>
-          <Archive className="size-4" aria-hidden="true" />
+          <Archive className="size-3.5 -translate-y-px" aria-hidden="true" />
         </SidebarActionIcon>
       </TooltipTrigger>
     </div>
