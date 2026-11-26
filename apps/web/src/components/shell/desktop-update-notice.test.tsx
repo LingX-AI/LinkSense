@@ -214,8 +214,12 @@ describe("desktop update notice", () => {
     check.mockResolvedValue({ state: "unavailable" })
     render(noticeTree())
     expect(screen.getByRole("dialog")).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: i18n.t("common.retry") })
+    ).toBeVisible()
     await userEvent.click(screen.getByRole("button", { name: zh.check }))
     expect(await screen.findByText(zh.unavailable)).toBeVisible()
+    expect(screen.getByRole("status")).toHaveClass("w-full")
     expect(check).toHaveBeenCalledOnce()
     expect(notifications.info).not.toHaveBeenCalled()
     expect(notifications.dismiss).toHaveBeenCalledWith(

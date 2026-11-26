@@ -51,11 +51,14 @@ function RequiredDesktopUpdateNotice() {
         title={t("bootstrap.unavailableTitle", { productName })}
         description={t("errors.desktopUpdateRequired")}
         footer={
-          <div className="grid min-w-0 gap-3 sm:flex sm:items-start sm:justify-between">
-            <DesktopUpdateControl />
-            <Button onClick={() => window.location.reload()}>
-              {t("common.retry")}
-            </Button>
+          <div className="w-full min-w-0">
+            <DesktopUpdateControl
+              trailingAction={
+                <Button onClick={() => window.location.reload()}>
+                  {t("common.retry")}
+                </Button>
+              }
+            />
           </div>
         }
       />

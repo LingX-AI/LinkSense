@@ -132,6 +132,25 @@ describe("desktop update roles", () => {
   })
 })
 
+describe("desktop update footer layout", () => {
+  it.each([true, false])(
+    "keeps a trailing action and a full-width status line on mac=%s",
+    async (mac) => {
+      host.mac = mac
+      const { unmount } = render(
+        <DesktopUpdateControl
+          trailingAction={<button type="button">Retry</button>}
+        />
+      )
+      expect(
+        await screen.findByRole("button", { name: "Retry" })
+      ).toBeVisible()
+      expect(screen.getByRole("status")).toHaveClass("w-full")
+      unmount()
+    }
+  )
+})
+
 describe("desktop update affordances", () => {
   it("installs in place on a writable build without any manual installer URL", async () => {
     host.getState.mockResolvedValue(

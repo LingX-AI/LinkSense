@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react"
+import { useId, useRef, useState, type ReactNode } from "react"
 import { ChevronRightIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -41,18 +41,26 @@ import {
   useDesktopUpdateState,
 } from "./desktop-update-state"
 
-export function DesktopUpdateControl() {
+export function DesktopUpdateControl({
+  trailingAction,
+}: {
+  trailingAction?: ReactNode
+}) {
   if (!isDesktopHost()) return null
   return isMacDesktopHost() ? (
-    <MacDesktopUpdatePanel />
+    <MacDesktopUpdatePanel trailingAction={trailingAction} />
   ) : (
-    <CheckOnlyDesktopUpdateControl />
+    <CheckOnlyDesktopUpdateControl trailingAction={trailingAction} />
   )
 }
 
 // Windows keeps the original check-only control until its native update
 // lifecycle exists.
-function CheckOnlyDesktopUpdateControl() {
+function CheckOnlyDesktopUpdateControl({
+  trailingAction,
+}: {
+  trailingAction?: ReactNode
+}) {
   const { t } = useTranslation()
   const active = useRef(false)
   const [pending, setPending] = useState(false)
@@ -75,24 +83,27 @@ function CheckOnlyDesktopUpdateControl() {
 
   return (
     <div className="grid min-w-0 justify-items-start gap-2">
-      <Button
-        type="button"
-        variant="secondary"
-        className="aria-disabled:opacity-50"
-        aria-disabled={pending || undefined}
-        aria-busy={pending || undefined}
-        onClick={() => void check()}
-      >
-        {pending && (
-          <Spinner
-            data-icon="inline-start"
-            className="motion-reduce:animate-none"
-          />
-        )}
-        {t("desktopUpdate.check")}
-      </Button>
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          className="aria-disabled:opacity-50"
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
+          onClick={() => void check()}
+        >
+          {pending && (
+            <Spinner
+              data-icon="inline-start"
+              className="motion-reduce:animate-none"
+            />
+          )}
+          {t("desktopUpdate.check")}
+        </Button>
+        {trailingAction}
+      </div>
       <p
-        className="text-sm text-muted-foreground"
+        className="w-full text-sm text-muted-foreground"
         role="status"
         aria-atomic="true"
       >
@@ -139,7 +150,11 @@ function canOpenInstaller(result: DesktopUpdateResult): boolean {
   )
 }
 
-function MacDesktopUpdatePanel() {
+function MacDesktopUpdatePanel({
+  trailingAction,
+}: {
+  trailingAction?: ReactNode
+}) {
   const { t } = useTranslation()
   const channelLabelId = useId()
   const channelHintId = useId()
@@ -286,7 +301,7 @@ function MacDesktopUpdatePanel() {
           )}
         </div>
       )}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
         {showCheck && (
           <Button
             type="button"
@@ -373,9 +388,12 @@ function MacDesktopUpdatePanel() {
             {t("desktopUpdate.restart")}
           </Button>
         )}
+        {trailingAction && (
+          <div className="ml-auto shrink-0">{trailingAction}</div>
+        )}
       </div>
       <div
-        className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground"
+        className="flex w-full min-w-0 items-center gap-2 text-sm text-muted-foreground"
         role="status"
         aria-atomic="true"
       >
