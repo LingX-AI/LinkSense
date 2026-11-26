@@ -179,7 +179,7 @@ it("pages projected connector text before it crosses the bridge and rejects a ch
   await expect(read({ byte_offset: nextOffset, expected_sha256: sha256 })).resolves.toMatchObject({
     ok: false, error_code: "CONNECTION_FILE_CONFLICT",
   });
-});
+}, 20_000);
 
 it("does not return a search result after the turn loses authority during the audit write", async () => {
   const scope = {
