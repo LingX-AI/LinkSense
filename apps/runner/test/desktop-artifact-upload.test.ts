@@ -699,7 +699,7 @@ it("rejects invalid scoped inputs before reading the source", async () => {
   }
 
   for (const input of [
-    { ...common, origin: "http://server.example.test" },
+    { ...common, origin: "file:///tmp/artifact" },
     { ...common, turnId: "not-a-uuid" },
     { ...common, runToken: "not-a-run-token" },
     { ...common, source: { ...source, sizeBytes: -1 } },
