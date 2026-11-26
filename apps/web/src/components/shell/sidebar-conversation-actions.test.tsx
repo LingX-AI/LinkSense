@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SidebarConversationActions } from "@/components/shell/sidebar-conversation-actions"
-import { SidebarConversationOverlays } from "./sidebar-conversation-overlays"
 import i18n from "@/i18n"
 
 function renderActions(pinned = false, disabled = false) {
@@ -14,15 +13,13 @@ function renderActions(pinned = false, disabled = false) {
   return {
     ...callbacks,
     ...render(
-      <SidebarConversationOverlays>
-        <SidebarConversationActions
-          title="整理项目会议纪要"
-          pinned={pinned}
-          pinDisabled={disabled}
-          archiveDisabled={disabled}
-          {...callbacks}
-        />
-      </SidebarConversationOverlays>
+      <SidebarConversationActions
+        title="整理项目会议纪要"
+        pinned={pinned}
+        pinDisabled={disabled}
+        archiveDisabled={disabled}
+        {...callbacks}
+      />
     ),
   }
 }
@@ -93,19 +90,19 @@ describe("SidebarConversationActions", () => {
     expect(screen.getByRole("button", { name: label })).toBeVisible()
   })
 
-  it("preserves the shared archive and pin tooltips", async () => {
-    const interaction = userEvent.setup()
-    renderActions()
-    await interaction.hover(
+  it("uses native titles for the pin and archive actions", () => {
+    const { unmount } = renderActions()
+    expect(
+      screen.getByRole("button", { name: pinLabel })
+    ).toHaveAttribute("title", "置顶任务")
+    expect(
       screen.getByRole("button", { name: archiveLabel })
-    )
-    const archiveTooltip = await screen.findByRole("tooltip")
-    expect(archiveTooltip).toHaveTextContent("归档任务")
-    await interaction.unhover(
-      screen.getByRole("button", { name: archiveLabel })
-    )
-    await interaction.hover(screen.getByRole("button", { name: pinLabel }))
-    const pinTooltip = await screen.findByRole("tooltip")
-    expect(pinTooltip).toHaveTextContent("置顶任务")
+    ).toHaveAttribute("title", "归档任务")
+    unmount()
+
+    renderActions(true)
+    expect(
+      screen.getByRole("button", { name: unpinLabel })
+    ).toHaveAttribute("title", "取消置顶")
   })
 })

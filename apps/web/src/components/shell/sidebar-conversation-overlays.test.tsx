@@ -6,9 +6,8 @@ import {
   waitFor,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { SidebarConversationActions } from "./sidebar-conversation-actions"
 import {
   SidebarConversationOverlays,
   SidebarConversationPreviewTrigger,
@@ -129,32 +128,4 @@ describe("shared sidebar conversation overlays", () => {
     expect(screen.getByRole("dialog", { name: "Active" })).toBeVisible()
   })
 
-  it("dismisses the shared archive tooltip when its virtual row unmounts", async () => {
-    const interaction = userEvent.setup()
-    const view = (visible: boolean) => (
-      <SidebarConversationOverlays>
-        {visible && (
-          <SidebarConversationActions
-            title="Task"
-            pinned={false}
-            pinDisabled={false}
-            archiveDisabled={false}
-            onTogglePinned={vi.fn()}
-            onArchive={vi.fn()}
-          />
-        )}
-      </SidebarConversationOverlays>
-    )
-    const { rerender } = render(view(true))
-    await interaction.hover(
-      screen.getByRole("button", {
-        name: i18n.t("conversation.archiveNamed", { title: "Task" }),
-      })
-    )
-    await screen.findByRole("tooltip")
-    rerender(view(false))
-    await waitFor(() =>
-      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
-    )
-  })
 })

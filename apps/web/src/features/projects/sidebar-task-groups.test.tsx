@@ -795,11 +795,14 @@ describe("sidebar task project controls", () => {
       </SidebarTaskGroups>
     )
 
-    await interaction.click(
-      screen.getByRole("button", {
-        name: i18n.t("projects.newTaskNamed", { title: project.name }),
-      })
+    const newTask = screen.getByRole("button", {
+      name: i18n.t("projects.newTaskNamed", { title: project.name }),
+    })
+    expect(newTask).toHaveAttribute(
+      "title",
+      i18n.t("projects.newTaskNamed", { title: project.name })
     )
+    await interaction.click(newTask)
     expect(onStartTask).toHaveBeenCalledExactlyOnceWith(project.id)
   })
 

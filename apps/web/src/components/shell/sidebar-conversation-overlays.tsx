@@ -14,7 +14,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
-import { Tooltip, ActionTooltipContent } from "@/components/ui/tooltip"
 import {
   createSidebarConversationOverlayHandles,
   SidebarConversationOverlayContext,
@@ -38,7 +37,6 @@ export function SidebarConversationOverlays({
 }) {
   const [handles] = useState(createSidebarConversationOverlayHandles)
   const previewTriggerId = useRef<string | null>(null)
-  const tooltipTriggerId = useRef<string | null>(null)
   const alwaysShowActions = useSyncExternalStore(
     subscribeTouchActions,
     getTouchActions,
@@ -48,7 +46,6 @@ export function SidebarConversationOverlays({
     () => ({
       ...handles,
       previewTriggerId,
-      tooltipTriggerId,
       alwaysShowActions,
     }),
     [handles, alwaysShowActions]
@@ -93,16 +90,6 @@ export function SidebarConversationOverlays({
           )
         }
       </HoverCard>
-      <Tooltip
-        handle={handles.tooltip}
-        onOpenChange={(open, details) => {
-          tooltipTriggerId.current = open ? (details.trigger?.id ?? null) : null
-        }}
-      >
-        {({ payload }) => (
-          <ActionTooltipContent side="top">{payload}</ActionTooltipContent>
-        )}
-      </Tooltip>
     </SidebarConversationOverlayContext.Provider>
   )
 }

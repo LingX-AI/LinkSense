@@ -8,11 +8,6 @@ import { Button } from "@/components/ui/button"
 import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
 import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
 import { Spinner } from "@/components/ui/spinner"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
 import {
@@ -169,29 +164,19 @@ export function SidebarTaskGroup({
           </span>
         )}
         {onStartTask && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="pointer-events-none absolute top-1/2 right-0 size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent active:translate-y-[-50%]! active:bg-transparent [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-                  aria-label={t("projects.newTaskNamed", {
-                    title: project.name,
-                  })}
-                  onClick={() => onStartTask(project.id)}
-                >
-                  <SidebarActionIcon>
-                    <PlusIcon className="size-3.5" aria-hidden="true" />
-                  </SidebarActionIcon>
-                </Button>
-              }
-            />
-            <TooltipContent>
-              {t("projects.newTaskNamed", { title: project.name })}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="pointer-events-none absolute top-1/2 right-0 size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent active:translate-y-[-50%]! active:bg-transparent [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+            title={t("projects.newTaskNamed", { title: project.name })}
+            aria-label={t("projects.newTaskNamed", { title: project.name })}
+            onClick={() => onStartTask(project.id)}
+          >
+            <SidebarActionIcon>
+              <PlusIcon className="size-3.5" aria-hidden="true" />
+            </SidebarActionIcon>
+          </Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger
