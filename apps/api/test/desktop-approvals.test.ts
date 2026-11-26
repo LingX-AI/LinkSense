@@ -324,4 +324,25 @@ describe("desktop approval delivery state and audit", () => {
     await expect(fixture.resolve("80000000-0000-4000-8000-000000000001")).resolves.toBeNull();
     expect(fixture.row).toMatchObject({ status: "unconfirmed", resolvedAction: "accept" });
   });
+
+  it("rejects a late accept for an expired pending approval without changing or dispatching it", async () => {
+    // This pins the service-side expiry guard only, not the native prompt timeout.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-20T01:00:00.000Z"));
+      const fixture = setup({ expiresAt: new Date("2026-11-20T00:59:59.000Z") });
+      const before = { ...fixture.row };
+
+      await expect(fixture.respond({ method: approval.method, decision: "accept" }))
+        .rejects.toMatchObject({ code: "USER_INPUT_REQUEST_UNAVAILABLE" });
+
+      expect(fixture.row).toEqual(before);
+      expect(fixture.row).toMatchObject({ status: "pending", resolvedAction: null, resolvedAt: null });
+      expect(fixture.audits).toHaveLength(0);
+      expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
+      expect(fixture.tx.conversationDesktopApproval.updateMany).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

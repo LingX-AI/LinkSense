@@ -29,7 +29,8 @@ describe("native desktop approval previews", () => {
     const params = {
       ...thread, kind: "command", command: "printf hello", cwd: previewContext.workspace,
       proposedExecpolicyAmendment: ["printf"],
-      availableDecisions: ["accept", "cancel", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["printf"] } }],
+      // Codex 0.170.0 also advertises acceptForSession; only one-time decisions may be shown.
+      availableDecisions: ["accept", "acceptForSession", "cancel", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["printf"] } }],
     };
     expect(mapCodexServerRequest({ id: 77, method, params }, { previewContext })).toEqual([{
       method, visibility: "user_visible",

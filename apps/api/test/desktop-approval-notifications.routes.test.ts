@@ -146,6 +146,32 @@ describe("desktop approval notification routes", () => {
   });
 });
 
+describe("desktop approval response route", () => {
+  it.each([
+    ["acceptForSession", "acceptForSession"],
+    [
+      "the native execpolicy amendment",
+      { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["printf"] } },
+    ],
+  ])("rejects %s before the approval service", async (_label, decision) => {
+    const { app, respond } = await routeFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/${CONVERSATION_ID}/approvals/${REQUEST_ID}`,
+      headers: { authorization: "Bearer member" },
+      payload: { method: "item/commandExecution/requestApproval", decision },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "VALIDATION_ERROR",
+    });
+    expect(respond).not.toHaveBeenCalled();
+  });
+});
+
 async function routeFixture(options: {
   desktopNativeApprovalsEnabled?: boolean;
   result?: { items: Array<Record<string, string>> };
@@ -181,14 +207,18 @@ async function routeFixture(options: {
       ],
     },
   );
+  const respond = vi.fn(async () => ({ adopted: true }));
   const services = {
     config: {
       desktopNativeApprovalsEnabled:
         options.desktopNativeApprovalsEnabled ?? true,
     },
-    conversations: { listDesktopApprovalNotifications: list },
+    conversations: {
+      listDesktopApprovalNotifications: list,
+      respondToDesktopApprovalRequest: respond,
+    },
   } as unknown as AppServices;
   await app.register(conversationRoutes, { services });
   await app.ready();
-  return { app, list };
+  return { app, list, respond };
 }
