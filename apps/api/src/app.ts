@@ -20,8 +20,8 @@ import {
   createDesktopComputerPauseAuditClient,
   recordDesktopComputerPauseAudit,
   type DesktopComputerControl,
-  type DesktopComputerPauseReceipt,
 } from "./modules/desktop-devices/computer-control.js";
+import { DesktopComputerPauseAudit } from "./modules/desktop-devices/pause-audit.js";
 import { DesktopBrowserUse } from "./modules/desktop-devices/browser-use.js";
 import { isDesktopRunActive } from "./modules/desktop-credentials/run-authority.js";
 import { DesktopRunLeases } from "./modules/desktop-credentials/run-leases.js";
@@ -723,10 +723,10 @@ export async function buildApi(
     service: new LocalComputerService(services.prisma),
   });
   // The Mac product control owns one lazy, dedicated audit connection; the
-  // route closes it only after all bounded background writes have settled.
+  // supervisor closes it only after all admitted writes have settled.
   let pauseAuditDb: ReturnType<typeof createDesktopComputerPauseAuditClient> | undefined;
-  const pauseAudit = {
-    record: (receipt: DesktopComputerPauseReceipt) => {
+  const pauseAudit = desktopComputerControl ? new DesktopComputerPauseAudit({
+    write: receipt => {
       pauseAuditDb ??= createDesktopComputerPauseAuditClient(config.databaseUrl);
       return recordDesktopComputerPauseAudit(pauseAuditDb, receipt);
     },
@@ -735,7 +735,8 @@ export async function buildApi(
       pauseAuditDb = undefined;
       await current?.$disconnect();
     },
-  };
+    warn: message => app.log.warn(message),
+  }) : undefined;
   await registerDesktopDeviceRoutes(app, {
     service: new DesktopDeviceService(
       new PrismaDesktopDeviceRepository(services.prisma),
@@ -752,10 +753,9 @@ export async function buildApi(
       artifactTools: config.desktopArtifactsEnabled,
       websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
       computerExecute: desktopComputerControl !== undefined,
-      ...(desktopComputerControl ? {
+      ...(desktopComputerControl && pauseAudit ? {
         computerControl: desktopComputerControl,
-        recordPauseAudit: pauseAudit.record,
-        closePauseAudit: pauseAudit.close,
+        pauseAudit,
       } : {}),
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),

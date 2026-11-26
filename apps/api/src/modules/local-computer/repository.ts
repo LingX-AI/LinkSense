@@ -134,12 +134,18 @@ export async function endLocalComputerSessions(
 type AuditAction = Extract<(typeof auditActionCodes)[number], `computer_session_${string}` | `computer_permission_${string}`>;
 export async function auditLocalComputerChange(
   tx: Prisma.TransactionClient, actorId: string, action: AuditAction, targetId: string,
+  options: { id?: string; createdAt?: Date } = {},
 ): Promise<void> {
-  await tx.auditLog.create({
-    data: {
+  await tx.auditLog.createMany({
+    data: [{
+      ...(options.id === undefined ? {} : { id: options.id }),
       actorId, action, targetId,
       targetType: action.startsWith("computer_session_") ? "local_computer_session" : "computer_permission_grant",
       result: "success", metadataJson: {},
-    },
+      ...(options.createdAt === undefined ? {} : { createdAt: options.createdAt }),
+    }],
+    // A deterministic id makes a retried write idempotent; callers without one
+    // keep the default unique id.
+    skipDuplicates: options.id !== undefined,
   });
 }

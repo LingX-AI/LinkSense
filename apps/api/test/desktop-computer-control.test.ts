@@ -45,6 +45,7 @@ import {
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
 import { RedisDesktopDeviceCoordinator, type DesktopExecutionBinding } from "../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
+import { DesktopComputerPauseAudit } from "../src/modules/desktop-devices/pause-audit.js";
 import { executeDesktopTool } from "../src/modules/desktop-devices/tool-requests.js";
 import { DesktopRunLeases, desktopRunScopeSchema, type DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
 import {
@@ -107,6 +108,8 @@ class FakeControlStore implements DesktopComputerControlStore {
   readonly resumeCalls: Array<{ scope: DesktopRunScope; selectionId: string; newSelectionId: string }> = [];
   readonly stopCalls: Array<{ scope: DesktopRunScope; selectionId: string }> = [];
   readonly discardCalls: Array<{ scope: DesktopRunScope; selection: DesktopComputerSelection }> = [];
+  /** Models the real store's holder release after an exact discard. */
+  onDiscard: ((scope: DesktopRunScope, selection: DesktopComputerSelection) => Promise<void>) | undefined;
   readonly clearCalls: Array<{ scope: DesktopRunScope; selection: DesktopComputerSelection }> = [];
   readonly claimInputCalls: Array<{ scope: DesktopRunScope; holderId: string; commandId: string }> = [];
   failSelect: Error | undefined;
@@ -353,6 +356,7 @@ class FakeControlStore implements DesktopComputerControlStore {
   async discard(input: { scope: DesktopRunScope; selection: DesktopComputerSelection }): Promise<void> {
     this.discardCalls.push(input);
     await this.clear(input.scope, input.selection);
+    await this.onDiscard?.(input.scope, input.selection);
   }
 
   private require(scope: DesktopRunScope, selectionId: string): DesktopComputerSelection {
@@ -440,6 +444,12 @@ async function fixture() {
   const leases = new DesktopRunLeases(redis.client, async () => true);
   const store = new FakeControlStore();
   const occupancy = new LocalComputerGuiOccupancy(redis.client);
+  store.onDiscard = async (scope, selection) => {
+    const held = await occupancy.read(scope.deviceId).catch(() => null);
+    if (held && held.selectionId === selection.selectionId) {
+      await occupancy.release(scope.deviceId, held.holderId).catch(() => false);
+    }
+  };
   let auditGate: Promise<void> | undefined;
   let auditStartResolvers: Array<() => void> = [];
   const audit = vi.fn(async (entry: {
@@ -453,7 +463,7 @@ async function fixture() {
     for (const resolve of started) resolve();
     if (auditGate) await auditGate;
   });
-  // Pause audit supervision is route-owned; this double records the exact
+  // Pause audit supervision is class-owned; this double records the exact
   // server-proven receipt, can hold or reject the write, and proves that only
   // one issued write runs at a time.
   const pauseAudits: DesktopComputerPauseReceipt[] = [];
@@ -588,9 +598,14 @@ async function fixture() {
   });
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   registerClientBuildGuard(app, null);
+  const pauseAudit = new DesktopComputerPauseAudit({
+    write: recordPauseAudit,
+    close: closePauseAudit,
+    warn: message => { app.log.warn(message); },
+  });
   await registerDesktopDeviceRoutes(app, {
     service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret",
-    execution: transport, computerExecute: true, computerControl: control, recordPauseAudit, closePauseAudit,
+    execution: transport, computerExecute: true, computerControl: control, pauseAudit,
   });
   await app.ready();
   const cleanup = async () => { await app.close(); };
@@ -2284,6 +2299,84 @@ describe("M1b product computer control", () => {
       expect(thirdObserve.body.selection_id).toBe(selectionB);
       socket.send(JSON.stringify(commandResult(thirdObserve, { kind: "observe", result: observation })));
       expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe" } });
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("lets a second session take over after the first turn ends normally", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      await holdObserve(socket, frames, scope, runToken);
+
+      const second: DesktopRunScope = {
+        ...scope, conversationId: randomUUID(), turnId: randomUUID(),
+      };
+      state.store.conversations.set(`${second.conversationId}:${device.id}`, {
+        deviceId: device.id, runtimeGeneration: second.runtimeGeneration,
+      });
+      const secondToken = await issueRun(
+        state.leases, device.id, second.connectionId,
+        second.conversationId, second.turnId, second.runtimeGeneration,
+      );
+      await select(state, socket, frames, second, selectionB);
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "DEVICE_BUSY" },
+      });
+
+      // The first turn ends normally (run revoke is the turn-end cleanup).
+      await state.control.revokeTurn(scope.turnId);
+
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      const takeover = commandOf(await frames.until(isCommand));
+      expect(takeover.body.selection_id).toBe(selectionB);
+      socket.send(JSON.stringify(commandResult(takeover, { kind: "observe", result: observation })));
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe" } });
+    } finally {
+      await state.cleanup();
+    }
+  });
+
+  it("lets a second session take over after the first holder is left uncleaned", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      await holdObserve(socket, frames, scope, runToken);
+
+      const second: DesktopRunScope = {
+        ...scope, conversationId: randomUUID(), turnId: randomUUID(),
+      };
+      state.store.conversations.set(`${second.conversationId}:${device.id}`, {
+        deviceId: device.id, runtimeGeneration: second.runtimeGeneration,
+      });
+      const secondToken = await issueRun(
+        state.leases, device.id, second.connectionId,
+        second.conversationId, second.turnId, second.runtimeGeneration,
+      );
+      await select(state, socket, frames, second, selectionB);
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "DEVICE_BUSY" },
+      });
+
+      // Simulate a missed cleanup or lease expiry: the device-level holder is
+      // gone while the old session's selection metadata survives.
+      await redis.client.del(localComputerGuiOccupancyKey(device.id));
+
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      const takeover = commandOf(await frames.until(isCommand));
+      expect(takeover.body.selection_id).toBe(selectionB);
+      socket.send(JSON.stringify(commandResult(takeover, { kind: "observe", result: observation })));
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe" } });
+
+      // The old session cannot act on the holder the second session now owns.
+      socket.send(JSON.stringify(toolRequest("act", scope, runToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "failure" } });
+      expect((await frames.settle()).filter(frame => frame.type === "command")).toEqual([]);
     } finally {
       await state.cleanup();
     }

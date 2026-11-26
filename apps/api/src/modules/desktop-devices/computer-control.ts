@@ -213,7 +213,7 @@ export function createDesktopComputerPauseAuditClient(databaseUrl: string): Pris
  * and credential values never enter the audit trail.
  */
 export async function recordDesktopComputerPauseAudit(
-  db: Pick<PrismaClient, "$transaction" | "$executeRaw" | "auditLog">,
+  db: Pick<PrismaClient, "$transaction" | "$executeRaw">,
   receipt: DesktopComputerPauseReceipt,
 ): Promise<void> {
   await db.$transaction(async tx => {
@@ -224,20 +224,12 @@ export async function recordDesktopComputerPauseAudit(
     // and overrides both. PostgreSQL does not accept bind parameters in a bare
     // SET, so use its parameterized set_config equivalent with is_local = true.
     await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(pauseAuditStatementTimeoutMs)}, true)`;
-    await tx.auditLog.createMany({
-      data: [{
-        id: desktopComputerPauseAuditId(receipt),
-        actorId: receipt.ownerId,
-        action: "computer_session_paused",
-        targetType: "local_computer_session",
-        targetId: receipt.sessionId,
-        result: "success",
-        metadataJson: {},
-        // The user-visible sequence is the acknowledgement order, not the
-        // order in which asynchronous inserts happen to commit.
-        createdAt: receipt.acknowledgedAt,
-      }],
-      skipDuplicates: true,
+    // The shared writer owns the action/target-type mapping; the deterministic
+    // id keeps a retried write idempotent, and the acknowledgement time keeps
+    // the user-visible sequence in reply order.
+    await auditLocalComputerChange(tx, receipt.ownerId, "computer_session_paused", receipt.sessionId, {
+      id: desktopComputerPauseAuditId(receipt),
+      createdAt: receipt.acknowledgedAt,
     });
   }, {
     maxWait: pauseAuditTransactionMaxWaitMs,
