@@ -1514,6 +1514,7 @@ function AppSidebarContent({
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 rounded-md text-[color:var(--app-text)] hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover) aria-expanded:bg-(--app-sidebar-hover)"
+                  title={t("support.help")}
                   aria-label={t("support.help")}
                 />
               }

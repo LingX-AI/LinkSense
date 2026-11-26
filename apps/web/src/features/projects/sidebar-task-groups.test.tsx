@@ -191,17 +191,22 @@ describe("sidebar task project controls", () => {
         const trigger = within(section).getByRole("button", { name: label })
         await interaction.click(trigger)
         expect(empty).not.toBeVisible()
-        expect(
-          within(section).getByRole("button", {
-            name: i18n.t("conversation.taskSort.open", { section: label }),
-          })
-        ).toBeEnabled()
+        const sort = within(section).getByRole("button", {
+          name: i18n.t("conversation.taskSort.open", { section: label }),
+        })
+        expect(sort).toHaveAttribute(
+          "title",
+          i18n.t("conversation.taskSort.open", { section: label })
+        )
+        expect(sort).toBeEnabled()
         await interaction.keyboard("{Enter}")
         expect(empty).toBeVisible()
       }
-      expect(
-        screen.getByRole("button", { name: i18n.t("projects.create") })
-      ).toBeEnabled()
+      const createProject = screen.getByRole("button", {
+        name: i18n.t("projects.create"),
+      })
+      expect(createProject).toHaveAttribute("title", i18n.t("projects.create"))
+      expect(createProject).toBeEnabled()
       expect(screen.queryByRole("link")).not.toBeInTheDocument()
     }
   )
@@ -687,6 +692,7 @@ describe("sidebar task project controls", () => {
     renderGroups()
     const folder = screen.getByRole("button", { name: project.name })
     const more = screen.getByRole("button", { name: "日常工作的更多操作" })
+    expect(more).toHaveAttribute("title", "日常工作的更多操作")
     const header = folder.parentElement
 
     expect(header).toContainElement(more)
@@ -772,9 +778,11 @@ describe("sidebar task project controls", () => {
       </SidebarTaskGroups>
     )
 
-    await interaction.click(
-      screen.getByRole("button", { name: i18n.t("nav.newConversation") })
-    )
+    const newTask = screen.getByRole("button", {
+      name: i18n.t("nav.newConversation"),
+    })
+    expect(newTask).toHaveAttribute("title", i18n.t("nav.newConversation"))
+    await interaction.click(newTask)
     expect(onNewTask).toHaveBeenCalledOnce()
   })
 

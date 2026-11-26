@@ -187,6 +187,9 @@ export function SidebarTaskGroup({
                 size="icon"
                 ref={menuTriggerRef}
                 className="pointer-events-none absolute top-1/2 right-(--app-sidebar-row-height) size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent active:translate-y-[-50%]! aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                title={t("common.moreActionsNamed", {
+                  name: project.name,
+                })}
                 aria-label={t("common.moreActionsNamed", {
                   name: project.name,
                 })}

@@ -1343,6 +1343,7 @@ describe("LinkSense application", () => {
 
     expect(notificationButton).toHaveAttribute("title", "自动化通知")
     expect(collapseButton).toHaveAttribute("title", "折叠侧边栏")
+    expect(helpButton).toHaveAttribute("title", "使用帮助")
     expect(brand).toHaveClass("sidebar-brand-logo")
     expect(brand).toHaveAttribute(
       "src",

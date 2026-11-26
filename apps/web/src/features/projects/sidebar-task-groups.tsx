@@ -140,6 +140,7 @@ export function SidebarTaskGroups({
               variant="ghost"
               size="icon"
               className="hover:bg-transparent aria-expanded:bg-transparent"
+              title={t("projects.create")}
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
@@ -210,6 +211,7 @@ export function SidebarTaskGroups({
                 variant="ghost"
                 size="icon"
                 className="hover:bg-transparent aria-expanded:bg-transparent"
+                title={t("nav.newConversation")}
                 aria-label={t("nav.newConversation")}
                 onClick={onNewTask}
               >

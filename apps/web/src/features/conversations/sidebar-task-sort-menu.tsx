@@ -44,6 +44,9 @@ export function SidebarTaskSortMenu({
             variant="ghost"
             size="icon"
             className="hover:bg-transparent aria-expanded:bg-transparent"
+            title={t("conversation.taskSort.open", {
+              section: sectionLabel,
+            })}
             aria-label={t("conversation.taskSort.open", {
               section: sectionLabel,
             })}
