@@ -4,6 +4,7 @@ import {
   TaskRecoveryScheduler,
   type TaskRecoveryQueueControl,
 } from "../src/modules/events/recovery-scheduler.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../src/modules/conversations/start-intent-policy.js";
 
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const bootId = "10000000-0000-4000-8000-000000000002";
@@ -243,6 +244,33 @@ describe("targeted task recovery", () => {
     expect(f.redis.releaseTurnSlot).toHaveBeenCalledWith(
       conversationId,
       projectionTurnId,
+    );
+  });
+
+  it("scopes start job ids to the intent so retained jobs cannot shadow a retry", async () => {
+    const f = fixture();
+    const freshTurnId = "10000000-0000-4000-8000-000000000010";
+    const fresh = new Date();
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    );
+    f.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce([
+      { conversationId, projectionTurnId: freshTurnId, createdAt: fresh },
+      { conversationId, projectionTurnId, createdAt: stale },
+    ]);
+    await f.scheduler.process({ data: { type: "maintenance" } });
+    expect(f.queue.add).toHaveBeenCalledWith(
+      "start",
+      { type: "start", conversationId, projectionTurnId: freshTurnId },
+      { jobId: `start-${freshTurnId}-${fresh.getTime()}` },
+    );
+    expect(f.queue.add).toHaveBeenCalledWith(
+      "start",
+      { type: "start", conversationId, projectionTurnId },
+      {
+        jobId: `start-expire-${projectionTurnId}-${stale.getTime()}`,
+        removeOnFail: true,
+      },
     );
   });
 

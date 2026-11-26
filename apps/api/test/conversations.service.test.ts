@@ -43,6 +43,7 @@ import {
   type ExecutionCapability,
 } from "../src/modules/conversations/service.js";
 import { conversationContinuationId } from "../src/modules/conversations/execution-target.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../src/modules/conversations/start-intent-policy.js";
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
 import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
 import type { DesktopProjectionFence } from "../src/modules/desktop-credentials/run-authority.js";
@@ -9591,6 +9592,7 @@ describe("ConversationService pending and turn materialization", () => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({ runnerStatus: "prepared" });
       await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const recent = new Date().toISOString();
       fixture.runner.inspectStartOperation.mockResolvedValueOnce(
         operationStatus === "uncertain"
           ? {
@@ -9598,15 +9600,15 @@ describe("ConversationService pending and turn materialization", () => {
               projectionTurnId: intent.projectionTurnId,
               status: "uncertain",
               errorCode,
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             }
           : {
               conversationId: CONVERSATION_ID,
               projectionTurnId: intent.projectionTurnId,
               status: "starting",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             },
       );
 
@@ -9627,6 +9629,214 @@ describe("ConversationService pending and turn materialization", () => {
   );
 
   it.each([
+    ["starting", undefined],
+    ["uncertain", "RUNNER_TURN_START_RESULT_UNCERTAIN"],
+  ] as const)(
+    "releases a prepared intent whose runner operation stays %s past the release window",
+    async (operationStatus, errorCode) => {
+      const fixture = await conversationFixture();
+      const intent = startIntentRow({ runnerStatus: "prepared" });
+      await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const stale = new Date(
+        Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+      ).toISOString();
+      fixture.runner.inspectStartOperation.mockResolvedValueOnce(
+        operationStatus === "uncertain"
+          ? {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "uncertain",
+              errorCode,
+              createdAt: stale,
+              updatedAt: stale,
+            }
+          : {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "starting",
+              createdAt: stale,
+              updatedAt: stale,
+            },
+      );
+      const transaction = transactionFixture();
+      transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
+        startIntentRow({
+          ...intent,
+          runnerStatus: "release_pending",
+          codexThreadId: null,
+          codexTurnId: null,
+        }),
+      );
+      transaction.conversationEvent.create.mockImplementationOnce(
+        async ({ data }) => eventRow({ ...data, createdAt: NOW }),
+      );
+      fixture.prisma.$transaction.mockImplementationOnce(
+        async (action: (tx: typeof transaction) => Promise<unknown>) =>
+          action(transaction),
+      );
+
+      await expect(
+        fixture.service.recoverStartIntent(intent.projectionTurnId, {
+          resubmitNonTerminal: false,
+        }),
+      ).resolves.toBe("released");
+
+      expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+      expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        intent.projectionTurnId,
+        OWNER_ID,
+        intent.runtimeGeneration,
+      );
+      expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        intent.projectionTurnId,
+      );
+      expect(
+        transaction.conversationTurnStartIntent.deleteMany,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectionTurnId: intent.projectionTurnId,
+            runnerStatus: "release_pending",
+          }),
+        }),
+      );
+      expect(transaction.conversationEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: "conversation.error",
+            payloadJson: expect.objectContaining({
+              error_code: "RUNNER_UNAVAILABLE",
+            }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it("keeps a stale prepared intent pending when the Runner cannot fence its start", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: stale,
+      updatedAt: stale,
+    });
+    fixture.runner.interruptStartOperation.mockRejectedValueOnce(
+      new AppError("RUNNER_UNAVAILABLE"),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId, {
+        resubmitNonTerminal: false,
+      }),
+    ).resolves.toBe("pending");
+
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("keeps a desktop-fenced prepared intent pending past the release window", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: stale,
+      updatedAt: stale,
+    });
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId, {
+        resubmitNonTerminal: false,
+        desktop: {
+          connectionId: "40000000-0000-4000-8000-000000000098",
+          scope: {
+            ownerId: OWNER_ID,
+            deviceId: "40000000-0000-4000-8000-000000000097",
+            conversationId: CONVERSATION_ID,
+            runtimeGeneration: intent.runtimeGeneration,
+            turnId: intent.projectionTurnId,
+          },
+          check: async () => undefined,
+        },
+      }),
+    ).resolves.toBe("pending");
+
+    expect(fixture.runner.interruptStartOperation).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("fences a stale starting operation before releasing it during bulk recovery", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "starting",
+      createdAt: stale,
+      updatedAt: stale,
+    });
+    fixture.runner.acceptStartTurn.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "starting",
+      createdAt: stale,
+      updatedAt: stale,
+    });
+    const transaction = transactionFixture();
+    transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
+      startIntentRow({
+        ...intent,
+        runnerStatus: "release_pending",
+        codexThreadId: null,
+        codexTurnId: null,
+      }),
+    );
+    transaction.conversationEvent.create.mockImplementationOnce(
+      async ({ data }) => eventRow({ ...data, createdAt: NOW }),
+    );
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId),
+    ).resolves.toBe("released");
+
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      intent.projectionTurnId,
+      OWNER_ID,
+      intent.runtimeGeneration,
+    );
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      intent.projectionTurnId,
+    );
+  });
+
+  it.each([
     ["prepared", "starting"],
     ["slot_pending", "uncertain"],
   ] as const)(
@@ -9635,6 +9845,7 @@ describe("ConversationService pending and turn materialization", () => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({ runnerStatus });
       await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const recent = new Date().toISOString();
       fixture.runner.sealStartOperation.mockResolvedValueOnce(
         operationStatus === "uncertain"
           ? {
@@ -9642,17 +9853,24 @@ describe("ConversationService pending and turn materialization", () => {
               projectionTurnId: intent.projectionTurnId,
               status: "uncertain",
               errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             }
           : {
               conversationId: CONVERSATION_ID,
               projectionTurnId: intent.projectionTurnId,
               status: "starting",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             },
       );
+      fixture.runner.acceptStartTurn.mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "starting",
+        createdAt: recent,
+        updatedAt: recent,
+      });
 
       await expect(
         fixture.service.recoverStartIntent(intent.projectionTurnId),

@@ -179,6 +179,7 @@ import { respondToAsyncUserInput } from "./async-user-input.js";
 import { respondToFormUserInput } from "./form-user-input.js";
 import { buildReasoningEventsQuery } from "./reasoning-events-query.js";
 import { forkImageFileBinding, includeReferencedImageAttachments, referencedImageTurnIds } from "./image-preview-files.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "./start-intent-policy.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -1924,6 +1925,29 @@ export class ConversationService {
         assertMatchingStartOperation(intent, operation);
       }
       if (operation.status === "starting" || operation.status === "uncertain") {
+        if (
+          !desktop &&
+          Date.now() - Date.parse(operation.updatedAt) >=
+            START_INTENT_UNSETTLED_RELEASE_MILLISECONDS
+        ) {
+          // Fence a start that may still be in flight before failing the turn.
+          // The interrupt marker also stops a later recovery from resubmitting it.
+          try {
+            await this.runner.interruptStartOperation(
+              intent.conversationId,
+              intent.projectionTurnId,
+              intent.ownerId,
+              intent.runtimeGeneration,
+            );
+          } catch {
+            return "pending";
+          }
+          // No native turn was correlated within the recovery window. Keep the
+          // user's request visible as failed instead of holding the slot forever.
+          const releasing = await this.markStartIntentForRelease(intent);
+          await this.finishReleasePendingStartIntent(releasing);
+          return "released";
+        }
         return "pending";
       }
       if (operation.status === "succeeded") {

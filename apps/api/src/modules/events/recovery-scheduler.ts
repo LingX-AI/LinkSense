@@ -14,6 +14,7 @@ import type {
 } from "../../adapters/redis.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../conversations/start-intent-policy.js";
 import { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
 import { recoverableSlotOwners, revokedMacRecoveryPage, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import type { ConversationEventService } from "./service.js";
@@ -553,7 +554,13 @@ export class TaskRecoveryScheduler {
       take: pageSize,
       select: { projectionTurnId: true, conversationId: true, createdAt: true },
     });
+    const unsettledCutoff =
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS;
     for (const row of rows) {
+      // A retained failed job blocks the fixed start job id forever. Once the
+      // release window has passed, use a distinct id so recovery can release it.
+      const created = row.createdAt.getTime();
+      const expired = created <= unsettledCutoff;
       await this.queue.add(
         "start",
         {
@@ -561,7 +568,13 @@ export class TaskRecoveryScheduler {
           conversationId: row.conversationId,
           projectionTurnId: row.projectionTurnId,
         },
-        { jobId: `start-${row.projectionTurnId}` },
+        {
+          // projectionTurnId is deterministic across retries; createdAt keeps
+          // the id unique per committed intent so retained jobs cannot shadow it.
+          jobId: `${expired ? "start-expire" : "start"}-${row.projectionTurnId}-${created}`,
+          // An expired intent must keep retrying until its release commits.
+          ...(expired && { removeOnFail: true }),
+        },
       );
     }
     const last = rows.at(-1);
