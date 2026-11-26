@@ -160,6 +160,7 @@ const runnerEnvironmentSchema = z
   .record(
     z.union([
       credentialSource,
+      z.literal("LINKSENSE_DESKTOP_CLOUD_TOOLS"),
       z.string().regex(/^LINKSENSE_MCP_CREDENTIAL_[A-F0-9]{32}$/u),
       z.string().regex(/^LINKSENSE_MCP_STDIO_[A-F0-9]{32}$/u),
     ]),
@@ -266,7 +267,9 @@ function validateAuthorizedRuntime(
       message: "credential_environment_source_must_be_capability_scoped",
     });
   }
-  const suppliedSources = Object.keys(body.environment).sort();
+  const suppliedSources = Object.keys(body.environment)
+    .filter((key) => key !== "LINKSENSE_DESKTOP_CLOUD_TOOLS")
+    .sort();
   const requiredSources = [...mappedSources].sort();
   if (JSON.stringify(suppliedSources) !== JSON.stringify(requiredSources)) {
     context.addIssue({

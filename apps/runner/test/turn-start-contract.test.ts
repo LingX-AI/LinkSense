@@ -82,6 +82,43 @@ describe("turn-start contract diagnostics", () => {
     expect(automation.context.automationExecution).toBe(true);
   });
 
+  it("accepts the desktop cloud-tools task switch without opening raw environment keys", () => {
+    const body = {
+      ownerId: "01900000-0000-7000-8000-000000000002",
+      projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
+      expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
+      capabilityGeneration: "a".repeat(64),
+      context: {
+        userInput: "read the shared file",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+      capabilities: [],
+      environment: { LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" },
+      model: "test-model",
+      reasoningEffort: "medium" as const,
+      modelProvider: {
+        revision: 1,
+        baseUrl: "https://models.example.test/v1",
+        protocolMode: "native_responses" as const,
+        apiKey: "test-provider-key",
+      },
+    };
+
+    expect(startTurnBodySchema.safeParse(body).success).toBe(true);
+    expect(
+      startTurnBodySchema.safeParse({
+        ...body,
+        environment: {
+          LINKSENSE_DESKTOP_CLOUD_TOOLS: "1",
+          LINKSENSE_UNDECLARED_TASK_SWITCH: "1",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts the native active status at the Goal control boundary", () => {
     expect(
       goalSetBodySchema.safeParse({
