@@ -4,7 +4,10 @@ import {
   TaskRecoveryScheduler,
   type TaskRecoveryQueueControl,
 } from "../src/modules/events/recovery-scheduler.js";
-import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../src/modules/conversations/start-intent-policy.js";
+import {
+  START_INTENT_UNSETTLED_RELEASE_MILLISECONDS,
+  START_RECOVERY_ATTEMPTS,
+} from "../src/modules/conversations/start-intent-policy.js";
 
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const bootId = "10000000-0000-4000-8000-000000000002";
@@ -247,7 +250,7 @@ describe("targeted task recovery", () => {
     );
   });
 
-  it("scopes start job ids to the intent so retained jobs cannot shadow a retry", async () => {
+  it("scopes start job ids to the intent and keeps one total attempt budget", async () => {
     const f = fixture();
     const freshTurnId = "10000000-0000-4000-8000-000000000010";
     const fresh = new Date();
@@ -262,16 +265,45 @@ describe("targeted task recovery", () => {
     expect(f.queue.add).toHaveBeenCalledWith(
       "start",
       { type: "start", conversationId, projectionTurnId: freshTurnId },
-      { jobId: `start-${freshTurnId}-${fresh.getTime()}` },
+      {
+        jobId: `start-${freshTurnId}-${fresh.getTime()}`,
+        attempts: START_RECOVERY_ATTEMPTS,
+      },
     );
     expect(f.queue.add).toHaveBeenCalledWith(
       "start",
       { type: "start", conversationId, projectionTurnId },
       {
-        jobId: `start-expire-${projectionTurnId}-${stale.getTime()}`,
-        removeOnFail: true,
+        jobId: `start-${projectionTurnId}-${stale.getTime()}`,
+        attempts: START_RECOVERY_ATTEMPTS,
       },
     );
+  });
+
+  it("skips local conversations when dispatching start recovery", async () => {
+    const f = fixture();
+    const localConversationId = "10000000-0000-4000-8000-000000000013";
+    const localTurnId = "10000000-0000-4000-8000-000000000014";
+    const createdAt = new Date(Date.now() - 60_000);
+    f.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce([
+      { conversationId, projectionTurnId, createdAt },
+      {
+        conversationId: localConversationId,
+        projectionTurnId: localTurnId,
+        createdAt,
+      },
+    ]);
+    f.prisma.conversation.findMany.mockResolvedValueOnce([
+      { id: conversationId, executionTarget: "cloud" },
+      { id: localConversationId, executionTarget: "local" },
+    ]);
+
+    await f.scheduler.process({ data: { type: "maintenance" } });
+
+    const starts = f.queue.add.mock.calls.filter(([name]) => name === "start");
+    expect(starts.map(([, data]) => data)).toEqual([
+      { type: "start", conversationId, projectionTurnId },
+    ]);
   });
 
   it("persists the next pending page only after every record has been durably enqueued", async () => {
@@ -377,6 +409,7 @@ function fixture() {
     ),
     conversation: {
       findFirst: vi.fn(async () => ({ id: conversationId, runtimeGeneration })),
+      findMany: vi.fn(async () => [] as Array<{ id: string; executionTarget: string | null }>),
     },
     conversationTurn: {
       findFirst: vi.fn(async () => ({ capabilityGeneration })),

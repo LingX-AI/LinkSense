@@ -14,7 +14,7 @@ import type {
 } from "../../adapters/redis.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
-import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../conversations/start-intent-policy.js";
+import { START_RECOVERY_ATTEMPTS } from "../conversations/start-intent-policy.js";
 import { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
 import { recoverableSlotOwners, revokedMacRecoveryPage, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import type { ConversationEventService } from "./service.js";
@@ -554,13 +554,28 @@ export class TaskRecoveryScheduler {
       take: pageSize,
       select: { projectionTurnId: true, conversationId: true, createdAt: true },
     });
-    const unsettledCutoff =
-      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS;
+    // Local intents belong to the device journal and its desktop-turn recovery;
+    // dispatching them here only produced endless pending retries for offline
+    // devices.
+    const localConversations = rows.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await this.prisma.conversation.findMany({
+              where: {
+                id: {
+                  in: [...new Set(rows.map((row) => row.conversationId))],
+                },
+              },
+              select: { id: true, executionTarget: true },
+            })
+          )
+            .filter((row) => row.executionTarget === "local")
+            .map((row) => row.id),
+        );
     for (const row of rows) {
-      // A retained failed job blocks the fixed start job id forever. Once the
-      // release window has passed, use a distinct id so recovery can release it.
+      if (localConversations.has(row.conversationId)) continue;
       const created = row.createdAt.getTime();
-      const expired = created <= unsettledCutoff;
       await this.queue.add(
         "start",
         {
@@ -571,9 +586,10 @@ export class TaskRecoveryScheduler {
         {
           // projectionTurnId is deterministic across retries; createdAt keeps
           // the id unique per committed intent so retained jobs cannot shadow it.
-          jobId: `${expired ? "start-expire" : "start"}-${row.projectionTurnId}-${created}`,
-          // An expired intent must keep retrying until its release commits.
-          ...(expired && { removeOnFail: true }),
+          jobId: `start-${row.projectionTurnId}-${created}`,
+          // The total budget covers the release window. A retained failed job
+          // ends this intent's dispatch instead of resetting the budget.
+          attempts: START_RECOVERY_ATTEMPTS,
         },
       );
     }
