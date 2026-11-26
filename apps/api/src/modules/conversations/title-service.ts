@@ -167,6 +167,7 @@ export class ConversationTitleService {
             ]
           : [],
       ),
+      conversationId,
     )
     if (generation) {
       try {

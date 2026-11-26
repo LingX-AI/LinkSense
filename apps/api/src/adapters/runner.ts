@@ -7,6 +7,8 @@ import type { DesktopRunner } from "./desktop-runner.js";
 import { DesktopCommandUncertainError } from "./desktop-device-transport.js";
 import {
   runtimeWorkspaceHeader,
+  runnerRequestIdHeader,
+  workerColdStartTimeoutMs,
   codexModelReasoningCatalogSchema,
   personalizationSettingsSchema,
   resetMemoriesResultSchema,
@@ -36,6 +38,8 @@ import {
 } from "@linksense/shared";
 import { z } from "zod";
 import pRetry from "p-retry";
+import { Agent } from "undici";
+import { currentTaskRequestId } from "../lib/task-latency.js";
 
 const START_OPERATION_WAIT_LIMIT_MS = 60_000;
 const RUNNER_REQUEST_TIMEOUT_MS = 15_000;
@@ -427,6 +431,7 @@ class RunnerTransportError extends Error {
 
 export class RunnerClient {
   private desktop?: DesktopRunner;
+  private readonly coldStartDispatcher: Agent;
 
   useDesktopRunner(desktop: DesktopRunner): void {
     this.desktop = desktop;
@@ -475,7 +480,13 @@ export class RunnerClient {
   constructor(
     private readonly config: AppConfig,
     private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | "local" | null>,
-  ) {}
+  ) {
+    this.coldStartDispatcher = new Agent({ headersTimeout: this.coldStartTimeoutMs });
+  }
+
+  get coldStartTimeoutMs(): number {
+    return workerColdStartTimeoutMs(this.config.runnerWorkerReadyTimeoutSeconds);
+  }
 
   private async workspaceHeaders(pathname: string, ownerId?: string, workspacePath?: string, serviceSessionId?: string): Promise<Record<string, string>> {
     const conversationId = /^\/conversations\/([0-9a-f-]{36})(?:\/|$)/iu.exec(pathname)?.[1];
@@ -690,7 +701,7 @@ export class RunnerClient {
       `/conversations/${conversationId}/runtime`,
       "PUT",
       {},
-      { ownerId, ...(workspacePath ? { workspacePath } : {}), ...(serviceSessionId ? { serviceSessionId } : {}) },
+      { ownerId, coldStart: true, ...(workspacePath ? { workspacePath } : {}), ...(serviceSessionId ? { serviceSessionId } : {}) },
     ).then((result) => runnerRuntimeSchema.parse(result));
   }
 
@@ -717,10 +728,11 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...runnerTraceHeaders(),
             "content-type": "application/json",
           },
           body: JSON.stringify({}),
-          signal: AbortSignal.timeout(15_000),
+          ...this.coldStartRequestOptions(workerColdStartTimeoutMs(this.config.runnerWorkerReadyTimeoutSeconds, 0)),
         },
       );
       if (response.status !== 204) throw new Error("runner prewarm failed");
@@ -735,7 +747,7 @@ export class RunnerClient {
       `/conversations/${conversationId}/runtime/prewarm`,
       "POST",
       body,
-      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS,
+      { ownerId: input.ownerId, coldStart: true,
         ...(placement ? { workspacePath: placement.workspacePath } : {}),
         ...(placement?.serviceSessionId ? { serviceSessionId: placement.serviceSessionId } : {}),
       },
@@ -754,9 +766,10 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...runnerTraceHeaders(),
             ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId),
           },
-          signal: AbortSignal.timeout(15_000),
+          ...this.coldStartRequestOptions(),
         },
       );
       if (response.status === 404) return null;
@@ -780,9 +793,10 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...runnerTraceHeaders(),
             ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId, placement?.workspacePath, placement?.serviceSessionId),
           },
-          signal: AbortSignal.timeout(15_000),
+          ...this.coldStartRequestOptions(),
         },
       );
       if (response.status === 404) return null;
@@ -1290,6 +1304,7 @@ export class RunnerClient {
         headers: {
           authorization: `Bearer ${this.config.runnerSharedSecret}`,
           [OWNER_ID_HEADER]: ownerId,
+          ...runnerTraceHeaders(),
           ...workspaceHeaders,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
@@ -1360,6 +1375,7 @@ export class RunnerClient {
       serviceSessionId?: string;
       acceptErrorResponse?: boolean;
       timeoutMs?: number;
+      coldStart?: true;
     } = {},
   ): Promise<T> {
     const workspaceHeaders = await this.workspaceHeaders(pathname, options.ownerId, options.workspacePath, options.serviceSessionId);
@@ -1369,13 +1385,14 @@ export class RunnerClient {
         headers: {
           authorization: `Bearer ${this.config.runnerSharedSecret}`,
           ...(options.ownerId ? { [OWNER_ID_HEADER]: options.ownerId } : {}),
+          ...runnerTraceHeaders(),
           ...workspaceHeaders,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(
-          options.timeoutMs ?? RUNNER_REQUEST_TIMEOUT_MS,
-        ),
+        ...(options.coldStart
+          ? this.coldStartRequestOptions()
+          : { signal: AbortSignal.timeout(options.timeoutMs ?? RUNNER_REQUEST_TIMEOUT_MS) }),
       });
       if (!response.ok && !options.acceptErrorResponse) {
         throw new Error(`runner returned ${response.status}`);
@@ -1385,6 +1402,15 @@ export class RunnerClient {
       throw new AppError("RUNNER_UNAVAILABLE");
     }
   }
+
+  private coldStartRequestOptions(timeoutMs = this.coldStartTimeoutMs): { dispatcher: Agent; signal: AbortSignal } {
+    return { dispatcher: this.coldStartDispatcher, signal: AbortSignal.timeout(timeoutMs) };
+  }
+}
+
+function runnerTraceHeaders(): Record<string, string> {
+  const requestId = currentTaskRequestId();
+  return requestId ? { [runnerRequestIdHeader]: requestId } : {};
 }
 
 function subAgentReadRequestBody(

@@ -20,7 +20,7 @@ import {
   runtimeWorkspaceHeader,
   applicationBuilderRequestSchema,
   userWorkspacePathSchema,
-  webSiteToolRequestSchema,
+  webSiteLegacyToolRequestSchema,
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
   conversationFormRequestedSchema,
@@ -52,11 +52,14 @@ import {
   RUNNER_TURN_INTERRUPT_REQUESTED,
   searchKnowledgeBaseInputSchema,
   updatePersonalizationSettingsSchema,
+  WEB_SITE_TOOL_BODY_LIMIT,
+  webSiteToolRequestSchema,
 } from "@linksense/shared";
 
 import type { RunnerConfig } from "./config.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
 import { AutomationRequestError } from "./automation-error.js";
+import { WebSiteToolRequestError } from "./web-site-tool-error.js";
 import { AUTOMATION_TOOL_BODY_LIMIT, automationToolRequestSchema } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
 import { connectionInputSchema, desktopConnectionRequestBodySchema } from "@linksense/shared";
@@ -852,6 +855,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-local-tools/") ||
       request.url.startsWith("/mcp-automations/") ||
+      request.url.startsWith("/mcp-web-sites/") ||
       request.url.startsWith("/mcp-connections/") ||
       request.url.startsWith("/mcp-user/")
     )
@@ -925,6 +929,7 @@ export function buildRunnerServer(
         memories_enabled: settings.memories_enabled,
         show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
+        ...(settings.sensitive_data ? { sensitive_data: settings.sensitive_data } : {}),
       });
     } catch (error) {
       request.log.error(
@@ -968,6 +973,7 @@ export function buildRunnerServer(
         memories_enabled: settings.memories_enabled,
         show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
+        ...(settings.sensitive_data ? { sensitive_data: settings.sensitive_data } : {}),
       });
     } catch (error) {
       request.log.error(
@@ -1339,7 +1345,7 @@ export function buildRunnerServer(
         return reply.code(401).send({ code: "WEB_SITE_FORBIDDEN", retryable: false });
       }
       const conversationId = uuid.safeParse(request.params.conversationId);
-      const body = webSiteToolRequestSchema.safeParse(request.body);
+      const body = webSiteLegacyToolRequestSchema.safeParse(request.body);
       if (!conversationId.success || !body.success) {
         return reply.code(400).send({ code: "WEB_SITE_INVALID", retryable: false });
       }
@@ -1416,6 +1422,38 @@ export function buildRunnerServer(
         const failure = error instanceof AutomationRequestError ? error : new AutomationRequestError("INTERNAL_ERROR", true, 503);
         request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "automation request rejected");
         return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-web-sites/:conversationId/execute",
+    { bodyLimit: WEB_SITE_TOOL_BODY_LIMIT },
+    async (request, reply) => {
+      const authorization = request.headers.authorization;
+      const token = authorization?.match(/^Bearer\s+(\S+)$/iu)?.[1];
+      if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = webSiteToolRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const abortDisconnectedReply = () => { if (!reply.raw.writableEnded) abort(); };
+      request.raw.once("aborted", abort);
+      reply.raw.once("close", abortDisconnectedReply);
+      try {
+        return await pool.manageWebSite(conversationId.data, token, body.data, controller.signal);
+      } catch (error) {
+        const failure = error instanceof WebSiteToolRequestError ? error : new WebSiteToolRequestError("INTERNAL_ERROR", 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "site management request rejected");
+        return reply.code(failure.statusCode).send({
+          code: failure.code,
+          retryable: failure.statusCode >= 500 && body.data.tool === "list_sites",
+        });
+      } finally {
+        request.raw.off("aborted", abort);
+        reply.raw.off("close", abortDisconnectedReply);
       }
     },
   );

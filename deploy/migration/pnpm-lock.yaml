@@ -6,6 +6,7 @@ settings:
 
 overrides:
   deepmerge-ts@<8.0.2: 8.0.2
+  '@prisma/config@7.8.0>effect': 3.22.1
   mysql2@<3.22.0: 3.22.0
   source-map-js@<1.2.2: 1.2.2
 
@@ -32,8 +33,8 @@ importers:
         specifier: 4.21.0
         version: 4.21.0
       zod:
-        specifier: 4.4.3
-        version: 4.4.3
+        specifier: 4.6.6
+        version: 4.6.6
 
 packages:
 
@@ -422,8 +423,8 @@ packages:
     resolution: {integrity: sha512-IO8C/dzEb6O3F9/twg6ZLXz164a2fhTnEWb95H23Dm4OuN+92NmEAlTrupP9VW6Jm3sO26tQlqyvyi4CsnY9GA==}
     engines: {node: '>=12'}
 
-  effect@3.20.0:
-    resolution: {integrity: sha512-qMLfDJscrNG8p/aw+IkT9W7fgj50Z4wG5bLBy0Txsxz8iUHjDIkOgO3SV0WZfnQbNG2VJYb0b+rDLMrhM4+Krw==}
+  effect@3.22.1:
+    resolution: {integrity: sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==}
 
   empathic@2.0.0:
     resolution: {integrity: sha512-i6UzDscO/XfAcNYD75CfICkmfLedpyPDdozrLMmQc5ORaQcdMoc21OnlEylMIqI7U8eniKrPMxxtj8k0vhmJhA==}
@@ -706,8 +707,8 @@ packages:
   zeptomatch@2.1.0:
     resolution: {integrity: sha512-KiGErG2J0G82LSpniV0CtIzjlJ10E04j02VOudJsPyPwNZgGnRKQy7I1R7GMyg/QswnE4l7ohSGrQbQbjXPPDA==}
 
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
 snapshots:
 
@@ -826,7 +827,7 @@ snapshots:
     dependencies:
       c12: 3.3.4
       deepmerge-ts: 8.0.2
-      effect: 3.20.0
+      effect: 3.22.1
       empathic: 2.0.0
     transitivePeerDependencies:
       - magicast
@@ -1029,7 +1030,7 @@ snapshots:
 
   dotenv@17.3.1: {}
 
-  effect@3.20.0:
+  effect@3.22.1:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 3.23.2
@@ -1290,4 +1291,4 @@ snapshots:
       grammex: 3.1.13
       graphmatch: 1.1.1
 
-  zod@4.4.3: {}
+  zod@4.6.6: {}

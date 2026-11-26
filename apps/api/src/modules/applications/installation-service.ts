@@ -1,4 +1,5 @@
 import { validateApplicationCredentials, type ApplicationCredentialResolver } from "./runtime-credentials.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 import { isApplicationVersionUpdate } from "./runtime-installation-projection.js";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -138,6 +139,7 @@ export class ApplicationInstallationService {
           tx.mcpServer.count({ where: { id: { in: mcpIds }, ownerId, status: "active" } }),
         ]);
         if (availableKnowledge !== knowledgeIds.length || availableMcp !== mcpIds.length) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+        await assertOwnedMcpServersExist(tx, ownerId, mcpIds);
         await staged.save(tx);
         // Rebuild only app selections. Personal resources and credentials retain
         // their identities; gaps keep unfinished setup steps in their own slots.

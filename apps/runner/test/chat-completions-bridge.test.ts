@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildChatCompletionRequest, chatCompletionStreamToResponses } from "../src/model-gateway/chat-completions-bridge.js";
+import {
+  buildChatCompletionRequest,
+  chatCompletionStreamToResponses,
+  chatCompletionToResponse,
+  type ResponsesStreamEvent,
+} from "../src/model-gateway/chat-completions-bridge.js";
 
 describe("structured output protocol conversion", () => {
   it.each([false, true])("preserves the complete strict JSON schema when streaming is %s", (stream) => {
@@ -221,5 +226,141 @@ describe("assistant tool-call history conversion", () => {
       { role: "assistant", content: "Inspecting the workspace.", tool_calls: [{ id: "call-a", type: "function", function: { name: "inspect_workspace", arguments: "{}" } }] },
       { role: "tool", tool_call_id: "call-a", content: "workspace inspected" },
     ]);
+  });
+});
+
+describe("bridged completion termination", () => {
+  const toolCall = (index: number, argumentsJson: unknown) => ({
+    index,
+    id: `call-${index}`,
+    type: "function",
+    function: { name: "lookup", arguments: argumentsJson },
+  });
+  const choice = (delta: Record<string, unknown>, finishReason: string | null = null) => ({
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  });
+  const done = "[DONE]";
+  const consume = async (
+    frames: unknown[],
+    events: ResponsesStreamEvent[] = [],
+  ): Promise<ResponsesStreamEvent[]> => {
+    const upstream = new Response(frames.map((frame) =>
+      `data: ${frame === done ? done : JSON.stringify(frame)}\n\n`,
+    ).join(""));
+    for await (const event of chatCompletionStreamToResponses(upstream, "test")) {
+      events.push(event);
+    }
+    return events;
+  };
+  const usage = {
+    prompt_tokens: 10,
+    completion_tokens: 4,
+    total_tokens: 14,
+    prompt_tokens_details: { cached_tokens: 3 },
+    completion_tokens_details: { reasoning_tokens: 2 },
+  };
+  const responseUsage = {
+    input_tokens: 10,
+    output_tokens: 4,
+    total_tokens: 14,
+    input_tokens_details: { cached_tokens: 3 },
+    output_tokens_details: { reasoning_tokens: 2 },
+  };
+  const assertNoCompletion = (events: ResponsesStreamEvent[]) => {
+    expect(events.filter(({ event }) =>
+      event === "response.completed" || event.endsWith(".done"),
+    )).toEqual([]);
+  };
+
+  it.each([
+    { content: "An unfinished answer" },
+    { tool_calls: [toolCall(0, "{}")] },
+  ])("rejects EOF with no termination after %j without completing any item", async (delta) => {
+    const events: ResponsesStreamEvent[] = [];
+    await expect(consume([choice(delta)], events)).rejects.toThrow(/stream closed before completion/);
+    assertNoCompletion(events);
+  });
+
+  it.each([
+    ["length", "max_output_tokens", true],
+    ["content_filter", "content_filter", false],
+  ] as const)("maps %s to incomplete without finalizing partial output", async (finishReason, reason, hasSentinel) => {
+    const events = await consume([
+      choice({ content: "An unfinished answer" }),
+      choice({ tool_calls: [toolCall(0, '{"q":')] }),
+      choice({}, finishReason),
+      { choices: [], usage },
+      ...(hasSentinel ? [done] : []),
+    ]);
+
+    expect(events.at(-1)).toMatchObject({
+      event: "response.incomplete",
+      data: {
+        type: "response.incomplete",
+        response: {
+          status: "incomplete",
+          incomplete_details: { reason },
+          output_text: "An unfinished answer",
+          output: [
+            { type: "message", status: "incomplete", content: [{ text: "An unfinished answer" }] },
+            { type: "function_call", status: "incomplete", call_id: "call-0", arguments: '{"q":' },
+          ],
+          usage: responseUsage,
+        },
+      },
+    });
+    assertNoCompletion(events);
+  });
+
+  it.each([null, "tool_calls"])("fails the entire stream for truncated tool arguments with finish_reason=%s", async (finishReason) => {
+    const events: ResponsesStreamEvent[] = [];
+    const frames = [
+      choice({ tool_calls: [toolCall(0, '{"q":"valid"}'), toolCall(1, '{"q":')] }),
+      ...(finishReason ? [choice({}, finishReason)] : [done]),
+    ];
+
+    await expect(consume(frames, events)).rejects.toThrow(/invalid function arguments/);
+    assertNoCompletion(events);
+    expect(events.map(({ event }) => event)).not.toContain("response.incomplete");
+  });
+
+  it.each(["stop", "tool_calls", "function_call"])("accepts documented successful reason %s without a trailing sentinel", async (finishReason) => {
+    const events = await consume([
+      choice({ tool_calls: [toolCall(0, '{"q":')] }),
+      choice({ tool_calls: [{ index: 0, function: { arguments: '"lookup"}' } }] }, finishReason),
+    ]);
+
+    expect(events.at(-1)).toMatchObject({
+      event: "response.completed",
+      data: { response: { output: [{ status: "completed", arguments: '{"q":"lookup"}' }] } },
+    });
+  });
+
+  it.each(["aborted", "insufficient_system_resource"])("does not mistake the provider failure %s for success even with a sentinel", async (finishReason) => {
+    const events: ResponsesStreamEvent[] = [];
+    await expect(consume([choice({ content: "Partial" }, finishReason), done], events)).rejects.toThrow();
+    assertNoCompletion(events);
+  });
+
+  it.each([undefined, null, "", {}])("keeps legacy no-argument tool calls with arguments=%j", async (argumentsJson) => {
+    const call = toolCall(0, argumentsJson);
+    const events = await consume([choice({ tool_calls: [call] }), done]);
+    expect(events.at(-1)).toMatchObject({
+      event: "response.completed",
+      data: { response: { output: [{ type: "function_call", arguments: "{}" }] } },
+    });
+    expect(chatCompletionToResponse({ choices: [{ message: { tool_calls: [call] } }] }, "test")).toMatchObject({
+      status: "completed",
+      output: [{ type: "function_call", arguments: argumentsJson === "" ? "" : "{}" }],
+    });
+  });
+
+  it("rejects truncated tool arguments in a successful JSON completion", () => {
+    expect(() => chatCompletionToResponse({
+      choices: [{
+        message: { tool_calls: [toolCall(0, "{}"), toolCall(1, '{"q":')] },
+        finish_reason: "tool_calls",
+      }],
+    }, "test")).toThrow(/invalid function arguments/);
   });
 });

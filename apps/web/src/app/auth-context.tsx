@@ -12,12 +12,19 @@ import {
   isRetryableApiError,
   refreshSession,
 } from "@/api/client"
-import { userSchema, type AccessSession, type User } from "@/api/contracts"
+import {
+  userSchema,
+  type AccessSession,
+  type SupportedLanguage,
+  type User,
+} from "@/api/contracts"
 import {
   beginLoginSession,
+  captureAccessSessionGuard,
   getAccessToken,
   getLoginSessionBoundary,
   isLoginSessionCurrent,
+  readAccessTokenIdentity,
   setAccessToken,
   subscribeToAccessToken,
   type LoginSessionBoundary,
@@ -28,6 +35,7 @@ import { setAppLanguage } from "@/i18n"
 import { z } from "zod"
 import {
   clearDesktopSession,
+  isDesktopHost,
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
 import { ensureDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
@@ -35,9 +43,14 @@ import type { MacSignOutOptions } from "@/adapters/desktop/mygo"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
 const AUTH_RESTORE_MAX_ATTEMPTS = 3
+type AccountIdentity = Pick<User, "id" | "role">
 
 function isAccountScopedQuery(query: Query) {
   return !(query.queryKey[0] === "system" && query.queryKey[1] === "bootstrap")
+}
+
+function matchesAccount(current: AccountIdentity, next: AccountIdentity | null) {
+  return current.id === next?.id && current.role === next.role
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -49,6 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Explicit Retry increments this revision so the same bounded restore effect
   // runs again without reloading the document that holds a pending launch link.
   const [restoreRevision, setRestoreRevision] = useState(0)
+  const verifiedUser = useRef<User | null>(null)
+  const acceptingToken = useRef<string | null>(null)
+  const profileRequest = useRef<{
+    token: string | null
+    controller: AbortController
+    promise: Promise<void>
+  } | null>(null)
   // Explicitly accepted replacement logins are recorded independently of the
   // token so a definitive clear can be distinguished from a new login.
   const lastAcceptedLoginRef = useRef<LoginSessionBoundary | null>(null)
@@ -56,21 +76,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ClearSession both settle. The ref is synchronous so a late clear or a
   // login acceptance in the same turn cannot expose the login early.
   const signOutPendingRef = useRef(false)
+  // A browser sign-out clears its bearer immediately; that clear belongs to the
+  // sign-out intent rather than to a second login replacement.
+  const signOutClearRef = useRef(false)
+  // An in-flight sign-out still owns the ending login, so a definitive clear
+  // during it must invalidate admitted work for that same login.
+  const signOutInFlightRef = useRef(false)
   const resumedDesktopOwnerRef = useRef<string | null>(null)
+  const statusRef = useRef(status)
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  const clearAccount = useCallback(() => {
+    // Removal is synchronous: QueryCache.remove destroys each matched query
+    // and cancels its retryer in the same turn, aborting in-flight account
+    // reads. A replacement login accepted afterwards therefore cannot see, or
+    // later repopulate, the ended account's cache. Only bootstrap (which is
+    // not account-scoped) survives.
+    queryClient.removeQueries({ predicate: isAccountScopedQuery })
+    queryClient.getMutationCache().clear()
+    verifiedUser.current = null
+    setUser(null)
+  }, [queryClient])
 
   const resetAccountState = useCallback(
     async (nextStatus: "anonymous" | "loading" = "anonymous") => {
-      // Removal is synchronous: QueryCache.remove destroys each matched query
-      // and cancels its retryer in the same turn, aborting in-flight account
-      // reads. A replacement login accepted afterwards therefore cannot see, or
-      // later repopulate, the ended account's cache. Only bootstrap (which is
-      // not account-scoped) survives.
-      queryClient.removeQueries({ predicate: isAccountScopedQuery })
-      queryClient.getMutationCache().clear()
-      setUser(null)
+      clearAccount()
       setStatus(nextStatus)
     },
-    [queryClient]
+    [clearAccount]
   )
 
   const retryRestore = useCallback(() => {
@@ -81,33 +117,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status])
 
   const refreshUser = useCallback(
-    async (options?: { signal?: AbortSignal }) => {
+    async (
+      options: {
+        signal?: AbortSignal
+        preferredLanguage?: SupportedLanguage | null
+        skipRefresh?: boolean
+      } = {}
+    ) => {
       // A Mac sign-out owns the boundary until logout and native cleanup
       // settle. A Settings mutation that completes during either hold must not
       // start a /me with the outgoing bearer, or its profile could reopen the
       // protected routes while cleanup is still running.
       if (signOutPendingRef.current) return
+      if (options.signal?.aborted) return
       const loginSessionBoundary = getLoginSessionBoundary()
-      const nextUser = await apiRequest("/me", {
-        schema: userSchema,
-        signal: options?.signal,
-        loginSessionBoundary,
+      const token = getAccessToken()
+      const current = profileRequest.current
+      if (
+        current?.token === token &&
+        !current.controller.signal.aborted &&
+        !options.signal
+      ) {
+        return current.promise
+      }
+
+      current?.controller.abort()
+      const controller = new AbortController()
+      const isCurrent = captureAccessSessionGuard()
+      const canApplyProfile = () =>
+        !controller.signal.aborted &&
+        isLoginSessionCurrent(loginSessionBoundary) &&
+        isCurrent()
+      const abort = () => controller.abort()
+      options.signal?.addEventListener("abort", abort, { once: true })
+
+      const promise = (async () => {
+        if (!canApplyProfile()) return
+        if (options.preferredLanguage) {
+          await setAppLanguage(options.preferredLanguage)
+        }
+        if (!canApplyProfile()) return
+        const nextUser = await apiRequest("/me", {
+          schema: userSchema,
+          signal: controller.signal,
+          skipRefresh: options.skipRefresh,
+          loginSessionBoundary,
+        })
+        if (!canApplyProfile()) return
+        if (
+          verifiedUser.current &&
+          !matchesAccount(verifiedUser.current, nextUser)
+        ) {
+          clearAccount()
+          setStatus("loading")
+        }
+        if (nextUser.language) await setAppLanguage(nextUser.language)
+        if (!canApplyProfile()) return
+        const snapshot = replaceEqualDeep(verifiedUser.current, nextUser)
+        verifiedUser.current = snapshot
+        setUser(snapshot)
+        setStatus("authenticated")
+      })().catch((error: unknown) => {
+        if (canApplyProfile()) throw error
       })
-      if (
-        options?.signal?.aborted ||
-        !isLoginSessionCurrent(loginSessionBoundary)
-      )
-        return
-      if (nextUser.language) await setAppLanguage(nextUser.language)
-      if (
-        options?.signal?.aborted ||
-        !isLoginSessionCurrent(loginSessionBoundary)
-      )
-        return
-      setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
-      setStatus("authenticated")
+      profileRequest.current = { token, controller, promise }
+      try {
+        await promise
+      } finally {
+        options.signal?.removeEventListener("abort", abort)
+        if (profileRequest.current?.controller === controller) {
+          profileRequest.current = null
+        }
+      }
     },
-    []
+    [clearAccount]
   )
 
   const applySessionCredentials = useCallback(
@@ -135,8 +218,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (signOutPendingRef.current) return
       const loginSessionBoundary = beginLoginSession("sign-in")
       lastAcceptedLoginRef.current = loginSessionBoundary
-      if (!(await applySessionCredentials(session, loginSessionBoundary)))
-        return
+      // An explicitly accepted login owns its incoming profile; this is not a
+      // foreign account change that should discard admitted data.
+      verifiedUser.current = null
+      acceptingToken.current = session.access_token
+      try {
+        if (!(await applySessionCredentials(session, loginSessionBoundary)))
+          return
+      } finally {
+        acceptingToken.current = null
+      }
+      if (getAccessToken() !== session.access_token) return
       await refreshUser()
     },
     [applySessionCredentials, refreshUser]
@@ -151,6 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // still running.
       const closesLocally = isMacDesktopHost()
       if (closesLocally && signOutPendingRef.current) return
+      const signedOutToken = getAccessToken()
       // Sign-out intent invalidates admitted work immediately, before the logout
       // request or native cleanup can pause. A later explicit login advances the
       // boundary again, so this older flow must not clear its credentials.
@@ -164,6 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           acceptedBoundary !== null && acceptedBoundary > loginSessionBoundary
         )
       }
+      // A replacement login (or a newer token in this tab) owns the session
+      // after it appears; this sign-out must not clear or reset it.
+      const ownsCurrentSession = () => {
+        if (replacementAccepted()) return false
+        const currentToken = getAccessToken()
+        return currentToken === null || currentToken === signedOutToken
+      }
       // The Mac keeps the protected view and the login control closed until the
       // logout request and native ClearSession both settle. Closing happens in
       // the same turn as the intent so menu navigation that was already
@@ -172,28 +272,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOutPendingRef.current = true
         void resetAccountState("loading")
       }
+      signOutInFlightRef.current = true
+      let request: Promise<unknown>
       try {
-        await apiRequest("/auth/logout", {
+        request = apiRequest("/auth/logout", {
           method: "POST",
           schema: z.unknown(),
           skipRefresh: true,
           loginSessionBoundary,
         })
+      } catch (error) {
+        signOutInFlightRef.current = false
+        if (closesLocally) signOutPendingRef.current = false
+        throw error
+      }
+      if (
+        !closesLocally &&
+        signedOutToken &&
+        isLoginSessionCurrent(loginSessionBoundary)
+      ) {
+        // Browsers drop the bearer immediately. The listener owns the account
+        // reset, but this clear must not count as another login replacement.
+        signOutClearRef.current = true
+        try {
+          setAccessToken(null)
+        } finally {
+          signOutClearRef.current = false
+        }
+      }
+      try {
+        await request
       } finally {
         try {
-          if (!replacementAccepted()) {
+          if (ownsCurrentSession()) {
             try {
               await clearDesktopSession(options)
             } finally {
-              if (!replacementAccepted()) {
+              if (ownsCurrentSession() && getAccessToken() !== null) {
                 // Notifying an already-cleared token would re-enter the account
                 // reset from the token listener.
-                if (getAccessToken() !== null) setAccessToken(null)
-                await resetAccountState()
+                setAccessToken(null)
               }
+              if (ownsCurrentSession()) await resetAccountState()
             }
           }
         } finally {
+          signOutInFlightRef.current = false
           if (closesLocally) signOutPendingRef.current = false
         }
       }
@@ -204,28 +328,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (bootstrapInitialized !== true) return
 
-    let cancelled = false
+    let token = getAccessToken()
+    let generation = 0
     let retryTimer: number | null = null
-    let attempt = 0
-    const loginSessionBoundary = getLoginSessionBoundary()
-    const restoreSession = async () => {
-      if (!isLoginSessionCurrent(loginSessionBoundary)) return
-      attempt += 1
+    const cancelRestore = () => {
+      generation += 1
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      profileRequest.current?.controller.abort()
+    }
+
+    const restoreSession = async (skipRefresh: boolean, attempt = 1) => {
+      const loginSessionBoundary = getLoginSessionBoundary()
+      const currentToken = getAccessToken()
+      const restoreGeneration = generation
+      const isCurrent = captureAccessSessionGuard()
       try {
-        if (getAccessToken()) {
-          await refreshUser()
-          if (!isLoginSessionCurrent(loginSessionBoundary)) return
+        if (currentToken) {
+          await refreshUser({ skipRefresh })
+          if (
+            restoreGeneration !== generation ||
+            !isLoginSessionCurrent(loginSessionBoundary)
+          ) {
+            return
+          }
         } else {
           const session = await refreshSession()
-          if (cancelled || !isLoginSessionCurrent(loginSessionBoundary)) return
-          if (!(await applySessionCredentials(session, loginSessionBoundary)))
+          if (
+            restoreGeneration !== generation ||
+            !isLoginSessionCurrent(loginSessionBoundary)
+          ) {
             return
-          if (cancelled || !isLoginSessionCurrent(loginSessionBoundary)) return
-          await refreshUser()
-          if (cancelled || !isLoginSessionCurrent(loginSessionBoundary)) return
+          }
+          // The client normally publishes the rotated token itself, which the
+          // token listener verifies. Only an unpublished session is applied and
+          // verified here, and it must belong to the same login.
+          if (getAccessToken() !== session.access_token) {
+            if (!(await applySessionCredentials(session, loginSessionBoundary))) return
+          }
+          if (
+            restoreGeneration !== generation ||
+            !isLoginSessionCurrent(loginSessionBoundary)
+          ) {
+            return
+          }
+          // The native desktop host does not react to a published token, so
+          // finish the restore here instead of waiting for the listener.
+          if (isDesktopHost()) await refreshUser({ skipRefresh })
         }
       } catch (error) {
-        if (cancelled || !isLoginSessionCurrent(loginSessionBoundary)) return
+        if (restoreGeneration !== generation || !isCurrent()) return
+        if (!isLoginSessionCurrent(loginSessionBoundary)) return
 
         if (isDefinitiveAuthenticationError(error)) {
           setAccessToken(null)
@@ -237,50 +392,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           !isRetryableApiError(error) ||
           attempt >= AUTH_RESTORE_MAX_ATTEMPTS
         ) {
-          setStatus("error")
+          if (!verifiedUser.current) setStatus("error")
           return
         }
 
-        setStatus("loading")
         retryTimer = window.setTimeout(() => {
           retryTimer = null
-          void restoreSession()
+          void restoreSession(skipRefresh, attempt + 1)
         }, AUTH_RESTORE_RETRY_DELAY_MS)
       }
     }
 
-    void restoreSession()
-
+    const unsubscribe = subscribeToAccessToken((nextToken, reason) => {
+      if (nextToken && nextToken === token) return
+      // The native desktop host owns credential writes, so a published token
+      // is applied by acceptSession or restoreSession rather than here.
+      if (nextToken && isDesktopHost()) return
+      const previousIdentity = readAccessTokenIdentity(token)
+      token = nextToken
+      cancelRestore()
+      if (!nextToken) {
+        if (signOutClearRef.current) {
+          // The sign-out intent already invalidated this login; avoid advancing
+          // the boundary twice for the same clear.
+          return
+        }
+        // A Mac sign-out owns the closed view until its logout request and
+        // native cleanup settle; the sign-out flow resets the account itself.
+        if (signOutPendingRef.current) return
+        // A definitive clear while a verified session is live ends it. A
+        // "storage" clear only synchronizes an empty localStorage read, so it is
+        // not a verified session ending and must not advance the boundary. An
+        // in-flight sign-out also owns its ending login while its view is held
+        // in the loading state.
+        if (
+          reason === "session" &&
+          (statusRef.current === "authenticated" || signOutInFlightRef.current)
+        ) {
+          beginLoginSession("sign-out")
+        }
+        void resetAccountState()
+        return
+      }
+      if (nextToken === acceptingToken.current) return
+      // A verified account is discarded when the previous token identified it
+      // and the new token does not. An opaque rotation of an opaque session
+      // cannot establish a different account, so it keeps the verified view.
+      if (
+        verifiedUser.current &&
+        previousIdentity &&
+        !matchesAccount(verifiedUser.current, readAccessTokenIdentity(nextToken))
+      ) {
+        clearAccount()
+        setStatus("loading")
+      }
+      if (!verifiedUser.current) setStatus("loading")
+      void restoreSession(true)
+    })
+    void restoreSession(false)
     return () => {
-      cancelled = true
-      if (retryTimer !== null) window.clearTimeout(retryTimer)
+      unsubscribe()
+      cancelRestore()
     }
   }, [
     applySessionCredentials,
     bootstrapInitialized,
+    clearAccount,
     refreshUser,
     resetAccountState,
     restoreRevision,
   ])
-
-  useEffect(
-    () =>
-      subscribeToAccessToken((token, reason) => {
-        if (token || status !== "authenticated") return
-        // A Mac sign-out owns the transition until logout and ClearSession
-        // settle; a definitive clear must not expose the login early.
-        if (signOutPendingRef.current) return
-        // A "storage" clear only synchronizes an empty localStorage read and is
-        // not a verified session ending. Silent access expiry never notifies,
-        // and rotation carries a token. An explicit clear while a verified
-        // session is live means a definitive refresh rejection or sign-out
-        // ended it. Advance the boundary before the synchronous reset so
-        // admitted Mac work whose response arrives later is already stale.
-        if (reason === "session") beginLoginSession("sign-out")
-        void resetAccountState()
-      }),
-    [resetAccountState, status]
-  )
 
   // Register and connect this Mac only after a verified Web session names the
   // owner. The native host fences the owner and sign-out again; there is no

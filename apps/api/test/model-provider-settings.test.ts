@@ -1618,6 +1618,11 @@ describe("ModelProviderSettingsService", () => {
       channel: { id: "provider-b" },
     })
     await expect(
+      service.resolveManagedModels(["missing-model", "model-b"], "chat")
+    ).resolves.toMatchObject([
+      { revision: 2, model: { id: "model-b" }, channel: { id: "provider-b" } },
+    ])
+    await expect(
       service.deleteModel(
         ACTOR_ID,
         { expected_revision: 2, model_id: "model-b" },

@@ -77,12 +77,13 @@ describe("buildTurnInput", () => {
       "linksense.local-web-server-policy",
       "linksense.managed-browser-runtime",
       "linksense.runtime-identity",
+      "linksense.web-site-delivery",
     ]);
     const entries = Object.values(output ?? {});
     expect(entries.every((entry) => entry.kind === "application")).toBe(true);
     expect(output?.["linksense.browser-selection"]?.value).toContain("Core browser_use");
     // A text budget catches prompt growth without pretending to measure model usage.
-    expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_300);
+    expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_400);
   });
 
   it("clarifies the next outcome difference and allows combined page and automation delivery", () => {
@@ -130,6 +131,20 @@ describe("buildTurnInput", () => {
     expect(delivery).toContain("register_artifact");
     expect(delivery).toContain("point to the preview card, not a workspace path");
     expect(delivery).toContain("Source-only: deliver a download");
+  });
+
+  it("supplies published site link instructions in Default mode without a selected Skill", () => {
+    const context = {
+      userInput: "更新站点后把网址发给我",
+      attachments: [],
+      priorityPlugins: [],
+      prioritySkills: [],
+    };
+
+    const delivery = buildTurnAdditionalContext(context, [])?.["linksense.web-site-delivery"];
+    expect(delivery?.kind).toBe("application");
+    expect(delivery?.value).toContain("After publishing or updating a site, link the full returned site.url verbatim.");
+    expect(buildTurnAdditionalContext(context, [], "plan")?.["linksense.web-site-delivery"]).toBeUndefined();
   });
 
   it.each(["linksense-public-site", "linksense-public-site-builtin-2"])(
@@ -287,7 +302,7 @@ describe("buildTurnInput", () => {
       "never start or keep alive a network-listening service for this task",
     );
     expect(output?.["linksense.inline-html-preview"]?.value).toContain(
-      "info string is exactly html-preview",
+      "complete UTF-8 document; fence info string is exactly html-preview",
     );
   });
 
@@ -673,14 +688,19 @@ describe("buildTurnInput", () => {
         prioritySkills: [],
       })?.["linksense.inline-html-preview"]?.value ?? "";
     expect(instructions).toContain(
-      "info string is exactly html-preview",
+      "complete UTF-8 document; fence info string is exactly html-preview",
     );
     expect(instructions).toContain("get_rich_output_catalog");
     expect(instructions).toContain("Comparisons/charts/file groups: call get_rich_output_catalog");
     expect(instructions).toContain("Short answers: prose");
-    expect(instructions).toContain("Preview forms are standalone demos, not conversation input.");
+    expect(instructions).toContain(
+      "Use request_user_form for chat questions, choices, confirmations, and feedback",
+    );
+    expect(instructions).toContain(
+      "Preview forms are standalone demos, not conversation input",
+    );
     expect(instructions).not.toMatch(/tailwind|CDN|CSS framework|external stylesheet/i);
-    expect(instructions).toContain("Use ordinary html fences for source examples; never preview an incomplete fragment");
+    expect(instructions).toContain("Use ordinary html fences for source examples");
     expect(instructions).not.toContain(
       "mcp__linksense_core__search_knowledge_base",
     );

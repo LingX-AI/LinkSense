@@ -1,3 +1,7 @@
+import {
+  DEFAULT_WORKER_READY_TIMEOUT_SECONDS,
+  workerColdStartTimeoutMs,
+} from "@linksense/shared";
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { lockDesktopConversation, type DesktopStartProjectionFence } from "../desktop-credentials/run-authority.js";
 import { snapshotRecoveredDesktopRunLease } from "../desktop-credentials/run-leases.js";
@@ -826,6 +830,7 @@ export class ConversationService {
       PrivacyMaskingSettingsService,
       "runtimeForUser"
     >,
+    private readonly runnerColdStartBudgetMs = workerColdStartTimeoutMs(DEFAULT_WORKER_READY_TIMEOUT_SECONDS),
   ) {}
 
   private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
@@ -4455,7 +4460,7 @@ export class ConversationService {
     context: AuditContext,
   ) {
     await this.assertOwner(ownerId, conversationId);
-    const lock = await this.acquireConversationLock(conversationId);
+    const lock = await this.acquireConversationLock(conversationId, "turn-start");
     let lockTransferred = false;
     try {
       const pendingForRetry = await this.prisma.pendingRequest.findFirst({
@@ -5012,7 +5017,7 @@ export class ConversationService {
     context: AuditContext,
   ): Promise<TurnStartReceipt> {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
-      const lock = await this.acquireConversationLock(conversationId);
+      const lock = await this.acquireConversationLock(conversationId, "turn-start");
       let lockTransferred = false;
       try {
         const conversation = await this.assertOwner(ownerId, conversationId);
@@ -5362,7 +5367,7 @@ export class ConversationService {
           : existingProjection;
       }
 
-      const lock = await this.acquireConversationLock(conversationId);
+      const lock = await this.acquireConversationLock(conversationId, "turn-start");
       let startOwnsLock = false;
       try {
         const conversation = await this.assertOwner(ownerId, conversationId);
@@ -6563,7 +6568,7 @@ export class ConversationService {
     context: AuditContext,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
-      const lock = await this.acquireConversationLock(conversationId);
+      const lock = await this.acquireConversationLock(conversationId, "turn-start");
       let lockTransferred = false;
       try {
         if (input.action === "skip" || input.action === "exit") {
@@ -7763,10 +7768,12 @@ export class ConversationService {
       channel?: ApplicationDistributionChannel;
     },
     conversationId?: string,
+    finalizeExternalInitialization?: (tx: Prisma.TransactionClient) => Promise<void>,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, undefined, application, {
         ...(conversationId ? { conversationId } : {}),
+        ...(finalizeExternalInitialization ? { finalizeExternalInitialization } : {}),
       }),
     );
   }
@@ -7826,6 +7833,7 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
       desktopToolsEnabled?: boolean;
       conversationId?: string;
+      finalizeExternalInitialization?: (tx: Prisma.TransactionClient) => Promise<void>;
       projectId?: string | null;
       projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
@@ -7940,6 +7948,7 @@ export class ConversationService {
           else await assertNotDevelopmentPreview(tx, application.id);
         }
         if (options?.developmentSource) await lockDetachedDevelopment(tx, ownerId, options.developmentSource);
+        if (options?.finalizeExternalInitialization) await options.finalizeExternalInitialization(tx);
         assertUserRuntimeLeaseCurrent();
         const usesAutomaticTitle =
           !options?.title && !options?.development && !options?.developmentSource;
@@ -8006,9 +8015,11 @@ export class ConversationService {
         const existing = await this.prisma.conversation.findUnique({ where: { id } });
         if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
       }
-      await this.cleanup
-        .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
-        .catch(() => undefined);
+      if (!options?.finalizeExternalInitialization) {
+        await this.cleanup
+          .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
+          .catch(() => undefined);
+      }
       throw error;
     }
   }
@@ -9784,7 +9795,7 @@ export class ConversationService {
     planReviewAction?: PlanReviewTurnAction,
   ) {
     const lock =
-      existingLock ?? (await this.acquireConversationLock(conversationId));
+      existingLock ?? (await this.acquireConversationLock(conversationId, "turn-start"));
     const unlock = () => this.redis.releaseConversationLock(conversationId, lock).catch(() => undefined);
     let handedOff = false;
     // Local starts resolve the transition source before any durable reservation
@@ -10666,13 +10677,16 @@ export class ConversationService {
 
   private async acquireConversationLock(
     conversationId: string,
+    operation?: "turn-start",
   ): Promise<string> {
     bindTaskLatency({ conversationId });
     const finish = startTaskStage("conversation_lock_wait");
+    // A cold Worker may be provisioned before turn admission can settle.
+    const ttlMs = 120_000 + (operation === "turn-start" ? this.runnerColdStartBudgetMs : 0);
     for (let attempt = 0; attempt < 400; attempt += 1) {
       const token = await this.redis.acquireConversationLock(
         conversationId,
-        120_000,
+        ttlMs,
       );
       if (token) { finish(); return token; }
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));

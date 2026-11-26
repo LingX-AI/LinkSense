@@ -9,6 +9,7 @@ import {
 } from "@linksense/shared";
 
 import { sha256 } from "../src/lib/crypto.js";
+import type { Prisma } from "../src/generated/prisma/client.js";
 import {
   ApplicationExternalAccessService,
   decryptExternalApplicationSessionId,
@@ -764,6 +765,7 @@ type SessionRow = {
   externalApplicationSessionIdEncryptionKeyId: string | null;
   externalApplicationSessionIdUpdatedAt: Date | null;
   absoluteExpiresAt: Date;
+  initializationExpiresAt: Date | null;
   lastSeenAt: Date;
   revokedAt: Date | null;
   revokeReason: string | null;
@@ -867,11 +869,13 @@ function lifecycleFixture() {
       ownerId: string,
       applicationInput: { id: string; name: string },
       reservedId?: string,
+      finalizeInitialization?: (tx: Prisma.TransactionClient) => Promise<void>,
     ) => {
       const id = reservedId ??
         [CONVERSATION_ID, SECOND_CONVERSATION_ID, THIRD_CONVERSATION_ID][
           conversations.length
         ] ?? crypto.randomUUID();
+      if (finalizeInitialization) await finalizeInitialization(transaction as never);
       conversations.push({
         id,
         ownerId,
@@ -910,7 +914,12 @@ function lifecycleFixture() {
     },
   );
   const transaction = {
+    $executeRaw: vi.fn(async () => 0),
     $queryRaw: vi.fn(async () => [{ id: FIRST_TOKEN_ID }]),
+    applicationRuntimeInstallation: {
+      findUnique: vi.fn(async () => ({ versionId: APPLICATION_ID })),
+      create: vi.fn(async () => ({})),
+    },
     applicationEmbedTicket: {
       findUnique: vi.fn(async ({ where }: { where: { ticketHash: string } }) =>
         ticketRow?.ticketHash === where.ticketHash ? ticketRow : null,
@@ -1005,6 +1014,7 @@ function lifecycleFixture() {
           externalApplicationSessionIdEncryptionKeyId: null,
           externalApplicationSessionIdUpdatedAt: null,
           absoluteExpiresAt: data.absoluteExpiresAt as Date,
+          initializationExpiresAt: data.initializationExpiresAt instanceof Date ? data.initializationExpiresAt : null,
           lastSeenAt: data.lastSeenAt as Date,
           revokedAt: null,
           revokeReason: null,
@@ -1116,7 +1126,6 @@ function lifecycleFixture() {
   const sessionCreate = transaction.applicationExternalSession.create;
   const prisma = {
     ...transaction,
-    applicationRuntimeInstallation: { findUnique: vi.fn(async () => ({ versionId: APPLICATION_ID })), create: vi.fn(async () => ({})), deleteMany: vi.fn(async () => ({ count: 1 })) },
     $transaction: vi.fn(
       async (action: (tx: typeof transaction) => Promise<unknown>) =>
         action(transaction),

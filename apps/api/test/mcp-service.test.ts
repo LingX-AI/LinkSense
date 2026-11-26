@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   mcpDefaultStartupTimeoutSeconds,
   mcpDefaultToolTimeoutSeconds,
+  type McpServerApplicationUsage,
 } from "@linksense/shared";
 import { decryptJson } from "../src/lib/crypto.js";
 import type { AuditService } from "../src/modules/audit/service.js";
 import { McpServerService } from "../src/modules/mcp/service.js";
 import type {
   CreateMcpServerRecord,
+  DeleteOwnedMcpServerResult,
   McpConnectionProbe,
   McpServerRecord,
   McpServerRepository,
@@ -381,7 +383,7 @@ describe("McpServerService", () => {
       });
       const snapshot = await service.resolveRuntime(OWNER_ID);
       if (change === "disabled") await repository.update(created.id, { status: "disabled" });
-      if (change === "deleted") await repository.delete(created.id);
+      if (change === "deleted") await repository.deleteOwned(OWNER_ID, created.id);
       await expect(service.resolveRecovery(
         change === "another-owner" ? OTHER_OWNER_ID : OWNER_ID,
         change === "duplicate" ? [...snapshot.servers, ...snapshot.servers] : snapshot.servers,
@@ -438,6 +440,45 @@ describe("McpServerService", () => {
     await expect(service.delete(other, created.id)).rejects.toMatchObject({
       code: "MCP_SERVER_NOT_FOUND",
     });
+  });
+
+  it("keeps a disabled server and its audit trail intact while an application is bound", async () => {
+    const repository = new InMemoryMcpServerRepository();
+    const { service, audit } = createService(repository);
+    const created = await service.create(actor(), {
+      name: "Search",
+      url: "https://mcp.example.test/mcp",
+      authType: "none",
+    });
+    await service.patch(actor(), created.id, { status: "disabled" });
+    audit.write.mockClear();
+    const usages: McpServerApplicationUsage[] = [{
+      application_id: "20000000-0000-4000-8000-000000000001",
+      name: "Reports",
+      kind: "interactive",
+      locations: ["draft", "center"],
+    }];
+    repository.usages.set(created.id, usages);
+
+    await expect(service.delete(actor(OTHER_OWNER_ID), created.id)).rejects.toMatchObject({
+      code: "MCP_SERVER_NOT_FOUND",
+      params: undefined,
+    });
+    await expect(service.delete(actor(), created.id)).rejects.toMatchObject({
+      code: "MCP_SERVER_IN_USE",
+      params: { usages },
+    });
+    expect(repository.rows).toMatchObject([{ id: created.id, status: "disabled" }]);
+    expect(audit.write).not.toHaveBeenCalled();
+
+    repository.usages.delete(created.id);
+    await service.delete(actor(), created.id);
+    expect(repository.rows).toEqual([]);
+    expect(audit.write).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      action: "mcp_server_deleted",
+      targetId: created.id,
+      result: "success",
+    }));
   });
 
   it("records a sanitized connection result for both success and failure", async () => {
@@ -591,6 +632,7 @@ describe("McpServerService", () => {
 
 class InMemoryMcpServerRepository implements McpServerRepository {
   readonly rows: McpServerRecord[] = [];
+  readonly usages = new Map<string, McpServerApplicationUsage[]>();
 
   async listByOwner(ownerId: string): Promise<McpServerRecord[]> {
     return this.rows.filter((row) => row.ownerId === ownerId);
@@ -656,9 +698,14 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     return updated;
   }
 
-  async delete(id: string): Promise<void> {
-    const index = this.rows.findIndex((row) => row.id === id);
-    if (index >= 0) this.rows.splice(index, 1);
+  async deleteOwned(ownerId: string, id: string): Promise<DeleteOwnedMcpServerResult> {
+    const index = this.rows.findIndex((row) => row.ownerId === ownerId && row.id === id);
+    const server = this.rows[index];
+    if (!server) return { status: "not_found" };
+    const usages = this.usages.get(id) ?? [];
+    if (usages.length > 0) return { status: "in_use", usages };
+    this.rows.splice(index, 1);
+    return { status: "deleted", server };
   }
 }
 

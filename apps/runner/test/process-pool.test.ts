@@ -1510,6 +1510,8 @@ trust_level = "trusted"
     expect(childEnvironment.LINKSENSE_SKILL_CREATOR_TOKEN).toBeUndefined();
     expect(childEnvironment.LINKSENSE_AUTOMATION_ENDPOINT).toBeUndefined();
     expect(childEnvironment.LINKSENSE_AUTOMATION_TOKEN).toBeUndefined();
+    expect(childEnvironment.LINKSENSE_WEB_SITE_ENDPOINT).toBeUndefined();
+    expect(childEnvironment.LINKSENSE_WEB_SITE_TOKEN).toBeUndefined();
     expect(childEnvironment.LINKSENSE_CURRENT_USER_ENDPOINT).toBeTruthy();
     expect(childEnvironment.LINKSENSE_CURRENT_USER_TOKEN).toBeTruthy();
     expect(controlled.args).not.toContain(
@@ -1939,6 +1941,126 @@ trust_level = "trusted"
     await expect(plan.pool.manageAutomation(input.conversationId, token, { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(plan.eventSink.manageAutomation).not.toHaveBeenCalled();
     await plan.pool.closeAll();
+  });
+
+  it.each((["publish_site", "delete_site"] as const).flatMap(tool =>
+    (["approve", "reject", "cancel", "disconnect", "turn ended"] as const).map(decision => ({ tool, decision })),
+  ))(
+    "commits $tool only after a valid response ($decision)",
+    async ({ tool, decision }) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-site-approval-"));
+      roots.push(root);
+      const controlled = createControlledAppServer();
+      const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      const controller = new AbortController();
+      const fileId = "10000000-0000-4000-8000-000000000001";
+      const site = { file_id: fileId, name: "Password guide", description: "Example", slug: "guide" };
+      const deleting = tool === "delete_site";
+      const request = deleting ? { tool, site_id: fileId } as const : { tool, site } as const;
+      const confirmation = deleting ? {
+        tool,
+        site_id: fileId,
+        expected: { name: site.name, slug: site.slug, status: "published", release_id: fileId },
+      } as const : { tool, site: { ...site, conversation_id: input.conversationId } } as const;
+      const approval = {
+        confirmation,
+        message: deleting ? "Permanently delete Password guide at /web/guide?" : "Publish Password guide at /web/guide?",
+        decisionLabel: deleting ? "Delete this site?" : "Publication decision",
+        approveLabel: deleting ? "Confirm deletion" : "Publish site",
+        rejectLabel: "Cancel",
+      };
+      const committed = deleting ? { tool, site_id: fileId } : {
+        tool, outcome: "published",
+        site: {
+          id: fileId, name: site.name, description: site.description, slug: site.slug,
+          url: "https://example.test/web/guide", status: "published",
+          conversation_id: input.conversationId, source_task_title: "Guide",
+          source_file_id: fileId, release_id: fileId, file_count: 1, size_bytes: 200,
+          analytics_enabled: false, passcode_protected: false,
+          published_at: "2026-11-26T08:00:00.000Z",
+          created_at: "2026-11-26T08:00:00.000Z",
+          updated_at: "2026-11-26T08:00:00.000Z",
+        },
+      };
+      eventSink.manageWebSite.mockResolvedValueOnce(approval).mockResolvedValueOnce(committed);
+      try {
+        await pool.startTurn(input);
+        const token = controlled.environment?.LINKSENSE_WEB_SITE_TOKEN;
+        if (!token) throw new Error("missing site tool token");
+        expect(controlled.environment?.LINKSENSE_WEB_SITE_ENDPOINT).toContain("/mcp-web-sites/" + input.conversationId + "/execute");
+        await expect(pool.manageWebSite(input.conversationId, "wrong-token", request, controller.signal)).rejects.toMatchObject({ code: "FORBIDDEN" });
+        const scope = { conversationId: input.conversationId, turnId: input.projectionTurnId, signal: controller.signal };
+        const result = pool.manageWebSite(input.conversationId, token, request, controller.signal);
+        await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(input.conversationId, expect.objectContaining({
+          method: "linksense/form/request",
+          params: expect.objectContaining({
+            message: approval.message,
+            waitingPolicy: { kind: "required" },
+            responseSemantics: { kind: "approval", decision_field_id: "decision", approve_value: "approve", reject_value: "reject" },
+          }),
+        })));
+        expect(eventSink.manageWebSite).toHaveBeenCalledExactlyOnceWith({
+          ...scope, request, ...(deleting ? { requiresDeleteApproval: true } : {}),
+        });
+        const event = eventSink.publish.mock.calls.find(([, entry]) => entry.method === "linksense/form/request")?.[1];
+        if (!event || event.method !== "linksense/form/request") throw new Error("expected site approval");
+        expect(event.params.requestedSchema.properties.decision).toMatchObject({
+          title: approval.decisionLabel,
+          oneOf: [{ const: "approve", title: approval.approveLabel }, { const: "reject", title: "Cancel" }],
+        });
+        const responseScope = {
+          conversationId: input.conversationId, ownerId: input.ownerId,
+          requestId: event.params.requestId, itemId: event.params.itemId,
+          codexThreadId: "thread-native-1", codexTurnId: "turn-native-1",
+        };
+        await expect(pool.respondUserInputRequest({
+          ...responseScope, response: { action: "accept", content: { decision: "approve", slug: "other" } },
+        })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+        if (decision === "disconnect") {
+          controller.abort();
+        } else if (decision === "turn ended") {
+          controlled.notify({
+            method: "turn/completed",
+            params: { threadId: "thread-native-1", turn: { id: "turn-native-1", status: "completed" } },
+          });
+        } else {
+          await pool.respondUserInputRequest({
+            ...responseScope,
+            response: decision === "cancel" ? { action: "cancel" } : { action: "accept", content: { decision } },
+          });
+        }
+        if (decision === "approve") {
+          await expect(result).resolves.toEqual(committed);
+          expect(eventSink.manageWebSite).toHaveBeenCalledTimes(2);
+          expect(eventSink.manageWebSite).toHaveBeenLastCalledWith({ ...scope, confirmation });
+        } else {
+          await expect(result).resolves.toEqual({ tool, outcome: "cancelled" });
+          expect(eventSink.manageWebSite).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
+  it("rejects a direct deletion receipt before the required approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-delete-receipt-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    const request = { tool: "delete_site", site_id: "10000000-0000-4000-8000-000000000001" } as const;
+    eventSink.manageWebSite.mockResolvedValueOnce(request);
+    try {
+      await pool.startTurn(input);
+      const token = controlled.environment?.LINKSENSE_WEB_SITE_TOKEN;
+      if (!token) throw new Error("missing site tool token");
+      await expect(pool.manageWebSite(input.conversationId, token, request, new AbortController().signal)).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+      expect(eventSink.manageWebSite).toHaveBeenCalledOnce();
+    } finally {
+      await pool.closeAll();
+    }
   });
 
   it("binds application development to the projection turn, scoped token and normal mode", async () => {
@@ -2383,6 +2505,10 @@ trust_level = "trusted"
           value: expect.stringContaining(
             "You are the AI assistant in LinkSense",
           ),
+        },
+        "linksense.web-site-delivery": {
+          kind: "application",
+          value: expect.stringContaining("link the full returned site.url verbatim"),
         },
       },
       input: [
@@ -13804,6 +13930,7 @@ function createStartOperationPool(
     getCurrentUserInfo: vi.fn(async () => ({})),
     searchWeb: vi.fn(async () => ({})),
     manageAutomation: vi.fn(async () => ({})),
+    manageWebSite: vi.fn<NonNullable<RunnerEventSink["manageWebSite"]>>(),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     browserUse: vi.fn<NonNullable<RunnerEventSink["browserUse"]>>(async () => ({ ok: true, browser: "local", data: {} })),
     computerExecute: vi.fn<NonNullable<RunnerEventSink["computerExecute"]>>(async () => ({

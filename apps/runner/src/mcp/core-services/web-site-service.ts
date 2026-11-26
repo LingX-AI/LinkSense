@@ -1,121 +1,93 @@
 import {
-  webSiteListToolSchema,
-  webSitePublishToolSchema,
-  webSiteToolPageSchema,
+  webSiteToolFailureSchema,
+  webSiteToolInputs,
   webSiteToolRequestSchema,
-  webSiteUpdateToolSchema,
-  webSiteDeleteToolSchema,
-  webSiteWithUrlSchema,
-  webSiteBackendPrepareSchema,
-  webSiteBackendConfigureSchema,
-  webSiteBackendInspectSchema,
-  webSiteBackendSchema,
-} from "@linksense/shared";
-import { ToolSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-import { webSiteFailureSchema } from "../../web-site-error.js";
+  webSiteToolResultSchema,
+} from "@linksense/shared"
+import { ToolSchema } from "@modelcontextprotocol/sdk/types.js"
+import { z } from "zod"
+
 import {
   failureToolResult,
+  requestBlockingCoreMcpBroker,
   successToolResult,
   withRequestTimeout,
   type CoreMcpModuleDefinition,
-} from "../core-service-module.js";
+} from "../core-service-module.js"
 
-export const webSiteCoreMcpModule: CoreMcpModuleDefinition = {
-  key: "web_site",
+const toolNames = webSiteToolRequestSchema.options.map(schema => schema.shape.tool.value)
+const nameSchema = z.enum(toolNames)
+const siteLinkInstructions = "When the result contains a site, include its complete site.url in your final reply. For a published site, copy the Markdown link from the result. Use the exact URL as both the link text and target."
+const descriptions: Record<keyof typeof webSiteToolInputs, string> = {
+  list_sites: "List the current user's LinkSense sites across all tasks. Search by name or address slug, optionally filter by published or disabled, and use next_cursor to continue a paginated result. Use the returned site ID when calling a management tool.",
+  publish_site: `Publish a registered HTML task artifact as a new public LinkSense site on the user's request. ${siteLinkInstructions} With no arguments, list existing HTML artifacts in the current task for source selection. Pass site with its file_id, name, optional description and optional slug to publish. Use a known artifact ID, or register new HTML with register_artifact first. Ask the user to choose if the source is ambiguous. Once the details are ready, use this call to show the required confirmation card and publish after approval. An existing result describes the site already linked to that artifact, and a cancelled result means publication was cancelled.`,
+  update_site: `Update an owned site explicitly identified by the user. ${siteLinkInstructions} Resolve its unique site_id using list_sites or a verified earlier result. Pass changes containing name, description or slug to edit site information, or pass changes containing only a registered HTML file_id to create a new content version. A new version of a public site requires the built-in confirmation card. A disabled site keeps its unpublished status when saving a new version. With an address change, the former link stops working. If the site changes while awaiting confirmation, retrieve its current details before proposing the update again.`,
+  unpublish_site: "Stop public access to an owned site explicitly identified by the user. Use a verified site_id from list_sites or an earlier result. Resolve ambiguous names with the user first. The site moves to disabled status and retains its address and saved versions.",
+  delete_site: "Request permanent deletion of one owned site that the user explicitly asks to remove. Resolve a unique site_id using list_sites or an earlier result. Use request_user_form to disambiguate multiple matches. For the selected site, this call opens the required request_user_form approval card with its name, address and the impact of deletion. It deletes the site, its versions and reserved addresses only after the user approves that card. A cancelled result means the site was kept. If the outcome is uncertain, check the current list before trying again.",
+}
+
+const tools = toolNames.map(name => ({
+  name,
+  description: descriptions[name],
+  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteToolInputs[name], { io: "input" })),
+  annotations: {
+    readOnlyHint: name === "list_sites",
+    destructiveHint: name === "delete_site" || name === "unpublish_site" || name === "update_site",
+    idempotentHint: name === "list_sites",
+    openWorldHint: name === "publish_site" || name === "update_site",
+  },
+}))
+
+export const webSiteCoreMcpModule = {
+  key: "web_sites",
   modes: ["default"],
-  toolNames: ["publish_web_site", "list_web_sites", "update_web_site", "delete_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"],
+  toolNames,
   create({ environment, fetch: fetcher = globalThis.fetch }) {
     return {
-      key: "web_site",
-      tools: [publishTool, listTool, updateTool, deleteTool, prepareBackendTool, configureBackendTool, inspectBackendTool],
+      key: "web_sites",
+      tools,
       async callTool(input) {
+        const name = nameSchema.safeParse(input.toolName)
+        if (!name.success) return failureToolResult({ code: "VALIDATION_ERROR", retryable: false })
+        const args = webSiteToolInputs[name.data].safeParse(input.argumentsValue ?? {})
+        if (!args.success) return failureToolResult({ code: "VALIDATION_ERROR", retryable: false })
+        const request = webSiteToolRequestSchema.parse({ ...args.data, tool: name.data })
         try {
-          const request = input.toolName === "publish_web_site"
-            ? { operation: "publish" as const, ...webSitePublishToolSchema.parse(input.argumentsValue) }
-            : input.toolName === "update_web_site"
-              ? { operation: "update" as const, ...webSiteUpdateToolSchema.parse(input.argumentsValue) }
-              : input.toolName === "delete_web_site"
-                ? { operation: "delete" as const, ...webSiteDeleteToolSchema.parse(input.argumentsValue) }
-              : input.toolName === "prepare_web_site_backend"
-                ? { operation: "prepare_backend" as const, ...webSiteBackendPrepareSchema.parse(input.argumentsValue) }
-              : input.toolName === "configure_web_site_backend"
-                ? { operation: "configure_backend" as const, ...webSiteBackendConfigureSchema.parse(input.argumentsValue) }
-              : input.toolName === "inspect_web_site_backend"
-                ? { operation: "inspect_backend" as const, ...webSiteBackendInspectSchema.parse(input.argumentsValue) }
-              : { operation: "list" as const, ...webSiteListToolSchema.parse(input.argumentsValue) };
-          const endpoint = z.url().parse(environment.LINKSENSE_WEB_SITE_ENDPOINT);
-          const token = z.string().min(32).parse(environment.LINKSENSE_WEB_SITE_TOKEN);
-          const response = await fetcher(endpoint, {
+          const endpoint = z.url().parse(environment.LINKSENSE_WEB_SITE_ENDPOINT)
+          const token = z.string().min(32).parse(environment.LINKSENSE_WEB_SITE_TOKEN)
+          const waitsForApproval = request.tool === "delete_site" ||
+            (request.tool === "publish_site" && request.site !== undefined) ||
+            (request.tool === "update_site" && "file_id" in request.changes)
+          const options = {
             method: "POST",
-            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-            body: JSON.stringify(webSiteToolRequestSchema.parse(request)),
-            signal: withRequestTimeout(input.signal, 60_000),
-          });
-          const result: unknown = await response.json();
+            headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+            body: JSON.stringify(request),
+            signal: waitsForApproval ? input.signal : withRequestTimeout(input.signal, 65_000),
+          } as const
+          const response = waitsForApproval && fetcher === globalThis.fetch
+            ? await requestBlockingCoreMcpBroker(endpoint, options)
+            : await fetcher(endpoint, options)
+          const body: unknown = await response.json()
           if (!response.ok) {
-            const failure = webSiteFailureSchema.safeParse(result);
-            return failureToolResult(failure.success ? failure.data : { code: "WEB_SITE_UNAVAILABLE", retryable: response.status >= 500 });
+            const failure = webSiteToolFailureSchema.safeParse(body)
+            if (failure.success) return failureToolResult(failure.data)
+            return failureToolResult({ code: "INTERNAL_ERROR", retryable: request.tool === "list_sites" })
           }
-          if (request.operation === "delete") return successToolResult(z.object({ deleted: z.literal(true) }).parse(result));
-          if (request.operation === "prepare_backend" || request.operation === "inspect_backend") return successToolResult(webSiteBackendSchema.parse(result));
-          if (request.operation === "configure_backend") return successToolResult(z.record(z.string(), z.unknown()).parse(result));
-          return successToolResult(request.operation === "list"
-            ? webSiteToolPageSchema.parse(result)
-            : webSiteWithUrlSchema.parse(result));
+          const result = webSiteToolResultSchema.safeParse(body)
+          if (result.success && result.data.tool === request.tool) {
+            const data = result.data
+            const output = successToolResult(data)
+            if ((data.tool === "publish_site" || data.tool === "update_site") &&
+                "site" in data && data.site.status === "published") {
+              output.content.push({ type: "text", text: `<${data.site.url}>` })
+            }
+            return output
+          }
         } catch (error) {
-          if (input.signal.aborted) throw error;
-          return failureToolResult({
-            code: error instanceof z.ZodError ? "WEB_SITE_INVALID" : "WEB_SITE_UNAVAILABLE",
-            retryable: !(error instanceof z.ZodError),
-          });
+          if (input.signal.aborted) throw error
         }
+        return failureToolResult({ code: "INTERNAL_ERROR", retryable: false })
       },
-    };
+    }
   },
-};
-
-const publishTool: Tool = {
-  name: "publish_web_site",
-  description:
-    "Publish a complete Web application from an HTML artifact registered in this ordinary conversation by register_artifact. Requires the user's request to publish or deliver a public link; choosing a delivery shape alone is insufficient. Prepare a self-hosted backend only for requested data capabilities. Pass its ready backend_id for a new dynamic app or to add a backend to an existing static site_id, together with the new file_id. Existing backends cannot be replaced. Returns the stable public URL, preserving site identity, aliases and publication status on updates. New sites require name and optionally description and slug. LinkSense AI, tasks, knowledge, plugins or organization sharing use the interactive application builder.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSitePublishToolSchema)),
-};
-
-const listTool: Tool = {
-  name: "list_web_sites",
-  description:
-    "List the current user's public sites, optionally filtered by search text or status. Use this to find a site before publishing an update from a later task.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteListToolSchema)),
-};
-
-const updateTool: Tool = {
-  name: "update_web_site",
-  description:
-    "Update an owned Web application's name, description, slug, published status, access passcode, or visitor analytics without changing its content. The stable application URL and retired aliases remain usable after renaming. Unpublishing closes the stable entry, aliases, resources and backend gateway. analytics: true enables privacy-friendly visitor statistics for a published site and returns analytics_url for the owner; analytics: false stops collection but keeps historical data. Never invent an analytics URL.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteUpdateToolSchema)),
-};
-
-const deleteTool: Tool = {
-  name: "delete_web_site",
-  description:
-    "Permanently delete an owned public site together with its releases, its address and any backend binding. Only call this when the user explicitly asks to delete a specific site; confirm the site name and public URL first. To withdraw a site without deleting it, use update_web_site with status: \"disabled\" instead. Deletion cannot be undone, and the freed address may be taken by someone else.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteDeleteToolSchema)),
-  annotations: { title: "Delete public site", destructiveHint: true, idempotentHint: false, openWorldHint: false },
-};
-
-const prepareBackendTool: Tool = {
-  name: "prepare_web_site_backend",
-  description: "Prepare a self-hosted Appwrite backend for requested data capabilities in the current conversation without publishing it. New backends return runtime_mode sandbox, an optional main-domain /app/ alias and sdk_url; use the sandbox SDK. The publishing result supplies the stable application URL. Reuse an existing backend_id; do not create a replacement. Repeating a name in the same task reuses the backend. Existing backends retain their runtime. No credentials are returned.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteBackendPrepareSchema)),
-};
-const configureBackendTool: Tool = {
-  name: "configure_web_site_backend",
-  description: "Configure an owned backend: create a table with row security and indexes, add optional columns, create a file bucket, create a Node.js 24 HTTP function, stage its registered .tar.gz artifact, explicitly activate a ready deployment, or inspect resource/build status. Tables and buckets default to private user-owned records; specify public reads only when requested. No credentials are returned. No destructive schema operations are supported. Builds are asynchronous and never activate automatically. Activate a ready deployment only as part of an authorized rollout; retain the previous deployment ID for recovery.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteBackendConfigureSchema)),
-};
-const inspectBackendTool: Tool = {
-  name: "inspect_web_site_backend",
-  description: "Read an owned dynamic application's stable public backend configuration without credentials. Use configure_web_site_backend with inspect to check tables, functions or native deployment status.",
-  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteBackendInspectSchema)),
-};
+} satisfies CoreMcpModuleDefinition

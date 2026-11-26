@@ -166,6 +166,7 @@ export const errorMessages = {
         "La entrada de voz se puede usar hasta 20 veces por minuto. Inténtalo de nuevo en unos instantes.",
     },
     mcp: {
+      inUse: "Quita el servidor de las aplicaciones afectadas y actualiza las versiones que aún lo usan. Después, vuelve a intentar eliminarlo.",
       insecureHttpAcknowledgementRequired:
         "Debes aceptar el riesgo de transmisión sin cifrar antes de usar un servidor MCP HTTP.",
       credentialRequired:

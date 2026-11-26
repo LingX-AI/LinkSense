@@ -1,6 +1,9 @@
 import path from "node:path"
 
-import { desktopServerOriginSchema } from "@linksense/shared"
+import {
+  DEFAULT_WORKER_READY_TIMEOUT_SECONDS,
+  desktopServerOriginSchema,
+} from "@linksense/shared"
 import { z } from "zod"
 
 import {
@@ -129,7 +132,7 @@ const runnerConfigSchema = z
     LINKSENSE_WORKER_IDLE_TTL_SECONDS: positiveInteger(900),
     LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: booleanEnvironment(false),
     LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: booleanEnvironment(false),
-    LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: positiveInteger(60),
+    LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: positiveInteger(DEFAULT_WORKER_READY_TIMEOUT_SECONDS),
     LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: positiveInteger(20),
     LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: positiveInteger(20),
     LINKSENSE_RUNNER_HOST: z.string().trim().min(1).default("127.0.0.1"),

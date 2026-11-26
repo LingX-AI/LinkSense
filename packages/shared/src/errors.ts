@@ -150,6 +150,10 @@ export const errorCatalog = {
     message_key: "errors.webSites.slugTaken", http_status: 409,
     messages: { "zh-CN": "该访问地址已被使用，请换一个地址", "en-US": "This address is already reserved. Choose another address" },
   },
+  WEB_SITE_CHANGED: {
+    message_key: "errors.webSites.changed", http_status: 409,
+    messages: { "zh-CN": "站点已发生变化，请查看最新信息后重试", "en-US": "The site has changed. Review its current details and try again" },
+  },
   WEB_SITE_SOURCE_UNAVAILABLE: {
     message_key: "errors.webSites.sourceUnavailable", http_status: 409,
     messages: { "zh-CN": "找不到可发布的网页，请从任务中选择已生成的 HTML 文件", "en-US": "Select an available HTML artifact from the source task" },
@@ -436,6 +440,14 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "未找到该 MCP 服务器。",
       "en-US": "The MCP server was not found.",
+    },
+  },
+  MCP_SERVER_IN_USE: {
+    message_key: "errors.mcp.inUse",
+    http_status: 409,
+    messages: {
+      "zh-CN": "此 MCP 服务器仍有应用在使用。请先在相关应用中解绑，再删除服务器。",
+      "en-US": "Applications still use this MCP server. Remove it from those applications before deleting it.",
     },
   },
   MCP_INSECURE_HTTP_ACKNOWLEDGEMENT_REQUIRED: {

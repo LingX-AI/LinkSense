@@ -25,6 +25,7 @@ import {
 } from "@/features/conversations/conversation-composer"
 import type { CapabilitySummary } from "@/api/contracts"
 import { VOICE_TRANSCRIPTION_TIMEOUT_MS } from "@/features/conversations/use-voice-transcription"
+import { TaskLocalModelBadge } from "@/features/sensitive-data/task-local-model"
 import i18n from "@/i18n"
 
 const editorRender = vi.hoisted(() => vi.fn())
@@ -3153,6 +3154,44 @@ describe("conversation voice input", () => {
       code: "Enter",
     })
     expect(props.onSubmit).not.toHaveBeenCalled()
+  })
+
+  it("shows the local execution model once the task is routed locally", () => {
+    const { props, rerender } = renderComposer({
+      modelPreference: {
+        configured: true,
+        default_model: "cloud-model",
+        selected_model: "cloud-model",
+        selected_reasoning_effort: "medium",
+        models: [
+          {
+            id: "cloud-model",
+            display_name: "Cloud Model",
+            enabled: true,
+            context_window: null,
+            supported_reasoning_efforts: ["medium"],
+            default_reasoning_effort: "medium",
+          },
+        ],
+      },
+      onModelPreferenceChange: vi.fn(),
+    })
+    expect(screen.getByText("Cloud Model")).toBeInTheDocument()
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        localModelControl={<TaskLocalModelBadge modelName="Local Model" />}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        i18n.t("sensitiveData.processingLocally", { model: "Local Model" })
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Cloud Model")).not.toBeInTheDocument()
+    expect(props.onModelPreferenceChange).not.toHaveBeenCalled()
   })
 
   it("blocks send and attachment actions while a model preference update is pending", () => {

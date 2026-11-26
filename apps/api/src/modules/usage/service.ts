@@ -293,13 +293,13 @@ export class UsageAnalyticsService
         };
       }
       const snapshotKey = tokenUsageSnapshotKey(params.turnId, total);
-      const model = turn.model ?? UNKNOWN_USAGE_MODEL_ID;
+      const model = params.localModelUsage?.model ?? turn.model ?? UNKNOWN_USAGE_MODEL_ID;
 
       let recorded = false;
       if (!isZeroTokens(delta)) {
         const costSnapshot = calculatePriceAndCostSnapshot(
           delta,
-          catalog.pricing.get(model) ?? null,
+          params.localModelUsage?.pricing ?? catalog.pricing.get(model) ?? null,
         );
         const inserted = await tx.tokenUsageRecord.createMany({
           data: [

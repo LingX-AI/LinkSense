@@ -51,7 +51,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         closeButtonAriaLabel: t("common.close"),
         classNames: {
           toast:
-            "cn-toast left-1/2! right-auto! w-max! max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 py-3!",
+            "cn-toast py-3! data-[x-position=center]:left-1/2! data-[x-position=center]:right-auto! data-[x-position=center]:w-max! data-[x-position=center]:max-w-[min(40rem,calc(100vw-2rem))] data-[x-position=center]:-translate-x-1/2",
           content: "min-w-0",
           closeButton:
             "static! order-last ml-auto! shrink-0 self-center transform-none! border-0! focus-visible:ring-2 focus-visible:ring-ring",

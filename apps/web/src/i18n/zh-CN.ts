@@ -887,6 +887,19 @@ export const zhCN = {
     deleteTitle: "删除此 MCP 服务器？",
     deleteDescription:
       "服务器配置、加密凭据和加密环境变量将永久删除，之后的新任务不再连接它。",
+    deleteBlocked: {
+      title: "MCP 服务器仍在使用中",
+      locations: {
+        application: "应用配置或当前版本",
+        draft: "开发草稿",
+        shared: "组织共享发布版本",
+        center: "应用中心上架版本",
+        shared_installation: "组织共享中已安装的版本",
+        center_installation: "应用中心已安装的版本",
+      },
+      installedVersionHint:
+        "如果成员仍在使用已安装的旧版，请让他们更新，或停止提供对应的共享或上架服务。",
+    },
   },
   bootstrap: {
     unavailableTitle: "暂时无法连接 {{productName}}",
@@ -5287,6 +5300,7 @@ export const zhCN = {
         "语音输入每分钟最多使用 20 次，请稍后再试。",
     },
     mcp: {
+      inUse: "请先在相关应用中解除绑定，并更新仍在使用的版本，然后重试删除。",
       insecureHttpAcknowledgementRequired:
         "使用 HTTP MCP 前，必须确认你理解未加密传输风险。",
       credentialRequired: "该认证方式必须提供凭据。",

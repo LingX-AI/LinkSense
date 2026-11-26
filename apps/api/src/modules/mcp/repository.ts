@@ -4,8 +4,10 @@ import type {
   McpServer as PrismaMcpServer,
   PrismaClient,
 } from "../../generated/prisma/client.js"
+import { listMcpServerApplicationUsages } from "./application-usages.js"
 import type {
   CreateMcpServerRecord,
+  DeleteOwnedMcpServerResult,
   McpServerRecord,
   McpServerRepository,
   UpdateMcpServerRecord,
@@ -93,8 +95,23 @@ export class PrismaMcpServerRepository implements McpServerRepository {
     )
   }
 
-  async delete(id: string): Promise<void> {
-    await this.prisma.mcpServer.delete({ where: { id } })
+  deleteOwned(ownerId: string, id: string): Promise<DeleteOwnedMcpServerResult> {
+    // The usage query must see any binding that committed while the row lock waited.
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const owned = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM mcp_servers WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE
+        `
+        if (owned.length === 0) return { status: "not_found" }
+
+        const usages = await listMcpServerApplicationUsages(transaction, ownerId, id)
+        if (usages.length > 0) return { status: "in_use", usages }
+
+        const row = await transaction.mcpServer.delete({ where: { id, ownerId } })
+        return { status: "deleted", server: parseMcpServerRecord(row) }
+      },
+      { isolationLevel: "ReadCommitted" }
+    )
   }
 }
 

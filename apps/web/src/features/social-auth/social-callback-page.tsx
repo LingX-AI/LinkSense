@@ -38,6 +38,8 @@ export function SocialCallbackPage() {
   const [error, setError] = useState<string | null>(null)
   const attempted = useRef(false)
   const finish = useCallback(async () => {
+    // The social exchange establishes a new login; accepting it advances the
+    // login boundary and verifies the profile through the auth provider.
     await acceptSession(await refreshSession())
     navigate(externalLoginDestination(), { replace: true })
   }, [acceptSession, navigate])

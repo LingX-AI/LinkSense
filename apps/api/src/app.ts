@@ -78,10 +78,13 @@ import {
 } from "./lib/logger.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
+import { sensitiveDataRoutes } from "./modules/sensitive-data/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { internalWebSiteRoutes, publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
+import { internalWebSiteToolRoutes } from "./modules/web-sites/internal-routes.js";
+import { WebSiteToolService } from "./modules/web-sites/tool-service.js";
 import { registerWebSiteBackendGateway } from "./modules/web-site-backends/gateway.js";
 import { registerPublicAppGateway } from "./modules/web-site-backends/sandbox-gateway.js";
 import { WebSiteVisitorSessions } from "./modules/web-site-backends/visitor-sessions.js";
@@ -175,6 +178,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.secret_payload",
   "req.body.secret_fields[*].value",
   "req.body.credential",
+  "req.body.decision_api_key",
+  "req.body.context",
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
@@ -230,7 +235,7 @@ export async function buildApi(
     accessSecret: services.config.jwtSecret, takeUnlockAttempt,
     ...(services.config.analytics ? { analyticsOrigin: new URL(services.config.analytics.baseUrl).origin } : {}),
   });
-  app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
+  app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done, { requestId: request.id }); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
   registerClientBuildGuard(app, buildId);
@@ -292,6 +297,7 @@ export async function buildApi(
   registerMaintenanceGuard(app, services.system);
 
   await app.register(systemRoutes, { prefix: "/api/v1/system", services });
+  await app.register(sensitiveDataRoutes, { service: services.sensitiveData });
   app.post("/api/v1/system/initialize", async (request, reply) => {
     const result = await authService.initialize(request.body, {
       ipAddress: request.ip,
@@ -658,6 +664,11 @@ export async function buildApi(
   await app.register(siteIconRoutes, { prefix: "/api/v1", services });
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
+  await app.register(internalWebSiteToolRoutes, {
+    prefix: "/internal/web-sites",
+    service: new WebSiteToolService(services.prisma, services.webSites, services.config.publicBaseUrl),
+    sharedSecret: services.config.runnerSharedSecret,
+  });
   await app.register(internalConversationReferenceRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalAutomationMonitoringRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalSkillCreatorRoutes, {

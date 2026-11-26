@@ -1,4 +1,5 @@
 import type { WebSearchRequest } from "@linksense/shared";
+import { z } from "zod";
 import { WebSearchRequestError, webSearchErrorFromApi } from "./web-search-error.js";
 import type { Logger } from "pino";
 import { relative } from "node:path";
@@ -16,6 +17,7 @@ import {
   runnerEventBatchReceiptSchema,
   runnerStartSettledSchema,
   runnerStartSettledReceiptSchema,
+  sensitiveDataRelayResultSchema,
   userWorkspacePathSchema,
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
@@ -24,7 +26,11 @@ import {
   type ComputerExecuteResult,
   type DesktopArtifactSourceBinding,
   type ImagePreviewRegistration,
+  type InternalWebSiteToolConfirm,
+  type InternalWebSiteToolRequest,
   type RunnerStartSettled,
+  type SensitiveDataRelayInput,
+  type SensitiveDataRelayResult,
 } from "@linksense/shared";
 import type {
   ImageGenerationRequest,
@@ -48,6 +54,7 @@ import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
 import { webSiteErrorFromApi } from "./web-site-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import { automationErrorFromApi } from "./automation-error.js";
+import { webSiteToolErrorFromApi } from "./web-site-tool-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
 import type { ConnectionInput, DesktopConnectionRequestBody } from "@linksense/shared";
@@ -68,6 +75,7 @@ export interface RunnerEventSink {
     request: AutomationToolRequest;
     signal?: AbortSignal;
   }): Promise<unknown>;
+  manageWebSite?(input: (InternalWebSiteToolRequest | InternalWebSiteToolConfirm) & { signal: AbortSignal }): Promise<unknown>;
   accessConnection?(input: {
     conversationId: string;
     turnId: string;
@@ -105,7 +113,7 @@ export interface RunnerEventSink {
     workspaceRelativePath: string;
   }): Promise<unknown>;
   applicationBuilder?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown>;
-  webSite?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteToolRequest }): Promise<unknown>;
+  webSite?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteLegacyToolRequest }): Promise<unknown>;
   confirmSkillInstall?(input: {
     conversationId: string;
     turnId: string;
@@ -230,6 +238,19 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     event: LinkSensePublishedEvent,
   ): Promise<void> {
     await this.publishBatch(conversationId, [event]);
+  }
+
+  async authorizeSensitiveData(
+    ownerId: string,
+    input: SensitiveDataRelayInput,
+    signal: AbortSignal,
+  ): Promise<SensitiveDataRelayResult> {
+    const response = await this.request("/internal/runner/sensitive-data", input, ownerId, signal);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error("Sensitive data routing is unavailable");
+    }
+    return z.object({ data: sensitiveDataRelayResultSchema }).parse(await response.json()).data;
   }
 
   async publishBatch(
@@ -494,7 +515,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
     return body;
   }
-  async webSite(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteToolRequest }): Promise<unknown> {
+  async webSite(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteLegacyToolRequest }): Promise<unknown> {
     const response = await this.request("/internal/web-sites", input, this.workspaceManager.ownerFor(input.conversationId));
     const body = await parseResponseBody(response);
     if (!response.ok) throw webSiteErrorFromApi(response.status, body);
@@ -596,6 +617,15 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const response = await this.request("/internal/automations/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
     const result = await parseResponseBody(response);
     if (!response.ok) throw automationErrorFromApi(response.status, result);
+    return result;
+  }
+
+  async manageWebSite(input: (InternalWebSiteToolRequest | InternalWebSiteToolConfirm) & { signal: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const path = "confirmation" in body ? "/internal/web-sites/confirm" : "/internal/web-sites/execute";
+    const response = await this.request(path, body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    const result = await parseResponseBody(response);
+    if (!response.ok) throw webSiteToolErrorFromApi(response.status, result);
     return result;
   }
 
@@ -1078,7 +1108,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname.startsWith("/internal/web-search/") ? 75_000
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/web-sites/") || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/computer-use/execute"
         ? desktopComputerExecuteLifetimeMs + 2_000
       : pathname === "/internal/local-tools/execute"

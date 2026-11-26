@@ -1,7 +1,34 @@
 diff --git a/dist/chunk-LNSHC2Z5.mjs b/dist/chunk-LNSHC2Z5.mjs
-index 89c08f52106b05156516e43e4bb9c0f0a68e0cba..07998d388c69ac767428efc6a23d5698248d2b7f 100644
+index 89c08f52106b05156516e43e4bb9c0f0a68e0cba..6aaeed6a6cb867fe3f00f35c15d06229781501e9 100644
 --- a/dist/chunk-LNSHC2Z5.mjs
 +++ b/dist/chunk-LNSHC2Z5.mjs
+@@ -2655,7 +2655,7 @@ function SlideThumbnailImpl({
+   const safeCanvasHeight = Math.max(canvasSize.height, 1);
+   const scale = SLIDE_NAV_THUMBNAIL_WIDTH / safeCanvasWidth;
+   const previewHeight = Math.max(56, Math.round(safeCanvasHeight * scale));
+-  const previewElements = [...templateElements, ...slide.elements].slice(0, 60);
++  const previewElements = [...templateElements, ...slide.elements];
+   const { t } = useTranslation();
+   const transitionLabel = slide.transition ? (() => {
+     const opt = SLIDE_TRANSITION_OPTIONS.find((o) => o.value === slide.transition?.type);
+@@ -2718,7 +2718,7 @@ function SlideThumbnailImpl({
+               return /* @__PURE__ */ jsx(
+                 "div",
+                 {
+-                  className: "absolute overflow-hidden",
++                  className: element.type === "group" ? "absolute isolate" : "absolute overflow-hidden",
+                   style: {
+                     left: element.x,
+                     top: element.y,
+@@ -2727,7 +2727,7 @@ function SlideThumbnailImpl({
+                     transform: getElementTransform(element),
+                     transformOrigin: "center"
+                   },
+-                  children: (element.type === "picture" || element.type === "image") && (element.svgData || element.imageData) ? isImageTiled(element) ? /* @__PURE__ */ jsx(
++                  children: element.type === "group" ? renderGroup(element.children) : (element.type === "picture" || element.type === "image") && (element.svgData || element.imageData) ? isImageTiled(element) ? /* @__PURE__ */ jsx(
+                     "div",
+                     {
+                       className: "pointer-events-none w-full h-full",
 @@ -31564,6 +31564,7 @@ var PowerPointViewer = forwardRef(
        filePath,
        fileName,
@@ -20,9 +47,36 @@ index 89c08f52106b05156516e43e4bb9c0f0a68e0cba..07998d388c69ac767428efc6a23d5698
                    ViewerToolbarSection,
                    {
 diff --git a/dist/chunk-XW5OMXW6.js b/dist/chunk-XW5OMXW6.js
-index 81784a86246b4635908ce80cbc6c2dcf7dc90617..29eaa4e51789b52cfd503dc6c0e9f38c16534125 100644
+index 81784a86246b4635908ce80cbc6c2dcf7dc90617..b3f1eca64f595a03fdb0440e81ef918e422c24de 100644
 --- a/dist/chunk-XW5OMXW6.js
 +++ b/dist/chunk-XW5OMXW6.js
+@@ -2662,7 +2662,7 @@ function SlideThumbnailImpl({
+   const safeCanvasHeight = Math.max(canvasSize.height, 1);
+   const scale = chunk3P6O7ZDM_js.SLIDE_NAV_THUMBNAIL_WIDTH / safeCanvasWidth;
+   const previewHeight = Math.max(56, Math.round(safeCanvasHeight * scale));
+-  const previewElements = [...templateElements, ...slide.elements].slice(0, 60);
++  const previewElements = [...templateElements, ...slide.elements];
+   const { t } = reactI18next.useTranslation();
+   const transitionLabel = slide.transition ? (() => {
+     const opt = chunk3P6O7ZDM_js.SLIDE_TRANSITION_OPTIONS.find((o) => o.value === slide.transition?.type);
+@@ -2725,7 +2725,7 @@ function SlideThumbnailImpl({
+               return /* @__PURE__ */ jsxRuntime.jsx(
+                 "div",
+                 {
+-                  className: "absolute overflow-hidden",
++                  className: element.type === "group" ? "absolute isolate" : "absolute overflow-hidden",
+                   style: {
+                     left: element.x,
+                     top: element.y,
+@@ -2734,7 +2734,7 @@ function SlideThumbnailImpl({
+                     transform: chunkJWS3RQKN_js.getElementTransform(element),
+                     transformOrigin: "center"
+                   },
+-                  children: (element.type === "picture" || element.type === "image") && (element.svgData || element.imageData) ? chunk3P6O7ZDM_js.isImageTiled(element) ? /* @__PURE__ */ jsxRuntime.jsx(
++                  children: element.type === "group" ? renderGroup(element.children) : (element.type === "picture" || element.type === "image") && (element.svgData || element.imageData) ? chunk3P6O7ZDM_js.isImageTiled(element) ? /* @__PURE__ */ jsxRuntime.jsx(
+                     "div",
+                     {
+                       className: "pointer-events-none w-full h-full",
 @@ -31571,6 +31571,7 @@ var PowerPointViewer = React5.forwardRef(
        filePath,
        fileName,
@@ -54,7 +108,7 @@ index fdfe75909c4a3508abe834b05661f548b65cb343..ad301698e37c887352473f1a17973641
    className?: string;
    /**
 diff --git a/dist/types-BK7Nt13M.d.ts b/dist/types-BK7Nt13M.d.ts
-index 0a78b9f5fa88a6913df50be6255fb3537aa7a1d2..cceab73e3f9ad1db9c5d608ba844d6a8d3a4cbd7 100644
+index 0a78b9f5fa88a6913df50be6255fb3537aa7a1d2..4f2454deab2ca0a798a4af8467c9793e9d175d7a 100644
 --- a/dist/types-BK7Nt13M.d.ts
 +++ b/dist/types-BK7Nt13M.d.ts
 @@ -385,6 +385,8 @@ interface PowerPointViewerProps {

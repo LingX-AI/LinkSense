@@ -280,9 +280,10 @@ export class McpServerService {
 
   async delete(actor: RequestActor, id: string): Promise<void> {
     assertActiveActor(actor);
-    const current = await this.requireOwned(actor.id, id);
-    await this.repository.delete(id);
-    await this.writeAudit(actor, "mcp_server_deleted", current);
+    const result = await this.repository.deleteOwned(actor.id, id);
+    if (result.status === "not_found") throw new AppError("MCP_SERVER_NOT_FOUND");
+    if (result.status === "in_use") throw new AppError("MCP_SERVER_IN_USE", { usages: result.usages });
+    await this.writeAudit(actor, "mcp_server_deleted", result.server);
   }
 
   async test(actor: RequestActor, id: string): Promise<McpServerTestResult> {

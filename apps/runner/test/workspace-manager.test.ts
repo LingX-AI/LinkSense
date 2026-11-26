@@ -580,6 +580,39 @@ describe("WorkspaceManager", () => {
     )
   })
 
+  it("keeps an owner's detection prompt across restarts and model preference updates", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const preference = { selection: "default", default_model_id: "local-fixture" } as const
+    const existing = await manager.getPersonalization(ownerA)
+    await writeFile(
+      path.join(manager.ownerPathsFor(ownerA).control, "personalization.json"),
+      JSON.stringify({ version: 1, ...existing, sensitive_data: preference }),
+    )
+    expect((await manager.getPersonalization(ownerA)).sensitive_data).toEqual({
+      ...preference, detection_prompt: null,
+    })
+    const prompt = "Protect unpublished project names."
+    await manager.updatePersonalization(ownerA, {
+      sensitive_data: { ...preference, detection_prompt: prompt },
+    })
+    const restarted = new WorkspaceManager(root)
+    const remembered = { ...preference, default_model_id: "another-local-fixture" }
+    await restarted.updatePersonalization(ownerA, { sensitive_data: remembered })
+    await restarted.updatePersonalization(ownerA, { show_reasoning: false })
+    expect(await restarted.getPersonalization(ownerA)).toMatchObject({
+      sensitive_data: { ...remembered, detection_prompt: prompt },
+      show_reasoning: false,
+    })
+    expect((await restarted.getPersonalization(ownerB)).sensitive_data).toBeUndefined()
+    await restarted.updatePersonalization(ownerA, {
+      sensitive_data: { ...remembered, detection_prompt: null },
+    })
+    expect((await restarted.getPersonalization(ownerA)).sensitive_data).toEqual({
+      ...remembered, detection_prompt: null,
+    })
+  })
+
   it("defaults missing reasoning settings to visible and preserves saved opt-outs independently per owner", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
@@ -736,7 +769,7 @@ describe("WorkspaceManager", () => {
     )
     expect(managedServiceConfig).toContain('args = ["core-service.js"]')
     expect(managedServiceConfig).toContain(
-      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT", "LINKSENSE_AUTOMATION_STOP_ENDPOINT", "LINKSENSE_WEB_SEARCH_ENDPOINT", "LINKSENSE_WEB_SEARCH_TOKEN", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN", "LINKSENSE_WEB_SITE_ENDPOINT", "LINKSENSE_WEB_SITE_TOKEN", "LINKSENSE_LOCAL_TOOLS_ENDPOINT", "LINKSENSE_LOCAL_TOOLS_TOKEN"]',
+      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT", "LINKSENSE_AUTOMATION_STOP_ENDPOINT", "LINKSENSE_WEB_SEARCH_ENDPOINT", "LINKSENSE_WEB_SEARCH_TOKEN", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_WEB_SITE_ENDPOINT", "LINKSENSE_WEB_SITE_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN", "LINKSENSE_LOCAL_TOOLS_ENDPOINT", "LINKSENSE_LOCAL_TOOLS_TOKEN"]',
     )
     expect(managedServiceConfig).toContain("required = true")
     expect(managedServiceConfig).toContain("tool_timeout_sec = 3153600000")

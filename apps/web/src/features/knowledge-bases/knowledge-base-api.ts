@@ -12,16 +12,13 @@ import {
   apiUploadRequest,
   buildApiUrl,
   downloadApiFile,
-  isDefinitiveAuthenticationError,
-  refreshSession,
+  requestWithSessionRetry,
   prepareClientBuildRequest,
   validateUploadResponseBuild,
 } from "@/api/client"
 import {
-  getAccessToken,
   getLoginSessionBoundary,
   isLoginSessionCurrent,
-  setAccessToken,
   type LoginSessionBoundary,
 } from "@/api/session"
 import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
@@ -602,7 +599,6 @@ export async function uploadKnowledgeDocument(
       await import("./knowledge-ui-demo-data")
     rejectKnowledgeUiDemoWrite()
   }
-  const accessToken = getAccessToken()
   // The upload belongs to the login that sent it. A replacement login must not
   // inherit its refresh, replay, retry conflict lookup, or token clear.
   const loginSessionBoundary = getLoginSessionBoundary()
@@ -610,42 +606,23 @@ export async function uploadKnowledgeDocument(
     if (isLoginSessionCurrent(loginSessionBoundary)) return
     throw createSupersededUploadError()
   }
-  let result: KnowledgeUploadResult
   try {
-    result = await uploadWithToken(options, accessToken, loginSessionBoundary)
+    const result = await requestWithSessionRetry(
+      `/knowledge-bases/${options.knowledgeBaseId}/documents`,
+      {
+        signal: options.signal,
+        loginSessionBoundary,
+      },
+      (token) => uploadWithToken(options, token, loginSessionBoundary)
+    )
+    assertLoginSessionCurrent()
+    return result
   } catch (error) {
     assertLoginSessionCurrent()
-    if (!isDefinitiveAuthenticationError(error)) {
-      return resolveUploadConflict(options, error, assertLoginSessionCurrent)
-    }
-    try {
-      await refreshSession(accessToken, loginSessionBoundary)
-    } catch (refreshError) {
-      assertLoginSessionCurrent()
-      if (isDefinitiveAuthenticationError(refreshError)) setAccessToken(null)
-      throw refreshError
-    }
-    assertLoginSessionCurrent()
-    let retryResult: KnowledgeUploadResult
-    try {
-      retryResult = await uploadWithToken(
-        options,
-        getAccessToken(),
-        loginSessionBoundary
-      )
-    } catch (retryError) {
-      assertLoginSessionCurrent()
-      return resolveUploadConflict(
-        options,
-        retryError,
-        assertLoginSessionCurrent
-      )
-    }
-    assertLoginSessionCurrent()
-    return retryResult
+    // The conflict lookup may outlive the login that produced the 409; it must
+    // never present its document or failure to the replacement login.
+    return resolveUploadConflict(options, error, assertLoginSessionCurrent)
   }
-  assertLoginSessionCurrent()
-  return result
 }
 
 async function resolveUploadConflict(

@@ -137,6 +137,8 @@ async function deleteConversationGraph(
   await tx.conversationShare.deleteMany({ where: { conversationId } });
   await tx.computerPermissionGrant.deleteMany({ where: { conversationId } });
   await tx.localComputerSession.deleteMany({ where: { conversationId } });
+  await tx.feishuInboundMessage.deleteMany({ where: { conversationId } });
+  await tx.feishuOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
   await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });

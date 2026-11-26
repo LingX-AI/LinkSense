@@ -1097,6 +1097,9 @@ const realSessionExpiry = "2099-01-01T00:00:00.000Z"
 describe("conversation execution target", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
+    // Clear before publishing the token so the in-memory session and the
+    // persisted credential slot agree; the account guard rejects a mismatch.
+    window.localStorage.clear()
     setAccessToken("execution-target-access-token")
     hostMock.mac = true
     hostMock.serverUrl = "https://desktop.example.test"
@@ -1106,7 +1109,6 @@ describe("conversation execution target", () => {
     readDesktopDeviceMock.mockReset()
     readDesktopDeviceMock.mockResolvedValue(readyDeviceStatus())
     clearDesktopSessionMock.mockReset().mockResolvedValue(undefined)
-    window.localStorage.clear()
   })
 
   afterEach(() => {

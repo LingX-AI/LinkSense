@@ -1,21 +1,11 @@
 import { knowledgeCitationEventSchema } from "@linksense/shared"
-import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 
-import {
-  buildApiUrl,
-  isDefinitiveAuthenticationError,
-  refreshSession,
-  ApiError,
-  prepareClientBuildRequest,
-  validateResponseBuild,
-} from "@/api/client"
+import { apiEventStreamRequest, ApiError } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 import {
-  getAccessToken,
   getLoginSessionBoundary,
   isLoginSessionCurrent,
-  setAccessToken,
   subscribeToLoginSession,
 } from "@/api/session"
 
@@ -49,68 +39,19 @@ export function connectKnowledgeCitationEvents(
 
   const connect = async () => {
     while (!controller.signal.aborted) {
-      const headers = new Headers({ Accept: "text/event-stream" })
-      const token = getAccessToken()
-      if (token) headers.set("Authorization", `Bearer ${token}`)
-
       try {
-        prepareClientBuildRequest(headers)
-        let response = await hostFetch(
-          buildApiUrl(
-            `/knowledge-citations/${encodeURIComponent(citationId)}/events`
-          ),
+        // The shared request routine owns refresh, retry, build validation,
+        // and login-session ownership for the authenticated stream.
+        const response = await apiEventStreamRequest(
+          `/knowledge-citations/${encodeURIComponent(citationId)}/events`,
           {
-            headers,
-            credentials: "include",
-            cache: "no-store",
             signal: controller.signal,
+            loginSessionBoundary,
           }
         )
-
-        // The response belongs to the login that sent the request. Checking
-        // first also prevents a stale response from triggering the global
-        // build/desktop-update side effects of validateResponseBuild.
         if (isAbandonedLogin()) {
           controller.abort()
           return
-        }
-        validateResponseBuild(response.headers)
-        if (response.status === 401) {
-          try {
-            await refreshSession(token, loginSessionBoundary)
-          } catch (error) {
-            if (isAbandonedLogin()) {
-              controller.abort()
-              return
-            }
-            if (isDefinitiveAuthenticationError(error)) setAccessToken(null)
-            throw error
-          }
-          if (isAbandonedLogin()) {
-            controller.abort()
-            return
-          }
-          const refreshedToken = getAccessToken()
-          if (refreshedToken) {
-            headers.set("Authorization", `Bearer ${refreshedToken}`)
-          }
-          response = await hostFetch(
-            buildApiUrl(
-              `/knowledge-citations/${encodeURIComponent(citationId)}/events`
-            ),
-            {
-              headers,
-              credentials: "include",
-              cache: "no-store",
-              signal: controller.signal,
-            }
-          )
-          if (isAbandonedLogin()) {
-            controller.abort()
-            return
-          }
-          validateResponseBuild(response.headers)
-          if (response.status === 401) setAccessToken(null)
         }
 
         if (!response.ok || !response.body) {

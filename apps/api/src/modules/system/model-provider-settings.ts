@@ -357,8 +357,10 @@ export interface ManagedModelRuntimeSettingsReader {
 }
 
 export interface TaskTitleModelSettingsReader {
-  resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null>
+  resolveTaskTitleModel(conversationId?: string): Promise<ResolvedTaskTitleModelRuntime | null>
 }
+
+export type ResolvedTaskTitleModelRuntime = ResolvedManagedModelRuntime & { trustedLocal?: true }
 
 export interface ManagedModelReferenceReader {
   getReferencedModelIds(): Promise<ReadonlySet<string>>
@@ -1156,11 +1158,25 @@ export class ModelProviderSettingsService
   ): Promise<ResolvedManagedModelRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
-    return projectManagedRuntime(
+    const runtime = findManagedRuntime(
       await this.withCatalogCapabilities(stored),
       modelId,
       expectedKind
     )
+    if (!runtime) throw new AppError("MODEL_SELECTION_INVALID")
+    return runtime
+  }
+
+  async resolveManagedModels(
+    modelIds: readonly string[],
+    expectedKind: ManagedModelKind,
+  ): Promise<ResolvedManagedModelRuntime[]> {
+    const stored = await this.readStoredSettings()
+    if (!stored) return []
+    return modelIds.flatMap((id) => {
+      const runtime = findManagedRuntime(stored, id, expectedKind)
+      return runtime ? [runtime] : []
+    })
   }
 
   async resolveDesktopProxyProvider(input: {
@@ -1177,7 +1193,9 @@ export class ModelProviderSettingsService
   }> {
     const stored = await this.readStoredSettings()
     if (!stored || stored.revision !== input.revision) throw new AppError("MODEL_SELECTION_INVALID")
-    const { channel, model } = projectManagedRuntime(stored, input.model, "chat")
+    const resolved = findManagedRuntime(stored, input.model, "chat")
+    if (!resolved) throw new AppError("MODEL_SELECTION_INVALID")
+    const { channel, model } = resolved
     if (!channel.apiKey || channel.protocolMode !== input.protocolMode ||
       (input.purpose === "primary" && !model.enabled) ||
       (input.purpose === "memory_extraction" && stored.memoryExtractionModel !== null && stored.memoryExtractionModel !== input.model)) {
@@ -1202,11 +1220,13 @@ export class ModelProviderSettingsService
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {
     const stored = await this.readStoredSettings()
     if (!stored?.titleModel) return null
-    return projectManagedRuntime(
+    const runtime = findManagedRuntime(
       await this.withCatalogCapabilities(stored),
       stored.titleModel,
       "chat"
     )
+    if (!runtime) throw new AppError("MODEL_SELECTION_INVALID")
+    return runtime
   }
 
   private async readStoredSettingsForMetadata(): Promise<StoredModelProviderSettings | null> {
@@ -1961,15 +1981,15 @@ function projectMemoryExtractionRuntime(
   stored: StoredModelProviderSettings,
   taskModel: string
 ): MemoryExtractionRuntime {
-  const resolved = projectManagedRuntime(
+  const resolved = findManagedRuntime(
     stored,
     stored.memoryExtractionModel ?? taskModel,
     "chat"
   )
-  const model = resolved.model
-  if (model.kind !== "chat" || !resolved.channel.apiKey) {
+  if (!resolved || resolved.model.kind !== "chat" || !resolved.channel.apiKey) {
     throw new AppError("MODEL_SELECTION_INVALID")
   }
+  const model = resolved.model
   const reasoningEffort = reasoningEffortValues.find((effort) =>
     model.supported_reasoning_efforts.includes(effort)
   )
@@ -2028,17 +2048,17 @@ function allModels(stored: StoredModelProviderSettings): ManagedPricedModel[] {
   return stored.providers.flatMap((provider) => provider.models)
 }
 
-function projectManagedRuntime(
+function findManagedRuntime(
   stored: StoredModelProviderSettings,
   modelId: string,
   expectedKind?: ManagedModelKind
-): ResolvedManagedModelRuntime {
+): ResolvedManagedModelRuntime | null {
   const channel = stored.providers.find((provider) =>
     provider.models.some((model) => model.id === modelId)
   )
   const model = channel?.models.find((candidate) => candidate.id === modelId)
   if (!channel || !model || (expectedKind && model.kind !== expectedKind)) {
-    throw new AppError("MODEL_SELECTION_INVALID")
+    return null
   }
   return {
     revision: stored.revision,

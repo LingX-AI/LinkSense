@@ -13,10 +13,14 @@ export type ResponsesStreamEvent = {
   data: JsonObject;
 };
 
-type CompletedOutput = {
+type IndexedOutput = {
   outputIndex: number;
   item: JsonObject;
 };
+
+type IncompleteReason = "max_output_tokens" | "content_filter";
+type TerminalStatus = "completed" | "incomplete";
+type ChatTerminal = "completed" | IncompleteReason;
 
 type ToolStreamState = {
   outputIndex: number;
@@ -97,17 +101,19 @@ export function chatCompletionToResponse(
 ): JsonObject {
   const choices = Array.isArray(source.choices) ? source.choices : [];
   const firstChoice = choices.find(isRecord);
+  const terminal = chatTerminal(firstChoice?.finish_reason) ?? "completed";
+  const status = terminal === "completed" ? "completed" : "incomplete";
   const message = isRecord(firstChoice?.message) ? firstChoice.message : {};
   const output: JsonObject[] = [];
   if (Array.isArray(message.tool_calls)) {
     for (const call of message.tool_calls) {
       if (!isRecord(call)) continue;
-      output.push(chatToolCallToResponseItem(call));
+      output.push(chatToolCallToResponseItem(call, status));
     }
   }
   const text = chatContentText(message.content);
   if (text !== "" || output.length === 0) {
-    output.push(responseMessageItem(text));
+    output.push(responseMessageItem(text, status));
   }
   return {
     id: responseId(),
@@ -116,7 +122,8 @@ export function chatCompletionToResponse(
       typeof source.created === "number"
         ? source.created
         : Math.floor(Date.now() / 1_000),
-    status: "completed",
+    status,
+    ...(terminal !== "completed" ? { incomplete_details: { reason: terminal } } : {}),
     model: stringValue(source.model) || fallbackModel,
     output,
     output_text: text,
@@ -142,6 +149,7 @@ export async function* chatCompletionStreamToResponses(
       }
     | undefined;
   const toolStates = new Map<number, ToolStreamState>();
+  let terminal: ChatTerminal | undefined;
   let usage: unknown;
 
   yield {
@@ -162,7 +170,10 @@ export async function* chatCompletionStreamToResponses(
   };
 
   for await (const event of parseSseStream(upstream.body)) {
-    if (event.data.trim() === "[DONE]") break;
+    if (event.data.trim() === "[DONE]") {
+      terminal ??= "completed";
+      break;
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(event.data);
@@ -187,6 +198,10 @@ export async function* chatCompletionStreamToResponses(
     const choices = Array.isArray(payload.choices) ? payload.choices : [];
     for (const choice of choices) {
       if (!isRecord(choice)) continue;
+      const finish = chatTerminal(choice.finish_reason);
+      if (finish && (terminal === undefined || terminal === "completed" || finish === "content_filter")) {
+        terminal = finish;
+      }
       const delta = isRecord(choice.delta)
         ? choice.delta
         : isRecord(choice.message)
@@ -320,8 +335,28 @@ export async function* chatCompletionStreamToResponses(
     }
   }
 
-  const completedOutput: CompletedOutput[] = [];
+  if (!terminal) {
+    throw new Error("model provider stream closed before completion");
+  }
+  const incomplete = terminal !== "completed";
+  if (!incomplete) {
+    for (const state of toolStates.values()) {
+      assertValidFunctionArguments(state.arguments);
+    }
+  }
+  const status = incomplete ? "incomplete" : "completed";
+  const indexedOutput: IndexedOutput[] = [];
   for (const state of toolStates.values()) {
+    const item = {
+      id: state.itemId,
+      type: "function_call",
+      status,
+      call_id: state.callId,
+      name: state.name || "unknown_tool",
+      arguments: incomplete ? state.arguments : state.arguments || "{}",
+    };
+    indexedOutput.push({ outputIndex: state.outputIndex, item });
+    if (incomplete) continue;
     if (!state.added) {
       state.added = true;
       yield {
@@ -341,14 +376,6 @@ export async function* chatCompletionStreamToResponses(
         },
       };
     }
-    const item = {
-      id: state.itemId,
-      type: "function_call",
-      status: "completed",
-      call_id: state.callId,
-      name: state.name || "unknown_tool",
-      arguments: state.arguments || "{}",
-    };
     yield {
       event: "response.function_call_arguments.done",
       data: {
@@ -368,7 +395,6 @@ export async function* chatCompletionStreamToResponses(
         item,
       },
     };
-    completedOutput.push({ outputIndex: state.outputIndex, item });
   }
 
   if (textState) {
@@ -380,46 +406,48 @@ export async function* chatCompletionStreamToResponses(
     const item = {
       id: textState.itemId,
       type: "message",
-      status: "completed",
+      status,
       role: "assistant",
       content: [content],
     };
-    yield {
-      event: "response.output_text.done",
-      data: {
-        type: "response.output_text.done",
-        item_id: textState.itemId,
-        output_index: textState.outputIndex,
-        content_index: 0,
-        sequence_number: sequence++,
-        text: textState.text,
-      },
-    };
-    yield {
-      event: "response.content_part.done",
-      data: {
-        type: "response.content_part.done",
-        item_id: textState.itemId,
-        output_index: textState.outputIndex,
-        content_index: 0,
-        sequence_number: sequence++,
-        part: content,
-      },
-    };
-    yield {
-      event: "response.output_item.done",
-      data: {
-        type: "response.output_item.done",
-        output_index: textState.outputIndex,
-        sequence_number: sequence++,
-        item,
-      },
-    };
-    completedOutput.push({ outputIndex: textState.outputIndex, item });
+    indexedOutput.push({ outputIndex: textState.outputIndex, item });
+    if (!incomplete) {
+      yield {
+        event: "response.output_text.done",
+        data: {
+          type: "response.output_text.done",
+          item_id: textState.itemId,
+          output_index: textState.outputIndex,
+          content_index: 0,
+          sequence_number: sequence++,
+          text: textState.text,
+        },
+      };
+      yield {
+        event: "response.content_part.done",
+        data: {
+          type: "response.content_part.done",
+          item_id: textState.itemId,
+          output_index: textState.outputIndex,
+          content_index: 0,
+          sequence_number: sequence++,
+          part: content,
+        },
+      };
+      yield {
+        event: "response.output_item.done",
+        data: {
+          type: "response.output_item.done",
+          output_index: textState.outputIndex,
+          sequence_number: sequence++,
+          item,
+        },
+      };
+    }
   }
 
-  if (completedOutput.length === 0) {
-    const item = responseMessageItem("");
+  if (indexedOutput.length === 0 && !incomplete) {
+    const item = responseMessageItem("", status);
     const outputIndex = nextOutputIndex;
     yield {
       event: "response.output_item.added",
@@ -439,22 +467,24 @@ export async function* chatCompletionStreamToResponses(
         item,
       },
     };
-    completedOutput.push({ outputIndex, item });
+    indexedOutput.push({ outputIndex, item });
   }
 
-  const output = completedOutput
+  const output = indexedOutput
     .sort((left, right) => left.outputIndex - right.outputIndex)
     .map(({ item }) => item);
+  const terminalEvent = incomplete ? "response.incomplete" : "response.completed";
   yield {
-    event: "response.completed",
+    event: terminalEvent,
     data: {
-      type: "response.completed",
+      type: terminalEvent,
       sequence_number: sequence,
       response: {
         id,
         object: "response",
         created_at: createdAt,
-        status: "completed",
+        status,
+        ...(incomplete ? { incomplete_details: { reason: terminal } } : {}),
         model,
         output,
         output_text: textState?.text ?? "",
@@ -648,27 +678,56 @@ function chatToolChoice(value: unknown): unknown {
   return undefined;
 }
 
-function chatToolCallToResponseItem(source: JsonObject): JsonObject {
+function chatTerminal(finishReason: unknown): ChatTerminal | undefined {
+  switch (finishReason) {
+    case undefined:
+    case null:
+    case "":
+      return undefined;
+    case "stop":
+    case "tool_calls":
+    case "function_call":
+      return "completed";
+    case "length":
+      return "max_output_tokens";
+    case "content_filter":
+      return "content_filter";
+    default:
+      throw new Error("model provider returned an unsupported finish reason");
+  }
+}
+
+function assertValidFunctionArguments(args: string): void {
+  if (args === "") return;
+  try {
+    JSON.parse(args);
+  } catch {
+    throw new Error("model provider returned invalid function arguments");
+  }
+}
+
+function chatToolCallToResponseItem(source: JsonObject, status: TerminalStatus): JsonObject {
   const fn = isRecord(source.function) ? source.function : {};
+  const args = typeof fn.arguments === "string"
+    ? fn.arguments
+    : JSON.stringify(fn.arguments ?? {});
+  if (status === "completed") assertValidFunctionArguments(args);
   return {
     id: itemId("fc"),
     type: "function_call",
-    status: "completed",
+    status,
     call_id:
       typeof source.id === "string" ? source.id : itemId("call"),
     name: stringValue(fn.name) || "unknown_tool",
-    arguments:
-      typeof fn.arguments === "string"
-        ? fn.arguments
-        : JSON.stringify(fn.arguments ?? {}),
+    arguments: args,
   };
 }
 
-function responseMessageItem(text: string): JsonObject {
+function responseMessageItem(text: string, status: TerminalStatus): JsonObject {
   return {
     id: itemId("msg"),
     type: "message",
-    status: "completed",
+    status,
     role: "assistant",
     content: [{ type: "output_text", text, annotations: [] }],
   };

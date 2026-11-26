@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
-import { conversationWebSiteSchema, conversationWebSitesSchema, webSiteCursorSchema, webApplicationPath, type ConversationWebSite } from "@linksense/shared";
-import { webBundleManifestSchema, webSiteSchema, webSiteToolPageSchema, webSiteWithUrlSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteToolPage, type WebSiteToolRequest, type WebSiteUpdate, type WebSiteWithUrl } from "@linksense/shared";
+import { z } from "zod";
+import { conversationWebSiteSchema, conversationWebSitesSchema, webApplicationPath, webBundleManifestSchema, webSiteSchema, webSiteToolPageSchema, webSiteWithUrlSchema, type ConversationWebSite, type WebBundleManifest, type WebSite, type WebSiteBackend, type WebSiteCreate, type WebSiteLegacyToolRequest, type WebSiteTarget, type WebSiteToolPage, type WebSiteUpdate, type WebSiteWithUrl } from "@linksense/shared";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { hashPassword } from "../../lib/password.js";
 import { AppError } from "../../lib/errors.js";
@@ -11,7 +11,6 @@ import { bundleSize, prepareWebResource } from "./resources.js";
 import { WebArtifactResources } from "./artifact-resources.js";
 import { analyticsDomain, type WebSiteAnalytics } from "./analytics.js";
 import type { WebSiteBackendService } from "../web-site-backends/service.js";
-import type { WebSiteBackend } from "@linksense/shared";
 import type { SiteAccess } from "./access.js";
 
 export type PublicSiteAddress = { id: string } | { slug: string };
@@ -22,6 +21,15 @@ export type PublicSitePage = {
 function siteAccess(site: SiteAndRelease["site"]): SiteAccess {
   return { id: site.id, slug: webSiteSchema.shape.slug.parse(site.slug), passcodeHash: site.passcodeHash ?? null };
 }
+
+export const webSiteCursorSchema = z.string().max(100).transform((value, context) => {
+  const [time, id] = value.split("|");
+  if (!time || !id || !z.iso.datetime().safeParse(time).success || !z.uuid().safeParse(id).success) {
+    context.addIssue({ code: "custom", message: "Invalid cursor" });
+    return z.NEVER;
+  }
+  return { updatedAt: new Date(time), id };
+});
 
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
@@ -112,7 +120,14 @@ export class WebSiteService {
     const remote = await this.analytics.ensureSite({ name: site.name, domain });
     return { enabled: true, siteId: remote.id, domain: remote.domain };
   }
-  async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
+  async get(ownerId: string, id: string): Promise<WebSite> { return projectSite(await this.store.owned(ownerId, id)); }
+  async sourceDetails(ownerId: string, fileId: string): Promise<{ conversationId: string; taskTitle: string; filename: string }> {
+    const { conversation, file } = await this.store.source(ownerId, null, fileId);
+    return { conversationId: conversation.id, taskTitle: conversation.title, filename: file.filename };
+  }
+  async publish(ownerId: string, id: string, fileId: string, expectedBackendIdOrTarget?: string | WebSiteTarget): Promise<WebSite> {
+    const expected = typeof expectedBackendIdOrTarget === "object" ? expectedBackendIdOrTarget : undefined;
+    const expectedBackendId = typeof expectedBackendIdOrTarget === "string" ? expectedBackendIdOrTarget : undefined;
     const { site } = await this.store.owned(ownerId, id);
     if (expectedBackendId && site.backendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
     const addingBackend = expectedBackendId && !site.backendId ? expectedBackendId : undefined;
@@ -120,15 +135,26 @@ export class WebSiteService {
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
     const releaseId = randomUUID();
     const binding = site.backendId ?? addingBackend;
+    if (expected === undefined) {
+      return await this.project(binding
+        ? await this.requiredBackends().withPublishable(ownerId, binding,
+          lease => addingBackend
+            ? this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease, addingBackend)
+            : this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
+        : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest));
+    }
     return await this.project(binding
       ? await this.requiredBackends().withPublishable(ownerId, binding,
         lease => addingBackend
-          ? this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease, addingBackend)
-          : this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
-      : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest));
+          ? this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease, addingBackend, expected)
+          : this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease, undefined, expected))
+      : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, undefined, undefined, expected));
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
-  delete(ownerId: string, id: string): Promise<void> { return this.store.delete(ownerId, id); }
+  taskSources(ownerId: string, conversationId: string) { return this.store.taskSources(ownerId, conversationId); }
+  delete(ownerId: string, id: string, expected?: WebSiteTarget): Promise<void> {
+    return expected === undefined ? this.store.delete(ownerId, id) : this.store.delete(ownerId, id, expected);
+  }
   private publicSite(address: PublicSiteAddress, releaseId?: string): Promise<SiteAndRelease> {
     return "id" in address
       ? releaseId ? this.store.publicSiteById(address.id, releaseId) : this.store.publicSiteById(address.id)
@@ -192,11 +218,11 @@ export class WebSiteService {
     return { data: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 1 } }), filename: `${site.slug}.zip` };
   }
   /** Owner- and active-turn-scoped entry point for the agent publishing tool. */
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "list" }>, publicBaseUrl: string): Promise<WebSiteToolPage>;
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "publish" | "update" }>, publicBaseUrl: string): Promise<WebSiteWithUrl>;
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "delete" }>, publicBaseUrl: string): Promise<{ deleted: true }>;
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>>;
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>> {
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteLegacyToolRequest, { operation: "list" }>, publicBaseUrl: string): Promise<WebSiteToolPage>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteLegacyToolRequest, { operation: "publish" | "update" }>, publicBaseUrl: string): Promise<WebSiteWithUrl>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteLegacyToolRequest, { operation: "delete" }>, publicBaseUrl: string): Promise<{ deleted: true }>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteLegacyToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteLegacyToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>> {
     await this.store.assertActor(ownerId);
     await this.store.assertActiveTurn(ownerId, conversationId, turnId);
     if (request.operation === "prepare_backend") return this.requiredBackends().prepare(ownerId, conversationId, request.name, request.backend_id, request.address);
@@ -273,9 +299,9 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
 }
 export function encodeResourcePath(path: string): string { return path.split("/").map(encodeURIComponent).join("/"); }
 export function parseWebSiteCursor(value: string): NonNullable<SiteListInput["cursor"]> {
-  const [time, id] = webSiteCursorSchema.parse(value).split("|");
-  if (!time || !id) throw new AppError("VALIDATION_ERROR");
-  return { updatedAt: new Date(time), id };
+  const parsed = webSiteCursorSchema.safeParse(value);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR");
+  return parsed.data;
 }
 export function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
   const slug = webSiteSchema.shape.slug.parse(site.slug);

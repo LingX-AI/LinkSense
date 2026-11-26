@@ -12,7 +12,7 @@ import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import type { Logger } from "pino";
 import { ProxyAgent } from "proxy-agent";
 import { getProxyForUrl } from "proxy-from-env";
-import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
+import { Agent, EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import WebSocket, {
   WebSocketServer,
   type ClientOptions as WebSocketClientOptions,
@@ -26,6 +26,7 @@ import type {
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
+  LocalModelUsage,
   PrivacyMaskingHint,
   PrivacyMaskingRuntime,
   RunnerMemoryUsageCapture,
@@ -83,6 +84,11 @@ import {
   type PrivacyMaskHit,
   type RestoredEvent,
 } from "../privacy-masking/index.js";
+import {
+  resolveSensitiveDataRequest,
+  SensitiveDataRequestBlocked,
+  type SensitiveDataRelay,
+} from "./sensitive-data.js";
 
 const DEFAULT_REQUEST_BODY_LIMIT = 128 * 1024 * 1024;
 const DEFAULT_UPSTREAM_HEADER_TIMEOUT_MS = 30_000;
@@ -94,6 +100,10 @@ const UPSTREAM_ERROR_BODY_LIMIT = 64 * 1024;
 const RESPONSES_WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const MODEL_GATEWAY_ENV_KEY = "LINKSENSE_MODEL_GATEWAY_TOKEN";
 const RESPONSE_PATHS = new Set(["/responses", "/v1/responses"]);
+const CHAT_STREAM_USAGE_ENDPOINTS = new Set([
+  "https://api.openai.com/v1/chat/completions",
+  "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+]);
 const SAFE_WEBSOCKET_RESPONSE_HEADERS = [
   "openai-model",
   "x-codex-turn-state",
@@ -137,6 +147,7 @@ export type ModelGatewayTurnCorrelation = {
 
 export type ModelGatewayLease = {
   token: string;
+  localModelUsage?: () => LocalModelUsage | undefined;
   setTurnCorrelation: (correlation: ModelGatewayTurnCorrelation | null) => void;
   /**
    * Temporarily route Codex model-switch compaction to the exact source
@@ -173,6 +184,7 @@ type StoredLease = Readonly<ModelGatewayLeaseInput> & {
   };
   transitionNonce: { current: string | null };
   manualModelTransitionCompaction: { current: boolean };
+  localInference: { current: { turnId: string; usage: LocalModelUsage } | null };
 };
 
 type PendingWebSocketRequest = {
@@ -217,6 +229,7 @@ type ModelGatewayAbortSource =
   | "upstream_stream_cancelled";
 
 type ModelGatewayRequestContext = {
+  localSensitiveDataRoute?: boolean;
   latency?: UpstreamLatency;
   upstreamStreaming?: boolean;
   requestId: string;
@@ -260,6 +273,7 @@ type ModelGatewayOptions = {
   onPrivacyMasking?: (
     capture: RunnerPrivacyMaskingCapture,
   ) => Promise<void>;
+  sensitiveDataRelay?: SensitiveDataRelay;
 };
 
 class GatewayHttpError extends Error {
@@ -300,6 +314,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     ReadonlyMap<string, string>
   >();
   private readonly httpProxyDispatcher: EnvHttpProxyAgent;
+  private readonly localDispatcher = new Agent();
   private readonly webSocketProxyAgent: ProxyAgent;
   private readonly server: Server;
   private readonly projectDesktopPaths: ReturnType<typeof desktopModelPathProjection> | undefined;
@@ -416,6 +431,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     const transitionNonce: StoredLease["transitionNonce"] = { current: null };
     const manualModelTransitionCompaction: StoredLease["manualModelTransitionCompaction"] =
       { current: false };
+    const localInference: StoredLease["localInference"] = { current: null };
     this.leases.set(
       token,
       Object.freeze({
@@ -424,12 +440,16 @@ export class ModelGateway implements ModelGatewayRuntime {
         transitionSource,
         transitionNonce,
         manualModelTransitionCompaction,
+        localInference,
       }),
     );
     if (masker) this.privacyMaskers.set(token, masker);
     let released = false;
     return {
       token,
+      localModelUsage: () => localInference.current?.turnId === turnCorrelation.current?.turnId
+        ? localInference.current?.usage
+        : undefined,
       setTurnCorrelation: (correlation) => {
         if (released) return;
         turnCorrelation.current = correlation
@@ -499,6 +519,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         this.listeningBaseUrl = null;
         this.webSocketProxyAgent.destroy();
         await this.httpProxyDispatcher.close();
+        await this.localDispatcher.close();
       }
     })();
     return this.closePromise;
@@ -569,6 +590,11 @@ export class ModelGateway implements ModelGatewayRuntime {
 
     let connection: UpstreamWebSocketConnection;
     try {
+      if (await this.requiresGuardedHttp(lease, handshakeAbort.signal)) {
+        this.webSocketSessions.delete(session);
+        rejectWebSocketUpgrade(socket, 426, "websocket_transport_unavailable");
+        return;
+      }
       connection = await this.connectUpstreamWebSocket(
         lease,
         request,
@@ -1137,6 +1163,12 @@ export class ModelGateway implements ModelGatewayRuntime {
     const abortPreparation = () => preparationAbort.abort();
     downstream.once("close", abortPreparation);
     try {
+      if (await this.requiresGuardedHttp(lease, preparationAbort.signal)) {
+        // Reused connections from before protection was enabled must close
+        // before any new model request reaches the external provider.
+        downstream.close(1012, "HTTP transport required");
+        return;
+      }
       await this.prepareRequestImages(
         source,
         preparationAbort.signal,
@@ -1364,7 +1396,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         ),
       );
       const requestedModel = stringValue(body.model);
-      const authorizedLease = requestedModel
+      let authorizedLease = requestedModel
         ? authorizeModelRequest(
             lease,
             requestedModel,
@@ -1386,6 +1418,51 @@ export class ModelGateway implements ModelGatewayRuntime {
         body.tool_choice = "none";
         delete body.parallel_tool_calls;
       }
+      if (this.options.sensitiveDataRelay) {
+        try {
+          const auxiliary = context.memoryOperation !== null || authorizedLease !== lease;
+          const routed = await resolveSensitiveDataRequest(
+            this.options.sensitiveDataRelay,
+            lease.ownerId,
+            {
+              conversation_id: lease.conversationId,
+              execution_model: lease.model,
+              turn_id: context.turnId,
+            },
+            {
+              model: authorizedLease.model,
+              baseUrl: authorizedLease.upstreamBaseUrl,
+              auxiliary,
+            },
+            body,
+            upstreamAbort.controller.signal,
+          );
+          body = routed.body;
+          if (!auxiliary && context.turnId) {
+            lease.localInference.current = routed.local ? {
+              turnId: context.turnId,
+              usage: { model: routed.local.model, pricing: routed.local.pricing },
+            } : null;
+          }
+          if (routed.local) {
+            context.localSensitiveDataRoute = true;
+            authorizedLease = {
+              ...authorizedLease,
+              model: routed.local.model,
+              upstreamBaseUrl: routed.local.baseUrl,
+              apiKey: routed.local.apiKey,
+              pricing: routed.local.pricing,
+              revision: routed.local.revision,
+              protocolMode: routed.local.protocolMode,
+            };
+          }
+        } catch (error) {
+          if (upstreamAbort.controller.signal.aborted) throw error;
+          const status = error instanceof SensitiveDataRequestBlocked ? 422 : 503;
+          throw new GatewayHttpError(status, "sensitive_data_protection_blocked");
+        }
+      }
+      upstreamAbort.controller.signal.throwIfAborted();
       await this.prepareRequestImages(
         body,
         upstreamAbort.controller.signal,
@@ -1462,6 +1539,17 @@ export class ModelGateway implements ModelGatewayRuntime {
       request.off("aborted", abortOnRequest);
       response.off("close", abortOnResponse);
     }
+  }
+
+  private async requiresGuardedHttp(lease: StoredLease, signal: AbortSignal): Promise<boolean> {
+    if (!this.options.sensitiveDataRelay) return false;
+    const result = await this.options.sensitiveDataRelay(lease.ownerId, {
+      kind: "transport",
+      conversation_id: lease.conversationId,
+      execution_model: lease.model,
+      turn_id: lease.turnCorrelation.current?.turnId ?? null,
+    }, signal);
+    return result.action !== "forward";
   }
 
   private async forwardNativeResponses(
@@ -1803,13 +1891,18 @@ export class ModelGateway implements ModelGatewayRuntime {
       const restorer = masker ? new PrivacyRestorer(masker) : null;
       const writeEvents = async (events: readonly RestoredEvent[]) => {
         for (const event of events) {
-          const completed = completedResponseFromEvent(event.payload);
-          if (completed && memoryOperation) {
+          const terminal =
+            (event.payload.type === "response.completed" ||
+              event.payload.type === "response.incomplete") &&
+            isRecord(event.payload.response)
+              ? event.payload.response
+              : null;
+          if (terminal && memoryOperation) {
             await this.captureMemoryUsage(
               lease,
               memoryOperation,
               meteredRequestBody,
-              completed,
+              terminal,
               requestContext,
             );
             memoryOperation = null;
@@ -1880,11 +1973,8 @@ export class ModelGateway implements ModelGatewayRuntime {
           !desktopProxyDestination(this.options.desktopProxyOrigin, baseUrl, desktopPurpose))) {
       throw new GatewayHttpError(403, "model_not_authorized");
     }
-    const serialized = JSON.stringify(body);
-    if (Buffer.byteLength(serialized) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
-      throw new GatewayHttpError(413, "request_body_too_large");
-    }
-    const latency = this.createUpstreamLatency(context, "http", body.stream === true);
+    const streaming = body.stream === true;
+    const latency = this.createUpstreamLatency(context, "http", streaming);
     context.latency = latency;
     const timer = setTimeout(
       () => abort.abort("upstream_header_timeout"),
@@ -1896,23 +1986,32 @@ export class ModelGateway implements ModelGatewayRuntime {
       const requestInit = {
         method: "POST",
         headers: {
-          accept:
-            body.stream === true ? "text/event-stream" : "application/json",
+          accept: streaming ? "text/event-stream" : "application/json",
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
           "x-linksense-request-id": context.requestId,
           "user-agent": "LinkSense-Model-Gateway/1.0",
           ...(desktopPurpose === undefined ? {} : { [DESKTOP_MODEL_PURPOSE_HEADER]: desktopPurpose }),
         },
-        body: serialized,
         redirect: "manual" as const,
         signal: abort.controller.signal,
       };
-      const fetcher: typeof fetch = this.options.fetch ?? (async (input) =>
-        await undiciFetch(input instanceof Request ? input.url : input, {
-          ...requestInit,
-          dispatcher: this.httpProxyDispatcher,
-        }) as unknown as Response);
+      const fetcher: typeof fetch = async (input) => {
+        const includeUsage = streaming && endpoint === "chat/completions" &&
+          CHAT_STREAM_USAGE_ENDPOINTS.has(String(input));
+        const serialized = JSON.stringify(includeUsage
+          ? { ...body, stream_options: { include_usage: true } }
+          : body);
+        if (Buffer.byteLength(serialized) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
+          throw new GatewayHttpError(413, "request_body_too_large");
+        }
+        const init = { ...requestInit, body: serialized };
+        if (this.options.fetch) return this.options.fetch(input, init);
+        return await undiciFetch(input instanceof Request ? input.url : input, {
+          ...init,
+          dispatcher: context.localSensitiveDataRoute ? this.localDispatcher : this.httpProxyDispatcher,
+        }) as unknown as Response;
+      };
       const transport = desktopPurpose === undefined ? createModelProviderFetch(baseUrl, fetcher) : fetcher;
       const upstream = await transport(endpointUrl(baseUrl, endpoint), requestInit);
       context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
@@ -2633,14 +2732,16 @@ async function forwardDesktopJsonFailure(
 
 async function writeCompletedResponseAsSse(
   response: ServerResponse,
-  completed: JsonObject,
+  result: JsonObject,
 ): Promise<void> {
   beginSseResponse(response);
   let sequence = 0;
-  const output = Array.isArray(completed.output) ? completed.output : [];
+  const incomplete = result.status === "incomplete";
+  const output = !incomplete && Array.isArray(result.output) ? result.output : [];
   const inProgress = {
-    ...completed,
+    ...result,
     status: "in_progress",
+    ...(incomplete ? { incomplete_details: null } : {}),
     output: [],
     output_text: "",
   };
@@ -2668,10 +2769,11 @@ async function writeCompletedResponseAsSse(
       item,
     });
   }
-  await writeSseEvent(response, "response.completed", {
-    type: "response.completed",
+  const terminalEvent = incomplete ? "response.incomplete" : "response.completed";
+  await writeSseEvent(response, terminalEvent, {
+    type: terminalEvent,
     sequence_number: sequence,
-    response: completed,
+    response: result,
   });
   response.end();
 }

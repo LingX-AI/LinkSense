@@ -1,5 +1,5 @@
 import { Prisma, type ConversationFile, type PrismaClient, type WebArtifactBundle, type WebSite, type WebSiteRelease } from "../../generated/prisma/client.js";
-import type { WebSiteCreate, WebSiteStatus, WebSiteUpdate, WebBundleManifest } from "@linksense/shared";
+import type { WebSiteCreate, WebSiteSource, WebSiteStatus, WebSiteTarget, WebSiteUpdate, WebBundleManifest } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 
 export type SiteAndRelease = { site: Omit<WebSite, "backendId"> & { backendId?: string | null }; release: WebSiteRelease };
@@ -120,8 +120,17 @@ export class WebSiteRepository {
   async sources(ownerId: string, siteId: string) {
     const { site } = await this.owned(ownerId, siteId);
     if (!site.conversationId) return [];
+    return this.taskSources(ownerId, site.conversationId);
+  }
+
+  async taskSources(ownerId: string, conversationId: string): Promise<WebSiteSource[]> {
+    const task = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, ownerId },
+      select: { id: true },
+    });
+    if (!task) return [];
     const files = await this.prisma.conversationFile.findMany({
-      where: { conversationId: site.conversationId, kind: "artifact", status: "registered", mimeType: "text/html", downloadable: true },
+      where: { conversationId, kind: "artifact", status: "registered", mimeType: "text/html", downloadable: true },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 200,
       select: { id: true, filename: true, createdAt: true },
     });
@@ -189,10 +198,10 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest, backendLease?: Date, backendId?: string): Promise<SiteAndRelease> {
+  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest, backendLease?: Date, backendId?: string, expected?: WebSiteTarget): Promise<SiteAndRelease> {
     return this.prisma.$transaction(async tx => {
       const source = await lockSource(tx, ownerId, conversationId, fileId);
-      const existing = await lockSite(tx, ownerId, id);
+      const existing = await lockSite(tx, ownerId, id, expected);
       if (backendId && existing.backendId && existing.backendId !== backendId) throw new AppError("CONFLICT");
       const binding = existing.backendId ?? backendId;
       if (binding) await lockPublicationBackend(tx, ownerId, binding, backendLease);
@@ -209,9 +218,9 @@ export class WebSiteRepository {
     });
   }
 
-  async delete(ownerId: string, id: string): Promise<void> {
+  async delete(ownerId: string, id: string, expected?: WebSiteTarget): Promise<void> {
     await this.prisma.$transaction(async tx => {
-      await lockSite(tx, ownerId, id);
+      await lockSite(tx, ownerId, id, expected);
       // Releases reference immutable original artifacts, not independently owned
       // copies. Removing a site must never delete those task resources.
       await tx.webSiteRelease.deleteMany({ where: { siteId: id } });
@@ -232,10 +241,18 @@ async function lockSource(tx: Prisma.TransactionClient, ownerId: string, convers
   if (!source || !await tx.conversationFile.count({ where: { id: fileId, conversationId, kind: "artifact", status: "registered", downloadable: true, mimeType: "text/html" } })) throw new AppError("WEB_SITE_SOURCE_UNAVAILABLE");
   return source;
 }
-async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string): Promise<{ id: string; backendId: string | null; status: string }> {
-  const rows = await tx.$queryRaw<Array<{ id: string; backendId: string | null; status: string }>>(Prisma.sql`SELECT id, backend_id AS "backendId", status FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`);
-  if (!rows[0]) throw new AppError("WEB_SITE_NOT_FOUND");
-  return rows[0];
+async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string, expected?: WebSiteTarget): Promise<{ id: string; backendId: string | null; status: string; name: string; slug: string; currentReleaseId: string }> {
+  const rows = await tx.$queryRaw<Array<{ id: string; backendId: string | null; status: string; name: string; slug: string; currentReleaseId: string }>>(Prisma.sql`
+    SELECT id, backend_id AS "backendId", status, name, slug, current_release_id AS "currentReleaseId"
+    FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE
+  `);
+  const site = rows[0];
+  if (!site) throw new AppError("WEB_SITE_NOT_FOUND");
+  if (expected && (site.name !== expected.name || site.slug !== expected.slug ||
+    site.status !== expected.status || site.currentReleaseId !== expected.release_id)) {
+    throw new AppError("WEB_SITE_CHANGED");
+  }
+  return site;
 }
 async function lockPublicationBackend(tx: Prisma.TransactionClient, ownerId: string, id: string, lease?: Date): Promise<void> {
   const condition = lease
@@ -247,4 +264,4 @@ async function lockPublicationBackend(tx: Prisma.TransactionClient, ownerId: str
 function translateConflict(error: unknown): unknown {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" ? new AppError("WEB_SITE_SLUG_TAKEN") : error;
 }
-export type WebSiteStore = Pick<WebSiteRepository, "assertActor" | "assertActiveTurn" | "conversationDeliveries" | "list" | "owned" | "publicSite" | "publicSiteById" | "source" | "sources" | "create" | "update" | "publish" | "delete">;
+export type WebSiteStore = Pick<WebSiteRepository, "assertActor" | "assertActiveTurn" | "conversationDeliveries" | "list" | "owned" | "publicSite" | "publicSiteById" | "source" | "sources" | "taskSources" | "create" | "update" | "publish" | "delete">;

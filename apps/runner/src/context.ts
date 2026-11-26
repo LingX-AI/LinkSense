@@ -93,10 +93,13 @@ const deliverableRoutingInstructions = (publicSiteName?: string): string => [
 ].join("\n");
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
   "Comparisons/charts/file groups: call get_rich_output_catalog. Short answers: prose.",
+  "Use request_user_form for chat questions, choices, confirmations, and feedback.",
   "Inline preview: complete UTF-8 document; fence info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
   "HTML files: register_artifact; point to the preview card, not a workspace path. State limits. Source-only: deliver a download.",
   "Preview forms are standalone demos, not conversation input.",
 ].join("\n");
+const WEB_SITE_DELIVERY_INSTRUCTIONS =
+  "After publishing or updating a site, link the full returned site.url verbatim.";
 const LOCAL_WEB_SERVER_RESTRICTION_INSTRUCTIONS = [
   "Mandatory platform rule: never start or keep alive a network-listening service for this task, including HTTP(S), WebSocket, development, preview or callback servers on any address or port, including loopback.",
   "Generate static web deliverables in artifacts/ and register them with the File Service. Do not stop, modify or block platform-managed MCP or runtime services; using their tools and connecting as a client is allowed.",
@@ -250,6 +253,10 @@ export function buildTurnAdditionalContext(
     additionalContext["linksense.inline-html-preview"] = {
       kind: "application",
       value: INLINE_HTML_PREVIEW_INSTRUCTIONS,
+    };
+    additionalContext["linksense.web-site-delivery"] = {
+      kind: "application",
+      value: WEB_SITE_DELIVERY_INSTRUCTIONS,
     };
   }
   if (context.approvedPlanImplementation) {

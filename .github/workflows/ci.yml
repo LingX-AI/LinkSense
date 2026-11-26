@@ -76,6 +76,9 @@ jobs:
       - name: Verify application development instruction migrations
         run: pnpm test:development-instructions:postgres
 
+      - name: Verify concurrent embedded application logins
+        run: pnpm test:embed:first-login:postgres
+
       - name: Run privileged runner filesystem test
         run: |
           sudo env "PATH=$PATH" pnpm --filter @linksense/runner exec vitest run test/workspace-manager.test.ts

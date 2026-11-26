@@ -282,6 +282,19 @@ export const channelMessages = {
     deleteTitle: "¿Eliminar este servidor MCP?",
     deleteDescription:
       "Se eliminarán permanentemente la configuración del servidor, la credencial cifrada y las variables de entorno cifradas. Las tareas nuevas dejarán de conectarse a él.",
+    deleteBlocked: {
+      title: "El servidor MCP sigue en uso",
+      locations: {
+        application: "Configuración o versión actual de la aplicación",
+        draft: "Borrador en desarrollo",
+        shared: "Versión compartida con la organización",
+        center: "Versión publicada en el Centro de aplicaciones",
+        shared_installation: "Versión instalada accesible mediante el uso compartido",
+        center_installation: "Versión instalada accesible desde el Centro de aplicaciones",
+      },
+      installedVersionHint:
+        "Si hay miembros que usan una versión anterior, pídeles que la actualicen o deja de ofrecer la aplicación por ese canal.",
+    },
   },
 } satisfies TranslationResource<
   Pick<typeof enUS, "botChannels" | "channelAccess" | "mcp">

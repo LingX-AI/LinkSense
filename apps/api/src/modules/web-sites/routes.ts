@@ -1,13 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { runtimeServiceSessionHeader, webSiteCreateSchema, webSiteCursorSchema, webSitePublishSchema, webSiteSlugSchema, webSiteStatusSchema, webSiteToolRequestSchema, webSiteUpdateSchema } from "@linksense/shared";
+import { runtimeServiceSessionHeader, webSiteCreateSchema, webSiteLegacyToolRequestSchema, webSitePublishSchema, webSiteSlugSchema, webSiteStatusSchema, webSiteUpdateSchema } from "@linksense/shared";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
 import { attachmentContentDisposition } from "../../lib/content-disposition.js";
 import { ok } from "../../lib/http.js";
 import { AppError, errorDetails, normalizeError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
-import { parseWebSiteCursor, withUrl, type WebSiteService } from "./service.js";
+import { webSiteCursorSchema, withUrl, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
 import { hasReleaseAccess, hasSiteAccess, protectedReleasePath, releaseAccessPath, safeAccessNext, sendPasscodePage, siteIdUnlockPath, siteUnlockBodyLimit, unlockSite, type SiteUnlockLimiter } from "./access.js";
@@ -23,14 +23,14 @@ export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; public
     ));
   });
   app.get("/", async (request, reply) => {
-    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: webSiteCursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
+    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: z.string().max(100).optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
     const page = await service.list((request as AuthenticatedRequest).authUser.id, {
       limit: query.limit,
       ...(query.search !== undefined ? { search: query.search } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
       ...(query.conversation_id !== undefined ? { conversationId: query.conversation_id } : {}),
       ...(query.origin_file_id !== undefined ? { originFileId: query.origin_file_id } : {}),
-      ...(query.cursor !== undefined ? { cursor: parseWebSiteCursor(query.cursor) } : {}),
+      ...(query.cursor !== undefined ? { cursor: webSiteCursorSchema.parse(query.cursor) } : {}),
     });
     return reply.send(ok({ ...page, items: page.items.map(site => withUrl(site, publicBaseUrl)) }, request.id));
   });
@@ -61,7 +61,7 @@ export const internalWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService
   });
   app.post("/", async request => {
     const owner = z.uuid().parse(request.headers["x-linksense-owner-id"]);
-    const body = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: webSiteToolRequestSchema }).parse(request.body);
+    const body = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: webSiteLegacyToolRequestSchema }).parse(request.body);
     return service.toolForOwner(owner, body.conversationId, body.turnId, body.request, publicBaseUrl);
   });
 };

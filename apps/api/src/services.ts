@@ -86,6 +86,8 @@ import {
 import { PrismaUserRepository, UserService } from "./modules/users/index.js";
 import { AuthenticationSettingsService } from "./modules/system/authentication-settings.js";
 import { ModelProviderSettingsService } from "./modules/system/model-provider-settings.js";
+import { SensitiveDataService } from "./modules/sensitive-data/service.js";
+import { SensitiveDataSettingsService } from "./modules/sensitive-data/settings.js";
 import { ImageGenerationSettingsService } from "./modules/system/image-generation-settings.js";
 import { VoiceTranscriptionSettingsService } from "./modules/system/voice-transcription-settings.js";
 import { ImageUnderstandingSettingsService } from "./modules/system/image-understanding-settings.js";
@@ -215,6 +217,7 @@ export type AppServices = {
   mailer: Mailer;
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
+  sensitiveData: SensitiveDataService;
   webSearchSettings: WebSearchSettingsService;
   privacyMaskingSettings: PrivacyMaskingSettingsService;
   privacyMaskingActivity: PrivacyMaskingActivityService;
@@ -298,6 +301,12 @@ export function createServices(input: {
   const modelProviderSettings = new ModelProviderSettingsService(
     input.prisma,
     input.config,
+  );
+  const sensitiveData = new SensitiveDataService(
+    input.prisma,
+    new SensitiveDataSettingsService(input.prisma, input.config, modelProviderSettings),
+    modelProviderSettings,
+    input.runner,
   );
   const usageAnalytics = new UsageAnalyticsService(input.prisma, {
     modelCatalog: modelProviderSettings,
@@ -711,7 +720,9 @@ export function createServices(input: {
   const conversationTitles = new ConversationTitleService(
     input.prisma,
     input.redis,
-    new ManagedTaskTitleGenerator(modelProviderSettings),
+    new ManagedTaskTitleGenerator({
+      resolveTaskTitleModel: (conversationId) => sensitiveData.resolveTitleModel(conversationId),
+    }),
     usageAnalytics,
     input.runner,
   );
@@ -746,6 +757,7 @@ export function createServices(input: {
       return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task. If the user instead asks for a standalone public website with a shareable external link and no LinkSense AI, follow the built-in public-site workflow. If the delivery shape is ambiguous, call request_user_form once before opening an application project.` : null;
     },
     privacyMaskingSettings,
+    input.runner.coldStartTimeoutMs,
   );
   jobs.registerConversationPrewarmProcessor((job) =>
     conversations.executePrewarm(job),
@@ -764,12 +776,12 @@ export function createServices(input: {
     input.config.publicBaseUrl,
     input.config.credentialMasterKey,
     input.config.credentialKeyId,
-    (ownerId, application, conversationId) =>
+    (ownerId, application, conversationId, finalizeInitialization) =>
       conversations.createExternalApplicationConversation(ownerId, {
         ...application,
         kind: "standard",
         interactivePackageId: null,
-      }, conversationId),
+      }, conversationId, finalizeInitialization),
     (ownerId, conversationId, context = {}, deletionReason = "creation-failed") =>
       conversations.delete(ownerId, conversationId, context, deletionReason),
     (conversationId) => conversationTitles.schedule(conversationId),
@@ -905,6 +917,7 @@ export function createServices(input: {
     mailer,
     authenticationSettings,
     modelProviderSettings,
+    sensitiveData,
     webSearchSettings,
     privacyMaskingSettings,
     privacyMaskingActivity,

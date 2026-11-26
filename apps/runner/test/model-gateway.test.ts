@@ -22,6 +22,7 @@ import {
 
 import { desktopModelProviders } from "../src/desktop/model-providers.js";
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
+import type { SensitiveDataRelay } from "../src/model-gateway/sensitive-data.js";
 import { parseSseStream } from "../src/model-gateway/sse.js";
 
 type JsonObject = Record<string, unknown>;
@@ -165,6 +166,140 @@ describe("ModelGateway", () => {
     expect(contents).toContain("response.failed");
     expect(contents).toContain("insufficient_quota");
     expect(contents).not.toContain("response.completed");
+  });
+
+  it("holds a request with sensitive tool output until a local model is selected", async () => {
+    const projection = "10000000-0000-4000-8000-000000000002";
+    const toolResult = { type: "function_call_output", call_id: "call_test", output: "SENSITIVE_FIXTURE" };
+    const cloudCall = { type: "function_call", call_id: "call_test", name: "read_fixture", arguments: "{}" };
+    const localRuntime = {
+      model: "local-a", baseUrl: "http://local.example.test/v1", apiKey: "local-key",
+      reasoningEffort: "medium", protocolMode: "native_responses", revision: 2, pricing: leaseMetering.pricing,
+    } as const;
+    const relay = vi.fn<SensitiveDataRelay>(async (_ownerId, request) => {
+      if (request.kind === "transport") return { action: "http" };
+      if (request.kind === "selection") return { action: "local", runtime: localRuntime };
+      return { action: request.context?.includes("SENSITIVE_FIXTURE") ? "waiting" : "forward" };
+    });
+    const upstream = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({ id: "fixture", status: "completed", output: [] }));
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: projection, revision: 1, upstreamBaseUrl: "https://cloud.example.test/v1",
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    lease.setTurnCorrelation({ turnId: projection, codexTurnId: "native", modelTransitionNonce: null });
+
+    expect(await rejectedWebSocketStatus(gateway, lease.token)).toBe(426);
+    expect(upstream).not.toHaveBeenCalled();
+    await (await requestGateway(gateway, lease.token, { model: "cloud-a", input: "ordinary task" })).json();
+    const result = await requestGateway(gateway, lease.token, {
+      model: "cloud-a", input: [
+        { type: "reasoning", encrypted_content: "provider-held-state" }, cloudCall, toolResult,
+      ],
+    });
+    expect(result.status).toBe(200);
+    await result.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: localRuntime.model, pricing: localRuntime.pricing });
+    expect(upstream.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://cloud.example.test/v1/responses", "http://local.example.test/v1/responses",
+    ]);
+    expect(JSON.parse(String(upstream.mock.calls[1]?.[1]?.body))).toMatchObject({
+      model: "local-a", input: [cloudCall, toolResult], reasoning: { effort: "medium" },
+    });
+    expect(relay.mock.calls.map(([, request]) => request.kind)).toEqual([
+      "transport", "inspect", "inspect", "selection",
+    ]);
+  });
+
+  it("never sends requests upstream when the routing service fails or no local model can proceed", async () => {
+    const upstream = vi.fn<typeof fetch>();
+    const relay = vi.fn<SensitiveDataRelay>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ action: "blocked" });
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "privacy-fixture", revision: 1, upstreamBaseUrl: "https://cloud.example.test/v1",
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    const request = { model: "cloud-a", input: "fixture" };
+    expect((await requestGateway(gateway, lease.token, request)).status).toBe(503);
+    const blocked = await requestGateway(gateway, lease.token, request);
+    expect(blocked.status).toBe(422);
+    expect(await blocked.json()).toMatchObject({ error: { code: "sensitive_data_protection_blocked" } });
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("uses the newly approved local route and its pricing on the following turn", async () => {
+    const firstTurn = "10000000-0000-4000-8000-000000000002";
+    const secondTurn = "10000000-0000-4000-8000-000000000003";
+    const firstRuntime = {
+      model: "local-a",
+      baseUrl: "http://first.example.test/v1",
+      apiKey: "local-a-key",
+      reasoningEffort: "medium",
+      protocolMode: "native_responses",
+      revision: 1,
+      pricing: leaseMetering.pricing,
+    } as const;
+    const secondRuntime = {
+      ...firstRuntime,
+      model: "local-b",
+      baseUrl: "http://second.example.test/v1",
+      apiKey: "local-b-key",
+      pricing: { ...leaseMetering.pricing, input_price_per_million: "2" },
+    };
+    const relay: SensitiveDataRelay = async (_ownerId, request) => ({
+      action: "local",
+      runtime: request.turn_id === secondTurn ? secondRuntime : firstRuntime,
+    });
+    const upstream = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({ id: "fixture", status: "completed", output: [] }),
+    );
+    const gateway = await startGateway({ fetch: upstream, sensitiveDataRelay: relay });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "local-switch", revision: 1,
+      upstreamBaseUrl: "https://cloud.example.test/v1", apiKey: "cloud-key",
+      protocolMode: "native_responses", model: "cloud-a",
+    });
+
+    lease.setTurnCorrelation({ turnId: firstTurn, codexTurnId: "first", modelTransitionNonce: null });
+    const first = await requestGateway(gateway, lease.token, { model: "cloud-a", input: "first turn" });
+    expect(first.status).toBe(200);
+    await first.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: "local-a", pricing: firstRuntime.pricing });
+
+    lease.setTurnCorrelation({ turnId: secondTurn, codexTurnId: "second", modelTransitionNonce: null });
+    const second = await requestGateway(gateway, lease.token, { model: "cloud-a", input: "second turn" });
+    expect(second.status).toBe(200);
+    await second.json();
+    expect(lease.localModelUsage?.()).toEqual({ model: "local-b", pricing: secondRuntime.pricing });
+    expect(upstream.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://first.example.test/v1/responses",
+      "http://second.example.test/v1/responses",
+    ]);
+    expect(JSON.parse(String(upstream.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "local-b" });
+  });
+
+  it("stops reuse of an external WebSocket after sensitive data protection is enabled", async () => {
+    let protectedMode = false;
+    const upstreamMessage = vi.fn();
+    const upstream = await startWebSocketUpstream({
+      onConnection(socket) { socket.on("message", upstreamMessage); },
+    });
+    const gateway = await startGateway({
+      sensitiveDataRelay: async () => ({ action: protectedMode ? "http" : "forward" }),
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "privacy-activation", revision: 1, upstreamBaseUrl: upstream.baseUrl,
+      apiKey: "cloud-key", protocolMode: "native_responses", model: "cloud-a",
+    });
+    const { socket } = await connectGatewayWebSocket(gateway, lease.token);
+    protectedMode = true;
+    const closed = new Promise<number>((resolve) => socket.once("close", resolve));
+    socket.send(JSON.stringify({ type: "response.create", model: "cloud-a", input: "private fixture" }));
+    expect(await closed).toBe(1012);
+    expect(upstreamMessage).not.toHaveBeenCalled();
   });
 
   it.each([404, 405, 401, 503])("bounds WebSocket path adaptation on HTTP %i without sending model input", async (rejectUpgradeStatus) => {
@@ -2533,6 +2668,160 @@ describe("ModelGateway", () => {
     expect(upstreamBody).not.toHaveProperty("messages");
   });
 
+  it.each(["SSE", "JSON"])("forwards an incomplete %s chat completion without finalizing tools or losing memory usage", async (format) => {
+    const captures: RunnerMemoryUsageCapture[] = [];
+    const usage = { prompt_tokens: 20, completion_tokens: 5 };
+    const toolCall = { index: 0, id: "call-lookup", type: "function", function: { name: "lookup", arguments: '{"query":' } };
+    const message = { content: "Partial answer", tool_calls: [toolCall] };
+    const fetchUpstream = vi.fn<typeof fetch>(async () => format === "JSON"
+      ? Response.json({ choices: [{ message, finish_reason: "length" }], usage })
+      : new Response(
+          `data: ${JSON.stringify({ choices: [{ delta: message, finish_reason: "length" }] })}\n\n` +
+          `data: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        ));
+    const gateway = await startGateway({
+      fetch: fetchUpstream,
+      onMemoryUsage: async (capture) => { captures.push(capture); },
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "incomplete-memory-bridge", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const response = await requestGateway(
+      gateway, lease.token, { model: "model-a", input: "history", stream: true },
+      { "x-codex-turn-metadata": '{"request_kind":"memory"}' },
+    );
+    expect(response.status).toBe(200);
+    const events = await readSse(response);
+    expect(events.filter(({ event }) => event === "response.completed" || event.endsWith(".done"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      event: "response.incomplete",
+      data: { response: {
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        output_text: "Partial answer",
+        output: expect.arrayContaining([{ id: expect.any(String), type: "function_call", status: "incomplete", call_id: "call-lookup", name: "lookup", arguments: '{"query":' }]),
+        usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+      } },
+    });
+    expect(captures).toMatchObject([{
+      operation: "extract", measurement_method: "provider",
+      token_usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+    }]);
+    expect(fetchUpstream).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a bridged SSE with truncated tool arguments even when the provider sends [DONE]", async () => {
+    const toolCall = { index: 0, id: "call-lookup", type: "function", function: { name: "lookup", arguments: '{"query":' } };
+    const fetchUpstream = vi.fn<typeof fetch>(async () => new Response(
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [toolCall] } }] })}\n\ndata: [DONE]\n\n`,
+      { headers: { "content-type": "text/event-stream" } },
+    ));
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "invalid-bridge-arguments", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const events = await readSse(await requestGateway(gateway, lease.token, { model: "model-a", input: "lookup", stream: true }));
+    expect(events.filter(({ event }) => event === "response.completed" || event.endsWith(".done"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      event: "response.failed",
+      data: { response: { status: "failed", error: { code: "model_gateway_error" } } },
+    });
+    expect(fetchUpstream).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { baseUrl: "https://api.openai.com/v1", stream: true, includeUsage: true },
+    { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", stream: true, includeUsage: true },
+    { baseUrl: "https://provider.example.test/v1", stream: true, includeUsage: false },
+    { baseUrl: "https://api.openai.com/custom/v1", stream: true, includeUsage: false },
+    { baseUrl: "https://api.openai.com/v1", stream: false, includeUsage: false },
+  ])("requests usage=$includeUsage from $baseUrl with stream=$stream", async ({ baseUrl, stream, includeUsage }) => {
+    const usage = {
+      prompt_tokens: 21, completion_tokens: 7, total_tokens: 28,
+      prompt_tokens_details: { cached_tokens: 4 },
+      completion_tokens_details: { reasoning_tokens: 2 },
+    };
+    const fetchUpstream = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).toBe(`${baseUrl}/chat/completions`);
+      const body: unknown = JSON.parse(String(init?.body));
+      if (!isRecord(body)) throw new Error("Missing upstream request");
+      if (!includeUsage && Object.hasOwn(body, "stream_options")) {
+        return Response.json({ error: "unknown field stream_options" }, { status: 400 });
+      }
+      if (!stream) {
+        return Response.json({ choices: [{ message: { content: "OK" }, finish_reason: "stop" }], usage });
+      }
+      const frames = [
+        { choices: [{ delta: { content: "OK" }, finish_reason: null }], usage: null },
+        { choices: [{ delta: {}, finish_reason: "stop" }], usage: null },
+      ];
+      return new Response(
+        frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("") +
+        (isRecord(body.stream_options) && body.stream_options.include_usage === true
+          ? `data: ${JSON.stringify({ choices: [], usage })}\n\n`
+          : "") +
+        "data: [DONE]\n\n",
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "bridge-stream-usage", revision: 1,
+      upstreamBaseUrl: baseUrl, apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "hello", stream });
+    expect(response.status).toBe(200);
+    const result: unknown = stream ? (await readSse(response)).at(-1)?.data.response : await response.json();
+    expect(result).toMatchObject({
+      status: "completed", output_text: "OK",
+      usage: includeUsage || !stream ? {
+        input_tokens: 21, output_tokens: 7, total_tokens: 28,
+        input_tokens_details: { cached_tokens: 4 },
+        output_tokens_details: { reasoning_tokens: 2 },
+      } : null,
+    });
+    expect(fetchUpstream).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks streaming usage support again if the configured chat endpoint is missing", async () => {
+    const requests: Array<{ url: string; streamOptions: unknown }> = [];
+    const fetchUpstream = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      const body: unknown = JSON.parse(String(init?.body));
+      if (!isRecord(body)) throw new Error("Missing upstream request");
+      requests.push({ url, streamOptions: body.stream_options });
+      if (url === "https://api.openai.com/v1/chat/completions") return new Response(null, { status: 404 });
+      if (Object.hasOwn(body, "stream_options")) return new Response(null, { status: 400 });
+      return new Response(
+        'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "bridge-stream-usage-fallback", revision: 1,
+      upstreamBaseUrl: "https://api.openai.com/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "hello", stream: true });
+    expect(response.status).toBe(200);
+    expect((await readSse(response)).at(-1)?.data.response).toMatchObject({ status: "completed", usage: null });
+    expect(requests).toEqual([
+      { url: "https://api.openai.com/v1/chat/completions", streamOptions: { include_usage: true } },
+      { url: "https://api.openai.com/chat/completions", streamOptions: undefined },
+    ]);
+  });
+
   it.each([false, true])("continues a bridged tool call with commentary through the gateway when streaming is %s", async (stream) => {
     const upstreamRequests: JsonObject[] = [];
     let toolAlias = "";
@@ -3069,6 +3358,7 @@ async function startGateway(
     upstreamHeaderTimeoutMs?: number;
     upstreamIdleTimeoutMs?: number;
     onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+    sensitiveDataRelay?: SensitiveDataRelay;
   } = {},
 ): Promise<ModelGateway> {
   const { logger = pino({ enabled: false }), ...gatewayOptions } = options;

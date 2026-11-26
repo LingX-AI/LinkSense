@@ -1,10 +1,7 @@
 import {
+  apiEventStreamRequest,
   apiRequest,
   buildApiUrl,
-  isDefinitiveAuthenticationError,
-  refreshSession,
-  prepareClientBuildRequest,
-  validateResponseBuild,
   ApiError,
 } from "@/api/client"
 import {
@@ -14,10 +11,8 @@ import {
   type ConversationEventHistoryPage,
 } from "@/api/contracts"
 import {
-  getAccessToken,
   getLoginSessionBoundary,
   isLoginSessionCurrent,
-  setAccessToken,
 } from "@/api/session"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 import { hostFetch } from "@/adapters/desktop/desktop-adapter"
@@ -207,88 +202,52 @@ export function connectConversationEvents(
 
   const connect = async () => {
     while (!controller.signal.aborted) {
-      const headers = new Headers({ Accept: "text/event-stream" })
-      const token = options?.publicSession
-        ? options.publicSession.token
-        : getAccessToken()
-      if (token) headers.set("Authorization", `Bearer ${token}`)
-      if (lastEventId) headers.set("Last-Event-ID", lastEventId)
-
       try {
-        if (!options?.publicSession) prepareClientBuildRequest(headers)
-        let response = await hostFetch(
-          buildApiUrl(
-            options?.publicSession?.path ??
-              `/conversations/${conversationId}/events`,
-            {
-              last_event_id: lastEventId || undefined,
-            }
-          ),
-          {
-            headers,
-            credentials: options?.publicSession ? "omit" : "include",
-            cache: "no-store",
-            signal: controller.signal,
+        let response: Response
+        if (options?.publicSession) {
+          const headers = new Headers({ Accept: "text/event-stream" })
+          if (options.publicSession.token) {
+            headers.set(
+              "Authorization",
+              `Bearer ${options.publicSession.token}`
+            )
           }
-        )
-
-        if (!options?.publicSession) {
-          // The response belongs to the login that sent the request. Checking
-          // first also prevents a stale response from triggering the global
-          // build/desktop-update side effects of validateResponseBuild.
-          if (isAbandonedLogin()) {
-            controller.abort()
-            return
-          }
-          validateResponseBuild(response.headers)
-        }
-        if (
-          options?.publicSession &&
-          (response.status === 401 ||
-            response.status === 403 ||
-            response.status === 404)
-        ) {
-          options.publicSession.onAuthenticationError()
-          controller.abort()
-          return
-        }
-        if (response.status === 401) {
-          try {
-            await refreshSession(token, loginSessionBoundary)
-          } catch (error) {
-            if (isAbandonedLogin()) {
-              controller.abort()
-              return
-            }
-            if (isDefinitiveAuthenticationError(error)) {
-              setAccessToken(null)
-            }
-            throw error
-          }
-          if (isAbandonedLogin()) {
-            controller.abort()
-            return
-          }
-          const refreshedToken = getAccessToken()
-          if (refreshedToken)
-            headers.set("Authorization", `Bearer ${refreshedToken}`)
+          if (lastEventId) headers.set("Last-Event-ID", lastEventId)
           response = await hostFetch(
-            buildApiUrl(`/conversations/${conversationId}/events`, {
+            buildApiUrl(options.publicSession.path, {
               last_event_id: lastEventId || undefined,
             }),
             {
               headers,
-              credentials: "include",
+              credentials: "omit",
               cache: "no-store",
               signal: controller.signal,
+            }
+          )
+          if (
+            response.status === 401 ||
+            response.status === 403 ||
+            response.status === 404
+          ) {
+            options.publicSession.onAuthenticationError()
+            controller.abort()
+            return
+          }
+        } else {
+          // The shared request routine owns refresh, retry, build validation,
+          // and login-session ownership for the authenticated stream.
+          response = await apiEventStreamRequest(
+            `/conversations/${conversationId}/events`,
+            {
+              lastEventId,
+              signal: controller.signal,
+              loginSessionBoundary,
             }
           )
           if (isAbandonedLogin()) {
             controller.abort()
             return
           }
-          validateResponseBuild(response.headers)
-          if (response.status === 401) setAccessToken(null)
         }
 
         if (!response.ok || !response.body)
@@ -360,7 +319,9 @@ export function connectConversationEvents(
         }
         if (
           error instanceof ApiError &&
-          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
+          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(
+            error.errorCode
+          )
         ) {
           controller.abort()
           return

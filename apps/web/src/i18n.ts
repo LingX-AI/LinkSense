@@ -14,6 +14,7 @@ import { taskReferenceMessages } from "@/features/conversations/task-reference-m
 import { taskArtifactDownloadMessages } from "@/features/task-artifacts/messages"
 import { richOutputMessages } from "@/features/conversations/rich-output-messages"
 import { webSearchMessages } from "@/features/admin/web-search-messages"
+import { sensitiveDataMessages } from "@/features/sensitive-data/messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -99,6 +100,7 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         webSearch: webSearchMessages["zh-CN"],
+        sensitiveData: sensitiveDataMessages["zh-CN"],
         ...zhCN,
         desktopLogin: desktopLoginMessages["zh-CN"],
         desktopUpdate: desktopUpdateMessages["zh-CN"],
@@ -129,6 +131,7 @@ void i18n.use(initReactI18next).init({
     "en-US": {
       translation: {
         webSearch: webSearchMessages["en-US"],
+        sensitiveData: sensitiveDataMessages["en-US"],
         ...enUS,
         desktopLogin: desktopLoginMessages["en-US"],
         desktopUpdate: desktopUpdateMessages["en-US"],
@@ -159,6 +162,7 @@ void i18n.use(initReactI18next).init({
     "es-ES": {
       translation: {
         webSearch: webSearchMessages["es-ES"],
+        sensitiveData: sensitiveDataMessages["es-ES"],
         ...esES,
         desktopLogin: desktopLoginMessages["es-ES"],
         desktopUpdate: desktopUpdateMessages["es-ES"],
@@ -189,6 +193,7 @@ void i18n.use(initReactI18next).init({
     "pt-BR": {
       translation: {
         webSearch: webSearchMessages["pt-BR"],
+        sensitiveData: sensitiveDataMessages["pt-BR"],
         ...ptBR,
         desktopLogin: desktopLoginMessages["pt-BR"],
         desktopUpdate: desktopUpdateMessages["pt-BR"],
@@ -219,6 +224,7 @@ void i18n.use(initReactI18next).init({
     "fr-FR": {
       translation: {
         webSearch: webSearchMessages["fr-FR"],
+        sensitiveData: sensitiveDataMessages["fr-FR"],
         ...frFR,
         desktopLogin: desktopLoginMessages["fr-FR"],
         desktopUpdate: desktopUpdateMessages["fr-FR"],
@@ -249,6 +255,7 @@ void i18n.use(initReactI18next).init({
     "ja-JP": {
       translation: {
         webSearch: webSearchMessages["ja-JP"],
+        sensitiveData: sensitiveDataMessages["ja-JP"],
         ...jaJP,
         desktopLogin: desktopLoginMessages["ja-JP"],
         desktopUpdate: desktopUpdateMessages["ja-JP"],

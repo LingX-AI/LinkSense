@@ -406,6 +406,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(publicSiteSkill).toContain("/app/s/<site-id>")
     expect(publicSiteSkill).toContain("linksense_core.delete_web_site")
     expect(publicSiteSkill).toContain("Deletion is permanent")
+    expect(await readFile(join(next.skillsRoot, "linksense-skill-creator", "SKILL.md"), "utf8")).toContain("## Install an existing Skill ZIP")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()

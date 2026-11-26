@@ -103,6 +103,12 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     icon: VenetianMaskIcon,
   },
   {
+    to: "/settings/sensitive-data",
+    labelKey: "sensitiveData.title",
+    descriptionKey: "sensitiveData.userDescription",
+    icon: ShieldCheckIcon,
+  },
+  {
     to: "/settings/credentials",
     labelKey: "settings.credentials",
     descriptionKey: "settings.credentialsDescription",
@@ -190,6 +196,12 @@ const administratorItems: SettingsNavigationItem[] = [
     labelKey: "settings.systemSettings",
     descriptionKey: "settings.systemSettingsDescription",
     icon: Settings2Icon,
+  },
+  {
+    to: "/admin/sensitive-data",
+    labelKey: "sensitiveData.title",
+    descriptionKey: "sensitiveData.adminDescription",
+    icon: ShieldCheckIcon,
   },
   {
     to: "/admin/health",

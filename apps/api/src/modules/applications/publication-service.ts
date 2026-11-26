@@ -10,6 +10,7 @@ import { Prisma, type PrismaClient, type ApplicationVersion } from "../../genera
 import { AppError } from "../../lib/errors.js";
 import { hashPackageDirectory, listPackageDirectoryFiles } from "../../lib/package-directory-integrity.js";
 import { stageAtomicDirectoryReplacement } from "../capabilities/importer.js";
+import { assertOwnedMcpServersExist } from "../mcp/dependency-lock.js";
 import { publishedApplicationDefinitionSchema, publishedCapabilitySchema, type PublishedApplicationDefinition, type PublishedCapability } from "./published-definition.js";
 
 export type InteractivePublicationUpdate = {
@@ -148,6 +149,7 @@ export class ApplicationPublicationService {
       const saved = await this.prisma.$transaction(async tx => {
         const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid AND owner_id = ${ownerId}::uuid AND status = ${application.status} FOR UPDATE`);
         if (rows.length !== 1) throw new AppError("CONFLICT");
+        if (!conversionVersionId) await assertOwnedMcpServersExist(tx, ownerId, definition.mcpServerIds);
         const currentApplication = await tx.application.findFirst({ where: { id: applicationId, ownerId } });
         const [currentBindings, currentKnowledge, currentMcp] = await Promise.all([
           tx.applicationCapability.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),

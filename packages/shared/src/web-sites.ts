@@ -17,6 +17,12 @@ export const webSiteCreateSchema = z.strictObject({
   backend_id: z.uuid().optional(),
   passcode: webSitePasscodeSchema.optional(),
 });
+export const webSiteMetadataFields = {
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
+};
+
 export const webSiteUpdateSchema = z.strictObject({
   name: z.string().trim().min(1).max(240).optional(),
   description: z.string().trim().max(1_000).optional(),
@@ -96,7 +102,7 @@ export const webSiteUpdateToolSchema = z.strictObject({
   analytics: z.boolean().optional(),
 });
 export const webSiteDeleteToolSchema = z.strictObject({ site_id: z.uuid() });
-export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
+export const webSiteLegacyToolRequestSchema = z.discriminatedUnion("operation", [
   webSitePublishToolSchema.extend({ operation: z.literal("publish") }),
   webSiteListToolSchema.extend({ operation: z.literal("list") }),
   webSiteUpdateToolSchema.extend({ operation: z.literal("update") }),
@@ -118,7 +124,7 @@ export type WebSiteSource = z.infer<typeof webSiteSourceSchema>;
 export type WebSitePublishTool = z.infer<typeof webSitePublishToolSchema>;
 export type WebSiteListTool = z.infer<typeof webSiteListToolSchema>;
 export type WebSiteUpdateTool = z.infer<typeof webSiteUpdateToolSchema>;
-export type WebSiteToolRequest = z.infer<typeof webSiteToolRequestSchema>;
+export type WebSiteLegacyToolRequest = z.infer<typeof webSiteLegacyToolRequestSchema>;
 export type WebSiteWithUrl = z.infer<typeof webSiteWithUrlSchema>;
 export type WebSiteToolPage = z.infer<typeof webSiteToolPageSchema>;
 

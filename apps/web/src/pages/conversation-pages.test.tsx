@@ -967,8 +967,10 @@ describe("existing task actions", () => {
   }
 
   beforeEach(async () => {
-    setAccessToken("existing-task-test-token")
+    // Clear first so the access token is persisted alongside the in-memory
+    // session; the account guard requires a consistent credential slot.
     window.localStorage.clear()
+    setAccessToken("existing-task-test-token")
     await i18n.changeLanguage("zh-CN")
   })
 
@@ -1059,8 +1061,8 @@ describe("existing task actions", () => {
 
 describe("conversation knowledge base snapshots", () => {
   beforeEach(async () => {
-    setAccessToken("conversation-knowledge-token")
     window.localStorage.clear()
+    setAccessToken("conversation-knowledge-token")
     await i18n.changeLanguage("zh-CN")
   })
 

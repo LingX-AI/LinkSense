@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generatedWebSiteBackendHostLabel, webSiteBackendConfigureSchema, webSiteBackendHostSchema, webSiteBackendPrepareSchema, webSiteBackendSchema } from "../src/web-site-backends.js";
-import { webSiteCreateSchema, webSiteToolRequestSchema } from "../src/web-sites.js";
+import { webSiteCreateSchema, webSiteLegacyToolRequestSchema } from "../src/web-sites.js";
 
 const id = "40000000-0000-4000-8000-000000000001";
 describe("public application backend contracts", () => {
@@ -14,7 +14,7 @@ describe("public application backend contracts", () => {
     const original = { conversation_id: id, file_id: id, name: "Existing website" };
     expect(webSiteCreateSchema.parse(original)).not.toHaveProperty("backend_id");
     expect(webSiteCreateSchema.parse({ ...original, backend_id: id }).backend_id).toBe(id);
-    expect(webSiteToolRequestSchema.parse({ operation: "prepare_backend", name: "Appointments" }).operation).toBe("prepare_backend");
+    expect(webSiteLegacyToolRequestSchema.parse({ operation: "prepare_backend", name: "Appointments" }).operation).toBe("prepare_backend");
   });
   it("defaults new resources to private and prevents privileged scopes and destructive schema changes", () => {
     const table = webSiteBackendConfigureSchema.parse({ backend_id: id, change: { action: "create_table", id: "appointments", name: "Appointments" } });

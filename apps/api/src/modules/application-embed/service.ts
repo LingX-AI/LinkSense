@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   APPLICATION_EMBED_ACCESS_TOKEN_TTL_SECONDS,
@@ -12,7 +13,11 @@ import {
   type UpdateApplicationExternalAccessInput,
 } from "@linksense/shared";
 
-import type { PrismaClient } from "../../generated/prisma/client.js";
+import {
+  Prisma,
+  type ApplicationExternalSession,
+  type PrismaClient,
+} from "../../generated/prisma/client.js";
 import type { LinkSenseRedis } from "../../adapters/redis.js";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { decryptJson, encryptJson, randomToken, sha256 } from "../../lib/crypto.js";
@@ -25,6 +30,9 @@ const APP_SECRET_PREFIX = "lss_";
 const PUBLIC_ID_PREFIX = "app_";
 const RENEWAL_TOKEN_PREFIX = "lsr_";
 const TICKET_PREFIX = "lst_";
+const SESSION_INITIALIZATION_TTL_SECONDS = 60;
+const SESSION_INITIALIZATION_WAIT_MS = 20_000;
+const SESSION_INITIALIZATION_POLL_MS = 200;
 const EXTERNAL_APPLICATION_SESSION_ID_CONTEXT_PREFIX =
   "linksense:external-application-session-id:v1:";
 const RATE_LIMIT_SCRIPT = `
@@ -82,6 +90,7 @@ export class ApplicationExternalAccessService {
       ownerId: string,
       application: { id: string; name: string },
       conversationId?: string,
+      finalizeInitialization?: (tx: Prisma.TransactionClient) => Promise<void>,
     ) => Promise<{ id: string }>,
     private readonly cleanupConversation: (
       ownerId: string,
@@ -547,7 +556,7 @@ export class ApplicationExternalAccessService {
       const session = await tx.applicationExternalSession.findUnique({
         where: { id: token.sessionId },
       });
-      if (!session) return { status: "expired" as const };
+      if (!session || session.initializationExpiresAt) return { status: "expired" as const };
       const access = await tx.applicationExternalAccess.findUnique({
         where: { id: session.externalAccessId },
       });
@@ -711,6 +720,7 @@ export class ApplicationExternalAccessService {
     if (
       !session ||
       !access ||
+      session.initializationExpiresAt !== null ||
       session.status !== "active" ||
       session.absoluteExpiresAt <= now ||
       session.id !== claims.session_id ||
@@ -764,6 +774,7 @@ export class ApplicationExternalAccessService {
     ]);
     if (
       access.authMode !== "public" ||
+      session.initializationExpiresAt !== null ||
       session.status !== "active" ||
       session.absoluteExpiresAt <= now ||
       session.externalAccessId !== access.id ||
@@ -1062,57 +1073,211 @@ export class ApplicationExternalAccessService {
     origin: string,
     identity: TicketIdentity,
   ) {
-    const now = this.now();
-    await this.#assertEnabledAccess(access, origin);
-    const application = await this.prisma.application.findUnique({
-      where: { id: access.applicationId },
-      select: { id: true, name: true, status: true },
-    });
-    if (!application || application.status !== "active") {
-      throw new AppError("APPLICATION_EXTERNAL_ACCESS_DISABLED");
-    }
+    const lockKey = identity.externalSubject === null ? null : JSON.stringify([
+      "linksense:embed-session-initialization:v1",
+      access.id,
+      access.applicationId,
+      identity.externalSubject,
+      identity.externalTenant,
+    ]);
+    const deadline = performance.now() + SESSION_INITIALIZATION_WAIT_MS;
+    while (performance.now() < deadline) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`;
+        if (lockKey !== null) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+        }
+        const application = await this.#requireCurrentLoginApplication(tx, access, origin);
+        const now = this.now();
 
-    let session = null;
-    if (identity.externalSubject !== null) {
-      session = await this.#restoreSessionForExternalIdentity(
-        access,
-        application,
-        origin,
-        identity,
-        now,
-      );
-    }
-    const resumed = session !== null;
-    if (!session) {
-      const runtimePrincipalId = randomUUID();
-      const conversationId = this.reserveConversationId();
-      // Seed the external environment from the creator's installed release.
-      // Later task starts refresh it only when this visitor's environment is idle.
-      const source = await this.prisma.application.findUniqueOrThrow({ where: { id: application.id }, select: { ownerId: true } });
-      const selected = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId: source.ownerId, applicationId: application.id } } });
-      if (!selected) throw new AppError("APPLICATION_PUBLICATION_REQUIRED");
-      session = await this.prisma.applicationExternalSession.create({
-        data: {
-          externalAccessId: access.id, applicationId: application.id, runtimePrincipalId, conversationId,
-          externalSubject: identity.externalSubject, externalTenant: identity.externalTenant,
-          displayName: identity.displayName, origin, status: "active", credentialVersion: access.credentialVersion,
-          absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS), lastSeenAt: now,
-        },
+        if (lockKey !== null) {
+          const existing = await tx.applicationExternalSession.findFirst({
+            where: {
+              externalAccessId: access.id,
+              applicationId: application.id,
+              externalSubject: identity.externalSubject,
+              externalTenant: identity.externalTenant,
+            },
+            orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+          });
+          if (existing?.initializationExpiresAt) {
+            if (existing.initializationExpiresAt > now ||
+                !await this.#discardInitialization(tx, existing)) {
+              return null;
+            }
+          } else if (existing) {
+            const conversation = await tx.conversation.findFirst({
+              where: { ownerId: existing.runtimePrincipalId, applicationId: application.id, archiveStatus: "active" },
+              orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+              select: { id: true },
+            });
+            const session = await tx.applicationExternalSession.update({
+              where: { id: existing.id },
+              data: {
+                origin,
+                status: "active",
+                credentialVersion: access.credentialVersion,
+                ...(conversation ? { conversationId: conversation.id } : {}),
+                displayName: identity.displayName,
+                absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS),
+                lastSeenAt: now,
+                revokedAt: null,
+                revokeReason: null,
+              },
+            });
+            return { application, session, kind: conversation ? "ready" as const : "restore" as const };
+          }
+        }
+
+        const session = await this.#reserveSession(tx, access, application, origin, identity, now);
+        return { application, session, kind: "initialize" as const };
+      }, { isolationLevel: "ReadCommitted" }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2010" && error.meta?.code === "55P03") {
+          throw new AppError("CONFLICT");
+        }
+        throw error;
       });
+
+      if (result === null) {
+        await delay(SESSION_INITIALIZATION_POLL_MS);
+        continue;
+      }
+      const { application, session } = result;
+      if (result.kind === "ready") return { session, resumed: true };
+      if (result.kind === "restore") {
+        const conversation = await this.createConversation(session.runtimePrincipalId, application);
+        try {
+          const restored = await this.prisma.applicationExternalSession.update({
+            where: {
+              id: session.id,
+              credentialVersion: access.credentialVersion,
+              status: "active",
+              origin,
+            },
+            data: { conversationId: conversation.id },
+          });
+          return { session: restored, resumed: true };
+        } catch (error) {
+          await this.cleanupConversation(session.runtimePrincipalId, conversation.id).catch(() => undefined);
+          throw error;
+        }
+      }
+
       try {
-        await this.prisma.applicationRuntimeInstallation.create({ data: { ownerId: runtimePrincipalId, applicationId: application.id, versionId: selected.versionId, channel: "external" } });
-        const conversation = await this.createConversation(runtimePrincipalId, application, conversationId);
-        if (conversation.id !== conversationId) throw new AppError("CONFLICT");
+        const conversation = await this.createConversation(
+          session.runtimePrincipalId,
+          application,
+          session.conversationId,
+          async (tx) => {
+            const finalized = await tx.applicationExternalSession.updateMany({
+              where: {
+                id: session.id,
+                status: "active",
+                credentialVersion: access.credentialVersion,
+                initializationExpiresAt: { gt: this.now() },
+              },
+              data: { initializationExpiresAt: null },
+            });
+            if (finalized.count !== 1) throw new AppError("CONFLICT");
+            await this.#requireCurrentLoginApplication(tx, access, origin);
+          },
+        );
+        if (conversation.id !== session.conversationId) throw new AppError("CONFLICT");
+        return { session: { ...session, initializationExpiresAt: null }, resumed: false };
       } catch (error) {
-        await this.prisma.applicationRuntimeInstallation.deleteMany({ where: { ownerId: runtimePrincipalId, applicationId: application.id } });
-        await this.prisma.applicationExternalSession.delete({ where: { id: session.id } });
+        await this.prisma.$transaction((tx) => this.#discardInitialization(tx, session));
         throw error;
       }
     }
-    if (!session) {
-      throw new AppError("APPLICATION_EMBED_SESSION_EXPIRED");
+    throw new AppError("CONFLICT");
+  }
+
+  async #requireCurrentLoginApplication(
+    tx: Prisma.TransactionClient,
+    expected: NonNullable<ExternalAccessRow>,
+    origin: string,
+  ) {
+    const access = await tx.applicationExternalAccess.findUnique({ where: { id: expected.id } });
+    if (!access?.enabled || access.credentialVersion !== expected.credentialVersion ||
+        access.applicationId !== expected.applicationId) {
+      throw new AppError("APPLICATION_EXTERNAL_ACCESS_DISABLED");
     }
-    return { session, resumed };
+    if (!allowedOrigins(access).includes(origin)) {
+      throw new AppError("APPLICATION_EXTERNAL_ORIGIN_FORBIDDEN");
+    }
+    const application = await tx.application.findUnique({
+      where: { id: access.applicationId },
+      select: { id: true, name: true, status: true, ownerId: true },
+    });
+    if (application?.status !== "active") {
+      throw new AppError("APPLICATION_EXTERNAL_ACCESS_DISABLED");
+    }
+    return application;
+  }
+
+  async #reserveSession(
+    tx: Prisma.TransactionClient,
+    access: NonNullable<ExternalAccessRow>,
+    application: { id: string; ownerId: string },
+    origin: string,
+    identity: TicketIdentity,
+    now: Date,
+  ): Promise<ApplicationExternalSession> {
+    const selected = await tx.applicationRuntimeInstallation.findUnique({
+      where: { ownerId_applicationId: { ownerId: application.ownerId, applicationId: application.id } },
+    });
+    if (!selected) throw new AppError("APPLICATION_PUBLICATION_REQUIRED");
+    const session = await tx.applicationExternalSession.create({
+      data: {
+        externalAccessId: access.id,
+        applicationId: application.id,
+        runtimePrincipalId: randomUUID(),
+        conversationId: this.reserveConversationId(),
+        externalSubject: identity.externalSubject,
+        externalTenant: identity.externalTenant,
+        displayName: identity.displayName,
+        origin,
+        status: "active",
+        credentialVersion: access.credentialVersion,
+        absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS),
+        initializationExpiresAt: addSeconds(now, SESSION_INITIALIZATION_TTL_SECONDS),
+        lastSeenAt: now,
+      },
+    });
+    await tx.applicationRuntimeInstallation.create({
+      data: {
+        ownerId: session.runtimePrincipalId,
+        applicationId: application.id,
+        versionId: selected.versionId,
+        channel: "external",
+      },
+    });
+    return session;
+  }
+
+  async #discardInitialization(
+    tx: Prisma.TransactionClient,
+    session: ApplicationExternalSession,
+  ): Promise<boolean> {
+    if (!session.initializationExpiresAt) return false;
+    const deleted = await tx.applicationExternalSession.deleteMany({
+      where: { id: session.id, initializationExpiresAt: { not: null } },
+    });
+    if (deleted.count !== 1) return false;
+    await tx.applicationRuntimeInstallation.deleteMany({
+      where: { ownerId: session.runtimePrincipalId, applicationId: session.applicationId },
+    });
+    await tx.runtimeCleanupOutbox.createMany({
+      data: {
+        ownerId: session.runtimePrincipalId,
+        conversationId: session.conversationId,
+        serviceSessionId: session.applicationId,
+        removeServiceEnvironment: true,
+      },
+      skipDuplicates: true,
+    });
+    return true;
   }
 
   async #issueTicket(
@@ -1157,59 +1322,6 @@ export class ApplicationExternalAccessService {
       iframe_url: this.#iframeUrl(access.appId, origin),
       expires_at: expiresAt.toISOString(),
     };
-  }
-
-  async #restoreSessionForExternalIdentity(
-    access: NonNullable<ExternalAccessRow>,
-    application: { id: string; name: string },
-    origin: string,
-    identity: TicketIdentity,
-    now: Date,
-  ) {
-    const existing = await this.prisma.applicationExternalSession.findFirst({
-      where: {
-        externalAccessId: access.id,
-        applicationId: application.id,
-        externalSubject: identity.externalSubject,
-        externalTenant: identity.externalTenant,
-      },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-    });
-    if (!existing) return null;
-    await this.prisma.applicationExternalSession.update({ where: { id: existing.id }, data: {
-      status: "active", origin, credentialVersion: access.credentialVersion,
-      absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS),
-      revokedAt: null, revokeReason: null,
-    } });
-    const conversation =
-      (await this.prisma.conversation.findFirst({
-        where: {
-          ownerId: existing.runtimePrincipalId,
-          applicationId: application.id,
-          archiveStatus: "active",
-        },
-        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        select: { id: true },
-      })) ?? (await this.createConversation(existing.runtimePrincipalId, application));
-    return this.prisma.applicationExternalSession.update({
-      where: { id: existing.id },
-      data: {
-        origin,
-        status: "active",
-        credentialVersion: access.credentialVersion,
-        conversationId: conversation.id,
-        externalSubject: identity.externalSubject,
-        externalTenant: identity.externalTenant,
-        displayName: identity.displayName,
-        absoluteExpiresAt: addSeconds(
-          now,
-          APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS,
-        ),
-        lastSeenAt: now,
-        revokedAt: null,
-        revokeReason: null,
-      },
-    });
   }
 
   async #setSessionConversation(

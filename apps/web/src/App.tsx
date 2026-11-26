@@ -211,6 +211,16 @@ const SettingsPersonalizationPage = lazy(() =>
     default: module.SettingsPersonalizationPage,
   }))
 )
+const PersonalSensitiveDataPage = lazy(() =>
+  import("@/features/sensitive-data/settings-pages").then((module) => ({
+    default: module.PersonalSensitiveDataPage,
+  }))
+)
+const AdminSensitiveDataPage = lazy(() =>
+  import("@/features/sensitive-data/settings-pages").then((module) => ({
+    default: module.AdminSensitiveDataPage,
+  }))
+)
 const SettingsAppearancePage = lazy(() =>
   import("@/pages/settings-pages").then((module) => ({
     default: module.SettingsAppearancePage,
@@ -308,6 +318,10 @@ export function App() {
                 element={<SettingsPersonalizationPage />}
               />
               <Route
+                path="/settings/sensitive-data"
+                element={<PersonalSensitiveDataPage />}
+              />
+              <Route
                 path="/settings/appearance"
                 element={<SettingsAppearancePage />}
               />
@@ -371,6 +385,10 @@ export function App() {
                 <Route
                   path="/admin/models"
                   element={<AdminPages page="models" />}
+                />
+                <Route
+                  path="/admin/sensitive-data"
+                  element={<AdminSensitiveDataPage />}
                 />
                 <Route
                   path="/admin/settings"

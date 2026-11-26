@@ -10,6 +10,7 @@ export const modelGatewayErrorMessages = {
     "Privacy masking is unavailable, so the request was not sent.",
   privacy_masking_blocked:
     "Privacy masking blocked this request because it contains a value the current policy does not allow.",
+  sensitive_data_protection_blocked: "The request stopped because a local model could not continue safely.",
 } as const;
 
 export type ModelGatewayFailureCode = keyof typeof modelGatewayErrorMessages;

@@ -1,4 +1,4 @@
-import type { RuntimeMcpServer } from "@linksense/shared"
+import type { McpServerApplicationUsage, RuntimeMcpServer } from "@linksense/shared"
 
 import type { RequestActor } from "../capabilities/types.js"
 
@@ -67,6 +67,11 @@ export type UpdateMcpServerRecord = Partial<
   >
 >
 
+export type DeleteOwnedMcpServerResult =
+  | { status: "not_found" }
+  | { status: "in_use"; usages: McpServerApplicationUsage[] }
+  | { status: "deleted"; server: McpServerRecord }
+
 export interface McpServerRepository {
   listByOwner(ownerId: string): Promise<McpServerRecord[]>
   findOwned(ownerId: string, id: string): Promise<McpServerRecord | null>
@@ -79,7 +84,7 @@ export interface McpServerRepository {
     limit: number
   ): Promise<McpServerRecord[] | null>
   update(id: string, input: UpdateMcpServerRecord): Promise<McpServerRecord>
-  delete(id: string): Promise<void>
+  deleteOwned(ownerId: string, id: string): Promise<DeleteOwnedMcpServerResult>
 }
 
 export type ResolvedMcpRuntime = {

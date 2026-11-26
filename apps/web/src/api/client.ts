@@ -27,10 +27,12 @@ import {
 
 import { authSessionSchema, type AccessSession } from "@/api/contracts"
 import {
+  captureAccessSessionGuard,
   getAccessToken,
   getLoginSessionBoundary,
   getStoredAccessSession,
   isLoginSessionCurrent,
+  readAccessTokenIdentity,
   restoreAccessTokenFromStorage,
   setAccessToken,
   type LoginSessionBoundary,
@@ -190,8 +192,21 @@ export type ApiStreamRequestOptions = {
   skipRefresh?: boolean
 }
 
+type RefreshAttempt = {
+  token: string | null
+  loginSessionBoundary: LoginSessionBoundary
+  /** Publication guard for the shared credential slot (strict identity). */
+  isCurrent: () => boolean
+  /** Optional same-account allowance for a rotation written elsewhere. */
+  canReuse?: () => boolean
+}
+
+// Single-flight refresh is scoped to the login generation that started it. A
+// replacement login must not join, publish, or clear the previous login's
+// refresh.
 let refreshPromise: {
   loginSessionBoundary: LoginSessionBoundary
+  isCurrent: () => boolean
   promise: Promise<AccessSession>
 } | null = null
 
@@ -203,6 +218,12 @@ function createSupersededLoginError() {
     "Request superseded by a newer login session",
     "AbortError"
   )
+}
+
+function assertCurrentSession(isCurrent: () => boolean) {
+  if (!isCurrent()) {
+    throw new DOMException("Access session changed", "AbortError")
+  }
 }
 
 function assertRefreshSessionCurrent(
@@ -576,21 +597,32 @@ function rawUploadRequest<TSchema extends z.ZodType>(
   })
 }
 
-function getReusableSession(staleAccessToken: string | null) {
-  const restoredToken = restoreAccessTokenFromStorage()
-  if (!restoredToken || restoredToken === staleAccessToken) return null
-
+function getReusableSession({
+  token,
+  loginSessionBoundary,
+  isCurrent,
+  canReuse,
+}: RefreshAttempt): AccessSession | null {
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  if (canReuse) assertCurrentSession(canReuse)
   const storedSession = getStoredAccessSession()
-  return {
-    access_token: restoredToken,
-    access_token_expires_at: storedSession
-      ? new Date(storedSession.expiresAt).toISOString()
-      : undefined,
-  } satisfies AccessSession
+  if (storedSession && storedSession.accessToken !== token) {
+    const restoredToken = restoreAccessTokenFromStorage()
+    assertRefreshSessionCurrent(loginSessionBoundary)
+    assertCurrentSession(() => restoredToken === storedSession.accessToken)
+    return {
+      access_token: storedSession.accessToken,
+      access_token_expires_at: new Date(storedSession.expiresAt).toISOString(),
+    } satisfies AccessSession
+  }
+
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  assertCurrentSession(isCurrent)
+  return null
 }
 
-async function requestNewSession(loginSessionBoundary: LoginSessionBoundary) {
-  assertRefreshSessionCurrent(loginSessionBoundary)
+async function requestNewSession(attempt: RefreshAttempt) {
+  assertRefreshSessionCurrent(attempt.loginSessionBoundary)
   const session = await rawRequest(
     "/auth/refresh",
     {
@@ -599,41 +631,37 @@ async function requestNewSession(loginSessionBoundary: LoginSessionBoundary) {
       skipRefresh: true,
     },
     null,
-    loginSessionBoundary
+    attempt.loginSessionBoundary
   ).catch((error: unknown): never => {
     // A refresh that settles after the login generation changed belongs to the
     // previous login. Surface even a genuine server 401 as local cancellation
     // so direct consumers do not clear the replacement login.
-    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+    if (!isLoginSessionCurrent(attempt.loginSessionBoundary)) {
       throw createSupersededLoginError()
     }
+    // A credential change in this tab (or another one) must not publish or
+    // clear over the newer slot.
+    assertCurrentSession(attempt.isCurrent)
+    if (isDefinitiveAuthenticationError(error)) setAccessToken(null)
     throw error
   })
-  assertRefreshSessionCurrent(loginSessionBoundary)
+  assertRefreshSessionCurrent(attempt.loginSessionBoundary)
+  assertCurrentSession(attempt.isCurrent)
   setAccessToken(session.access_token, session.access_token_expires_at)
   return session
 }
 
-async function refreshInsideLock(
-  staleAccessToken: string | null,
-  loginSessionBoundary: LoginSessionBoundary
-) {
-  assertRefreshSessionCurrent(loginSessionBoundary)
-  return (
-    getReusableSession(staleAccessToken) ??
-    requestNewSession(loginSessionBoundary)
-  )
+async function refreshInsideLock(attempt: RefreshAttempt) {
+  assertRefreshSessionCurrent(attempt.loginSessionBoundary)
+  return getReusableSession(attempt) ?? requestNewSession(attempt)
 }
 
-async function refreshWithStorageLease(
-  staleAccessToken: string | null,
-  loginSessionBoundary: LoginSessionBoundary
-) {
+async function refreshWithStorageLease(attempt: RefreshAttempt) {
   const ownerId = createRefreshOwnerId()
 
   while (true) {
-    assertRefreshSessionCurrent(loginSessionBoundary)
-    const reusableSession = getReusableSession(staleAccessToken)
+    assertRefreshSessionCurrent(attempt.loginSessionBoundary)
+    const reusableSession = getReusableSession(attempt)
     if (reusableSession) return reusableSession
 
     const currentLease = readRefreshLease()
@@ -642,15 +670,14 @@ async function refreshWithStorageLease(
         ownerId,
         expiresAt: Date.now() + REFRESH_LEASE_DURATION_MS,
       })
-      if (!acquired)
-        return refreshInsideLock(staleAccessToken, loginSessionBoundary)
+      if (!acquired) return refreshInsideLock(attempt)
 
       let renewTimer: number | null = null
       try {
         await waitForRefreshLease()
         // A replacement login may win during the verification wait; its
         // acquisition's finally must still release this lease immediately.
-        assertRefreshSessionCurrent(loginSessionBoundary)
+        assertRefreshSessionCurrent(attempt.loginSessionBoundary)
         if (readRefreshLease()?.ownerId !== ownerId) continue
 
         renewTimer = window.setInterval(() => {
@@ -662,7 +689,7 @@ async function refreshWithStorageLease(
           }
         }, REFRESH_LEASE_RENEW_INTERVAL_MS)
 
-        return await refreshInsideLock(staleAccessToken, loginSessionBoundary)
+        return await refreshInsideLock(attempt)
       } finally {
         // Never release or renew a lease another tab has since overwritten.
         if (renewTimer !== null) window.clearInterval(renewTimer)
@@ -674,41 +701,126 @@ async function refreshWithStorageLease(
   }
 }
 
-async function refreshAcrossTabs(
-  staleAccessToken: string | null,
-  loginSessionBoundary: LoginSessionBoundary
-) {
-  if (isDesktopHost())
-    return refreshInsideLock(staleAccessToken, loginSessionBoundary)
+async function refreshAcrossTabs(attempt: RefreshAttempt) {
+  if (isDesktopHost()) return refreshInsideLock(attempt)
   if (navigator.locks) {
     return navigator.locks.request(REFRESH_LOCK_NAME, () =>
-      refreshInsideLock(staleAccessToken, loginSessionBoundary)
+      refreshInsideLock(attempt)
     )
   }
-  return refreshWithStorageLease(staleAccessToken, loginSessionBoundary)
+  return refreshWithStorageLease(attempt)
 }
 
 export async function refreshSession(
   staleAccessToken = getAccessToken(),
-  loginSessionBoundary = getLoginSessionBoundary()
+  loginSessionBoundary = getLoginSessionBoundary(),
+  canReuse?: () => boolean
 ) {
   // A late authentication failure from a replaced login must not take over or
   // clear the shared slot that the current generation's refresh occupies.
   assertRefreshSessionCurrent(loginSessionBoundary)
-  if (refreshPromise?.loginSessionBoundary === loginSessionBoundary) {
-    return refreshPromise.promise
+  if (canReuse) assertCurrentSession(canReuse)
+  const isCurrent = captureAccessSessionGuard()
+  const pending = refreshPromise
+  if (
+    pending?.loginSessionBoundary === loginSessionBoundary &&
+    pending.isCurrent()
+  ) {
+    return pending.promise
   }
 
   const pendingRefresh = {
     loginSessionBoundary,
-    promise: refreshAcrossTabs(staleAccessToken, loginSessionBoundary).finally(
-      () => {
-        if (refreshPromise === pendingRefresh) refreshPromise = null
-      }
-    ),
+    isCurrent,
+    promise: refreshAcrossTabs({
+      token: staleAccessToken,
+      loginSessionBoundary,
+      isCurrent,
+      canReuse,
+    }).finally(() => {
+      if (refreshPromise === pendingRefresh) refreshPromise = null
+    }),
   }
   refreshPromise = pendingRefresh
   return pendingRefresh.promise
+}
+
+/**
+ * Shared request-recovery routine for callers that only need a token (uploads
+ * and event streams). Login-boundary ownership is preserved: work admitted for
+ * a replaced login is cancelled instead of adopting the new credentials.
+ */
+export async function requestWithSessionRetry<T>(
+  path: string,
+  options: {
+    signal?: AbortSignal
+    skipRefresh?: boolean
+    loginSessionBoundary?: LoginSessionBoundary
+  },
+  request: (token: string | null) => Promise<T>
+) {
+  const loginSessionBoundary =
+    options.loginSessionBoundary ?? getLoginSessionBoundary()
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  options.signal?.throwIfAborted()
+  const token = getAccessToken()
+  const canRefresh =
+    !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
+  const isCurrentAccount = canRefresh
+    ? captureAccessSessionGuard({ allowSameAccountRotation: true })
+    : undefined
+  try {
+    const result = await request(token)
+    options.signal?.throwIfAborted()
+    assertRefreshSessionCurrent(loginSessionBoundary)
+    if (token && isCurrentAccount) assertCurrentSession(isCurrentAccount)
+    return result
+  } catch (error) {
+    if (!isCurrentAccount || !isDefinitiveAuthenticationError(error)) {
+      throw error
+    }
+    assertRefreshSessionCurrent(loginSessionBoundary)
+    assertCurrentSession(isCurrentAccount)
+  }
+
+  options.signal?.throwIfAborted()
+  const session = await refreshSession(
+    token,
+    loginSessionBoundary,
+    isCurrentAccount
+  )
+  options.signal?.throwIfAborted()
+  assertRefreshSessionCurrent(loginSessionBoundary)
+  const previous = readAccessTokenIdentity(token)
+  const next = session.user ?? readAccessTokenIdentity(session.access_token)
+  const isCurrent = captureAccessSessionGuard()
+  assertCurrentSession(
+    () =>
+      (!previous ||
+        (previous.id === next?.id && previous.role === next.role)) &&
+      getAccessToken() === session.access_token &&
+      isCurrent()
+  )
+  const isCurrentRetryAccount = captureAccessSessionGuard({
+    allowSameAccountRotation: true,
+  })
+  try {
+    const result = await request(session.access_token)
+    options.signal?.throwIfAborted()
+    assertRefreshSessionCurrent(loginSessionBoundary)
+    assertCurrentSession(isCurrentRetryAccount)
+    return result
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (isDefinitiveAuthenticationError(error)) {
+      // A replaced login keeps its server decision (the original error); a
+      // credential change in the same login is local cancellation.
+      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+      assertCurrentSession(isCurrent)
+      setAccessToken(null)
+    }
+    throw error
+  }
 }
 
 export async function apiRequest<TSchema extends z.ZodType>(
@@ -733,7 +845,10 @@ export async function apiRequest<TSchema extends z.ZodType>(
     options.signal?.throwIfAborted()
     return options.schema.parse(resolveWorkspaceUiDemoRequest(path, options))
   }
+  options.signal?.throwIfAborted()
   const accessTokenUsed = getAccessToken()
+  const canRefresh =
+    !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
   // Ordinary callers own the login generation they started in, matching the
   // upload, stream, and download paths. A response or shared refresh that
   // finishes after an explicit replacement cannot retry with, or clear, the
@@ -742,6 +857,9 @@ export async function apiRequest<TSchema extends z.ZodType>(
     options.loginSessionBoundary ?? getLoginSessionBoundary()
   const responseLoginSessionBoundary = isMacDesktopHost()
     ? loginSessionBoundary
+    : undefined
+  const isCurrentAccount = canRefresh
+    ? captureAccessSessionGuard({ allowSameAccountRotation: true })
     : undefined
   const assertLoginSessionCurrent = () => {
     if (!isLoginSessionCurrent(loginSessionBoundary)) {
@@ -756,58 +874,88 @@ export async function apiRequest<TSchema extends z.ZodType>(
   // response, so it must not rotate the session.
   options.beforeAttempt?.()
   try {
-    return await rawRequest(
+    const result = await rawRequest(
       path,
       options,
       accessTokenUsed,
       responseLoginSessionBoundary
     )
-  } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      if (!isLoginSessionCurrent(loginSessionBoundary)) {
-        throw error
-      }
-      try {
-        await refreshSession(accessTokenUsed, loginSessionBoundary)
-      } catch (refreshError) {
-        if (!isLoginSessionCurrent(loginSessionBoundary)) {
-          throw error
-        }
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
-      }
-
-      if (!isLoginSessionCurrent(loginSessionBoundary)) {
-        throw error
-      }
-      // Runs outside the retry's authentication catch: a guard rejection is
-      // not an authentication failure, so the refreshed session is kept.
-      options.beforeAttempt?.()
-      try {
-        return await rawRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken(),
-          responseLoginSessionBoundary
-        )
-      } catch (retryError) {
-        if (
-          isLoginSessionCurrent(loginSessionBoundary) &&
-          isDefinitiveAuthenticationError(retryError)
-        ) {
-          setAccessToken(null)
-        }
-        throw retryError
-      }
+    options.signal?.throwIfAborted()
+    assertLoginSessionCurrent()
+    if (accessTokenUsed && isCurrentAccount) {
+      assertCurrentSession(isCurrentAccount)
     }
-    throw error
+    return result
+  } catch (error) {
+    if (!isCurrentAccount || !isDefinitiveAuthenticationError(error)) {
+      throw error
+    }
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw error
+    }
+    assertCurrentSession(isCurrentAccount)
+    options.signal?.throwIfAborted()
+    let session: AccessSession
+    try {
+      session = await refreshSession(
+        accessTokenUsed,
+        loginSessionBoundary,
+        isCurrentAccount
+      )
+    } catch (refreshError) {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        throw error
+      }
+      if (isDefinitiveAuthenticationError(refreshError)) {
+        setAccessToken(null)
+      }
+      throw refreshError
+    }
+
+    options.signal?.throwIfAborted()
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw error
+    }
+    // A refresh must publish the same account's credentials. An account or
+    // role change is local cancellation, not a retry for the new login.
+    const previous = readAccessTokenIdentity(accessTokenUsed)
+    const next = session.user ?? readAccessTokenIdentity(session.access_token)
+    const isCurrent = captureAccessSessionGuard()
+    assertCurrentSession(
+      () =>
+        (!previous ||
+          (previous.id === next?.id && previous.role === next.role)) &&
+        getAccessToken() === session.access_token &&
+        isCurrent()
+    )
+    if (!isLoginSessionCurrent(loginSessionBoundary)) {
+      throw error
+    }
+    const isCurrentRetryAccount = captureAccessSessionGuard({
+      allowSameAccountRotation: true,
+    })
+    // Runs outside the retry's authentication catch: a guard rejection is not
+    // an authentication failure, so the refreshed session is kept.
+    options.beforeAttempt?.()
+    try {
+      const result = await rawRequest(
+        path,
+        { ...options, skipRefresh: true },
+        getAccessToken(),
+        responseLoginSessionBoundary
+      )
+      options.signal?.throwIfAborted()
+      assertCurrentSession(isCurrentRetryAccount)
+      return result
+    } catch (retryError) {
+      options.signal?.throwIfAborted()
+      if (isDefinitiveAuthenticationError(retryError)) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) throw retryError
+        assertCurrentSession(isCurrent)
+        setAccessToken(null)
+      }
+      throw retryError
+    }
   }
 }
 
@@ -820,51 +968,83 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
       await import("@/features/ui-demo/workspace-ui-demo-data")
     rejectWorkspaceUiDemoWrite()
   }
+  options.signal?.throwIfAborted()
   const accessTokenUsed = getAccessToken()
   const loginSessionBoundary = getLoginSessionBoundary()
+  const canRefresh =
+    !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
+  const isCurrentAccount = canRefresh
+    ? captureAccessSessionGuard({ allowSameAccountRotation: true })
+    : undefined
   try {
-    return await rawUploadRequest(
+    const result = await rawUploadRequest(
       path,
       options,
       accessTokenUsed,
       loginSessionBoundary
     )
-  } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      try {
-        await refreshSession(accessTokenUsed, loginSessionBoundary)
-      } catch (refreshError) {
-        if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
-      }
-
-      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
-      try {
-        return await rawUploadRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken(),
-          loginSessionBoundary
-        )
-      } catch (retryError) {
-        if (
-          isLoginSessionCurrent(loginSessionBoundary) &&
-          isDefinitiveAuthenticationError(retryError)
-        ) {
-          setAccessToken(null)
-        }
-        throw retryError
-      }
+    options.signal?.throwIfAborted()
+    if (accessTokenUsed && isCurrentAccount) {
+      assertCurrentSession(isCurrentAccount)
     }
-    throw error
+    return result
+  } catch (error) {
+    if (!isCurrentAccount || !isDefinitiveAuthenticationError(error)) {
+      throw error
+    }
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    assertCurrentSession(isCurrentAccount)
+    options.signal?.throwIfAborted()
+    let session: AccessSession
+    try {
+      session = await refreshSession(
+        accessTokenUsed,
+        loginSessionBoundary,
+        isCurrentAccount
+      )
+    } catch (refreshError) {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+      if (isDefinitiveAuthenticationError(refreshError)) {
+        setAccessToken(null)
+      }
+      throw refreshError
+    }
+
+    options.signal?.throwIfAborted()
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    const previous = readAccessTokenIdentity(accessTokenUsed)
+    const next = session.user ?? readAccessTokenIdentity(session.access_token)
+    const isCurrent = captureAccessSessionGuard()
+    assertCurrentSession(
+      () =>
+        (!previous ||
+          (previous.id === next?.id && previous.role === next.role)) &&
+        getAccessToken() === session.access_token &&
+        isCurrent()
+    )
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    const isCurrentRetryAccount = captureAccessSessionGuard({
+      allowSameAccountRotation: true,
+    })
+    try {
+      const result = await rawUploadRequest(
+        path,
+        { ...options, skipRefresh: true },
+        getAccessToken(),
+        loginSessionBoundary
+      )
+      options.signal?.throwIfAborted()
+      assertCurrentSession(isCurrentRetryAccount)
+      return result
+    } catch (retryError) {
+      options.signal?.throwIfAborted()
+      if (isDefinitiveAuthenticationError(retryError)) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) throw retryError
+        assertCurrentSession(isCurrent)
+        setAccessToken(null)
+      }
+      throw retryError
+    }
   }
 }
 
@@ -938,55 +1118,130 @@ export async function apiStreamRequest(
       messageKey: "workspaceUiDemo.readOnly",
     })
   }
+  options.signal?.throwIfAborted()
   const accessTokenUsed = getAccessToken()
   const loginSessionBoundary = getLoginSessionBoundary()
   const responseLoginSessionBoundary = isMacDesktopHost()
     ? loginSessionBoundary
     : undefined
+  const canRefresh =
+    !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
+  const isCurrentAccount = canRefresh
+    ? captureAccessSessionGuard({ allowSameAccountRotation: true })
+    : undefined
   try {
-    return await rawStreamRequest(
+    const response = await rawStreamRequest(
       path,
       options,
       accessTokenUsed,
       responseLoginSessionBoundary
     )
+    options.signal?.throwIfAborted()
+    if (accessTokenUsed && isCurrentAccount) {
+      assertCurrentSession(isCurrentAccount)
+    }
+    return response
   } catch (error) {
-    if (
-      isDefinitiveAuthenticationError(error) &&
-      !options.skipRefresh &&
-      path !== "/auth/refresh" &&
-      path !== "/auth/login"
-    ) {
-      try {
-        await refreshSession(accessTokenUsed, loginSessionBoundary)
-      } catch (refreshError) {
-        if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
-        if (isDefinitiveAuthenticationError(refreshError)) {
-          setAccessToken(null)
-        }
-        throw refreshError
+    if (!isCurrentAccount || !isDefinitiveAuthenticationError(error)) {
+      throw error
+    }
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    assertCurrentSession(isCurrentAccount)
+    options.signal?.throwIfAborted()
+    let session: AccessSession
+    try {
+      session = await refreshSession(
+        accessTokenUsed,
+        loginSessionBoundary,
+        isCurrentAccount
+      )
+    } catch (refreshError) {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+      if (isDefinitiveAuthenticationError(refreshError)) {
+        setAccessToken(null)
+      }
+      throw refreshError
+    }
+
+    options.signal?.throwIfAborted()
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    const previous = readAccessTokenIdentity(accessTokenUsed)
+    const next = session.user ?? readAccessTokenIdentity(session.access_token)
+    const isCurrent = captureAccessSessionGuard()
+    assertCurrentSession(
+      () =>
+        (!previous ||
+          (previous.id === next?.id && previous.role === next.role)) &&
+        getAccessToken() === session.access_token &&
+        isCurrent()
+    )
+    if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
+    const isCurrentRetryAccount = captureAccessSessionGuard({
+      allowSameAccountRotation: true,
+    })
+    try {
+      const response = await rawStreamRequest(
+        path,
+        { ...options, skipRefresh: true },
+        getAccessToken(),
+        responseLoginSessionBoundary
+      )
+      options.signal?.throwIfAborted()
+      assertCurrentSession(isCurrentRetryAccount)
+      return response
+    } catch (retryError) {
+      options.signal?.throwIfAborted()
+      if (isDefinitiveAuthenticationError(retryError)) {
+        if (!isLoginSessionCurrent(loginSessionBoundary)) throw retryError
+        assertCurrentSession(isCurrent)
+        setAccessToken(null)
+      }
+      throw retryError
+    }
+  }
+}
+
+export function apiEventStreamRequest(
+  path: string,
+  options: {
+    signal: AbortSignal
+    lastEventId?: string
+    loginSessionBoundary?: LoginSessionBoundary
+  }
+) {
+  const loginSessionBoundary =
+    options.loginSessionBoundary ?? getLoginSessionBoundary()
+  return requestWithSessionRetry(
+    path,
+    { ...options, loginSessionBoundary },
+    async (token) => {
+      const headers = new Headers({ Accept: "text/event-stream" })
+      prepareClientBuildRequest(headers, path)
+      if (token) headers.set("Authorization", `Bearer ${token}`)
+      if (options.lastEventId) {
+        headers.set("Last-Event-ID", options.lastEventId)
       }
 
-      if (!isLoginSessionCurrent(loginSessionBoundary)) throw error
-      try {
-        return await rawStreamRequest(
-          path,
-          { ...options, skipRefresh: true },
-          getAccessToken(),
-          responseLoginSessionBoundary
-        )
-      } catch (retryError) {
-        if (
-          isLoginSessionCurrent(loginSessionBoundary) &&
-          isDefinitiveAuthenticationError(retryError)
-        ) {
-          setAccessToken(null)
+      const response = await hostFetch(
+        buildApiUrl(path, { last_event_id: options.lastEventId }),
+        {
+          headers,
+          credentials: "include",
+          cache: "no-store",
+          signal: options.signal,
         }
-        throw retryError
+      )
+      // The response belongs to the login that sent the request. Checking
+      // first also prevents a stale response from triggering the global
+      // build/desktop-update side effects of validateResponseBuild.
+      assertResponseLoginSessionCurrent(response, loginSessionBoundary)
+      validateResponseBuild(response.headers)
+      if (response.status === 401) {
+        throw new ApiError({ status: 401, errorCode: "AUTH_REQUIRED" })
       }
+      return response
     }
-    throw error
-  }
+  )
 }
 
 export async function downloadApiFile(

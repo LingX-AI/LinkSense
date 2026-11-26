@@ -770,6 +770,7 @@ model ApplicationExternalSession {
   externalApplicationSessionIdEncryptionKeyId String?   @map("external_application_session_id_encryption_key_id") @db.VarChar(120)
   externalApplicationSessionIdUpdatedAt       DateTime? @map("external_application_session_id_updated_at") @db.Timestamptz(6)
   absoluteExpiresAt                           DateTime  @map("absolute_expires_at") @db.Timestamptz(6)
+  initializationExpiresAt                     DateTime? @map("initialization_expires_at") @db.Timestamptz(6)
   lastSeenAt                                  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
   revokedAt                                   DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokeReason                                String?   @map("revoke_reason") @db.VarChar(80)

@@ -1,10 +1,10 @@
-import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
+import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT, WEB_SITE_TOOL_BODY_LIMIT } from "@linksense/shared"
 import { timingSafeEqual } from "node:crypto"
 
-import Fastify, { type FastifyReply } from "fastify"
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
 import { createLoggerOptions, RunnerLogController } from "../lib/logger.js"
 import { z } from "zod"
-import { runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
+import { runnerRequestIdHeader, runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import { deriveKnowledgeSearchTimeouts } from "../knowledge-search-timeout.js"
@@ -20,8 +20,15 @@ import {
   type WorkerManager,
 } from "./worker-manager.js"
 import { RuntimeCleanupError } from "../runtime-cleanup.js"
+import type { WorkerRequestTrace } from "./worker-lifecycle.js"
 
 const uuid = z.uuid()
+const apiRequestIdSchema = z.string().max(128).regex(/^[\w.-]+$/u)
+
+function workerRequestTrace(request: FastifyRequest): WorkerRequestTrace {
+  const apiRequestId = apiRequestIdSchema.safeParse(request.headers[runnerRequestIdHeader])
+  return { requestId: request.id, ...(apiRequestId.success ? { apiRequestId: apiRequestId.data } : {}) }
+}
 
 export function buildControllerServer(
   config: RunnerConfig,
@@ -75,6 +82,7 @@ export function buildControllerServer(
       route.startsWith("/internal/skills/") ||
       route === "/internal/application-builder" ||
       route === "/internal/web-sites" ||
+      route.startsWith("/internal/web-sites/") ||
       route.startsWith("/internal/automations/")
     ) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
@@ -125,7 +133,7 @@ export function buildControllerServer(
     if (!applicationId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
     try {
       return sendWorkerResponse(reply, await workers.requestPublicKnowledge(applicationId, request.url, request.method,
-        request.body === undefined ? undefined : Buffer.from(JSON.stringify(request.body)), 210_000));
+        request.body === undefined ? undefined : Buffer.from(JSON.stringify(request.body)), 210_000, workerRequestTrace(request)));
     } catch (error) { return sendWorkerTransportFailure(reply, error); }
   } });
 
@@ -135,7 +143,7 @@ export function buildControllerServer(
       return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
     }
     try {
-      await workers.prewarm(ownerId)
+      await workers.prewarm(ownerId, workerRequestTrace(request))
       return reply.code(204).send()
     } catch (error) {
       return sendWorkerTransportFailure(reply, error)
@@ -155,6 +163,9 @@ export function buildControllerServer(
         request.method,
         Buffer.from(JSON.stringify(body.data)),
         Math.min(body.data.timeoutMs + 10_000, 130_000),
+        undefined,
+        undefined,
+        workerRequestTrace(request),
       )
       return sendWorkerResponse(reply, response)
     } catch (error) {
@@ -164,6 +175,7 @@ export function buildControllerServer(
 
   for (const route of [
     "/internal/runner/heartbeat",
+    "/internal/runner/sensitive-data",
     "/internal/runner/start-settled",
     "/internal/runner/events",
     "/internal/runner/memory-usage",
@@ -185,12 +197,17 @@ export function buildControllerServer(
     "/internal/automations/request-stop",
     "/internal/web-search/search",
     "/internal/automations/execute",
+    "/internal/web-sites/execute",
+    "/internal/web-sites/confirm",
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
     "/internal/web-sites",
   ]) {
-    app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : route === "/internal/automations/execute" ? { bodyLimit: AUTOMATION_TOOL_BODY_LIMIT } : {}) }, async (request, reply) => {
+    const bodyLimit = route === "/internal/connections/execute" ? MICROSOFT_CONNECTION_BODY_LIMIT
+      : route === "/internal/automations/execute" ? AUTOMATION_TOOL_BODY_LIMIT
+      : route.startsWith("/internal/web-sites/") ? WEB_SITE_TOOL_BODY_LIMIT : undefined
+    app.post(route, bodyLimit === undefined ? {} : { bodyLimit }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
       if (!ownerId) {
         return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
@@ -216,7 +233,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/web-sites" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
+            : route === "/internal/application-builder" || route === "/internal/web-sites" || route.startsWith("/internal/web-sites/") || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
               ? 60_000
             : 15_000,
           controller.signal,
@@ -260,6 +277,9 @@ export function buildControllerServer(
             request.method,
             serialized,
             route.path.endsWith("/reset") ? 30_000 : undefined,
+            undefined,
+            undefined,
+            workerRequestTrace(request),
           )
           return sendWorkerResponse(reply, response)
         } catch (error) {
@@ -392,6 +412,7 @@ export function buildControllerServer(
         request.url.endsWith("/reconcile") ? 110_000 : undefined,
         workspace.data,
         uuid.optional().parse(request.headers[runtimeServiceSessionHeader]),
+        workerRequestTrace(request),
       )
       return sendWorkerResponse(reply, response)
     } catch (error) {

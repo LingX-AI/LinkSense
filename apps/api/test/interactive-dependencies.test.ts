@@ -107,10 +107,21 @@ describe("interactive dependency resolution", () => {
     const result = await resolveInteractiveDependencies(database, OWNER, manifest({ skills: [{ id: SKILL, name: "Review" }, { id: OTHER, name: "Alternative" }] }), [], [{ type: "skill", id: OTHER, resource_id: SKILL }]);
     const table = () => ({ deleteMany: vi.fn(), createMany: vi.fn() });
     const tx = { applicationCapability: table(), applicationKnowledgeBase: table(), applicationMcpServer: table() };
-    await writeInteractiveRuntimeBindings(tx as unknown as Parameters<typeof writeInteractiveRuntimeBindings>[0], OWNER, result, true);
+    await writeInteractiveRuntimeBindings(tx as unknown as Parameters<typeof writeInteractiveRuntimeBindings>[0], OWNER, OWNER, result, true);
     expect(dependencyBindings(result)).toHaveLength(2);
     expect(tx.applicationCapability.createMany).toHaveBeenCalledWith({ data: [{ applicationId: OWNER, capabilityId: SKILL, capabilityNameSnapshot: "My review", capabilityTypeSnapshot: "skill", selectionOrder: 0 }] });
     expect(tx.applicationKnowledgeBase.deleteMany).toHaveBeenCalledWith({ where: { applicationId: OWNER } });
     expect(tx.applicationMcpServer.deleteMany).toHaveBeenCalledWith({ where: { applicationId: OWNER } });
+  });
+  it("rejects a new MCP binding if the server was deleted after it was selected", async () => {
+    const { database } = fixture();
+    const selected = await resolveInteractiveDependencies(database, OWNER, manifest({ mcp_servers: [{ id: MCP, name: "ERP" }] }));
+    const table = () => ({ deleteMany: vi.fn(), createMany: vi.fn() });
+    const tx = { $queryRaw: vi.fn(async () => []), applicationCapability: table(), applicationKnowledgeBase: table(), applicationMcpServer: table() };
+    await expect(writeInteractiveRuntimeBindings(
+      tx as unknown as Parameters<typeof writeInteractiveRuntimeBindings>[0], OWNER, OWNER, selected, true,
+    )).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+    expect(tx.applicationMcpServer.deleteMany).not.toHaveBeenCalled();
+    expect(tx.applicationMcpServer.createMany).not.toHaveBeenCalled();
   });
 });

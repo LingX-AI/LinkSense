@@ -158,6 +158,7 @@ export const errors = {
       "La saisie vocale est limitée à 20 utilisations par minute. Réessayez dans un instant.",
   },
   mcp: {
+    inUse: "Retirez ce serveur des applications concernées et mettez à jour les versions qui l’utilisent encore, puis réessayez de le supprimer.",
     insecureHttpAcknowledgementRequired:
       "Vous devez accepter le risque lié au transfert non chiffré avant d’utiliser un serveur MCP HTTP.",
     credentialRequired:

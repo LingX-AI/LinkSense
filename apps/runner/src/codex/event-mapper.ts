@@ -28,6 +28,7 @@ import {
   type RunnerLinkSenseEvent,
   type DesktopApprovalFileChange,
   type ImageGenerationMcpFailure,
+  type LocalModelUsage,
 } from "@linksense/shared";
 
 import type {
@@ -56,6 +57,7 @@ export type CodexEventPreviewContext = {
   codexHome?: string;
 };
 export type CodexNotificationProjectionContext = {
+  localModelUsage?: LocalModelUsage;
   supersededItemId?: string;
   subAgentLabelsByThreadId?: ReadonlyMap<string, string | null>;
   desktopBrowserApproval?: boolean;
@@ -282,7 +284,10 @@ export function mapCodexNotification(
     return event({
       method: "thread/tokenUsage/updated",
       visibility: "internal_sanitized",
-      params: { threadId, turnId, tokenUsage },
+      params: {
+        threadId, turnId, tokenUsage,
+        ...(projectionContext.localModelUsage ? { localModelUsage: projectionContext.localModelUsage } : {}),
+      },
     });
   }
 

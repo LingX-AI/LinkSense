@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Prisma } from "../src/generated/prisma/client.js";
+import { Prisma, type FeishuPeerSession, type PrismaClient } from "../src/generated/prisma/client.js";
 import type {
   ApplicationIcon,
   ApplicationUnavailableReason,
@@ -46,6 +46,8 @@ import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../src/modules/conv
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
 import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
 import type { DesktopProjectionFence } from "../src/modules/desktop-credentials/run-authority.js";
+import { AutomationNotificationService } from "../src/modules/automations/notifications.js";
+import { PrismaFeishuRepository } from "../src/modules/feishu/repository.js";
 import { AppError } from "../src/lib/errors.js";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -2107,6 +2109,23 @@ describe("ConversationService ownership and draft lifecycle", () => {
         applicationNameSnapshot: "Finance assistant",
       }),
     });
+  });
+
+  it("leaves failed first-login cleanup to the embed initializer", async () => {
+    const fixture = await conversationFixture();
+    const finalize = vi.fn(async () => { throw new AppError("CONFLICT"); });
+
+    await expect(fixture.service.createExternalApplicationConversation(OWNER_ID, {
+      id: APPLICATION_ID,
+      name: "Finance assistant",
+      kind: "standard",
+      interactivePackageId: null,
+    }, SECOND_CONVERSATION_ID, finalize)).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce();
+    expect(finalize).toHaveBeenCalledExactlyOnceWith(fixture.defaultTransaction);
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
   });
 
   it("resolves the installed version once and uses its name and page for a new interactive task", async () => {
@@ -5271,6 +5290,92 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
   });
 
+  it("cleans only the deleted task's Feishu messages and preserves a saved automation destination across chat rebinding", async () => {
+    const fixture = await conversationFixture();
+    const connectionId = "21000000-0000-4000-8000-000000000001";
+    const peerId = "22000000-0000-4000-8000-000000000001";
+    const chatId = "oc_bound_chat";
+    const ownerOpenId = "ou_owner";
+    const reboundConversationId = "20000000-0000-4000-8000-000000000003";
+    const target = { kind: "feishu", connection_id: connectionId, peer_session_id: peerId };
+    let peer: FeishuPeerSession | null = {
+      id: peerId, connectionId, chatId, senderOpenId: ownerOpenId, conversationId: CONVERSATION_ID,
+      lastInboundAt: NOW, createdAt: NOW, updatedAt: NOW,
+    };
+    const feishuPeerSession = {
+      deleteMany: vi.fn(async ({ where }: { where: { conversationId: string } }) => {
+        if (peer?.conversationId !== where.conversationId) return { count: 0 };
+        peer = null;
+        return { count: 1 };
+      }),
+      upsert: vi.fn(async ({ where, create, update }: {
+        where: { connectionId_chatId: Pick<FeishuPeerSession, "connectionId" | "chatId"> };
+        create: Omit<FeishuPeerSession, "createdAt" | "updatedAt">;
+        update: Pick<FeishuPeerSession, "senderOpenId" | "conversationId" | "lastInboundAt">;
+      }) => {
+        const key = where.connectionId_chatId;
+        peer = peer && peer.connectionId === key.connectionId && peer.chatId === key.chatId
+          ? { ...peer, ...update }
+          : { ...create, createdAt: NOW, updatedAt: NOW };
+        return peer;
+      }),
+      findFirst: vi.fn(async ({ where }: { where: Pick<FeishuPeerSession, "id" | "connectionId" | "senderOpenId"> }) =>
+        peer?.id === where.id && peer.connectionId === where.connectionId && peer.senderOpenId === where.senderOpenId ? peer : null),
+    };
+    const transaction = { ...transactionFixture(), feishuPeerSession };
+    transaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }]);
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+    );
+
+    await fixture.service.delete(OWNER_ID, CONVERSATION_ID, {});
+
+    expect(transaction.feishuInboundMessage.deleteMany).toHaveBeenCalledExactlyOnceWith({ where: { conversationId: CONVERSATION_ID } });
+    expect(transaction.feishuOutboundDelivery.deleteMany).toHaveBeenCalledExactlyOnceWith({ where: { conversationId: CONVERSATION_ID } });
+    expect(transaction.feishuInboundMessage.deleteMany).toHaveBeenCalledBefore(transaction.feishuOutboundDelivery.deleteMany);
+    expect(transaction.feishuOutboundDelivery.deleteMany).toHaveBeenCalledBefore(transaction.conversationTurn.deleteMany);
+
+    const delivery = {
+      id: MESSAGE_ID, ownerId: OWNER_ID, automationId: APPLICATION_ID, runId: TURN_ID,
+      targetJson: target, status: "pending", attempts: 0, processingToken: null, lastErrorCode: null,
+      nextAttemptAt: NOW, sentAt: null, createdAt: NOW, updatedAt: NOW,
+    };
+    const db = {
+      feishuPeerSession,
+      feishuConnection: { findFirst: vi.fn(async () => ({ id: connectionId, ownerId: OWNER_ID, ownerOpenId })) },
+      automation: { findFirst: vi.fn(async () => ({ title: "Brief", notificationTargetJson: target })) },
+      automationRun: { findFirst: vi.fn(async () => ({ conversationId: SECOND_CONVERSATION_ID, turnId: TURN_ID, status: "started", completedAt: NOW })) },
+      automationNotificationDelivery: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        findFirst: vi.fn(async () => ({ id: delivery.id })),
+      },
+      user: { findFirst: vi.fn(async () => ({ preferredLocale: "en-US" })) },
+      conversation: { findFirst: vi.fn(async ({ where }: { where: { id: string; ownerId: string } }) =>
+        where.id === SECOND_CONVERSATION_ID && where.ownerId === OWNER_ID ? { id: SECOND_CONVERSATION_ID } : null) },
+    };
+    const prisma = db as unknown as PrismaClient;
+    const repository = new PrismaFeishuRepository(prisma);
+    const rebound = await repository.upsertPeerSession({
+      id: "22000000-0000-4000-8000-000000000002",
+      connectionId, chatId, senderOpenId: ownerOpenId, conversationId: reboundConversationId, lastInboundAt: NOW,
+    });
+    expect(rebound).toMatchObject({ id: peerId, conversationId: reboundConversationId });
+
+    const sendFeishu = vi.fn(async ({ beforeSend }: { beforeSend: () => Promise<void> }) => beforeSend());
+    const notifications = new AutomationNotificationService(prisma, {
+      outcome: async () => ({ status: "completed", text: "Automation result" }),
+      feishu: sendFeishu,
+      bot: vi.fn(),
+    }, () => NOW);
+    await notifications.deliver(delivery);
+    expect(sendFeishu).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      ownerId: OWNER_ID, connectionId, chatId, text: expect.stringContaining("Automation result"),
+    }));
+    expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "sent" }) }),
+    );
+  });
+
   it.each([false, true])("retains stored application artifacts before authorizing cleanup (storage failure: %s)", async (failRetention) => {
     const fixture = await conversationFixture();
     const transaction = transactionFixture();
@@ -6983,6 +7088,7 @@ describe("ConversationService pending and turn materialization", () => {;;;
       turn_id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
     });
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.redis.acquireConversationLock).toHaveBeenCalledWith(CONVERSATION_ID, 390_000);
     expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     expect(
       fixture.runner.acceptStartTurn.mock.calls[0]?.[0].context,
@@ -7549,7 +7655,7 @@ describe("ConversationService pending and turn materialization", () => {;;;
 
       expect(generator.generate).toHaveBeenCalledExactlyOnceWith([
         { role: "user", content: "name while the task runs" },
-      ]);
+      ], CONVERSATION_ID);
       expect(fixture.redis.releaseConversationLock).toHaveBeenCalled();
       expect(fixture.redis.releaseUserRuntimeLease).toHaveBeenCalled();
       finishNaming?.();
@@ -14593,6 +14699,8 @@ function transactionFixture() {
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    feishuInboundMessage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    feishuOutboundDelivery: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     botChannelOutboundDelivery: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     botChannelInboundMessage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     botChannelPeerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },

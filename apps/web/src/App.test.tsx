@@ -1,4 +1,5 @@
 import App from "@/App"
+import { setAccessToken } from "@/api/session"
 import { AppProviders } from "@/app/providers"
 import {
   setupApplicationTests,
@@ -6,7 +7,7 @@ import {
   json,
   renderApp,
 } from "@/test/application/fixture"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { StrictMode } from "react"
 import { MemoryRouter } from "react-router-dom"
@@ -252,6 +253,68 @@ describe("LinkSense application", () => {
     ).toBe(true)
   })
 
+  it("leaves the sign-in page when another tab saves a session", async () => {
+    const { requests } = installApiMock({
+      refreshFails: true,
+      initialLanguage: "en-US",
+    })
+    renderApp("/login")
+    await screen.findByRole("button", { name: "登录" })
+
+    act(() => {
+      const key = "linksense.auth.access-session"
+      const newValue = JSON.stringify({
+        access_token: "another-tab-access-token",
+        expires_at: Date.now() + 60_000,
+      })
+      window.localStorage.setItem(key, newValue)
+      const event = new StorageEvent("storage", { key, newValue })
+      Object.defineProperty(event, "storageArea", { value: window.localStorage })
+      window.dispatchEvent(event)
+    })
+
+    expect(
+      await screen.findByRole("form", { name: "Task composer" })
+    ).toBeVisible()
+    expect(document.documentElement.lang).toBe("en-US")
+    expect(
+      requests.filter(({ path }) => path === "/api/v1/auth/refresh")
+    ).toHaveLength(1)
+    expect(requests.some(({ path }) => path === "/api/v1/me")).toBe(true)
+  })
+
+  it("restores an expired account through the API client's refresh and the new token", async () => {
+    const { fetchMock, requests } = installApiMock()
+    const fallback = fetchMock.getMockImplementation()
+    if (!fallback) throw new Error("Missing application API fixture")
+    const previousToken = "previous-access-token"
+    const profileTokens: Array<string | null> = []
+    setAccessToken(previousToken)
+    fetchMock.mockImplementation((input, init) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      if (path === "/api/v1/me") {
+        const authorization = new Headers(init?.headers).get("Authorization")
+        profileTokens.push(authorization)
+        if (authorization === `Bearer ${previousToken}`) {
+          return Promise.resolve(
+            json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+          )
+        }
+      }
+      return fallback(input, init)
+    })
+    renderApp("/login")
+
+    expect(await screen.findByRole("form", { name: "任务输入框" })).toBeVisible()
+    expect(profileTokens).toEqual([
+      `Bearer ${previousToken}`,
+      "Bearer test-access-token-that-is-long-enough",
+    ])
+    expect(
+      requests.filter(({ path }) => path === "/api/v1/auth/refresh")
+    ).toHaveLength(1)
+  })
+
   it("shows an auto-dismiss notification after accepting a secure-link request", async () => {
     const { requests } = installApiMock()
     const interaction = userEvent.setup()
@@ -416,7 +479,7 @@ describe("LinkSense application", () => {
     expect(screen.getByRole("button", { name: "保存新密码" })).toBeDisabled()
   })
 
-  it.each(["oidc", "saml"])(
+  it.each(["oidc", "saml", "social"])(
     "restores the backend-created %s session and clears the callback result",
     async (protocol) => {
       const { requests } = installApiMock()

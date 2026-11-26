@@ -69,7 +69,7 @@ describe("published service routing", () => {
       expect((await server.inject({ url })).statusCode).toBe(401);
       expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(403);
       expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId } })).statusCode).toBe(200);
-      expect(requestPublicKnowledge).toHaveBeenCalledExactlyOnceWith(ownerId, url, "GET", undefined, 210_000);
+      expect(requestPublicKnowledge).toHaveBeenCalledExactlyOnceWith(ownerId, url, "GET", undefined, 210_000, { requestId: expect.any(String) });
       expect(request).not.toHaveBeenCalled();
     } finally { await server.close(); }
   });
@@ -135,9 +135,9 @@ describe("published service routing", () => {
     const session = "01900000-0000-7000-8000-000000000011"
     const headers = { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session, "x-linksense-workspace": "workspace" }
     expect((await server.inject({ method: "PUT", url: `/conversations/${session}/runtime`, headers, payload: {} })).statusCode).toBe(200)
-    expect(request).toHaveBeenCalledWith(ownerId, `/conversations/${session}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect(request).toHaveBeenCalledWith(ownerId, `/conversations/${session}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session, { requestId: expect.any(String) })
     expect((await server.inject({ method: "PUT", url: `/conversations/${otherOwnerId}/runtime`, headers, payload: {} })).statusCode).toBe(200)
-    expect(request).toHaveBeenLastCalledWith(ownerId, `/conversations/${otherOwnerId}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect(request).toHaveBeenLastCalledWith(ownerId, `/conversations/${otherOwnerId}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session, { requestId: expect.any(String) })
     expect(request).toHaveBeenCalledTimes(2)
     await server.close()
   })
@@ -152,6 +152,9 @@ describe("published service routing", () => {
     expect((await server.inject({ method: "POST", url: "/internal/skills/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/application-builder", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/automations/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    for (const url of ["/internal/web-sites/execute", "/internal/web-sites/confirm"]) {
+      expect((await server.inject({ method: "POST", url, headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    }
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
     expect(fetchMock).not.toHaveBeenCalled()
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers, payload: { conversationId: session, events: [] } })).statusCode).toBe(200)
@@ -337,10 +340,11 @@ describe("controller authentication and routing", () => {
       headers: {
         authorization: `Bearer ${secret}`,
         "x-linksense-owner-id": ownerId,
+        "x-linksense-request-id": "req-api-test",
       },
     })
     expect(accepted.statusCode).toBe(204)
-    expect(prewarm).toHaveBeenCalledWith(ownerId)
+    expect(prewarm).toHaveBeenCalledWith(ownerId, { requestId: expect.any(String), apiRequestId: "req-api-test" })
     await server.close()
   })
 
@@ -455,6 +459,9 @@ describe("controller authentication and routing", () => {
       "POST",
       Buffer.from(JSON.stringify(payload)),
       15_000,
+      undefined,
+      undefined,
+      { requestId: expect.any(String) },
     )
     await server.close()
   })
@@ -762,6 +769,30 @@ describe("controller authentication and routing", () => {
       expect(timeoutSpy).toHaveBeenCalledWith(60_000)
     } finally {
       timeoutSpy.mockRestore()
+      await server.close()
+    }
+  })
+
+  it("relays site management and approval only for an authenticated owner worker", async () => {
+    const { server } = await createServer()
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      for (const operation of ["execute", "confirm"] as const) {
+        const url = "/internal/web-sites/" + operation
+        const payload = { conversationId: ownerId, turnId: otherOwnerId }
+        const inject = (authorization: string) => server.inject({
+          method: "POST", url, headers: { authorization, "x-linksense-owner-id": ownerId }, payload,
+        })
+        expect((await inject("Bearer " + ownerWorkerSecret(otherOwnerId, secret))).statusCode).toBe(401)
+        expect((await inject("Bearer " + ownerWorkerSecret(ownerId, secret))).statusCode).toBe(200)
+        const forwarded = fetchMock.mock.lastCall
+        expect(String(forwarded?.[0])).toBe("http://api:4000" + url)
+        expect(new Headers(forwarded?.[1]?.headers).get("authorization")).toBe("Bearer " + secret)
+        expect(new Headers(forwarded?.[1]?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
       await server.close()
     }
   })

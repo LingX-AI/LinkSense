@@ -172,6 +172,14 @@ import type { RunnerEventSink } from "./event-sink.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
 import { AutomationRequestError } from "./automation-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
+import {
+  conversationFormAcceptedOutcome,
+  internalWebSiteToolResultSchema,
+  webSiteToolResultSchema,
+  type WebSiteToolRequest,
+  type WebSiteToolResult,
+} from "@linksense/shared";
+import { WebSiteToolRequestError } from "./web-site-tool-error.js";
 import { ConnectionRequestError } from "./connection-error.js";
 import type { ConnectionInput } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
@@ -231,6 +239,8 @@ const LINKSENSE_APPROVAL_POLICY = "never" as const satisfies AskForApproval;
 const PLAN_MUTATION_SERVICE_ENVIRONMENT_NAMES = new Set([
   "LINKSENSE_AUTOMATION_ENDPOINT",
   "LINKSENSE_AUTOMATION_TOKEN",
+  "LINKSENSE_WEB_SITE_ENDPOINT",
+  "LINKSENSE_WEB_SITE_TOKEN",
   "LINKSENSE_FILE_SERVICE_ENDPOINT",
   "LINKSENSE_FILE_SERVICE_TOKEN",
   "LINKSENSE_IMAGE_GENERATION_ENDPOINT",
@@ -799,6 +809,7 @@ type ManagedProcess = {
   computerToken: string;
   webSearchToken: string;
   automationToken: string;
+  webSiteToken: string;
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
@@ -840,6 +851,7 @@ type ManagedProcess = {
 type QueuedCodexNotification = {
   notification: JsonRpcNotification;
   preparation: ManagedProcess["internalModelTransitionCompaction"];
+  localModelUsage?: CodexNotificationProjectionContext["localModelUsage"];
 };
 
 type CachedSubAgentRuntime = {
@@ -1824,6 +1836,7 @@ export class AppServerProcessPool {
         const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
+        const webSiteToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         const localToolsToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
@@ -1850,8 +1863,6 @@ export class AppServerProcessPool {
               LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
-              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-site/${input.conversationId}`,
-              LINKSENSE_WEB_SITE_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
@@ -1860,6 +1871,8 @@ export class AppServerProcessPool {
               LINKSENSE_WEB_SEARCH_TOKEN: webSearchToken,
               LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
+              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-sites/${input.conversationId}/execute`,
+              LINKSENSE_WEB_SITE_TOKEN: webSiteToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
               ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
@@ -3283,8 +3296,6 @@ export class AppServerProcessPool {
         409,
       );
     }
-    const threadId = managed.codexThreadId;
-    const turnId = managed.activeTurnId;
     if (!safeTokenEqual(token, managed.interactiveFormToken)) {
       throw new InteractiveFormRequestError(
         "INTERACTIVE_FORM_FORBIDDEN",
@@ -3292,11 +3303,24 @@ export class AppServerProcessPool {
         403,
       );
     }
+    if (conversationFormRequestsSensitiveValue(input.message, input.requestedSchema)) {
+      throw new InteractiveFormRequestError("INTERACTIVE_FORM_INVALID", false, 400);
+    }
+    return this.waitForUserForm(conversationId, managed, input, signal);
+  }
+
+  private async waitForUserForm(
+    conversationId: string,
+    managed: ManagedProcess,
+    input: InteractiveFormRequestInput,
+    signal?: AbortSignal,
+  ): Promise<ConversationUserInputResponse> {
+    const threadId = managed.codexThreadId;
+    const turnId = managed.activeTurnId;
+    if (!threadId || !turnId || managed.closing) {
+      throw new InteractiveFormRequestError("INTERACTIVE_FORM_TURN_INACTIVE", false, 409);
+    }
     if (
-      conversationFormRequestsSensitiveValue(
-        input.message,
-        input.requestedSchema,
-      ) ||
       !conversationFormResponseSemanticsMatchesSchema(
         input.responseSemantics,
         input.requestedSchema,
@@ -4398,6 +4422,7 @@ export class AppServerProcessPool {
         const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
+        const webSiteToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         const localToolsToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
@@ -4422,8 +4447,6 @@ export class AppServerProcessPool {
               LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
-              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-site/${input.conversationId}`,
-              LINKSENSE_WEB_SITE_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
@@ -4432,6 +4455,8 @@ export class AppServerProcessPool {
               LINKSENSE_WEB_SEARCH_TOKEN: webSearchToken,
               LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
+              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-sites/${input.conversationId}/execute`,
+              LINKSENSE_WEB_SITE_TOKEN: webSiteToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
               ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
@@ -4970,10 +4995,10 @@ export class AppServerProcessPool {
     return this.options.eventSink.applicationBuilder({ conversationId, turnId: managed.activeProjectionTurnId, request });
   }
 
-  async webSite(conversationId: string, token: string, request: import("@linksense/shared").WebSiteToolRequest): Promise<unknown> {
+  async webSite(conversationId: string, token: string, request: import("@linksense/shared").WebSiteLegacyToolRequest): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new WebSiteRequestError("WEB_SITE_TURN_INACTIVE", false, 409);
-    if (!safeTokenEqual(token, managed.skillCreatorToken) || managed.activeCollaborationMode === "plan") throw new WebSiteRequestError("WEB_SITE_FORBIDDEN", false, 403);
+    if (!safeTokenEqual(token, managed.webSiteToken) || managed.activeCollaborationMode === "plan") throw new WebSiteRequestError("WEB_SITE_FORBIDDEN", false, 403);
     if (!this.options.eventSink.webSite) throw new WebSiteRequestError("WEB_SITE_UNAVAILABLE", true, 503);
     return this.options.eventSink.webSite({ conversationId, turnId: managed.activeProjectionTurnId, request });
   }
@@ -5155,6 +5180,73 @@ export class AppServerProcessPool {
     if (!safeTokenEqual(token, managed.automationToken) || managed.activeCollaborationMode !== "default") throw new AutomationRequestError("FORBIDDEN", false, 403);
     if (!this.options.eventSink.manageAutomation) throw new AutomationRequestError("INTERNAL_ERROR", true, 503);
     return this.options.eventSink.manageAutomation({ conversationId, turnId: managed.activeProjectionTurnId, request, ...(signal ? { signal } : {}) });
+  }
+
+  async manageWebSite(
+    conversationId: string,
+    token: string,
+    request: WebSiteToolRequest,
+    signal: AbortSignal,
+  ): Promise<WebSiteToolResult> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId || managed.closing) {
+      throw new WebSiteToolRequestError("FORBIDDEN", 409);
+    }
+    if (!safeTokenEqual(token, managed.webSiteToken) || managed.activeCollaborationMode !== "default") {
+      throw new WebSiteToolRequestError("FORBIDDEN", 403);
+    }
+    const sink = this.options.eventSink;
+    if (!sink.manageWebSite) throw new WebSiteToolRequestError("INTERNAL_ERROR", 503);
+    const turnId = managed.activeProjectionTurnId;
+    const nativeTurnId = managed.activeTurnId;
+    const scope = { conversationId, turnId, signal };
+    const sameTurn = () => !signal.aborted && !managed.closing &&
+      managed.activeTurnId === nativeTurnId && managed.activeProjectionTurnId === turnId &&
+      !managed.nativeTerminalTurnIds.has(nativeTurnId) && this.processes.get(conversationId) === managed;
+    if (!sameTurn()) throw new WebSiteToolRequestError("FORBIDDEN", 409);
+
+    const result = internalWebSiteToolResultSchema.parse(await sink.manageWebSite({
+      ...scope,
+      request,
+      ...(request.tool === "delete_site" ? { requiresDeleteApproval: true } : {}),
+    }));
+    if (!("confirmation" in result)) {
+      if (request.tool === "delete_site") throw new WebSiteToolRequestError("INTERNAL_ERROR", 503);
+      return result;
+    }
+    if (result.confirmation.tool !== request.tool) throw new WebSiteToolRequestError("INTERNAL_ERROR", 503);
+    if (!sameTurn()) return { tool: result.confirmation.tool, outcome: "cancelled" };
+
+    const responseSemantics = {
+      kind: "approval", decision_field_id: "decision", approve_value: "approve", reject_value: "reject",
+    } as const;
+    // The API generates this form from the exact mutation. Its only input is
+    // a decision, so the displayed site text can include any valid title.
+    const response = await this.waitForUserForm(conversationId, managed, {
+      message: result.message,
+      requestedSchema: {
+        type: "object",
+        properties: {
+          decision: {
+            type: "string",
+            title: result.decisionLabel,
+            oneOf: [
+              { const: responseSemantics.approve_value, title: result.approveLabel },
+              { const: responseSemantics.reject_value, title: result.rejectLabel },
+            ],
+          },
+        },
+        required: ["decision"],
+      },
+      uiHints: {},
+      responseSemantics,
+      waitingPolicy: { kind: "required" },
+    }, signal);
+    if (!sameTurn() || response.action !== "accept" ||
+      conversationFormAcceptedOutcome(responseSemantics, response.content) !== "approved") {
+      return { tool: result.confirmation.tool, outcome: "cancelled" };
+    }
+    return webSiteToolResultSchema.parse(await sink.manageWebSite({ ...scope, confirmation: result.confirmation }));
   }
 
   async searchWeb(conversationId: string, token: string, request: WebSearchRequest, signal?: AbortSignal): Promise<unknown> {
@@ -6267,6 +6359,8 @@ export class AppServerProcessPool {
       }
       const automationToken = input.environment.LINKSENSE_AUTOMATION_TOKEN;
       if (!automationToken) throw new CodexProtocolError("automation token is missing");
+      const webSiteToken = input.environment.LINKSENSE_WEB_SITE_TOKEN;
+      if (!webSiteToken) throw new CodexProtocolError("web site token is missing");
       const connectionToken = input.environment.LINKSENSE_CONNECTION_TOKEN;
       if (!connectionToken) throw new CodexProtocolError("connection token is missing");
       if (!currentUserToken) {
@@ -6483,12 +6577,14 @@ export class AppServerProcessPool {
         computerToken: computerToken ?? "",
         webSearchToken,
         automationToken,
+        webSiteToken,
         connectionToken,
         notificationQueue: new OrderedBatchQueue<QueuedCodexNotification>(
           async entries => this.handleNotification(
             managed,
             entries.map(entry => entry.notification),
             entries[0]?.preparation ?? null,
+            entries[0]?.localModelUsage,
           ),
           { maxCount: RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT, maxBytes: RUNNER_EVENT_BATCH_TARGET_BYTES },
         ),
@@ -6655,7 +6751,12 @@ export class AppServerProcessPool {
         }
         void managed.notificationQueue
           .enqueue(
-            { notification, preparation },
+            {
+              notification, preparation,
+              ...(notification.method === "thread/tokenUsage/updated" ? {
+                localModelUsage: modelGatewayLease.localModelUsage?.(),
+              } : {}),
+            },
             preparation ? null : runnerTextDeltaBatchKey(notification),
             Buffer.byteLength(JSON.stringify(notification)),
           )
@@ -7077,6 +7178,7 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     notifications: readonly JsonRpcNotification[],
     preparation: ManagedProcess["internalModelTransitionCompaction"] = null,
+    localModelUsage?: CodexNotificationProjectionContext["localModelUsage"],
   ): Promise<void> {
     const notification = notifications[0];
     if (!notification) return;
@@ -7247,6 +7349,7 @@ export class AppServerProcessPool {
           );
         },
       }),
+      ...(localModelUsage ? { localModelUsage } : {}),
     } satisfies CodexNotificationProjectionContext;
     const events = notifications.flatMap(entry => mapCodexNotification(
       entry,

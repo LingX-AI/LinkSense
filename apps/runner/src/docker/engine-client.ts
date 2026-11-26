@@ -1,13 +1,59 @@
 import { request as httpRequest, type IncomingMessage } from "node:http"
 
 import { z } from "zod"
-import type { DiskUsage } from "@linksense/shared"
+import {
+  DOCKER_ENGINE_REQUEST_TIMEOUT_MS,
+  DOCKER_WORKER_CREATE_TIMEOUT_MS,
+  type DiskUsage,
+} from "@linksense/shared"
 import { collectDockerDiskUsage, type DockerDiskUsageInput } from "./disk-usage.js"
 
 const versionSchema = z.object({ ApiVersion: z.string().regex(/^\d+\.\d+$/u) })
 const createResponseSchema = z.object({ Id: z.string().min(1) })
 const containerInspectSchema = z.object({
   State: z.object({ Running: z.boolean() }),
+})
+const inspectedMountSchema = z.discriminatedUnion("Type", [
+  z.object({
+    Type: z.literal("bind"),
+    Source: z.string(),
+    Target: z.string(),
+    ReadOnly: z.boolean().default(false),
+  }),
+  z.object({
+    Type: z.literal("volume"),
+    Source: z.string(),
+    Target: z.string(),
+    ReadOnly: z.boolean().default(false),
+    VolumeOptions: z.object({ NoCopy: z.boolean().optional(), Subpath: z.string().optional() }).optional(),
+  }),
+])
+const containerInspectionSchema = z.object({
+  Id: z.string().min(1),
+  Name: z.string(),
+  Config: z.object({
+    Image: z.string(),
+    User: z.string(),
+    Env: z.array(z.string()),
+    Labels: z.record(z.string(), z.string()).nullish(),
+  }).nullable().catch(null),
+  HostConfig: z.object({
+    Privileged: z.boolean(),
+    ReadonlyRootfs: z.boolean(),
+    Init: z.boolean(),
+    CapDrop: z.array(z.string()),
+    CapAdd: z.array(z.string()),
+    SecurityOpt: z.array(z.string()),
+    PidsLimit: z.number(),
+    Memory: z.number(),
+    MemorySwap: z.number(),
+    NanoCpus: z.number(),
+    Tmpfs: z.record(z.string(), z.string()),
+    Mounts: z.array(inspectedMountSchema),
+    Binds: z.array(z.string()).nullish().transform((binds) => binds ?? []),
+    NetworkMode: z.string(),
+  }).nullable().catch(null),
+  State: z.object({ Status: z.string() }),
 })
 const containerSummarySchema = z.object({
   Id: z.string().min(1),
@@ -78,6 +124,7 @@ const containerStatsSchema = z
   .passthrough()
 
 export type DockerContainerSummary = z.infer<typeof containerSummarySchema>
+export type DockerContainerInspection = z.infer<typeof containerInspectionSchema>
 
 export type DockerContainerResourceStats = {
   readAt: string | null
@@ -137,11 +184,12 @@ export interface DockerEngine {
   inspectVolume(volume: string): Promise<void>
   listManagedContainers(): Promise<DockerContainerSummary[]>
   listContainersByLabels(labels: string[]): Promise<DockerContainerSummary[]>
-  inspectContainerRunning(id: string): Promise<boolean>
+  inspectContainerRunning(id: string, signal?: AbortSignal): Promise<boolean>
+  inspectContainerByName(name: string, signal?: AbortSignal): Promise<DockerContainerInspection | null>
   inspectContainerResourceStats(id: string): Promise<DockerContainerResourceStats>
   collectDiskUsage(input: DockerDiskUsageInput, signal?: AbortSignal): Promise<DiskUsage>
-  createContainer(name: string, body: DockerContainerCreate): Promise<string>
-  startContainer(id: string): Promise<void>
+  createContainer(name: string, body: DockerContainerCreate): Promise<{ id: string; statusCode: number }>
+  startContainer(id: string): Promise<number>
   stopContainer(id: string): Promise<void>
   removeContainer(id: string): Promise<void>
 }
@@ -150,6 +198,7 @@ export class DockerEngineError extends Error {
   constructor(
     message: string,
     readonly statusCode?: number,
+    readonly kind?: "timeout" | "connection" | "invalid_response" | "name_conflict" | "state_conflict",
   ) {
     super(message)
     this.name = "DockerEngineError"
@@ -162,7 +211,7 @@ export class DockerEngineClient implements DockerEngine {
   constructor(
     private readonly socketPath: string,
     apiVersion: string,
-    private readonly requestTimeoutMs = 15_000,
+    private readonly requestTimeoutMs = DOCKER_ENGINE_REQUEST_TIMEOUT_MS,
   ) {
     this.apiVersion = apiVersion.startsWith("v") ? apiVersion : `v${apiVersion}`
   }
@@ -198,12 +247,31 @@ export class DockerEngineClient implements DockerEngine {
     return z.array(containerSummarySchema).parse(JSON.parse(response.body))
   }
 
-  async inspectContainerRunning(id: string): Promise<boolean> {
+  async inspectContainerRunning(id: string, signal?: AbortSignal): Promise<boolean> {
     const response = await this.request(
       "GET",
       `${this.versionPath}/containers/${encodeURIComponent(id)}/json`,
+      undefined,
+      undefined,
+      signal,
     )
     return containerInspectSchema.parse(JSON.parse(response.body)).State.Running
+  }
+
+  async inspectContainerByName(name: string, signal?: AbortSignal): Promise<DockerContainerInspection | null> {
+    try {
+      const response = await this.request(
+        "GET",
+        `${this.versionPath}/containers/${encodeURIComponent(name)}/json`,
+        undefined,
+        undefined,
+        signal,
+      )
+      return containerInspectionSchema.parse(JSON.parse(response.body))
+    } catch (error) {
+      if (error instanceof DockerEngineError && error.statusCode === 404) return null
+      throw error
+    }
   }
 
   async inspectContainerResourceStats(
@@ -260,17 +328,28 @@ export class DockerEngineClient implements DockerEngine {
   async createContainer(
     name: string,
     body: DockerContainerCreate,
-  ): Promise<string> {
+  ): Promise<{ id: string; statusCode: number }> {
     const response = await this.request(
       "POST",
       `${this.versionPath}/containers/create?name=${encodeURIComponent(name)}`,
       body,
+      DOCKER_WORKER_CREATE_TIMEOUT_MS,
     )
-    return createResponseSchema.parse(JSON.parse(response.body)).Id
+    try {
+      return { id: createResponseSchema.parse(JSON.parse(response.body)).Id, statusCode: response.statusCode }
+    } catch {
+      throw new DockerEngineError("invalid Docker container creation response", response.statusCode, "invalid_response")
+    }
   }
 
-  async startContainer(id: string): Promise<void> {
-    await this.request("POST", `${this.versionPath}/containers/${encodeURIComponent(id)}/start`)
+  async startContainer(id: string): Promise<number> {
+    try {
+      const response = await this.request("POST", `${this.versionPath}/containers/${encodeURIComponent(id)}/start`)
+      return response.statusCode
+    } catch (error) {
+      if (error instanceof DockerEngineError && error.statusCode === 304) return 304
+      throw error
+    }
   }
 
   async stopContainer(id: string): Promise<void> {
@@ -311,7 +390,7 @@ export class DockerEngineClient implements DockerEngine {
             : undefined,
         },
         (response) => {
-          response.once("error", () => fail(new DockerEngineError("Docker Engine response failed")))
+          response.once("error", () => fail(new DockerEngineError("Docker Engine response failed", response.statusCode, "connection")))
           void readDockerResponse(response).then((result) => {
             clearTimeout(timeout)
             resolve(result)
@@ -319,14 +398,20 @@ export class DockerEngineClient implements DockerEngine {
         },
       )
       const timeout = setTimeout(() => {
-        request.destroy(new DockerEngineError("Docker Engine request timed out"))
+        const error = new DockerEngineError("Docker Engine request timed out", undefined, "timeout")
+        fail(error)
+        request.destroy(error)
       }, timeoutMs)
       timeout.unref()
       const fail = (error: unknown) => {
         clearTimeout(timeout)
         reject(error)
       }
-      request.once("error", fail)
+      request.once("error", (error) => {
+        if (error instanceof DockerEngineError) fail(error)
+        else if (signal?.aborted) fail(signal.reason)
+        else fail(new DockerEngineError("Docker Engine connection failed", undefined, "connection"))
+      })
       if (serialized) request.write(serialized)
       request.end()
     })
@@ -343,7 +428,7 @@ async function readDockerResponse(
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
       length += bytes.byteLength
       if (length > 4 * 1024 * 1024) {
-        throw new DockerEngineError("Docker response is too large")
+        throw new DockerEngineError("Docker response is too large", response.statusCode, "invalid_response")
       }
       chunks.push(bytes)
     }
@@ -358,7 +443,7 @@ async function readDockerResponse(
     return { statusCode, body }
   } catch (error) {
     if (error instanceof DockerEngineError) throw error
-    throw new DockerEngineError("Docker Engine response failed")
+    throw new DockerEngineError("Docker Engine response failed", response.statusCode, "connection")
   } finally {
     response.destroy()
   }
