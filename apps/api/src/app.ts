@@ -78,6 +78,7 @@ import { WebSiteVisitorSessions } from "./modules/web-site-backends/visitor-sess
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
+import { desktopActivityRoutes } from "./modules/audit/desktop-activity-routes.js";
 import {
   AuthService,
   ConfigurableMicrosoftTeamsTokenVerifier,
@@ -736,6 +737,10 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(auditRoutes, { prefix: "/api/v1/admin/audit", services });
+  await app.register(desktopActivityRoutes, {
+    prefix: "/api/v1/desktop",
+    prisma: services.prisma,
+  });
   await app.register(usageAnalyticsRoutes, {
     prefix: "/api/v1/admin/usage",
     services,

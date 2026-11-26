@@ -32,6 +32,7 @@ import {
 } from "@/adapters/desktop/desktop-adapter"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
+import { DesktopActivityDisclosure } from "@/features/desktop-activity/desktop-activity-disclosure"
 import { desktopExecutionDefaultTargetKey } from "@/features/desktop-execution/desktop-execution-default-target"
 import { DesktopExecutionDefaultTargetSettings } from "@/features/desktop-execution/desktop-execution-default-target-settings"
 import {
@@ -328,6 +329,10 @@ export function SettingsGeneralPage() {
               />
             )}
             <DesktopDevicesSettings key={user.id} ownerId={user.id} />
+            <DesktopActivityDisclosure
+              key={`desktop-activity-${user.id}`}
+              ownerId={user.id}
+            />
           </SettingsCard>
         )}
       </div>

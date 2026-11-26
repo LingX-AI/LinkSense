@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { createPrismaClient } from "../../src/db.js";
 import { sha256 } from "../../src/lib/crypto.js";
 import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
+import { listDesktopActivity } from "../../src/modules/audit/desktop-activity.js";
 import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
 import type { DesktopRunAuthorizationPhase } from "../../src/modules/desktop-credentials/run-leases.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
@@ -19,6 +20,87 @@ import { UsageAnalyticsService } from "../../src/modules/usage/service.js";
 import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
 import { MemoryDesktopDeviceCoordinator } from "../desktop-devices.fixture.js";
 import { verifyDesktopExecutionProjection } from "./desktop-execution-projection.js";
+
+type DesktopActivityReader = Parameters<typeof listDesktopActivity>[0];
+
+const seededUuid = (bucket: number, index: number) =>
+  `${bucket.toString(16).padStart(8, "0")}-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+
+// Exercises the real JSONB path filters and ordering against migrated PostgreSQL.
+async function verifyDesktopActivity(
+  prisma: DesktopActivityReader,
+): Promise<void> {
+  const actor = seededUuid(0x51, 1);
+  const foreignActor = seededUuid(0x51, 2);
+  const activityId = (index: number) => seededUuid(0x52, index);
+  const targetId = seededUuid(0x54, 1);
+  const base = Date.UTC(2026, 3, 1, 12, 0, 0);
+  const at = (seconds: number) => new Date(base + seconds * 1000);
+  // IDs 1-3 share the oldest timestamp; 4-21 run newest to oldest as the ID
+  // rises, so only timestamp ordering plus the id tie-break yields this list.
+  const validAt = (index: number) => at(index <= 3 ? 0 : 22 - index);
+  const generic = (index: number) => ({
+    id: activityId(index), actorId: actor, action: "desktop_device_paired",
+    targetType: "desktop_device", targetId, result: "success",
+    metadataJson: {}, createdAt: validAt(index),
+  });
+  await prisma.auditLog.createMany({
+    data: [
+      ...Array.from({ length: 18 }, (_, offset) => generic(offset + 1)),
+      {
+        id: activityId(19), actorId: actor, action: "desktop_approval_responded",
+        targetType: "conversation_desktop_approval", targetId, result: "success",
+        metadataJson: { delivery: "confirmed" }, createdAt: validAt(19),
+      },
+      {
+        id: activityId(20), actorId: actor, action: "desktop_tool_requested",
+        targetType: "local_computer", targetId, result: "success",
+        metadataJson: {
+          operation: "computer.execute", delivery: "confirmed",
+          computer_request: "act", computer_action: "click",
+        }, createdAt: validAt(20),
+      },
+      {
+        id: activityId(21), actorId: actor, action: "desktop_tool_requested",
+        targetType: "local_computer", targetId, result: "success",
+        metadataJson: {
+          operation: "computer.execute", typed_text: "synthetic-typed-secret",
+          token: "synthetic-token-secret",
+        }, createdAt: validAt(21),
+      },
+      // Newer rows that only a pre-limit actor/action/target/JSON filter removes.
+      {
+        id: activityId(22), actorId: foreignActor, action: "desktop_tool_requested",
+        targetType: "local_computer", targetId, result: "success",
+        metadataJson: { operation: "computer.execute" }, createdAt: at(60),
+      },
+      {
+        id: activityId(23), actorId: actor, action: "desktop_device_paired",
+        targetType: "local_computer", targetId, result: "success",
+        metadataJson: {}, createdAt: at(61),
+      },
+      {
+        id: activityId(24), actorId: actor, action: "desktop_tool_requested",
+        targetType: "local_computer", targetId, result: "success",
+        metadataJson: { operation: "shell.execute" }, createdAt: at(62),
+      },
+    ],
+  });
+  const activity = await listDesktopActivity(prisma, actor);
+  const expectedIds = [
+    ...Array.from({ length: 18 }, (_, offset) => activityId(4 + offset)),
+    activityId(3), activityId(2),
+  ];
+  assert.equal(activity.items.length, 20);
+  assert.deepEqual(activity.items.map(item => item.id), expectedIds);
+  // The historical attempt stores raw values but no optional dimensions; none leak.
+  assert.deepEqual(activity.items.find(item => item.id === activityId(21)), {
+    id: activityId(21), created_at: validAt(21).toISOString(),
+    action: "desktop_tool_requested", result: "success",
+  });
+  assert.equal(activity.items.find(item => item.id === activityId(20))?.delivery, undefined);
+  assert.equal(activity.items.find(item => item.id === activityId(19))?.delivery, "confirmed");
+}
 
 // Owns a temporary PostgreSQL cluster; never loads the application environment.
 const execute = promisify(execFile);
@@ -408,7 +490,10 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, bounded Mac grants, exact WebSocket scope, reconnect, and revoked-turn settlement.");
+  // Insert audit rows only on the migrated fresh branch so the upgrade branch's
+  // existing audit expectations remain untouched.
+  await verifyDesktopActivity(fresh);
+  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, bounded Mac grants, exact WebSocket scope, reconnect, revoked-turn settlement, and account-scoped desktop activity.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

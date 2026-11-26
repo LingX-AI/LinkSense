@@ -2,6 +2,7 @@ import { workspaceUiDemoMessages } from "@/features/ui-demo/messages"
 import { desktopLoginMessages } from "@/features/desktop-login/messages"
 import { desktopUpdateMessages } from "@/features/desktop-update/messages"
 import { desktopDevicesMessages } from "@/features/desktop-devices/messages"
+import { desktopActivityMessages } from "@/features/desktop-activity/messages"
 import { desktopExecutionMessages } from "@/features/desktop-execution/messages"
 import { desktopComputerPermissionMessages } from "@/features/desktop-computer-permissions/messages"
 import { desktopComputerUseMessages } from "@/features/desktop-computer-use/messages"
@@ -101,6 +102,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["zh-CN"],
         desktopUpdate: desktopUpdateMessages["zh-CN"],
         desktopDevices: desktopDevicesMessages["zh-CN"],
+        desktopActivity: desktopActivityMessages["zh-CN"],
         desktopExecution: desktopExecutionMessages["zh-CN"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["zh-CN"],
@@ -129,6 +131,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["en-US"],
         desktopUpdate: desktopUpdateMessages["en-US"],
         desktopDevices: desktopDevicesMessages["en-US"],
+        desktopActivity: desktopActivityMessages["en-US"],
         desktopExecution: desktopExecutionMessages["en-US"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["en-US"],
@@ -157,6 +160,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["es-ES"],
         desktopUpdate: desktopUpdateMessages["es-ES"],
         desktopDevices: desktopDevicesMessages["es-ES"],
+        desktopActivity: desktopActivityMessages["es-ES"],
         desktopExecution: desktopExecutionMessages["es-ES"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["es-ES"],
@@ -185,6 +189,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["pt-BR"],
         desktopUpdate: desktopUpdateMessages["pt-BR"],
         desktopDevices: desktopDevicesMessages["pt-BR"],
+        desktopActivity: desktopActivityMessages["pt-BR"],
         desktopExecution: desktopExecutionMessages["pt-BR"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["pt-BR"],
@@ -213,6 +218,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["fr-FR"],
         desktopUpdate: desktopUpdateMessages["fr-FR"],
         desktopDevices: desktopDevicesMessages["fr-FR"],
+        desktopActivity: desktopActivityMessages["fr-FR"],
         desktopExecution: desktopExecutionMessages["fr-FR"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["fr-FR"],
@@ -241,6 +247,7 @@ void i18n.use(initReactI18next).init({
         desktopLogin: desktopLoginMessages["ja-JP"],
         desktopUpdate: desktopUpdateMessages["ja-JP"],
         desktopDevices: desktopDevicesMessages["ja-JP"],
+        desktopActivity: desktopActivityMessages["ja-JP"],
         desktopExecution: desktopExecutionMessages["ja-JP"],
         desktopComputerPermissions:
           desktopComputerPermissionMessages["ja-JP"],
