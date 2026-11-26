@@ -2584,7 +2584,10 @@ trust_level = "trusted"
     } finally { await pool.closeAll(); }
   });
 
-  it("cancels an unanswered Mac file approval at its deadline without accepting the change", async () => {
+  it.each([
+    { kind: "command", method: "item/commandExecution/requestApproval", requestId: 87, itemId: "command-item" },
+    { kind: "file", method: "item/fileChange/requestApproval", requestId: 88, itemId: "file-item" },
+  ] as const)("cancels an unanswered Mac $kind approval at its deadline without accepting the change", async ({ kind, method, requestId, itemId }) => {
     const root = await mkdtemp(join(tmpdir(), "linksense-mac-native-approval-timeout-"));
     roots.push(root);
     const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
@@ -2598,17 +2601,42 @@ trust_level = "trusted"
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const thread = { threadId: "thread-native-1", turnId: "turn-native-1" };
       const workspace = workspaceManager.pathsFor(input.conversationId).workspace;
-      controlled.notify({ method: "item/started", params: { ...thread, item: {
-        type: "fileChange", id: "file-item", status: "inProgress", changes: [{ path: join(workspace, "note.txt"), kind: { type: "add" } }],
-      } } });
-      controlled.notify({
-        id: 87, method: "item/fileChange/requestApproval", params: { ...thread, itemId: "file-item" },
+      // Wait on publication without vi.waitFor, which would advance the fake
+      // clock past the deadline scheduled before the approval is published.
+      const approvalPublished = deferred<void>();
+      eventSink.publish.mockImplementation(async (_conversationId, event) => {
+        if (event.method === method) approvalPublished.resolve();
       });
-      await vi.waitFor(() => expect(eventSink.publish).toHaveBeenCalledWith(
-        input.conversationId, expect.objectContaining({ method: "item/fileChange/requestApproval" }),
-      ));
-      await vi.advanceTimersByTimeAsync(desktopApprovalTimeoutMs);
-      expect(controlled.requests).toContainEqual({ id: 87, result: { decision: "cancel" } });
+      if (kind === "file") {
+        controlled.notify({ method: "item/started", params: { ...thread, item: {
+          type: "fileChange", id: itemId, status: "inProgress", changes: [{ path: join(workspace, "note.txt"), kind: { type: "add" } }],
+        } } });
+        controlled.notify({ id: requestId, method, params: { ...thread, itemId } });
+      } else {
+        controlled.notify({ id: requestId, method, params: {
+          ...thread, itemId, kind: "command", cwd: workspace, command: "printf hello",
+          availableDecisions: ["accept", "cancel"],
+        } });
+      }
+      await approvalPublished.promise;
+      expect(eventSink.publish).toHaveBeenCalledWith(
+        input.conversationId,
+        expect.objectContaining({ method, params: expect.objectContaining({ requestId, itemId }) }),
+      );
+      const nativeResponses = () => controlled.requests.filter(
+        (request) => request.id === requestId && "result" in request,
+      );
+      await vi.advanceTimersByTimeAsync(desktopApprovalTimeoutMs - 1);
+      expect(nativeResponses()).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(nativeResponses()).toEqual([{ id: requestId, result: { decision: "cancel" } }]);
+      await expect(pool.respondUserInputRequest({
+        conversationId: input.conversationId, ownerId: input.ownerId, requestId,
+        codexThreadId: thread.threadId, codexTurnId: thread.turnId, itemId,
+        response: { method, decision: "accept" },
+      })).rejects.toBeInstanceOf(UserInputRequestUnavailableError);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nativeResponses()).toHaveLength(1);
     } finally {
       vi.useRealTimers();
       await pool.closeAll();
