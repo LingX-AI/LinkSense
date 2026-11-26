@@ -73,12 +73,27 @@ describe("parseConfig", () => {
     ).toBe(false)
   })
 
-  it("requires explicit Mac execution opt-in and rejects it in production", () => {
+  it("requires explicit Mac execution opt-in and a separate production release decision", () => {
     expect(parseConfig(testEnvironment()).desktopLocalExecutionEnabled).toBe(false)
     const optIn = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
     expect(parseConfig(testEnvironment(optIn)).desktopLocalExecutionEnabled).toBe(true)
     expect(() => parseConfig(testEnvironment({ ...optIn, NODE_ENV: "production" })))
       .toThrow("desktop_local_execution_not_released")
+    expect(parseConfig(testEnvironment({
+      ...optIn,
+      NODE_ENV: "production",
+      LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED: "true",
+    }))).toMatchObject({
+      desktopLocalExecutionEnabled: true,
+      desktopLocalExecutionReleased: true,
+    })
+    // Releasing alone never turns execution on.
+    expect(parseConfig(testEnvironment({
+      LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED: "true",
+    })).desktopLocalExecutionEnabled).toBe(false)
+    expect(() => parseConfig(testEnvironment({
+      LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED: "yes",
+    }))).toThrow()
   })
 
   it("keeps the desktop cloud target entry on by default and accepts only strict booleans", () => {

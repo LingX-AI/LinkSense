@@ -333,6 +333,12 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    // A separate, explicit release decision. Production keeps the block until
+    // this is set; enabling execution alone never releases it.
+    LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: z
       .enum(["true", "false"])
       .default("true")
@@ -493,8 +499,11 @@ const rawConfigSchema = z
         message: "desktop_computer_use_requires_local_execution",
       });
     }
-    // Production admission needs server-side metering, masking and crash cleanup.
-    if (config.NODE_ENV === "production" && config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
+    // Production admission needs server-side metering, masking and crash cleanup,
+    // and an explicit release decision; enabling execution alone never releases it.
+    if (config.NODE_ENV === "production" &&
+        config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED &&
+        !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED) {
       context.addIssue({
         code: "custom",
         path: ["LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED"],
@@ -636,6 +645,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
+    desktopLocalExecutionReleased: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED,
     desktopCloudTargetEnabled: raw.LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED,
     desktopBrowserUseEnabled: raw.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED,
     desktopNativeApprovalsEnabled: raw.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,

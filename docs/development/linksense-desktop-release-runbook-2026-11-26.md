@@ -15,9 +15,9 @@
    `security find-identity -v -p codesigning` 必须列出它。
 3. 公证凭据 profile 名为 `linksense-desktop-notary`：
    `xcrun notarytool store-credentials linksense-desktop-notary`。
-4. 一个应用可访问的 HTTPS origin。打包器只接受 HTTPS 或回环 HTTP；UAT 的
-   `http://192.168.2.210:19090` 不能作为安装包 origin。
-5. 更新源（如需要）：HTTPS stable/beta 目录、更新公钥、私钥文件路径，见 README 的
+4. 一个应用可访问的 HTTP(S) origin。自部署内网可直接使用 HTTP（例如 UAT 的
+   `http://192.168.2.210:19090`）；HTTPS 仍推荐，但不是打包或运行的硬性要求。
+5. 更新源（如需要）：HTTP(S) stable/beta 目录、更新公钥、私钥文件路径，见 README 的
    “Releasing a verified candidate”与“macOS releases”。
 
 ## 2. 构建
@@ -32,12 +32,12 @@ pnpm desktop:build -- --platform darwin/arm64 --server-url http://127.0.0.1:1817
 
 ```sh
 LINKSENSE_DESKTOP_MACOS_SIGNING_IDENTITY="Developer ID Application: <名称> (<TEAMID>)" \
-pnpm desktop:build -- --platform darwin/arm64 --server-url https://<origin> --macos-release
+pnpm desktop:build -- --platform darwin/arm64 --server-url http(s)://<origin> --macos-release
 ```
 
-`--macos-release` 还会要求：原生 Apple Silicon、`darwin/arm64`、HTTPS origin、更新源为 HTTPS。
-公证使用 `mygo.config.ts` 中的 `linksense-desktop-notary` profile；发布构建会把签名者 token
-编译进 Go 二进制，产品 GUI 路径只接受这种包。
+`--macos-release` 还会要求：原生 Apple Silicon、`darwin/arm64` 和 Developer ID 证书；origin
+可以是 HTTP 或 HTTPS。公证使用 `mygo.config.ts` 中的 `linksense-desktop-notary` profile；
+发布构建会把签名者 token 编译进 Go 二进制，产品 GUI 路径只接受这种包。
 
 ## 3. 产物核对
 
@@ -87,8 +87,8 @@ pnpm desktop:build -- --platform darwin/arm64 --server-url https://<origin> --ma
 ## 7. 生产本地执行准入
 
 `apps/api/src/config.ts` 在 `NODE_ENV=production` 时以
-`desktop_local_execution_not_released` 拒绝 `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED`。
-放开前必须有：
+`desktop_local_execution_not_released` 拒绝 `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED`，
+除非同时显式设置 `LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED=true`。放开前必须有：
 
 1. 服务端用量记账：`model-proxy` 的 provider usage 记录在三种协议下均有回执。
 2. 隐私屏蔽契约：屏蔽开启时拒绝新的本地回合，不派发、不回落云、不占槽。
