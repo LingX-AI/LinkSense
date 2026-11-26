@@ -1780,6 +1780,7 @@ export class AppServerProcessPool {
             runtimeFingerprint: desiredRuntimeFingerprint,
             starting: true,
             reservedProcessSlot: transferredReservation,
+            ...(operationKind === "compact" ? { allowReplacementThread: false } : {}),
             capabilityLeaseToken: leaseToken,
           },
         );
@@ -1844,6 +1845,27 @@ export class AppServerProcessPool {
       }
       if (sourceThread) assertLinkSenseThreadProvider(sourceThread, "read");
       let sourceTurns = sourceThread?.turns ?? [];
+      if (operationKind === "compact") {
+        const { goal } = await managed.client.request<ThreadGoalGetResponse>(
+          "thread/goal/get",
+          { threadId: managed.codexThreadId },
+        ).catch((error: unknown) => {
+          if (error instanceof CodexProtocolError &&
+              error.code === -32600 && error.message === "goals feature is disabled") {
+            return { goal: null };
+          }
+          throw error;
+        });
+        if (
+          !sourceThread ||
+          sourceThread.status?.type === "active" ||
+          sourceTurns.some((turn) => turn.status === "inProgress") ||
+          goal?.status === "active" ||
+          managed.activeTurnId !== null
+        ) {
+          throw new CodexProtocolError("context compaction requires an idle native thread");
+        }
+      }
       for (const sourceTurn of sourceTurns) {
         managed.knownTurnIds.add(sourceTurn.id);
       }
@@ -2007,16 +2029,15 @@ export class AppServerProcessPool {
       );
 
       if (operationKind === "compact") {
+        if (managed.activeTurnId || hasContinuingGoal(managed)) {
+          throw new CodexProtocolError("context compaction requires an idle native thread");
+        }
         managed.activeProjectionTurnId = eventProjectionTurnIdFor(input);
         managed.activeCollaborationMode = input.collaborationMode;
         this.syncModelGatewayTurnCorrelation(managed);
         nativeRequestIssued = true;
         turnStartRequestIssued = true;
-        await managed.client.request<ThreadCompactStartResponse>(
-          "thread/compact/start",
-          { threadId: managed.codexThreadId } satisfies ThreadCompactStartParams,
-        );
-        const compactTurn = await this.confirmCompactTurnRegistration(
+        const compactTurn = await this.startManualCompaction(
           managed,
           baselineTurnIds,
         );
@@ -2491,50 +2512,72 @@ export class AppServerProcessPool {
     }
   }
 
-  private async confirmCompactTurnRegistration(
+  private async startManualCompaction(
     managed: ManagedProcess,
     baselineTurnIds: readonly string[],
-  ): Promise<CodexTurn> {
+  ): Promise<Pick<CodexTurn, "id" | "status">> {
     const threadId = managed.codexThreadId;
     if (!threadId) {
       throw new CodexProtocolError("conversation has no Codex thread");
     }
     const baseline = new Set(baselineTurnIds);
-    const deadline =
-      Date.now() +
-      (this.options.nativeTurnRegistrationTimeoutMs ??
-        NATIVE_TURN_REGISTRATION_TIMEOUT_MS);
+    const observed: { turn?: Pick<CodexTurn, "id" | "status">; ambiguous: boolean } = {
+      ambiguous: false,
+    };
+    const observedTurn = () => {
+      if (observed.ambiguous) throw new NativeTurnStartUncertainError();
+      return observed.turn;
+    };
+    const observe = (notification: JsonRpcNotification) => {
+      if (notification.method !== "turn/started" && notification.method !== "turn/completed") return;
+      const params = objectRecord(notification.params);
+      if (params.threadId !== threadId) return;
+      const turn = objectRecord(params.turn);
+      const id = boundedCorrelationId(turn.id, 240);
+      const status = parseCodexTurnStatus(turn.status);
+      if (!id || !status || baseline.has(id) ||
+          (notification.method === "turn/started") !== (status === "inProgress")) return;
+      if (status === "inProgress") {
+        if (!observed.turn) observed.turn = { id, status };
+        else if (observed.turn.id !== id) observed.ambiguous = true;
+      } else if (observed.turn?.id === id) {
+        observed.turn = { id, status };
+      }
+    };
 
-    do {
-      const response: ThreadReadResponse =
-        await managed.client.request<ThreadReadResponse>(
-        "thread/read",
-        { threadId, includeTurns: true } satisfies ThreadReadParams,
+    managed.client.on("notification", observe);
+    try {
+      await managed.client.request<ThreadCompactStartResponse>(
+        "thread/compact/start",
+        { threadId } satisfies ThreadCompactStartParams,
       );
-      if (response.thread.id !== threadId) {
-        throw new CodexProtocolError("Codex read an unexpected thread");
-      }
-      assertLinkSenseThreadProvider(response.thread, "read");
-      const newTurns: CodexTurn[] = (response.thread.turns ?? []).filter(
-        (turn) => !baseline.has(turn.id),
+      const deadline = Date.now() + (
+        this.options.nativeTurnRegistrationTimeoutMs ?? NATIVE_TURN_REGISTRATION_TIMEOUT_MS
       );
-      if (newTurns.length > 1) {
-        throw new CodexProtocolError(
-          "Codex started multiple turns during context compaction",
-        );
-      }
-      const compactTurn = newTurns.find((turn) =>
-        (turn.items ?? []).some((item) => item.type === "contextCompaction"),
-      );
-      if (compactTurn) return compactTurn;
-      if (Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
-      }
-    } while (Date.now() < deadline);
-
-    throw new CodexProtocolError(
-      "Codex did not register the context compaction turn",
-    );
+      do {
+        let registered = observedTurn();
+        if (registered) return registered;
+        const thread = await this.readManagedRecoveryThread(managed).catch(() => {
+          throw new NativeTurnStartUncertainError();
+        });
+        const newTurns = (thread.turns ?? []).filter((turn) => !baseline.has(turn.id));
+        const [turn] = newTurns;
+        registered = observedTurn();
+        if (newTurns.length > 1 || (registered && turn && registered.id !== turn.id)) {
+          throw new NativeTurnStartUncertainError();
+        }
+        if (registered) return turn && isTerminalTurn(turn) ? turn : registered;
+        if (turn?.items?.some((item) => item.type === "contextCompaction")) return turn;
+        if (Date.now() < deadline) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+      } while (Date.now() < deadline);
+      const registered = observedTurn();
+      if (registered) return registered;
+      throw new NativeTurnStartUncertainError();
+    } finally {
+      managed.client.off("notification", observe);
+    }
   }
 
   private waitForNativeTurnStarted(
@@ -4101,7 +4144,7 @@ export class AppServerProcessPool {
 
   private applyRecoveredTurnState(
     managed: ManagedProcess,
-    nativeTurn: CodexTurn,
+    nativeTurn: Pick<CodexTurn, "id" | "status">,
     projectionTurnId: string,
     collaborationMode?: "default" | "plan",
   ): void {
