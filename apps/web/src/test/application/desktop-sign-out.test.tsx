@@ -38,7 +38,7 @@ const checkboxLabel = "同时撤销这台 Mac 的授权"
 const failedText =
   "无法确认已撤销这台 Mac 的授权。请重试，或取消勾选后只退出登录。"
 const uncertainText = "之前的撤销结果尚未确认。退出登录不会再次尝试撤销。"
-const changedText = "这台 Mac 的配对状态已变更。请重新选择，或只退出登录。"
+const changedText = "这台 Mac 的本机工具状态已变更。请重新选择，或只退出登录。"
 const userOverride = {
   role: "user",
   id: "00000000-0000-4000-8000-000000000001",

@@ -33,9 +33,9 @@ describe("application heading typography", () => {
     expect(cssRules(".public-panel header h1")[0]).toContain(
       "font-size: var(--text-account-title);"
     )
-    expect(welcomeSource).toContain("text-xl font-semibold")
-    expect(welcomeSource).toContain("/task-home:text-2xl")
-    expect(welcomeSource).toContain("/task-home:text-home-title")
+    expect(welcomeSource).toContain("text-lg font-semibold")
+    expect(welcomeSource).toContain("@min-[44rem]/task-home:text-xl")
+    expect(welcomeSource).toContain("@min-[60rem]/task-home:text-2xl")
     expect(appStyles).toContain(
       "--text-home-title: calc(36px + var(--app-ui-font-delta));"
     )

@@ -514,7 +514,7 @@ describe("application center user flows", () => {
     await screen.findByText("Reports")
     expect(screen.getByText(release.description)).toHaveClass(
       "text-sm",
-      "leading-[var(--app-line-22)]"
+      "line-clamp-2"
     )
     expect(screen.getByText(release.usage_instructions)).toHaveClass(
       "text-[length:var(--app-font-13)]",

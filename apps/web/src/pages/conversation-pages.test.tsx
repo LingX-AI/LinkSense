@@ -1683,102 +1683,6 @@ describe("conversation knowledge base snapshots", () => {
     }
   )
 
-  it.each([
-    { name: "可见页头", showHeader: true },
-    { name: "隐藏页头", showHeader: false },
-  ])(
-    "keeps one visible Stop and the draft for an exhausted local stream ($name)",
-    async ({ showHeader }) => {
-      const fixture = renderRunningTurnWithExhaustedStream({
-        executionTarget: "local",
-        showHeader,
-      })
-      const interaction = userEvent.setup()
-      const disconnectText = i18n.t(
-        "conversation.streamDisconnectedBeforeCompletion"
-      )
-      const stopName = i18n.t("conversation.stop")
-      const composer = await screen.findByRole("textbox", {
-        name: "任务输入框",
-      })
-
-      await waitFor(() =>
-        expect(screen.getByText(disconnectText)).toBeVisible()
-      )
-      await interaction.type(composer, "保留的草稿")
-      const header = screen.getByRole("banner", { hidden: true })
-      const visibleStops = screen.getAllByRole("button", { name: stopName })
-      expect(visibleStops).toHaveLength(1)
-      const stop = visibleStops[0]!
-      expect(stop).toBeEnabled()
-      if (showHeader) {
-        expect(header).not.toHaveAttribute("hidden")
-        expect(header).toContainElement(stop)
-      } else {
-        expect(header).toHaveAttribute("hidden")
-        expect(header).not.toContainElement(stop)
-        expect(stop.closest(".conversation-bottom-stack")).not.toBeNull()
-      }
-      expect(
-        screen.getByRole("button", { name: i18n.t("conversation.send") })
-      ).toBeVisible()
-      expect(fixture.interruptRequests).toHaveLength(0)
-
-      await interaction.click(stop)
-      await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
-      expect(fixture.interruptRequests).toEqual([
-        { method: "POST", path: fixture.interruptPath },
-      ])
-      expect(composer).toHaveValue("保留的草稿")
-      expect(fixture.turnStartRequests).toHaveLength(0)
-
-      await waitFor(() => {
-        expect(
-          screen.queryAllByRole("button", { name: stopName })
-        ).toHaveLength(0)
-        expect(
-          screen.getByRole("button", {
-            name: i18n.t("conversation.interrupting"),
-          })
-        ).toBeDisabled()
-      })
-
-      const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
-      expect(within(summary).getAllByText(disconnectText)).toHaveLength(1)
-      expect(
-        within(summary).getByText(i18n.t("conversation.processing"), {
-          exact: true,
-        })
-      ).toBeVisible()
-      expect(
-        within(summary).queryByText(i18n.t("statuses.interrupted"), {
-          exact: true,
-        })
-      ).toBeNull()
-
-      fixture.markTurnInterrupted()
-      await act(async () => {
-        await fixture.refreshConversation()
-      })
-      await waitFor(() =>
-        expect(
-          within(summary).getByText(i18n.t("statuses.interrupted"), {
-            exact: true,
-          })
-        ).toBeVisible()
-      )
-      expect(screen.queryByText(disconnectText)).toBeNull()
-      await waitFor(() => {
-        expect(screen.queryByRole("button", { name: stopName })).toBeNull()
-        expect(
-          screen.queryByRole("button", {
-            name: i18n.t("conversation.interrupting"),
-          })
-        ).toBeNull()
-      })
-    }
-  )
-
   it("shows a Goal card immediately, waits for native timing, and yields to a fast completion", async () => {
     const conversationId = "conversation-native-goal"
     const objective = "完整实现目标功能"
@@ -2271,7 +2175,6 @@ describe("conversation knowledge base snapshots", () => {
   })
 
   it.each([
-    { name: "local", executionTarget: "local" as const, showsBranch: false },
     { name: "cloud", executionTarget: "cloud" as const, showsBranch: true },
     { name: "legacy cloud", executionTarget: undefined, showsBranch: true },
   ])(

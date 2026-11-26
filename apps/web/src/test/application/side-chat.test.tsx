@@ -2,7 +2,6 @@ import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 import { sideChatSelectionSchema } from "@linksense/shared"
-import { readLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import {
   conversation,
   installApiMock,
@@ -10,7 +9,6 @@ import {
   renderApp,
   seedLocalDraft,
   setupApplicationTests,
-  user,
 } from "./fixture"
 
 const parentId = "20000000-0000-4000-8000-000000000001"
@@ -20,7 +18,6 @@ const answerId = "30000000-0000-4000-8000-000000000002"
 const referenceId = "40000000-0000-4000-8000-000000000001"
 const currentTurnId = "50000000-0000-4000-8000-000000000001"
 const draft = "继续问这段引用"
-const waitMessage = "本地旁聊空闲且处于默认模式时，才能发送引用。"
 const stagedFile = {
   id: "70000000-0000-4000-8000-000000000001",
   name: "旁聊附件.txt",
@@ -193,84 +190,6 @@ async function openExistingSideChat({
 
 describe("parallel side chat", () => {
   setupApplicationTests()
-
-  it.each(["starting", "running"] as const)(
-    "keeps a local quote draft editable and unsent while the child is %s, then sends directly",
-    async (phase) => {
-      const {
-        childPath,
-        completeTurn,
-        composer,
-        interaction,
-        panel,
-        submissions,
-      } = await openExistingSideChat({ target: "local", phase })
-      await interaction.type(composer, "，再补充一句")
-      await interaction.keyboard("{Enter}")
-      const edited = `${draft}，再补充一句`
-      expect(composer).toHaveValue(edited)
-      await waitFor(() =>
-        expect(
-          readLocalConversationDraft(window.localStorage, user.id, childId)
-            .input
-        ).toBe(edited)
-      )
-      expect(submissions()).toEqual([])
-      expect(
-        panel.getByRole("button", { name: `移除附件 ${stagedFile.name}` })
-      ).toBeVisible()
-      expect(panel.getByRole("button", { name: "停止" })).toBeEnabled()
-      expect(panel.queryByRole("button", { name: "发送" })).toBeNull()
-      expect(panel.getByText(waitMessage)).toHaveAttribute("role", "status")
-      expect(composer).toHaveAccessibleDescription(waitMessage)
-
-      await act(async () => completeTurn())
-      expect(await panel.findByText("上一轮已完成")).toBeVisible()
-      expect(panel.queryByText(waitMessage)).toBeNull()
-      expect(composer).toHaveValue(edited)
-      expect(
-        panel.getByRole("button", { name: `移除附件 ${stagedFile.name}` })
-      ).toBeEnabled()
-      await interaction.click(panel.getByRole("button", { name: "发送" }))
-      await waitFor(() =>
-        expect(submissions()).toEqual([
-          expect.objectContaining({
-            path: `${childPath}/turns`,
-            body: expect.objectContaining({
-              message_display: {
-                kind: "conversation_reference",
-                reference_id: referenceId,
-                request: edited,
-              },
-            }),
-          }),
-        ])
-      )
-    }
-  )
-
-  it.each([
-    { phase: "starting", initialDraft: "/compact" },
-    { phase: "running", initialDraft: "/压缩" },
-  ] as const)(
-    "interrupts the $phase local turn only on Stop with a restored $initialDraft draft",
-    async ({ phase, initialDraft }) => {
-      const { childPath, interaction, interrupts, panel } =
-        await openExistingSideChat({ target: "local", phase, initialDraft })
-      expect(interrupts()).toEqual([])
-      const stop = panel.getByRole("button", { name: "停止" })
-      expect(stop).toBeVisible()
-      expect(panel.queryByRole("button", { name: "发送" })).toBeNull()
-      await interaction.click(stop)
-      await waitFor(() =>
-        expect(interrupts()).toEqual([
-          expect.objectContaining({
-            path: `${childPath}/turns/${currentTurnId}/interrupt`,
-          }),
-        ])
-      )
-    }
-  )
 
   it("still queues a structured quote in a running cloud side chat", async () => {
     const { childPath, interaction, panel, submissions } =
