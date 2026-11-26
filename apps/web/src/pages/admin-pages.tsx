@@ -399,7 +399,7 @@ function AdminSelect({
     >
       <SelectTrigger
         id={id}
-        className="h-9! w-full"
+        className="w-full"
         aria-required={required || undefined}
         aria-describedby={describedBy}
       >

@@ -1222,7 +1222,7 @@ describe("ConversationUserInputRequestCard", () => {
     const channel = within(card).getByRole("combobox", { name: /渠道/ })
     expect(channel).toHaveTextContent("Teams")
     expect(channel).toHaveAttribute("data-size", "default")
-    expect(channel).toHaveClass("data-[size=default]:h-10")
+    expect(channel).toHaveClass("data-[size=default]:h-9")
     const publishDate = within(card).getByLabelText(/发布日期/)
     expect(publishDate).toHaveClass("h-9")
     await interaction.click(

@@ -368,7 +368,7 @@ function MaintenanceSettingsEditor({
                       <SelectTrigger
                         id="maintenance-duration-unit"
                         aria-label={t("admin.maintenance.durationUnit")}
-                        className="h-9! w-28"
+                        className="w-28"
                       >
                         <SelectValue>
                           {t(`admin.maintenance.durationUnits.${durationUnit}`)}
