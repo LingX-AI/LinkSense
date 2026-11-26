@@ -84,9 +84,11 @@ const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
   "</linksense_knowledge_grounding>",
 ].join("\n");
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
-  "Interactive HTML deliverables: one complete UTF-8 document; fence info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
-  "Current-conversation questions, choices, confirmation and feedback use request_user_form; preview forms are standalone demos only.",
+  "Preview a complete UTF-8 HTML document in an html-preview fence. Use html fences for source examples, fragments, and explanations.",
+  "Use request_user_form for chat questions, choices, confirmations, and feedback. Preview forms are standalone demos.",
 ].join("\n");
+const WEB_SITE_DELIVERY_INSTRUCTIONS =
+  "After publishing or updating a site, link the full returned site.url verbatim.";
 const LOCAL_WEB_SERVER_RESTRICTION_INSTRUCTIONS = [
   "Mandatory platform rule: never start or keep alive a network-listening service for this task, including HTTP(S), WebSocket, development, preview or callback servers on any address or port, including loopback.",
   "Generate static web deliverables in artifacts/ and register them with the File Service. Do not stop, modify or block platform-managed MCP or runtime services; using their tools and connecting as a client is allowed.",
@@ -230,6 +232,10 @@ export function buildTurnAdditionalContext(
     additionalContext["linksense.inline-html-preview"] = {
       kind: "application",
       value: INLINE_HTML_PREVIEW_INSTRUCTIONS,
+    };
+    additionalContext["linksense.web-site-delivery"] = {
+      kind: "application",
+      value: WEB_SITE_DELIVERY_INSTRUCTIONS,
     };
   }
   if (context.approvedPlanImplementation) {
