@@ -23,9 +23,11 @@ import {
 
 export function DesktopExecutionDefaultTargetSettings({
   preferenceKey,
-}: Readonly<{ preferenceKey: string }>) {
+  anchorId,
+}: Readonly<{ preferenceKey: string; anchorId?: string }>) {
   const { t } = useTranslation()
-  const id = useId()
+  const generatedId = useId()
+  const id = anchorId ?? generatedId
   const [target, setTarget] = useState(() =>
     readDesktopExecutionDefaultTarget(preferenceKey)
   )

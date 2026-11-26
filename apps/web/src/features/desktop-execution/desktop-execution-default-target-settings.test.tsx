@@ -6,6 +6,7 @@ import i18n from "@/i18n"
 
 import { desktopExecutionDefaultTargetKey } from "./desktop-execution-default-target"
 import { DesktopExecutionDefaultTargetSettings } from "./desktop-execution-default-target-settings"
+import { desktopExecutionDefaultTargetAnchorId } from "./desktop-execution-target"
 
 const serverUrl = "https://desktop.example.test"
 const host = vi.hoisted(() => ({
@@ -53,6 +54,16 @@ describe("macOS default run location", () => {
     expect(desktopExecutionDefaultTargetKey("user-1")).toBe(preferenceKey)
     host.serverUrl = null
     expect(desktopExecutionDefaultTargetKey("user-1")).toBeNull()
+  })
+
+  it("exposes the distinct settings hash target for the first-run guide", () => {
+    render(
+      <DesktopExecutionDefaultTargetSettings
+        preferenceKey={preferenceKey}
+        anchorId={desktopExecutionDefaultTargetAnchorId}
+      />
+    )
+    expect(getTrigger()).toHaveAttribute("id", "desktop-default-target")
   })
 
   it("saves This Mac with the keyboard and restores it on remount without network calls", async () => {

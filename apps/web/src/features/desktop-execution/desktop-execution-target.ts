@@ -55,6 +55,12 @@ export const desktopDeviceSettingsHeadingId = "desktop-devices-heading"
 export const desktopDeviceSettingsHref =
   `/settings/general#${desktopDeviceSettingsHeadingId}` as const
 
+// The default-run-location row shares the device-settings card, so it needs its
+// own hash target to stay a distinct first-run destination.
+export const desktopExecutionDefaultTargetAnchorId = "desktop-default-target"
+export const desktopExecutionDefaultTargetHref =
+  `/settings/general#${desktopExecutionDefaultTargetAnchorId}` as const
+
 export function desktopExecutionDeviceAvailability(
   status: DesktopDeviceStatus | undefined
 ): DesktopExecutionDeviceAvailability {

@@ -51,6 +51,7 @@ import { ThemeProvider } from "@/app/theme-context"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { notify } from "@/components/feedback/notification"
 import { desktopExecutionMessages } from "@/features/desktop-execution/messages"
+import { newProjectStorageKey } from "@/features/projects/new-project-preference"
 import { browserPanelMessages } from "@/features/browser-panel/messages"
 import i18n from "@/i18n"
 import { ConversationPage } from "@/pages/conversation-pages"
@@ -449,6 +450,9 @@ function installApi(
     refreshUnauthorized?: boolean
     meResponses?: (Response | Promise<Response>)[]
     authUser?: () => unknown
+    modelPreferenceOverride?: unknown
+    projects?: unknown[]
+    deferProjects?: boolean
   } = {}
 ) {
   const prewarms: { body: unknown; response: DeferredResponse }[] = []
@@ -477,6 +481,9 @@ function installApi(
     string | undefined
   >()
   const modelPreferenceResponse = options.deferModelPreference
+    ? createDeferredResponse()
+    : null
+  const projectsResponse = options.deferProjects
     ? createDeferredResponse()
     : null
   const browserState = (hasControl: boolean) => ({
@@ -635,7 +642,9 @@ function installApi(
       if (path === "/api/v1/me/model-preference") {
         return modelPreferenceResponse
           ? modelPreferenceResponse.promise
-          : Promise.resolve(json(modelPreference()))
+          : Promise.resolve(
+              json(options.modelPreferenceOverride ?? modelPreference())
+            )
       }
       if (
         path.endsWith("/model-preference") &&
@@ -643,7 +652,11 @@ function installApi(
       ) {
         return Promise.resolve(json(modelPreference()))
       }
-      if (path === "/api/v1/projects") return Promise.resolve(json([]))
+      if (path === "/api/v1/projects") {
+        return projectsResponse
+          ? projectsResponse.promise
+          : Promise.resolve(json(options.projects ?? []))
+      }
       if (path === "/api/v1/capabilities") {
         return Promise.resolve(json({ items: [], next_cursor: null }))
       }
@@ -764,6 +777,13 @@ function installApi(
       await act(async () => {
         modelPreferenceResponse.resolve(json(modelPreference()))
         await modelPreferenceResponse.promise
+      })
+    },
+    async resolveProjects() {
+      if (!projectsResponse) throw new Error("projects response missing")
+      await act(async () => {
+        projectsResponse.resolve(json(options.projects ?? []))
+        await projectsResponse.promise
       })
     },
     async resolveBrowserRelease(index = 0) {
@@ -7003,6 +7023,165 @@ describe("conversation execution target", () => {
       )
       await waitFor(() => expect(toggle).toHaveFocus())
       expect(workspace).not.toHaveAttribute("inert")
+    })
+  })
+
+  describe("macOS first-run guide", () => {
+    const zh = desktopExecutionMessages["zh-CN"]
+    const guideRegion = () =>
+      screen.getByRole("region", { name: zh.startGuideTitle })
+    const guideLink = (name: string) =>
+      within(guideRegion()).getByRole("link", { name })
+    const expectGuideAbsent = () =>
+      expect(screen.queryByText(zh.startGuideTitle)).not.toBeInTheDocument()
+
+    it("shows the new-task destinations on an unpaired Mac and Skip keeps the draft without saving a default", async () => {
+      deviceStatusMock.setData({ state: "unpaired" })
+      installApi()
+      const interaction = userEvent.setup()
+      renderConversationPage("/conversations/new")
+
+      expect(await screen.findByText(zh.startGuideTitle)).toBeVisible()
+      expect(guideLink(zh.startGuidePairTitle)).toHaveAttribute(
+        "href",
+        "/settings/general#desktop-devices-heading"
+      )
+      expect(guideLink(zh.startGuideBrowserTitle)).toHaveAttribute(
+        "href",
+        "/settings/general#browser-extension"
+      )
+      expect(guideLink(zh.startGuideDefaultTargetTitle)).toHaveAttribute(
+        "href",
+        "/settings/general#desktop-default-target"
+      )
+      expect(within(guideRegion()).getAllByRole("link")).toHaveLength(3)
+
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+      await interaction.type(input, "保留这段草稿")
+      await interaction.click(
+        screen.getByRole("button", { name: zh.startGuideSkip })
+      )
+      expectGuideAbsent()
+      expect(input).toHaveValue("保留这段草稿")
+      expect(
+        screen.getByRole("button", { name: "运行位置：云电脑" })
+      ).toBeVisible()
+      expect(window.localStorage.getItem(savedDefaultTargetKey)).toBeNull()
+    })
+
+    it("keeps the browser and default steps after the unpaired Mac pairs", async () => {
+      deviceStatusMock.setData({ state: "unpaired" })
+      installApi()
+      renderConversationPage("/conversations/new")
+
+      expect(await screen.findByText(zh.startGuideTitle)).toBeVisible()
+      expect(guideLink(zh.startGuidePairTitle)).toBeVisible()
+
+      act(() => {
+        deviceStatusMock.setData(readyDeviceStatus())
+      })
+      await waitFor(() =>
+        expect(
+          within(guideRegion()).queryByRole("link", {
+            name: zh.startGuidePairTitle,
+          })
+        ).not.toBeInTheDocument()
+      )
+      expect(guideLink(zh.startGuideBrowserTitle)).toBeVisible()
+      expect(guideLink(zh.startGuideDefaultTargetTitle)).toBeVisible()
+    })
+
+    it("leaves Web unchanged and keeps the administrator ?setup=1 guide", async () => {
+      hostMock.mac = false
+      deviceStatusMock.setData({ state: "unpaired" })
+      installApi()
+      const web = renderConversationPage("/conversations/new")
+      await screen.findByRole("textbox", { name: "任务输入框" })
+      expectGuideAbsent()
+      web.unmount()
+
+      hostMock.mac = true
+      authMock.user = { ...authMock.initial, role: "admin" }
+      window.localStorage.setItem("linksense.first-use.user-1", "dismissed")
+      installApi({
+        modelPreferenceOverride: { ...modelPreference(), configured: false },
+      })
+      renderConversationPage("/conversations/new?setup=1")
+      expect(
+        await screen.findByRole("link", { name: "配置模型" })
+      ).toBeVisible()
+      expectGuideAbsent()
+    })
+
+    it("keeps the admin guide on a hidden composer while limiting the Mac card to a plain new task", async () => {
+      hostMock.mac = true
+      deviceStatusMock.setData({ state: "unpaired" })
+      authMock.user = { ...authMock.initial, role: "admin" }
+      installApi({
+        modelPreferenceOverride: { ...modelPreference(), configured: false },
+      })
+      const hiddenComposer = renderConversationPage("/conversations/new", {
+        showComposer: false,
+      })
+      expect(
+        await screen.findByRole("link", { name: "配置模型" })
+      ).toBeVisible()
+      expectGuideAbsent()
+      hiddenComposer.unmount()
+
+      authMock.user = { ...authMock.initial }
+      installApi()
+      renderConversationPage("/conversations/new", { showComposer: false })
+      await screen.findByRole("log")
+      expectGuideAbsent()
+    })
+
+    it("does not show the Mac card while a new-task project is selected or resolving", async () => {
+      const projectId = "80000000-0000-4000-8000-000000000001"
+      window.localStorage.setItem(
+        newProjectStorageKey("user-1"),
+        JSON.stringify(projectId)
+      )
+      deviceStatusMock.setData({ state: "unpaired" })
+      const fixture = installApi({
+        deferProjects: true,
+        projects: [
+          {
+            id: projectId,
+            name: "产品项目",
+            icon: "folder",
+            color: "default",
+            created_at: "2026-07-11T00:00:00.000Z",
+            updated_at: "2026-07-11T00:00:00.000Z",
+          },
+        ],
+      })
+      renderConversationPage("/conversations/new")
+
+      await screen.findByRole("textbox", { name: "任务输入框" })
+      expectGuideAbsent()
+
+      await fixture.resolveProjects()
+      await waitFor(expectGuideAbsent)
+    })
+
+    it("does not show the Mac card in a side-chat reference view", async () => {
+      deviceStatusMock.setData({ state: "unpaired" })
+      installApi()
+      renderConversationPage("/conversations/new", {
+        sideChatReference: {
+          id: "90000000-0000-4000-8000-000000000001",
+          source_message_id: "90000000-0000-4000-8000-000000000002",
+          source_conversation_id: "90000000-0000-4000-8000-000000000003",
+          source_title: "源任务",
+          selection_text: "引用内容",
+          include_recent_messages: true,
+          recent_messages: [],
+        },
+      })
+
+      await screen.findByRole("textbox", { name: "任务输入框" })
+      expectGuideAbsent()
     })
   })
 })

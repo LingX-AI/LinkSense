@@ -34,7 +34,10 @@ import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-c
 import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
 import { desktopExecutionDefaultTargetKey } from "@/features/desktop-execution/desktop-execution-default-target"
 import { DesktopExecutionDefaultTargetSettings } from "@/features/desktop-execution/desktop-execution-default-target-settings"
-import { desktopDeviceSettingsHeadingId } from "@/features/desktop-execution/desktop-execution-target"
+import {
+  desktopDeviceSettingsHeadingId,
+  desktopExecutionDefaultTargetAnchorId,
+} from "@/features/desktop-execution/desktop-execution-target"
 import { LocalWorkspaceSettings } from "@/features/local-workspace/local-workspace-settings"
 import {
   personalizationSettingsSchema,
@@ -134,7 +137,11 @@ export function SettingsGeneralPage() {
     const anchor = location.hash.slice(1)
     if (
       anchor !== "browser-extension" &&
-      !(showThisMac && anchor === desktopDeviceSettingsHeadingId)
+      !(
+        showThisMac &&
+        (anchor === desktopDeviceSettingsHeadingId ||
+          anchor === desktopExecutionDefaultTargetAnchorId)
+      )
     )
       return
     const target = document.getElementById(anchor)
@@ -317,6 +324,7 @@ export function SettingsGeneralPage() {
               <DesktopExecutionDefaultTargetSettings
                 key={defaultTargetKey}
                 preferenceKey={defaultTargetKey}
+                anchorId={desktopExecutionDefaultTargetAnchorId}
               />
             )}
             <DesktopDevicesSettings key={user.id} ownerId={user.id} />

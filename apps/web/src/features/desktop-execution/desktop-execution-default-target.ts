@@ -9,14 +9,47 @@ import {
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
 
-export function desktopExecutionDefaultTargetKey(
+// Scope every Mac-local preference to the packaged server and signed-in
+// account so switching either one never inherits the other's choice.
+export function desktopPreferencesScope(
   userId: string | undefined
 ): string | null {
   if (!userId || !isMacDesktopHost()) return null
   const serverUrl = getDesktopServerUrl()
-  return serverUrl
-    ? `linksense.desktopExecution.defaultTarget:${JSON.stringify([serverUrl, userId])}`
-    : null
+  return serverUrl ? JSON.stringify([serverUrl, userId]) : null
+}
+
+export function desktopExecutionDefaultTargetKey(
+  userId: string | undefined
+): string | null {
+  const scope = desktopPreferencesScope(userId)
+  return scope ? `linksense.desktopExecution.defaultTarget:${scope}` : null
+}
+
+export function desktopStartGuideKey(
+  userId: string | undefined
+): string | null {
+  const scope = desktopPreferencesScope(userId)
+  return scope ? `linksense.desktopStartGuide:${scope}` : null
+}
+
+/**
+ * A stored, valid value means this account already used the run-location
+ * preference on this server. The guide then stays out of the way after an
+ * upgrade. An older invalid value is not a saved choice and must not suppress
+ * the guide.
+ */
+export function hasStoredDesktopExecutionDefaultTarget(
+  preferenceKey: string | null
+): boolean {
+  if (!preferenceKey) return false
+  try {
+    return conversationExecutionTargetSchema.safeParse(
+      window.localStorage.getItem(preferenceKey)
+    ).success
+  } catch {
+    return false
+  }
 }
 
 export function readDesktopExecutionDefaultTarget(

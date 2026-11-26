@@ -39,6 +39,14 @@ type DesktopExecutionMessages = {
   continuationUnsupported: string
   continuationReferenceUnavailable: string
   continuationInvalidResponse: string
+  startGuideTitle: string
+  startGuideDescription: string
+  startGuidePairTitle: string
+  startGuidePairDescription: string
+  startGuideBrowserTitle: string
+  startGuideBrowserDescription: string
+  startGuideDefaultTargetTitle: string
+  startGuideSkip: string
 }
 
 export const desktopExecutionMessages: Record<
@@ -93,6 +101,17 @@ export const desktopExecutionMessages: Record<
       "这台 Mac 暂时无法读取原任务作为引用。请更新 Mac 上的 LinkSense 后重试。",
     continuationInvalidResponse:
       "服务器返回的任务与此请求不匹配，因此未打开。你的草稿和原任务均未更改。",
+    startGuideTitle: "在这台 Mac 上开始",
+    startGuideDescription:
+      "完成下面的设置，让任务按你的方式运行。你可以随时在设置中修改。",
+    startGuidePairTitle: "配对这台 Mac",
+    startGuidePairDescription:
+      "在本机运行任务前，先把这台 Mac 配对到你的账号。",
+    startGuideBrowserTitle: "连接浏览器扩展",
+    startGuideBrowserDescription:
+      "可选。在系统浏览器中安装并登录，任务即可使用你已登录的网页。",
+    startGuideDefaultTargetTitle: "选择默认运行位置",
+    startGuideSkip: "跳过",
   },
   "en-US": {
     defaultTarget: "Default run location",
@@ -151,6 +170,17 @@ export const desktopExecutionMessages: Record<
       "This Mac can’t read the original task as a reference yet. Update LinkSense on the Mac, then try again.",
     continuationInvalidResponse:
       "The server returned a task that didn’t match this request, so it wasn’t opened. Your draft and the original task are unchanged.",
+    startGuideTitle: "Get started on this Mac",
+    startGuideDescription:
+      "Finish these steps to run tasks the way you want. You can change them later in settings.",
+    startGuidePairTitle: "Pair this Mac",
+    startGuidePairDescription:
+      "Pair this Mac with your account before running tasks locally.",
+    startGuideBrowserTitle: "Connect the browser extension",
+    startGuideBrowserDescription:
+      "Optional. Install it in your system browser and sign in so tasks can use the pages you’re already signed in to.",
+    startGuideDefaultTargetTitle: "Choose a default run location",
+    startGuideSkip: "Skip",
   },
   "es-ES": {
     defaultTarget: "Ubicación de ejecución predeterminada",
@@ -212,6 +242,18 @@ export const desktopExecutionMessages: Record<
       "Este Mac aún no puede leer la tarea original como referencia. Actualiza LinkSense en el Mac e inténtalo de nuevo.",
     continuationInvalidResponse:
       "El servidor devolvió una tarea que no coincide con esta solicitud, así que no se abrió. Tu borrador y la tarea original no han cambiado.",
+    startGuideTitle: "Primeros pasos en este Mac",
+    startGuideDescription:
+      "Completa estos pasos para ejecutar tareas como prefieras. Puedes cambiarlos más tarde en Ajustes.",
+    startGuidePairTitle: "Vincular este Mac",
+    startGuidePairDescription:
+      "Vincula este Mac a tu cuenta antes de ejecutar tareas en local.",
+    startGuideBrowserTitle: "Conectar la extensión del navegador",
+    startGuideBrowserDescription:
+      "Opcional. Instálala en tu navegador del sistema e inicia sesión para que las tareas usen las páginas en las que ya has iniciado sesión.",
+    startGuideDefaultTargetTitle:
+      "Elegir la ubicación de ejecución predeterminada",
+    startGuideSkip: "Omitir",
   },
   "pt-BR": {
     defaultTarget: "Local de execução padrão",
@@ -273,6 +315,17 @@ export const desktopExecutionMessages: Record<
       "Este Mac ainda não consegue ler a tarefa original como referência. Atualize o LinkSense no Mac e tente novamente.",
     continuationInvalidResponse:
       "O servidor retornou uma tarefa que não corresponde a esta solicitação, então ela não foi aberta. Seu rascunho e a tarefa original não foram alterados.",
+    startGuideTitle: "Primeiros passos neste Mac",
+    startGuideDescription:
+      "Conclua estas etapas para executar tarefas do seu jeito. Você pode alterá-las depois nas configurações.",
+    startGuidePairTitle: "Parear este Mac",
+    startGuidePairDescription:
+      "Pareie este Mac com sua conta antes de executar tarefas localmente.",
+    startGuideBrowserTitle: "Conectar a extensão do navegador",
+    startGuideBrowserDescription:
+      "Opcional. Instale-a no navegador do sistema e entre na sua conta para que as tarefas usem as páginas em que você já está conectado.",
+    startGuideDefaultTargetTitle: "Escolher o local de execução padrão",
+    startGuideSkip: "Pular",
   },
   "fr-FR": {
     defaultTarget: "Emplacement d’exécution par défaut",
@@ -332,6 +385,18 @@ export const desktopExecutionMessages: Record<
       "Ce Mac ne peut pas encore lire la tâche d’origine comme référence. Mettez LinkSense à jour sur le Mac, puis réessayez.",
     continuationInvalidResponse:
       "Le serveur a renvoyé une tâche qui ne correspond pas à cette demande ; elle n’a donc pas été ouverte. Votre brouillon et la tâche d’origine sont inchangés.",
+    startGuideTitle: "Premiers pas sur ce Mac",
+    startGuideDescription:
+      "Suivez ces étapes pour exécuter les tâches comme vous le souhaitez. Vous pourrez les modifier plus tard dans les réglages.",
+    startGuidePairTitle: "Associer ce Mac",
+    startGuidePairDescription:
+      "Associez ce Mac à votre compte avant d’exécuter des tâches en local.",
+    startGuideBrowserTitle: "Connecter l’extension de navigateur",
+    startGuideBrowserDescription:
+      "Facultatif. Installez-la dans votre navigateur système et connectez-vous pour que les tâches utilisent les pages déjà ouvertes dans votre session.",
+    startGuideDefaultTargetTitle:
+      "Choisir l’emplacement d’exécution par défaut",
+    startGuideSkip: "Ignorer",
   },
   "ja-JP": {
     defaultTarget: "デフォルトの実行場所",
@@ -393,5 +458,16 @@ export const desktopExecutionMessages: Record<
       "この Mac ではまだ元のタスクを参照として読み取れません。Mac の LinkSense を更新して再試行してください。",
     continuationInvalidResponse:
       "サーバーから返されたタスクがこのリクエストと一致しないため、開きませんでした。下書きと元のタスクは変更されていません。",
+    startGuideTitle: "この Mac をセットアップ",
+    startGuideDescription:
+      "好みに合わせてタスクを実行するための手順です。設定からいつでも変更できます。",
+    startGuidePairTitle: "この Mac をペアリング",
+    startGuidePairDescription:
+      "ローカルでタスクを実行する前に、この Mac をアカウントにペアリングします。",
+    startGuideBrowserTitle: "ブラウザ拡張機能を接続",
+    startGuideBrowserDescription:
+      "任意。システムのブラウザにインストールしてサインインすると、タスクがサインイン済みのページを利用できます。",
+    startGuideDefaultTargetTitle: "デフォルトの実行場所を選択",
+    startGuideSkip: "スキップ",
   },
 }

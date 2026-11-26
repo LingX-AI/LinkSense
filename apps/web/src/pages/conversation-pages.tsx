@@ -14,6 +14,7 @@ import type { ApplicationAnnotationSubmit } from "@/features/applications/applic
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { listConversationWebSites, webSiteKeys } from "@/features/web-sites/api"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
+import { MacDesktopStartGuide } from "@/features/desktop-execution/mac-desktop-start-guide"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 
 import { responseLatency } from "@/features/conversations/response-latency"
@@ -8079,31 +8080,58 @@ export function ConversationPage({
         showNewTaskWelcome={isNew}
         newTaskUserName={user?.name}
         newTaskGuide={
-          isNew &&
-          !embedded &&
-          !development &&
-          !readOnly &&
-          user?.role === "admin" &&
-          user.status === "active" ? (
-            <FirstUseGuide
-              key={user.id}
-              userId={user.id}
-              isAdmin={user.role === "admin" && user.status === "active"}
-              preference={modelPreferenceQuery.data}
-              loading={modelPreferenceQuery.isPending}
-              failed={modelPreferenceQuery.isError}
-              force={new URLSearchParams(location.search).get("setup") === "1"}
-              onRetry={() => void modelPreferenceQuery.refetch()}
-              onDismiss={() => {
-                const params = new URLSearchParams(location.search)
-                if (params.get("setup") !== "1") return
-                params.delete("setup")
-                navigate(
-                  { pathname: location.pathname, search: params.toString() },
-                  { replace: true }
-                )
-              }}
-            />
+          isNew && !embedded && !development && !readOnly ? (
+            <>
+              {user?.role === "admin" && user.status === "active" && (
+                <FirstUseGuide
+                  key={user.id}
+                  userId={user.id}
+                  isAdmin={user.role === "admin" && user.status === "active"}
+                  preference={modelPreferenceQuery.data}
+                  loading={modelPreferenceQuery.isPending}
+                  failed={modelPreferenceQuery.isError}
+                  force={
+                    new URLSearchParams(location.search).get("setup") === "1"
+                  }
+                  onRetry={() => void modelPreferenceQuery.refetch()}
+                  onDismiss={() => {
+                    const params = new URLSearchParams(location.search)
+                    if (params.get("setup") !== "1") return
+                    params.delete("setup")
+                    navigate(
+                      {
+                        pathname: location.pathname,
+                        search: params.toString(),
+                      },
+                      { replace: true }
+                    )
+                  }}
+                />
+              )}
+              {/* The Mac card is only for a plain top-level new task. */}
+              {desktopExecutionTargetGated &&
+                showConversationComposer &&
+                user?.status === "active" &&
+                !newProjectId &&
+                !newProjectResolving &&
+                !sideChatReference && (
+                  <MacDesktopStartGuide
+                    userId={user?.id}
+                    modelSetupActive={
+                      user?.role === "admin" &&
+                      user.status === "active" &&
+                      (modelPreferenceQuery.isPending ||
+                        modelPreferenceQuery.isError ||
+                        modelPreferenceQuery.data?.configured !== true ||
+                        new URLSearchParams(location.search).get("setup") ===
+                          "1")
+                    }
+                    deviceAvailability={executionDeviceAvailability}
+                    localComputerEnabled={desktopExecutionPolicy.localComputer}
+                    cloudTargetEnabled={desktopExecutionPolicy.cloudTarget}
+                  />
+                )}
+            </>
           ) : undefined
         }
         onStarterQuestionSelect={handleStarterQuestionSelect}
