@@ -2089,18 +2089,8 @@ describe("capability marketplace pages", () => {
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "MCP" })
     )
-    const mcpScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(mcpScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
-    ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     expect(screen.queryByText(mcpRelease.name)).not.toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "搜索MCP" })).toBeVisible()
     expect(
@@ -2319,18 +2309,8 @@ describe("capability marketplace pages", () => {
       expect(enabledStatus.querySelector("svg")).not.toBeNull()
       expect(within(item).queryByText("启用")).not.toBeInTheDocument()
     }
-    const mcpScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(mcpScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
-    ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     const connectionsHeading = await screen.findByRole("heading", {
       name: "MCP 连接",
     })
@@ -2400,23 +2380,11 @@ describe("capability marketplace pages", () => {
     expect(
       within(returnedCatalogTabs).getByRole("tab", { name: "MCP" })
     ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(screen.getByLabelText("内容范围")).getByRole("tab", {
-        name: "个人",
-      })
-    ).toHaveAttribute("aria-selected", "true")
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     expect(
       await screen.findByRole("heading", { name: "MCP 连接" })
     ).toBeVisible()
-    const returnedScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(returnedScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(returnedScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([input]) => {
         const url = new URL(String(input), window.location.origin)
