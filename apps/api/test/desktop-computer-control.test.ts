@@ -2232,6 +2232,63 @@ describe("M1b product computer control", () => {
     }
   });
 
+  it("lets a second session take over after Pause releases the holder and ignores the old receipt", async () => {
+    const state = await fixture();
+    try {
+      const { socket, frames, scope, runToken, device } = await prepareSocket(state);
+      await select(state, socket, frames, scope);
+      const firstObserve = await holdObserve(socket, frames, scope, runToken);
+
+      // A second independent run scope on the same Mac selects while A holds,
+      // but cannot observe: occupancy is per device.
+      const second: DesktopRunScope = {
+        ...scope, conversationId: randomUUID(), turnId: randomUUID(),
+      };
+      state.store.conversations.set(`${second.conversationId}:${device.id}`, {
+        deviceId: device.id, runtimeGeneration: second.runtimeGeneration,
+      });
+      const secondToken = await issueRun(
+        state.leases, device.id, second.connectionId,
+        second.conversationId, second.turnId, second.runtimeGeneration,
+      );
+      await select(state, socket, frames, second, selectionB);
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      expect(await frames.until(isToolResult)).toMatchObject({
+        ok: true, data: { kind: "failure", error: "DEVICE_BUSY" },
+      });
+
+      // Pause releases the exact holder only after the native quiesce ack.
+      socket.send(JSON.stringify(controlFrame("pause", scope, selectionA)));
+      const quiesce = commandOf(await frames.until(isCommand));
+      expect(quiesce.body).toMatchObject({
+        holder_id: firstObserve.body.holder_id, selection_id: selectionA, request: { kind: "quiesce" },
+      });
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      expect(controlResultOf(await frames.until(isControlResult))).toMatchObject({
+        ok: true, data: { state: "paused", selection_id: selectionA },
+      });
+
+      // The second session takes over with its own selection and holder.
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      const secondObserve = commandOf(await frames.until(isCommand));
+      expect(secondObserve.body.selection_id).toBe(selectionB);
+      socket.send(JSON.stringify(commandResult(secondObserve, { kind: "observe", result: observation })));
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe" } });
+
+      // A duplicate of A's old quiesce receipt must not release or clear B's
+      // holder: a fresh observe still runs on the second selection.
+      socket.send(JSON.stringify(commandResult(quiesce, { kind: "quiesce", result: { quiesced: true } })));
+      await frames.settle();
+      socket.send(JSON.stringify(toolRequest("observe", second, secondToken)));
+      const thirdObserve = commandOf(await frames.until(isCommand));
+      expect(thirdObserve.body.selection_id).toBe(selectionB);
+      socket.send(JSON.stringify(commandResult(thirdObserve, { kind: "observe", result: observation })));
+      expect(await frames.until(isToolResult)).toMatchObject({ ok: true, data: { kind: "observe" } });
+    } finally {
+      await state.cleanup();
+    }
+  });
+
   it("keeps a rejected second act from clearing the first pending proof", async () => {
     const state = await fixture();
     try {
