@@ -1629,6 +1629,14 @@ export const errorCatalog = {
       "en-US": "Local tools are disabled on this Mac. Re-enable them in Settings.",
     },
   },
+  DESKTOP_FILE_ROOT_NOT_FOUND: {
+    message_key: "errors.desktopFileRootNotFound",
+    http_status: 404,
+    messages: {
+      "zh-CN": "这个本机文件夹已不存在或已被移除。",
+      "en-US": "This local folder no longer exists or was removed.",
+    },
+  },
   RUNNER_UNAVAILABLE: {
     message_key: "errors.runner.unavailable",
     http_status: 503,

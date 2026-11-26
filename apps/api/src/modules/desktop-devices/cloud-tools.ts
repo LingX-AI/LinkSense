@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   desktopCloudToolCancelSchema,
+  desktopCloudToolDataSchemaFor,
+  desktopCloudToolInvocationSchema,
   desktopCloudToolLifetimeMs,
   desktopCloudToolOperationSchema,
-  desktopCloudToolPingInputSchema,
   desktopCloudToolRequestSchema,
   desktopCloudToolResultSchema,
+  type DesktopCloudToolData,
   type DesktopCloudToolErrorCode,
+  type DesktopCloudToolInvocation,
   type DesktopCloudToolOperation,
-  type DesktopCloudToolPingInput,
-  type DesktopCloudToolPingResult,
 } from "@linksense/shared";
 import { z } from "zod";
 
@@ -41,7 +42,8 @@ type CloudToolConnection = {
 
 type PendingTool = {
   connectionId: string;
-  resolve: (result: DesktopCloudToolPingResult) => void;
+  operation: DesktopCloudToolOperation;
+  resolve: (result: DesktopCloudToolData) => void;
   reject: (error: DesktopCloudToolError) => void;
   timer: NodeJS.Timeout;
   signal: AbortSignal;
@@ -49,7 +51,8 @@ type PendingTool = {
 };
 
 type PendingRemote = {
-  resolve: (result: DesktopCloudToolPingResult) => void;
+  operation: DesktopCloudToolOperation;
+  resolve: (result: DesktopCloudToolData) => void;
   reject: (error: DesktopCloudToolError) => void;
   timer: NodeJS.Timeout;
   signal: AbortSignal;
@@ -62,8 +65,8 @@ export type DesktopCloudToolLogger = {
 
 /**
  * The cloud task -> Mac lane. It is separate from the retired local-execution
- * transport: a Mac can advertise these read-only tools without a local runtime.
- * A Redis relay reaches the replica that owns the Mac's WebSocket.
+ * transport: a Mac can advertise these tools without a local runtime. A Redis
+ * relay reaches the replica that owns the Mac's WebSocket.
  */
 export class DesktopCloudToolGateway {
   private readonly connections = new Map<string, CloudToolConnection>();
@@ -202,37 +205,43 @@ export class DesktopCloudToolGateway {
     if (!result.success) return false;
     const pending = this.pending.get(result.data.id);
     if (!pending || pending.connectionId !== connectionId) return true;
-    if (result.data.ok) {
-      if (result.data.operation !== "local_tools.ping") {
-        this.settle(result.data.id, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
-      } else {
-        this.settle(result.data.id, undefined, result.data.data);
-      }
-    } else {
+    if (!result.data.ok) {
       this.settle(result.data.id, new DesktopCloudToolError(result.data.error_code));
+      return true;
+    }
+    if (result.data.operation !== pending.operation) {
+      this.settle(result.data.id, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
+      return true;
+    }
+    const data = desktopCloudToolDataSchemaFor[pending.operation].safeParse(result.data.data);
+    if (!data.success) {
+      this.settle(result.data.id, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
+    } else {
+      this.settle(result.data.id, undefined, data.data);
     }
     return true;
   }
 
   async execute(
     ownerId: string,
-    operation: DesktopCloudToolOperation,
-    input: DesktopCloudToolPingInput,
+    invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
-  ): Promise<{ deviceId: string; data: DesktopCloudToolPingResult }> {
-    desktopCloudToolOperationSchema.parse(operation);
-    const parsedInput = desktopCloudToolPingInputSchema.parse(input);
+    options: { deviceId?: string } = {},
+  ): Promise<{ deviceId: string; data: DesktopCloudToolData }> {
+    const parsed = desktopCloudToolInvocationSchema.parse(invocation);
+    const operation = parsed.operation;
     if (this.closing || signal.aborted) throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
     const candidates = [...this.connections.values()].filter(connection =>
       connection.ownerId === ownerId && connection.operations.has(operation) &&
+      (options.deviceId === undefined || connection.deviceId === options.deviceId) &&
       (this.inFlight.get(connection.connectionId) ?? 0) < maximumInFlightPerConnection);
     for (const connection of candidates) {
       if (!await connection.verifyCredential().catch(() => false)) continue;
       if (this.closing || this.connections.get(connection.connectionId) !== connection) continue;
-      return await this.executeOnConnection(connection, operation, parsedInput, signal);
+      return await this.executeOnConnection(connection, parsed, signal);
     }
-    const remote = await this.remoteCandidate(ownerId, operation);
-    if (remote) return await this.executeRemote(remote, operation, parsedInput, signal);
+    const remote = await this.remoteCandidate(ownerId, operation, options.deviceId);
+    if (remote) return await this.executeRemote(remote, parsed, signal);
     throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
   }
 
@@ -256,10 +265,9 @@ export class DesktopCloudToolGateway {
 
   private async executeOnConnection(
     connection: CloudToolConnection,
-    operation: DesktopCloudToolOperation,
-    input: DesktopCloudToolPingInput,
+    invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
-  ): Promise<{ deviceId: string; data: DesktopCloudToolPingResult }> {
+  ): Promise<{ deviceId: string; data: DesktopCloudToolData }> {
     if (this.closing || signal.aborted) throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
     if ((this.inFlight.get(connection.connectionId) ?? 0) >= maximumInFlightPerConnection) {
       throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
@@ -267,25 +275,32 @@ export class DesktopCloudToolGateway {
     const id = randomUUID();
     const expiresAt = new Date(Date.now() + desktopCloudToolLifetimeMs).toISOString();
     const frame = desktopCloudToolRequestSchema.parse({
-      type: "cloud_tool.request", id, operation, input, expires_at: expiresAt,
+      type: "cloud_tool.request",
+      id,
+      operation: invocation.operation,
+      input: invocation.input,
+      expires_at: expiresAt,
     });
     if (!connection.send(JSON.stringify(frame))) {
       throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
     }
     this.inFlight.set(connection.connectionId, (this.inFlight.get(connection.connectionId) ?? 0) + 1);
-    const data = await new Promise<DesktopCloudToolPingResult>((resolve, reject) => {
+    const data = await new Promise<DesktopCloudToolData>((resolve, reject) => {
       const settle = (error: DesktopCloudToolError) => this.settle(id, error);
       const timer = setTimeout(() => settle(new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")), desktopCloudToolLifetimeMs);
       const abort = () => {
         if (connection.send(JSON.stringify(desktopCloudToolCancelSchema.parse({
-          type: "cloud_tool.cancel", id, operation,
+          type: "cloud_tool.cancel", id, operation: invocation.operation,
         })))) {
           settle(new DesktopCloudToolError("CANCELLED"));
         } else {
           settle(new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
         }
       };
-      this.pending.set(id, { connectionId: connection.connectionId, resolve, reject, timer, signal, abort });
+      this.pending.set(id, {
+        connectionId: connection.connectionId, operation: invocation.operation,
+        resolve, reject, timer, signal, abort,
+      });
       if (signal.aborted) abort();
       else signal.addEventListener("abort", abort, { once: true });
     });
@@ -295,11 +310,12 @@ export class DesktopCloudToolGateway {
   private async remoteCandidate(
     ownerId: string,
     operation: DesktopCloudToolOperation,
+    deviceId: string | undefined,
   ): Promise<CloudToolRemoteCandidate | null> {
     if (!this.relay || this.relayUnavailable || this.closing) return null;
     try {
       const candidates = await this.relay.candidates(ownerId, operation, this.instanceId);
-      return candidates[0] ?? null;
+      return candidates.find(candidate => deviceId === undefined || candidate.deviceId === deviceId) ?? null;
     } catch (error) {
       this.logger?.warn(
         { event: "desktop_cloud_tool_presence_read_failed", error },
@@ -311,24 +327,29 @@ export class DesktopCloudToolGateway {
 
   private async executeRemote(
     candidate: CloudToolRemoteCandidate,
-    operation: DesktopCloudToolOperation,
-    input: DesktopCloudToolPingInput,
+    invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
-  ): Promise<{ deviceId: string; data: DesktopCloudToolPingResult }> {
+  ): Promise<{ deviceId: string; data: DesktopCloudToolData }> {
     const relay = this.relay;
     if (!relay || this.relayUnavailable || this.closing || signal.aborted) {
       throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
     }
     const requestId = randomUUID();
-    const data = await new Promise<DesktopCloudToolPingResult>((resolve, reject) => {
+    const data = await new Promise<DesktopCloudToolData>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settleRemote(requestId, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")),
         desktopCloudToolLifetimeMs,
       );
-      const abort = () => {
+      let executeDelivered = false;
+      let cancelRequested = false;
+      const cancelRemote = () => {
+        if (!executeDelivered) {
+          cancelRequested = true;
+          return;
+        }
         relay.publishRequest(candidate.instanceId, {
           type: "cancel", request_id: requestId,
-          connection_id: candidate.connectionId, operation,
+          connection_id: candidate.connectionId, operation: invocation.operation,
         }).then(
           delivered => this.settleRemote(requestId, new DesktopCloudToolError(
             delivered > 0 ? "CANCELLED" : "DESKTOP_TOOL_UNAVAILABLE",
@@ -336,21 +357,23 @@ export class DesktopCloudToolGateway {
           () => this.settleRemote(requestId, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE")),
         );
       };
-      this.pendingRemote.set(requestId, { resolve, reject, timer, signal, abort });
-      if (signal.aborted) {
-        abort();
-        return;
-      }
-      signal.addEventListener("abort", abort, { once: true });
+      this.pendingRemote.set(requestId, {
+        operation: invocation.operation, resolve, reject, timer, signal, abort: cancelRemote,
+      });
+      if (signal.aborted) cancelRemote();
+      else signal.addEventListener("abort", cancelRemote, { once: true });
       relay.publishRequest(candidate.instanceId, {
         type: "execute", request_id: requestId,
         connection_id: candidate.connectionId, owner_id: candidate.ownerId,
-        operation, input,
+        invocation,
       }).then(
         delivered => {
           if (delivered === 0) {
             this.settleRemote(requestId, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
+            return;
           }
+          executeDelivered = true;
+          if (cancelRequested) cancelRemote();
         },
         error => {
           this.logger?.warn(
@@ -367,10 +390,19 @@ export class DesktopCloudToolGateway {
   private receiveRemoteReply(reply: CloudToolRemoteReply): void {
     const pending = this.pendingRemote.get(reply.request_id);
     if (!pending) return;
-    if (reply.ok) {
-      this.settleRemote(reply.request_id, undefined, reply.data);
+    if (reply.result.operation !== pending.operation) {
+      this.settleRemote(reply.request_id, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
+      return;
+    }
+    if (!reply.result.ok) {
+      this.settleRemote(reply.request_id, new DesktopCloudToolError(reply.result.error_code));
+      return;
+    }
+    const data = desktopCloudToolDataSchemaFor[pending.operation].safeParse(reply.result.data);
+    if (!data.success) {
+      this.settleRemote(reply.request_id, new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE"));
     } else {
-      this.settleRemote(reply.request_id, new DesktopCloudToolError(reply.error_code));
+      this.settleRemote(reply.request_id, undefined, data.data);
     }
   }
 
@@ -381,13 +413,24 @@ export class DesktopCloudToolGateway {
       this.remoteExecutions.get(request.request_id)?.abort();
       return;
     }
+    const invocation = request.invocation;
     const connection = this.connections.get(request.connection_id);
-    const fail = (code: DesktopCloudToolErrorCode) => this.publishRemoteReply(relay, {
-      type: "result", request_id: request.request_id, ok: false, error_code: code,
-    });
+    const fail = async (code: DesktopCloudToolErrorCode) => {
+      await this.publishRemoteReply(relay, {
+        type: "result",
+        request_id: request.request_id,
+        result: desktopCloudToolResultSchema.parse({
+          type: "cloud_tool.result",
+          id: request.request_id,
+          operation: invocation.operation,
+          ok: false,
+          error_code: code,
+        }),
+      });
+    };
     if (
       !connection || connection.ownerId !== request.owner_id ||
-      !connection.operations.has(request.operation) ||
+      !connection.operations.has(invocation.operation) ||
       this.remoteExecutions.has(request.request_id)
     ) {
       await fail("DESKTOP_TOOL_UNAVAILABLE");
@@ -404,11 +447,17 @@ export class DesktopCloudToolGateway {
     const controller = new AbortController();
     this.remoteExecutions.set(request.request_id, controller);
     try {
-      const { data } = await this.executeOnConnection(
-        connection, request.operation, request.input, controller.signal,
-      );
+      const { data } = await this.executeOnConnection(connection, invocation, controller.signal);
       await this.publishRemoteReply(relay, {
-        type: "result", request_id: request.request_id, ok: true, data,
+        type: "result",
+        request_id: request.request_id,
+        result: desktopCloudToolResultSchema.parse({
+          type: "cloud_tool.result",
+          id: request.request_id,
+          operation: invocation.operation,
+          ok: true,
+          data,
+        }),
       });
     } catch (error) {
       await fail(error instanceof DesktopCloudToolError
@@ -433,7 +482,7 @@ export class DesktopCloudToolGateway {
     }
   }
 
-  private settle(id: string, error?: DesktopCloudToolError, result?: DesktopCloudToolPingResult): void {
+  private settle(id: string, error?: DesktopCloudToolError, result?: DesktopCloudToolData): void {
     const pending = this.pending.get(id);
     if (!pending) return;
     this.pending.delete(id);
@@ -450,7 +499,7 @@ export class DesktopCloudToolGateway {
   private settleRemote(
     requestId: string,
     error?: DesktopCloudToolError,
-    result?: DesktopCloudToolPingResult,
+    result?: DesktopCloudToolData,
   ): void {
     const pending = this.pendingRemote.get(requestId);
     if (!pending) return;
@@ -473,6 +522,6 @@ export const desktopCloudToolExecuteBodySchema = z.strictObject({
   conversationId: z.uuid(),
   turnId: z.uuid(),
   operation: desktopCloudToolOperationSchema,
-  input: desktopCloudToolPingInputSchema,
+  input: z.unknown(),
 });
 export type DesktopCloudToolExecuteBody = z.infer<typeof desktopCloudToolExecuteBodySchema>;

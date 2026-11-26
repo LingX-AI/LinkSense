@@ -15,6 +15,24 @@ type DesktopDevicesMessages = {
   toggleDescription: string
   toggleFailed: string
   toggleDescriptionDisabled: string
+  foldersTitle: string
+  foldersDescription: string
+  foldersEmpty: string
+  addFolder: string
+  addFolderMode: string
+  folderModeLabel: string
+  modeRead: string
+  modeWrite: string
+  removeFolder: string
+  removeFolderTitle: string
+  removeFolderDescription: string
+  removeFolderConfirm: string
+  removeFolderCancel: string
+  folderAccessHint: string
+  foldersUnavailable: string
+  folderAddFailed: string
+  folderRemoveFailed: string
+  folderModeFailed: string
   signOutRevoke: string
   signOutRevokeFailed: string
   signOutRevokeUnconfirmed: string
@@ -40,6 +58,26 @@ export const desktopDevicesMessages = {
     toggleFailed: "无法更新本机工具设置。请重试。",
     toggleDescriptionDisabled:
       "这台 Mac 当前不会连接。重新开启会清除此前的停用状态，并在登录后自动连接。",
+    foldersTitle: "共享文件夹",
+    foldersDescription:
+      "云端任务只能使用你在这里共享的文件夹，并且需要任务明确允许使用本机工具。",
+    foldersEmpty: "尚未共享任何文件夹。",
+    addFolder: "添加文件夹",
+    addFolderMode: "新文件夹权限",
+    folderModeLabel: "访问权限",
+    modeRead: "只读",
+    modeWrite: "读写",
+    removeFolder: "移除文件夹",
+    removeFolderTitle: "移除共享文件夹？",
+    removeFolderDescription:
+      "云端任务会立即失去对“{{name}}”的访问权限，文件夹本身不会被修改。",
+    removeFolderConfirm: "移除",
+    removeFolderCancel: "取消",
+    folderAccessHint: "文件夹的绝对路径只保留在这台 Mac 上，不会上传。",
+    foldersUnavailable: "无法加载共享文件夹。",
+    folderAddFailed: "无法添加文件夹，请重试。",
+    folderRemoveFailed: "无法移除文件夹，请重试。",
+    folderModeFailed: "无法修改文件夹权限，请重试。",
     signOutRevoke: "同时撤销这台 Mac 的授权",
     signOutRevokeFailed:
       "无法确认已撤销这台 Mac 的授权。请重试，或取消勾选后只退出登录。",
@@ -67,6 +105,26 @@ export const desktopDevicesMessages = {
     toggleFailed: "Could not update the local-tools setting. Try again.",
     toggleDescriptionDisabled:
       "This Mac is not connected. Turning it back on clears the earlier disabled state and connects automatically after sign-in.",
+    foldersTitle: "Shared folders",
+    foldersDescription:
+      "Cloud tasks can use only the folders you share here, and only when a task allows local tools.",
+    foldersEmpty: "No folders shared yet.",
+    addFolder: "Add folder",
+    addFolderMode: "New folder access",
+    folderModeLabel: "Access",
+    modeRead: "Read only",
+    modeWrite: "Read and write",
+    removeFolder: "Remove folder",
+    removeFolderTitle: "Remove shared folder?",
+    removeFolderDescription:
+      "Cloud tasks will immediately lose access to “{{name}}”. The folder itself is not changed.",
+    removeFolderConfirm: "Remove",
+    removeFolderCancel: "Cancel",
+    folderAccessHint: "Absolute paths stay on this Mac and are never uploaded.",
+    foldersUnavailable: "Could not load shared folders.",
+    folderAddFailed: "Could not add the folder. Try again.",
+    folderRemoveFailed: "Could not remove the folder. Try again.",
+    folderModeFailed: "Could not change folder access. Try again.",
     signOutRevoke: "Also revoke access for this Mac",
     signOutRevokeFailed:
       "Could not confirm that access was revoked for this Mac. Try again, or uncheck the option to just sign out.",
@@ -95,6 +153,26 @@ export const desktopDevicesMessages = {
       "No se pudo actualizar la configuración de herramientas locales. Inténtalo de nuevo.",
     toggleDescriptionDisabled:
       "Este Mac no está conectado. Volver a activarlas borra el estado desactivado anterior y conecta automáticamente tras iniciar sesión.",
+    foldersTitle: "Carpetas compartidas",
+    foldersDescription:
+      "Las tareas en la nube solo pueden usar las carpetas que compartas aquí y cuando la tarea permita herramientas locales.",
+    foldersEmpty: "Aún no hay carpetas compartidas.",
+    addFolder: "Añadir carpeta",
+    addFolderMode: "Acceso de la nueva carpeta",
+    folderModeLabel: "Acceso",
+    modeRead: "Solo lectura",
+    modeWrite: "Lectura y escritura",
+    removeFolder: "Quitar carpeta",
+    removeFolderTitle: "¿Quitar la carpeta compartida?",
+    removeFolderDescription:
+      "Las tareas en la nube perderán inmediatamente el acceso a «{{name}}». La carpeta no se modifica.",
+    removeFolderConfirm: "Quitar",
+    removeFolderCancel: "Cancelar",
+    folderAccessHint: "Las rutas absolutas permanecen en este Mac y nunca se suben.",
+    foldersUnavailable: "No se pudieron cargar las carpetas compartidas.",
+    folderAddFailed: "No se pudo añadir la carpeta. Inténtalo de nuevo.",
+    folderRemoveFailed: "No se pudo quitar la carpeta. Inténtalo de nuevo.",
+    folderModeFailed: "No se pudo cambiar el acceso. Inténtalo de nuevo.",
     signOutRevoke: "Revocar también el acceso de este Mac",
     signOutRevokeFailed:
       "No se pudo confirmar la revocación del acceso de este Mac. Inténtalo de nuevo o desmarca la opción para cerrar sesión sin repetir la revocación.",
@@ -123,6 +201,26 @@ export const desktopDevicesMessages = {
       "Não foi possível atualizar a configuração de ferramentas locais. Tente novamente.",
     toggleDescriptionDisabled:
       "Este Mac não está conectado. Reativar remove o estado desativado anterior e conecta automaticamente após o login.",
+    foldersTitle: "Pastas compartilhadas",
+    foldersDescription:
+      "Tarefas na nuvem só podem usar as pastas compartilhadas aqui e quando a tarefa permitir ferramentas locais.",
+    foldersEmpty: "Nenhuma pasta compartilhada ainda.",
+    addFolder: "Adicionar pasta",
+    addFolderMode: "Acesso da nova pasta",
+    folderModeLabel: "Acesso",
+    modeRead: "Somente leitura",
+    modeWrite: "Leitura e escrita",
+    removeFolder: "Remover pasta",
+    removeFolderTitle: "Remover pasta compartilhada?",
+    removeFolderDescription:
+      "As tarefas na nuvem perderão imediatamente o acesso a “{{name}}”. A pasta em si não é alterada.",
+    removeFolderConfirm: "Remover",
+    removeFolderCancel: "Cancelar",
+    folderAccessHint: "Os caminhos absolutos ficam neste Mac e nunca são enviados.",
+    foldersUnavailable: "Não foi possível carregar as pastas compartilhadas.",
+    folderAddFailed: "Não foi possível adicionar a pasta. Tente novamente.",
+    folderRemoveFailed: "Não foi possível remover a pasta. Tente novamente.",
+    folderModeFailed: "Não foi possível alterar o acesso. Tente novamente.",
     signOutRevoke: "Revogar também o acesso deste Mac",
     signOutRevokeFailed:
       "Não foi possível confirmar a revogação do acesso deste Mac. Tente novamente ou desmarque a opção para apenas sair.",
@@ -151,6 +249,26 @@ export const desktopDevicesMessages = {
       "Impossible de mettre à jour le réglage des outils locaux. Réessayez.",
     toggleDescriptionDisabled:
       "Ce Mac n’est pas connecté. La réactivation efface l’état désactivé précédent et reconnecte automatiquement après la connexion.",
+    foldersTitle: "Dossiers partagés",
+    foldersDescription:
+      "Les tâches cloud ne peuvent utiliser que les dossiers partagés ici, et uniquement lorsqu’une tâche autorise les outils locaux.",
+    foldersEmpty: "Aucun dossier partagé pour l’instant.",
+    addFolder: "Ajouter un dossier",
+    addFolderMode: "Accès du nouveau dossier",
+    folderModeLabel: "Accès",
+    modeRead: "Lecture seule",
+    modeWrite: "Lecture et écriture",
+    removeFolder: "Retirer le dossier",
+    removeFolderTitle: "Retirer le dossier partagé ?",
+    removeFolderDescription:
+      "Les tâches cloud perdront immédiatement l’accès à « {{name}} ». Le dossier lui-même n’est pas modifié.",
+    removeFolderConfirm: "Retirer",
+    removeFolderCancel: "Annuler",
+    folderAccessHint: "Les chemins absolus restent sur ce Mac et ne sont jamais envoyés.",
+    foldersUnavailable: "Impossible de charger les dossiers partagés.",
+    folderAddFailed: "Impossible d’ajouter le dossier. Réessayez.",
+    folderRemoveFailed: "Impossible de retirer le dossier. Réessayez.",
+    folderModeFailed: "Impossible de modifier l’accès. Réessayez.",
     signOutRevoke: "Révoquer aussi l’accès de ce Mac",
     signOutRevokeFailed:
       "Impossible de confirmer la révocation de l’accès de ce Mac. Réessayez ou décochez l’option pour simplement vous déconnecter.",
@@ -179,6 +297,26 @@ export const desktopDevicesMessages = {
       "ローカルツールの設定を更新できませんでした。もう一度お試しください。",
     toggleDescriptionDisabled:
       "この Mac は接続されていません。再度有効にすると以前の無効状態が解除され、ログイン後に自動で接続します。",
+    foldersTitle: "共有フォルダー",
+    foldersDescription:
+      "クラウドタスクは、ここで共有したフォルダーのみ使用でき、タスクでローカルツールが許可されている場合に限ります。",
+    foldersEmpty: "共有フォルダーはまだありません。",
+    addFolder: "フォルダーを追加",
+    addFolderMode: "新しいフォルダーのアクセス",
+    folderModeLabel: "アクセス",
+    modeRead: "読み取りのみ",
+    modeWrite: "読み取りと書き込み",
+    removeFolder: "フォルダーを削除",
+    removeFolderTitle: "共有フォルダーを削除しますか？",
+    removeFolderDescription:
+      "クラウドタスクは「{{name}}」へのアクセスをすぐに失います。フォルダー自体は変更されません。",
+    removeFolderConfirm: "削除",
+    removeFolderCancel: "キャンセル",
+    folderAccessHint: "絶対パスはこの Mac にのみ保持され、アップロードされません。",
+    foldersUnavailable: "共有フォルダーを読み込めませんでした。",
+    folderAddFailed: "フォルダーを追加できませんでした。もう一度お試しください。",
+    folderRemoveFailed: "フォルダーを削除できませんでした。もう一度お試しください。",
+    folderModeFailed: "アクセスを変更できませんでした。もう一度お試しください。",
     signOutRevoke: "この Mac のアクセス権も取り消す",
     signOutRevokeFailed:
       "この Mac のアクセス権が取り消されたことを確認できませんでした。もう一度お試しいただくか、チェックを外してログアウトのみ行ってください。",

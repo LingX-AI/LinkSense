@@ -86,6 +86,22 @@ and only then sends a `cloud_tool.request` over the same device WebSocket. The
 Mac answers locally without a bundled runtime. Offline, unauthorized, expired
 and cancelled calls fail closed; the API records bounded audit metadata.
 
+**Settings → General → Local tools → Shared folders** adds folders through the
+native picker and stores their absolute paths only in this Mac's application
+data. The API stores only the alias, mode and device; absolute paths never
+leave the Mac. File contents are returned only to the authorized cloud task
+that requested them. Each task still needs its own local-tools switch. With it on,
+Codex first lists the shared roots and then uses `local_files_list`,
+`local_files_read`, `local_files_search`, `local_files_write`,
+`local_files_create` and `local_files_delete`. Reads are byte-bounded and
+binary files return metadata only; search skips dependency directories; writes
+use a digest conflict check; deletes go to the macOS Trash. Every path is
+resolved under its root, and absolute paths, `..`, backslashes, cross-root
+access and symlink escapes are rejected. Read-only roots reject write, create
+and delete before dispatch. Revoking a folder or its device invalidates the
+next call, and file audit rows contain only the root alias, relative path,
+operation, result and duration.
+
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
 enable **Keep Running in the Menu Bar When the Window Closes** there. The

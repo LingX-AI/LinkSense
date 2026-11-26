@@ -8,6 +8,12 @@ const native = vi.hoisted(() => ({
   mac: true,
   read: vi.fn(),
   setEnabled: vi.fn(),
+  addRoot: vi.fn(),
+  removeRoot: vi.fn(),
+}))
+const rootsApi = vi.hoisted(() => ({
+  list: vi.fn(),
+  update: vi.fn(),
 }))
 
 vi.mock("@/adapters/desktop/desktop-adapter", () => ({
@@ -22,6 +28,13 @@ vi.mock("@/adapters/desktop/desktop-adapter", () => ({
 vi.mock("@/adapters/desktop/desktop-device-adapter", () => ({
   readDesktopDeviceStatus: native.read,
   setDesktopLocalToolsEnabled: native.setEnabled,
+  addDesktopFileRoot: native.addRoot,
+  removeDesktopFileRoot: native.removeRoot,
+}))
+
+vi.mock("./desktop-file-root-api", () => ({
+  listDesktopFileRoots: rootsApi.list,
+  updateDesktopFileRoot: rootsApi.update,
 }))
 
 import i18n from "@/i18n"
@@ -53,6 +66,14 @@ beforeEach(async () => {
   native.setEnabled.mockImplementation(async (enabled: boolean) => ({
     state: enabled ? "online" : "offline",
     ...(enabled ? {} : { localToolsDisabled: true }),
+  }))
+  native.read.mockResolvedValue({ state: "online", deviceId: "20000000-0000-4000-8000-000000000001" })
+  native.addRoot.mockResolvedValue("50000000-0000-4000-8000-000000000001")
+  rootsApi.list.mockResolvedValue({ items: [] })
+  rootsApi.update.mockImplementation(async (id: string, patch: { mode: string }) => ({
+    id, device_id: "20000000-0000-4000-8000-000000000001",
+    name: "Documents", mode: patch.mode,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }))
   await i18n.changeLanguage("zh-CN")
 })
@@ -96,6 +117,33 @@ describe("local tools settings", () => {
     await waitFor(() => expect(native.setEnabled).toHaveBeenCalledExactlyOnceWith(true))
     expect(await screen.findByText(messages.statusOnline)).toBeVisible()
     expect(toggle).toBeChecked()
+  })
+
+  it("adds, changes, and removes a shared folder through the native owner", async () => {
+    const messages = desktopDevicesMessages["zh-CN"]
+    rootsApi.list.mockResolvedValue({
+      items: [{
+        id: "50000000-0000-4000-8000-000000000001",
+        device_id: "20000000-0000-4000-8000-000000000001",
+        name: "Documents", mode: "read",
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }],
+    })
+    const interaction = userEvent.setup()
+    renderSettings()
+
+    expect(await screen.findByText("Documents")).toBeVisible()
+    await interaction.click(screen.getByRole("button", { name: messages.addFolder }))
+    await waitFor(() => expect(native.addRoot).toHaveBeenCalledWith(
+      "20000000-0000-4000-8000-000000000001", "read"
+    ))
+
+    await interaction.click(screen.getByRole("button", { name: messages.removeFolder }))
+    expect(await screen.findByText(messages.removeFolderTitle)).toBeVisible()
+    await interaction.click(screen.getByRole("button", { name: messages.removeFolderConfirm }))
+    await waitFor(() => expect(native.removeRoot).toHaveBeenCalledWith(
+      "50000000-0000-4000-8000-000000000001"
+    ))
   })
 
   it("shows an unavailable status with a retry when the native read fails", async () => {

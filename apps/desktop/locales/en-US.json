@@ -25,5 +25,7 @@
   "viewCrashReports": "View Crash Reports…",
   "crashReportsOpenFailedHeading": "Could not open Console",
   "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar.",
-  "approvalRequestNotice": "A task is waiting for your approval."
+  "approvalRequestNotice": "A task is waiting for your approval.",
+  "fileRootPickerTitle": "Choose a Folder to Share",
+  "fileRootPickerMessage": "Only this folder is shared with tasks you enable. Its absolute path is never uploaded."
 }

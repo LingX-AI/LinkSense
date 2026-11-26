@@ -18,6 +18,8 @@ import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordin
 import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
 import { DesktopCloudToolGateway } from "./modules/desktop-devices/cloud-tools.js";
 import { RedisDesktopCloudToolRelay } from "./modules/desktop-devices/cloud-tool-relay.js";
+import { DesktopFileRootService, PrismaDesktopFileRootRepository } from "./modules/desktop-devices/file-roots.js";
+import { desktopFileRootRoutes } from "./modules/desktop-devices/file-root-routes.js";
 import { internalDesktopCloudToolRoutes } from "./modules/desktop-devices/cloud-tool-routes.js";
 import {
   createDesktopComputerPauseAuditClient,
@@ -740,6 +742,14 @@ export async function buildApi(
     },
     warn: message => app.log.warn(message),
   }) : undefined;
+  const desktopFileRoots = new DesktopFileRootService(
+    new PrismaDesktopFileRootRepository(services.prisma),
+    services.audit,
+  );
+  await app.register(desktopFileRootRoutes, {
+    prefix: "/api/v1/desktop/file-roots",
+    service: desktopFileRoots,
+  });
   const desktopCloudTools = new DesktopCloudToolGateway();
   await desktopCloudTools.start(
     new RedisDesktopCloudToolRelay(services.redis.client),
@@ -774,6 +784,7 @@ export async function buildApi(
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
     cloudTools: desktopCloudTools,
+    fileRoots: desktopFileRoots,
     audit: services.audit,
   });
   app.addHook("preClose", async () => desktopCloudTools.close());

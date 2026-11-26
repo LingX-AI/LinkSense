@@ -309,3 +309,23 @@ func ApprovalRequestNotice() string { return In(i18n.Locale()).ApprovalRequestNo
 func (msgs Messages) ApprovalRequestNotice() string {
 	return Catalog.Format(msgs.locale, "approvalRequestNotice", nil)
 }
+
+// FileRootPickerTitle says "选择要共享的文件夹"
+// in the language the app shows.
+func FileRootPickerTitle() string { return In(i18n.Locale()).FileRootPickerTitle() }
+
+// FileRootPickerTitle says "选择要共享的文件夹"
+// in the language of msgs.
+func (msgs Messages) FileRootPickerTitle() string {
+	return Catalog.Format(msgs.locale, "fileRootPickerTitle", nil)
+}
+
+// FileRootPickerMessage says "只有这个文件夹会共享给你启用的任务，绝对路径不会上传。"
+// in the language the app shows.
+func FileRootPickerMessage() string { return In(i18n.Locale()).FileRootPickerMessage() }
+
+// FileRootPickerMessage says "只有这个文件夹会共享给你启用的任务，绝对路径不会上传。"
+// in the language of msgs.
+func (msgs Messages) FileRootPickerMessage() string {
+	return Catalog.Format(msgs.locale, "fileRootPickerMessage", nil)
+}

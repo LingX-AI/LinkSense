@@ -860,6 +860,23 @@ describe("conversation voice input", () => {
     expect(onPlanModeChange).toHaveBeenLastCalledWith(false)
   })
 
+  it("toggles per-task local files from Add only when the Mac offers them", async () => {
+    const interaction = userEvent.setup()
+    const onLocalToolsChange = vi.fn()
+    renderStatefulComposer({
+      localToolsAvailable: true,
+      localToolsEnabled: false,
+      onLocalToolsChange,
+    })
+
+    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await interaction.click(
+      screen.getByRole("option", { name: /允许访问本机文件/ })
+    )
+
+    expect(onLocalToolsChange).toHaveBeenCalledWith(true)
+  })
+
   it("can remove Plan mode from the add menu for restricted surfaces", async () => {
     const interaction = userEvent.setup()
     renderStatefulComposer({ planModeAvailable: false })

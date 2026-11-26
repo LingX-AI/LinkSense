@@ -98,6 +98,12 @@ type deviceConnection struct {
 	// conversationReferenceReadNegotiated is true only for the live socket
 	// generation that echoed the read operation this host offered.
 	conversationReferenceReadNegotiated bool
+	// files maps server root IDs to local folders; nil when this host has no
+	// file-root store (fixtures and non-product builds). cloudCancels stops
+	// in-flight local file work when a newer socket or the API cancels it.
+	files        *localFileRoots
+	cloudMu      sync.Mutex
+	cloudCancels map[string]context.CancelFunc
 
 	controlMu      sync.Mutex
 	controlPending map[string]*pendingComputerControl
@@ -131,7 +137,14 @@ const (
 	desktopCloudToolOperationsHeader          = "X-LinkSense-Desktop-Cloud-Tool-Operations"
 	desktopCloudToolVersion                   = 1
 	desktopCloudToolPingOperation             = "local_tools.ping"
-	cloudToolLifetime                         = 10 * time.Second
+	desktopCloudToolListOperation             = "local_files.list"
+	desktopCloudToolReadOperation             = "local_files.read"
+	desktopCloudToolSearchOperation           = "local_files.search"
+	desktopCloudToolWriteOperation            = "local_files.write"
+	desktopCloudToolCreateOperation           = "local_files.create"
+	desktopCloudToolDeleteOperation           = "local_files.delete"
+	desktopCloudToolLifetime                  = 30 * time.Second
+	desktopCloudToolMaxFrameBytes             = 8 << 20
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential, account *workspaceAccount, lease accountLease) *deviceConnection {
@@ -139,7 +152,8 @@ func newDeviceConnection(server *url.URL, credential deviceCredential, account *
 	return &deviceConnection{
 		server: server, credential: credential, account: account, lease: lease,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
-		status: DeviceConnectionStatus{State: DeviceConnecting, DeviceID: credential.DeviceID, Name: credential.Name},
+		status:       DeviceConnectionStatus{State: DeviceConnecting, DeviceID: credential.DeviceID, Name: credential.Name},
+		cloudCancels: map[string]context.CancelFunc{},
 	}
 }
 
@@ -332,6 +346,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if !connection.authorized() {
 		return true, "AUTH_REQUIRED"
 	}
+	defer connection.clearCloudTools()
 	endpoint := *connection.server
 	endpoint.Path = "/api/v1/desktop/devices/socket"
 	if endpoint.Scheme == "https" {
@@ -357,7 +372,15 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	// keeps the read-only lane available after the runtime was retired.
 	if runtime.GOOS == "darwin" {
 		headers.Set(desktopCloudToolHeader, strconv.Itoa(desktopCloudToolVersion))
-		headers.Set(desktopCloudToolOperationsHeader, desktopCloudToolPingOperation)
+		headers.Set(desktopCloudToolOperationsHeader, strings.Join([]string{
+			desktopCloudToolPingOperation,
+			desktopCloudToolListOperation,
+			desktopCloudToolReadOperation,
+			desktopCloudToolSearchOperation,
+			desktopCloudToolWriteOperation,
+			desktopCloudToolCreateOperation,
+			desktopCloudToolDeleteOperation,
+		}, ","))
 	}
 	// The bundled runtime starts with the app. A socket dialed before it is
 	// ready would stay presence-only until the next reconnect, so wait a
@@ -458,6 +481,16 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if !connection.authorized() {
 		return true, "AUTH_REQUIRED"
 	}
+	// Presence frames stay small. Execution and the cloud-tool lane get only
+	// the allowance their negotiated ready frame proves.
+	frameLimit := 8192
+	if ready.ExecutionVersion != nil {
+		frameLimit = desktopFrameLimit
+	}
+	if ready.CloudToolVersion != nil && desktopCloudToolMaxFrameBytes > frameLimit {
+		frameLimit = desktopCloudToolMaxFrameBytes
+	}
+	socket.SetReadLimit(int64(frameLimit))
 	var link *runtimeLink
 	if ready.ExecutionVersion != nil {
 		// attach reuses the supervisor's own checks: only a published pipe owned
@@ -475,7 +508,6 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			connection.link.CompareAndSwap(link, nil)
 			link.close()
 		}()
-		socket.SetReadLimit(desktopFrameLimit)
 	}
 	// The attach write can block; re-check the lease immediately before this
 	// connection is reported online with execution.
@@ -630,17 +662,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		if interceptM1BComputerFrame(computer, data) {
 			continue
 		}
-		if handled, response, cloudErr := cloudToolResponse(data); handled {
-			if cloudErr != nil {
+		if handled, cloudErr := connection.handleCloudToolFrame(socket, data); handled {
+			if errors.Is(cloudErr, errCloudToolProtocol) {
 				return true, "DESKTOP_PROTOCOL_ERROR"
 			}
-			if response != nil {
-				writeContext, cancelWrite := context.WithTimeout(connection.ctx, 5*time.Second)
-				writeErr := socket.Write(writeContext, websocket.MessageText, response)
-				cancelWrite()
-				if writeErr != nil {
-					return false, "RUNNER_UNAVAILABLE"
-				}
+			if cloudErr != nil {
+				return false, "RUNNER_UNAVAILABLE"
 			}
 			continue
 		}
@@ -658,79 +685,110 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 }
 
-// cloudToolResponse consumes the independent cloud-tool lane. A request is
-// served synchronously on this socket; a cancel has no work to stop because the
-// only Phase 1 operation is an immediate read.
-func cloudToolResponse(data []byte) (bool, []byte, error) {
+type cloudToolFrame struct {
+	Type      string
+	ID        string
+	Operation string
+	Input     json.RawMessage
+	ExpiresAt time.Time
+}
+
+var errCloudToolProtocol = errors.New("cloud tool protocol")
+
+var desktopCloudToolOperations = []string{
+	desktopCloudToolPingOperation,
+	desktopCloudToolListOperation,
+	desktopCloudToolReadOperation,
+	desktopCloudToolSearchOperation,
+	desktopCloudToolWriteOperation,
+	desktopCloudToolCreateOperation,
+	desktopCloudToolDeleteOperation,
+}
+
+func cloudToolOperationKnown(operation string) bool {
+	for _, candidate := range desktopCloudToolOperations {
+		if candidate == operation {
+			return true
+		}
+	}
+	return false
+}
+
+func parseCloudToolFrame(data []byte) (cloudToolFrame, bool, error) {
 	var header struct {
 		Type string `json:"type"`
 	}
 	if json.Unmarshal(data, &header) != nil ||
 		(header.Type != "cloud_tool.request" && header.Type != "cloud_tool.cancel") {
-		return false, nil, nil
-	}
-	if header.Type == "cloud_tool.cancel" {
-		var cancel struct {
-			Type      string `json:"type"`
-			ID        string `json:"id"`
-			Operation string `json:"operation"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&cancel) != nil || !validUUID(cancel.ID) ||
-			cancel.Operation != desktopCloudToolPingOperation {
-			return true, nil, errors.New("DESKTOP_PROTOCOL_ERROR")
-		}
-		return true, nil, nil
+		return cloudToolFrame{}, false, nil
 	}
 	var request struct {
-		Type      string `json:"type"`
-		ID        string `json:"id"`
-		Operation string `json:"operation"`
-		Input     struct {
-			Message string `json:"message"`
-		} `json:"input"`
-		ExpiresAt string `json:"expires_at"`
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		Operation string          `json:"operation"`
+		Input     json.RawMessage `json:"input"`
+		ExpiresAt string          `json:"expires_at"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || !validUUID(request.ID) ||
-		request.Operation != desktopCloudToolPingOperation {
-		return true, nil, errors.New("DESKTOP_PROTOCOL_ERROR")
+		!cloudToolOperationKnown(request.Operation) {
+		return cloudToolFrame{}, true, errCloudToolProtocol
+	}
+	frame := cloudToolFrame{Type: request.Type, ID: request.ID, Operation: request.Operation, Input: request.Input}
+	if request.Type == "cloud_tool.cancel" {
+		return frame, true, nil
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, request.ExpiresAt)
 	// Symmetric clock-skew tolerance; a Mac a few seconds off must still serve
-	// a request whose 10s lifetime started on the API clock.
-	if err != nil || expiresAt.Before(time.Now().Add(-cloudToolLifetime)) ||
-		expiresAt.After(time.Now().Add(2*cloudToolLifetime)) {
-		return true, cloudToolFailure(request.ID, request.Operation, "DESKTOP_TOOL_UNAVAILABLE"), nil
+	// a request whose lifetime started on the API clock.
+	if err != nil || expiresAt.Before(time.Now().Add(-desktopCloudToolLifetime)) ||
+		expiresAt.After(time.Now().Add(2*desktopCloudToolLifetime)) {
+		frame.ExpiresAt = time.Time{}
+		return frame, true, nil
 	}
-	message := strings.TrimSpace(request.Input.Message)
+	frame.ExpiresAt = expiresAt
+	return frame, true, nil
+}
+
+func cloudToolPingResponse(frame cloudToolFrame) []byte {
+	if frame.ExpiresAt.IsZero() {
+		return cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_TOOL_UNAVAILABLE")
+	}
+	var input struct {
+		Message string `json:"message"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(frame.Input))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		return cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_FILE_UNSUPPORTED")
+	}
+	message := strings.TrimSpace(input.Message)
 	if message == "" || utf8.RuneCountInString(message) > 200 || !utf8.ValidString(message) {
-		return true, cloudToolFailure(request.ID, request.Operation, "DESKTOP_TOOL_UNAVAILABLE"), nil
+		return cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_TOOL_UNAVAILABLE")
+	}
+	return cloudToolResult(frame.ID, frame.Operation, struct {
+		Message    string `json:"message"`
+		Platform   string `json:"platform"`
+		AppVersion string `json:"app_version"`
+	}{Message: message, Platform: runtime.GOOS, AppVersion: desktopRegistrationVersion()}, "")
+}
+
+func cloudToolResult(id, operation string, data any, code string) []byte {
+	if code != "" {
+		return cloudToolFailure(id, operation, code)
 	}
 	response, err := json.Marshal(struct {
 		Type      string `json:"type"`
 		ID        string `json:"id"`
 		Operation string `json:"operation"`
 		OK        bool   `json:"ok"`
-		Data      struct {
-			Message    string `json:"message"`
-			Platform   string `json:"platform"`
-			AppVersion string `json:"app_version"`
-		} `json:"data"`
-	}{
-		Type: "cloud_tool.result", ID: request.ID, Operation: request.Operation, OK: true,
-		Data: struct {
-			Message    string `json:"message"`
-			Platform   string `json:"platform"`
-			AppVersion string `json:"app_version"`
-		}{Message: message, Platform: runtime.GOOS, AppVersion: desktopRegistrationVersion()},
-	})
+		Data      any    `json:"data"`
+	}{"cloud_tool.result", id, operation, true, data})
 	if err != nil {
-		return true, nil, err
+		return cloudToolFailure(id, operation, "DESKTOP_FILE_UNAVAILABLE")
 	}
-	return true, response, nil
+	return response
 }
 
 func cloudToolFailure(id, operation, code string) []byte {
@@ -742,6 +800,88 @@ func cloudToolFailure(id, operation, code string) []byte {
 		ErrorCode string `json:"error_code"`
 	}{"cloud_tool.result", id, operation, false, code})
 	return response
+}
+
+func localFileErrorCode(err error) string {
+	var failure *localFileToolError
+	if errors.As(err, &failure) {
+		return failure.code
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "DESKTOP_TOOL_UNAVAILABLE"
+	}
+	return "DESKTOP_FILE_UNAVAILABLE"
+}
+
+func writeCloudToolResponse(socket *websocket.Conn, response []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return socket.Write(ctx, websocket.MessageText, response)
+}
+
+func (connection *deviceConnection) cancelCloudTool(id string) {
+	connection.cloudMu.Lock()
+	defer connection.cloudMu.Unlock()
+	if cancel := connection.cloudCancels[id]; cancel != nil {
+		cancel()
+		delete(connection.cloudCancels, id)
+	}
+}
+
+func (connection *deviceConnection) clearCloudTools() {
+	connection.cloudMu.Lock()
+	defer connection.cloudMu.Unlock()
+	for id, cancel := range connection.cloudCancels {
+		cancel()
+		delete(connection.cloudCancels, id)
+	}
+}
+
+// handleCloudToolFrame consumes the independent cloud-tool lane. Ping is
+// answered immediately; file work runs off the read loop so pings, cancels and
+// a second bounded call stay responsive.
+func (connection *deviceConnection) handleCloudToolFrame(socket *websocket.Conn, data []byte) (bool, error) {
+	frame, handled, err := parseCloudToolFrame(data)
+	if !handled || err != nil {
+		return handled, err
+	}
+	if frame.Type == "cloud_tool.cancel" {
+		connection.cancelCloudTool(frame.ID)
+		return true, nil
+	}
+	if frame.Operation == desktopCloudToolPingOperation {
+		return true, writeCloudToolResponse(socket, cloudToolPingResponse(frame))
+	}
+	if frame.ExpiresAt.IsZero() {
+		return true, writeCloudToolResponse(socket,
+			cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_TOOL_UNAVAILABLE"))
+	}
+	if connection.files == nil {
+		return true, writeCloudToolResponse(socket,
+			cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_FILE_UNAVAILABLE"))
+	}
+	ctx, cancel := context.WithDeadline(connection.ctx, frame.ExpiresAt)
+	connection.cloudMu.Lock()
+	if previous := connection.cloudCancels[frame.ID]; previous != nil {
+		previous()
+	}
+	connection.cloudCancels[frame.ID] = cancel
+	connection.cloudMu.Unlock()
+	go func() {
+		data, err := executeLocalFileTool(ctx, connection.files, connection.credential.OwnerID, frame.Operation, frame.Input)
+		code := ""
+		if err != nil {
+			data = nil
+			code = localFileErrorCode(err)
+		}
+		response := cloudToolResult(frame.ID, frame.Operation, data, code)
+		connection.cloudMu.Lock()
+		delete(connection.cloudCancels, frame.ID)
+		connection.cloudMu.Unlock()
+		cancel()
+		_ = writeCloudToolResponse(socket, response)
+	}()
+	return true, nil
 }
 
 func isDesktopExecutionInput(data []byte) bool {
@@ -789,12 +929,25 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 			ready.ExecutionVersion == nil || ready.ToolVersion == nil)) ||
 		(ready.CloudToolVersion != nil && *ready.CloudToolVersion != desktopCloudToolVersion) ||
 		(ready.CloudToolVersion == nil && len(ready.CloudToolOperations) > 0) ||
-		(ready.CloudToolVersion != nil && len(ready.CloudToolOperations) > 0 &&
-			!slices.Equal(ready.CloudToolOperations, []string{desktopCloudToolPingOperation})) ||
+		(ready.CloudToolVersion != nil && !validCloudToolOperations(ready.CloudToolOperations)) ||
 		(len(ready.ToolOperations) > 0 && ready.ToolVersion == nil) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}
 	return ready, nil
+}
+
+func validCloudToolOperations(operations []string) bool {
+	seen := map[string]struct{}{}
+	for _, operation := range operations {
+		if !cloudToolOperationKnown(operation) {
+			return false
+		}
+		if _, duplicate := seen[operation]; duplicate {
+			return false
+		}
+		seen[operation] = struct{}{}
+	}
+	return true
 }
 
 func decodeDevicePong(data []byte) bool {

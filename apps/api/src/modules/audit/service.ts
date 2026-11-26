@@ -33,7 +33,12 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "delivery",
     "duration_ms",
     "reason_code",
+    "root_alias",
+    "path",
   ],
+  desktop_file_root_added: ["device_id", "name", "mode"],
+  desktop_file_root_updated: ["device_id", "name", "mode"],
+  desktop_file_root_removed: ["device_id"],
   desktop_approval_responded: [
     "conversation_id",
     "turn_id",

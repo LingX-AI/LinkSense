@@ -65,6 +65,7 @@ const errorCodeToKey: Record<string, string> = {
   WEB_SITE_BUNDLE_INVALID: errorCatalog.WEB_SITE_BUNDLE_INVALID.message_key,
   CLIENT_UPDATE_REQUIRED: "errors.clientUpdateRequired",
   DESKTOP_UPDATE_REQUIRED: "errors.desktopUpdateRequired",
+  DESKTOP_FILE_ROOT_NOT_FOUND: errorCatalog.DESKTOP_FILE_ROOT_NOT_FOUND.message_key,
   SERVICE_TEMPORARILY_UNAVAILABLE: "errors.serviceTemporarilyUnavailable",
   APPLICATION_NOT_FOUND: errorCatalog.APPLICATION_NOT_FOUND.message_key,
   APPLICATION_DELETED: errorCatalog.APPLICATION_DELETED.message_key,

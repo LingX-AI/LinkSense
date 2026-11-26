@@ -2633,6 +2633,11 @@ export const jaJP = {
       placeholder:
         "分析・計画したいタスクを記述してください。LinkSense がまず質問し、計画を作成します。",
     },
+    localTools: {
+      menuLabel: "ローカルファイルを許可",
+      menuSearchValue: "ローカルファイル フォルダー アクセス",
+      menuDescription: "このクラウドタスクが設定で共有したローカルフォルダーを使用できるようにします。",
+    },
     proposedPlan: {
       title: "計画",
     },

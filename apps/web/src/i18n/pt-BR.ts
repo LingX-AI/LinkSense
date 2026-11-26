@@ -2676,6 +2676,11 @@ export const ptBR = {
       placeholder:
         "Descreva a tarefa a analisar e planejar. O LinkSense fará perguntas e elaborará um plano primeiro.",
     },
+    localTools: {
+      menuLabel: "Permitir arquivos locais",
+      menuSearchValue: "arquivos locais pastas acesso",
+      menuDescription: "Permite que esta tarefa na nuvem use as pastas locais compartilhadas nas configurações.",
+    },
     proposedPlan: {
       title: "Plano",
     },

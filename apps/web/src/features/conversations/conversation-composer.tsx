@@ -22,6 +22,7 @@ import {
   BookOpenIcon,
   FileIcon,
   FileInputIcon,
+  FolderIcon,
   GoalIcon,
   Link2Icon,
   LightbulbIcon,
@@ -494,6 +495,10 @@ type ConversationComposerProps = Readonly<{
   planModeAvailable?: boolean
   goalModeAvailable?: boolean
   planModeDisabled?: boolean
+  localToolsAvailable?: boolean
+  localToolsEnabled?: boolean
+  localToolsPending?: boolean
+  onLocalToolsChange?: (enabled: boolean) => void
   unavailableMessage?: string
   interactionBlocked?: boolean
   modelPreference?: ModelPreference
@@ -587,6 +592,10 @@ export const ConversationComposer = forwardRef<
     planModeAvailable = true,
     goalModeAvailable = true,
     planModeDisabled = false,
+    localToolsAvailable = false,
+    localToolsEnabled = false,
+    localToolsPending = false,
+    onLocalToolsChange,
     interactionBlocked = false,
     unavailableMessage,
     modelPreference,
@@ -1523,6 +1532,19 @@ export const ConversationComposer = forwardRef<
     )
   }
 
+  const toggleLocalTools = () => {
+    if (attachmentActionDisabled || localToolsPending) return
+    onLocalToolsChange?.(!localToolsEnabled)
+    setMenuOpen(false)
+    window.setTimeout(
+      () =>
+        textareaRef.current?.focus({
+          preventScroll: true,
+        }),
+      0
+    )
+  }
+
   const knowledgeSearchUnavailable =
     knowledgeSearchCapability?.status === "unavailable"
 
@@ -2185,6 +2207,27 @@ export const ConversationComposer = forwardRef<
                             </span>
                             <span className="sr-only">
                               {t("conversation.plan.menuDescription")}
+                            </span>
+                          </span>
+                        </CommandItem>
+                      )}
+                      {localToolsAvailable && onLocalToolsChange && (
+                        <CommandItem
+                          value={t("conversation.localTools.menuSearchValue")}
+                          title={t("conversation.localTools.menuDescription")}
+                          data-checked={localToolsEnabled || undefined}
+                          disabled={attachmentActionDisabled || localToolsPending}
+                          onSelect={toggleLocalTools}
+                        >
+                          <span className="grid size-4 shrink-0 place-items-center">
+                            <FolderIcon aria-hidden="true" className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[length:var(--app-font-13)]">
+                              {t("conversation.localTools.menuLabel")}
+                            </span>
+                            <span className="sr-only">
+                              {t("conversation.localTools.menuDescription")}
                             </span>
                           </span>
                         </CommandItem>

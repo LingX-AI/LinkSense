@@ -773,7 +773,7 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
       cloud_tool_operations: ["local_tools.ping"],
     });
     const pending = cloudTools.execute(
-      owner, "local_tools.ping", { message: "hello" }, new AbortController().signal,
+      owner, { operation: "local_tools.ping", input: { message: "hello" } }, new AbortController().signal,
     );
     const request = await readFrame(socket) as { id: string; type: string; operation: string };
     expect(request).toMatchObject({

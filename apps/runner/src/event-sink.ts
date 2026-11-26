@@ -9,7 +9,6 @@ import {
   browserUseResultSchema,
   computerExecuteResultSchema,
   desktopArtifactReceiptSchema,
-  localToolsPingOperation,
   desktopArtifactUploadLifetimeMs,
   desktopComputerExecuteLifetimeMs,
   RUNNER_EVENT_BATCH_MAX_COUNT,
@@ -149,9 +148,10 @@ export interface RunnerEventSink {
   localToolsExecute?(input: {
     conversationId: string;
     turnId: string;
-    input: import("@linksense/shared").DesktopCloudToolPingInput;
+    operation: import("@linksense/shared").DesktopCloudToolOperation;
+    input: unknown;
     signal?: AbortSignal;
-  }): Promise<import("@linksense/shared").DesktopCloudToolPingResult>;
+  }): Promise<unknown>;
   computerExecute?(input: {
     conversationId: string;
     turnId: string;
@@ -642,20 +642,26 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   async localToolsExecute(input: {
     conversationId: string;
     turnId: string;
-    input: import("@linksense/shared").DesktopCloudToolPingInput;
+    operation: import("@linksense/shared").DesktopCloudToolOperation;
+    input: unknown;
     signal?: AbortSignal;
-  }): Promise<import("@linksense/shared").DesktopCloudToolPingResult> {
+  }): Promise<unknown> {
     const { signal, ...body } = input;
     const response = await this.request(
       "/internal/local-tools/execute",
-      { ...body, operation: localToolsPingOperation },
+      body,
       this.workspaceManager.ownerFor(input.conversationId),
       signal,
     );
     const result = await parseResponseBody(response);
-    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
-    const { desktopCloudToolPingResultSchema } = await import("@linksense/shared");
-    return desktopCloudToolPingResultSchema.parse(result);
+    if (!response.ok) {
+      const errorCode = result !== null && typeof result === "object" &&
+          "error_code" in result && typeof result.error_code === "string"
+        ? result.error_code
+        : undefined;
+      throw new ConversationReferenceRequestError(response.status, errorCode);
+    }
+    return result;
   }
 
   async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {

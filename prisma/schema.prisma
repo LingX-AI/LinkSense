@@ -968,6 +968,20 @@ model DesktopDevice {
   @@map("desktop_devices")
 }
 
+model DesktopFileRoot {
+  id        String    @id @default(uuid()) @db.Uuid
+  ownerId   String    @map("owner_id") @db.Uuid
+  deviceId  String    @map("device_id") @db.Uuid
+  name      String    @db.VarChar(120)
+  mode      String    @db.VarChar(16)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([ownerId, deviceId, revokedAt], map: "desktop_file_roots_owner_device_idx")
+  @@map("desktop_file_roots")
+}
+
 model DesktopDevicePairing {
   id         String    @id @default(uuid()) @db.Uuid
   ownerId    String    @map("owner_id") @db.Uuid

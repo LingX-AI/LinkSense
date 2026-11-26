@@ -205,6 +205,15 @@ func (a *workspaceAccount) currentAccessToken() (string, bool) {
 	return a.accessToken, true
 }
 
+func (a *workspaceAccount) currentAccessTokenIdentity() (string, string, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.accessToken == "" || !time.Now().Before(a.accessExpires) || a.id == "" {
+		return "", "", false
+	}
+	return a.id, a.accessToken, true
+}
+
 // withLease runs fn only while this exact account session is still current and
 // holds the read lease until fn returns. It is used at the private pipe's
 // admission point so a cleanup frame is written only under a valid lease; the

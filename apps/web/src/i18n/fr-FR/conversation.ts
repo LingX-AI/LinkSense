@@ -366,6 +366,11 @@ export const conversation = {
     placeholder:
       "Décrivez la tâche à analyser et à planifier. LinkSense posera d’abord des questions et rédigera un plan.",
   },
+  localTools: {
+    menuLabel: "Autoriser les fichiers locaux",
+    menuSearchValue: "fichiers locaux dossiers accès",
+    menuDescription: "Autorise cette tâche cloud à utiliser les dossiers locaux partagés dans les réglages.",
+  },
   proposedPlan: { title: "Plan" },
   planDecision: {
     title: "Réaliser ce plan ?",

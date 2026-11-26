@@ -170,7 +170,7 @@ describe("HttpRunnerEventSink", () => {
     const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
     try {
       await expect(sink.localToolsExecute({
-        conversationId, turnId: ownerId, input: { message: "hello" },
+        conversationId, turnId: ownerId, operation: "local_tools.ping", input: { message: "hello" },
       })).resolves.toEqual(result);
       const [url, init] = fetchMock.mock.calls[0] ?? [];
       expect(String(url)).toBe("http://api:4000/internal/local-tools/execute");
@@ -182,6 +182,15 @@ describe("HttpRunnerEventSink", () => {
       });
       expect(JSON.parse(String(init?.body))).toEqual({
         conversationId, turnId: ownerId, operation: "local_tools.ping", input: { message: "hello" },
+      });
+      fetchMock.mockResolvedValueOnce(Response.json({
+        error_code: "DESKTOP_FILE_CONFLICT",
+      }, { status: 409 }));
+      await expect(sink.localToolsExecute({
+        conversationId, turnId: ownerId, operation: "local_files.write",
+        input: { root_id: "50000000-0000-4000-8000-000000000001", path: "a.txt", content: "x" },
+      })).rejects.toMatchObject({
+        statusCode: 409, errorCode: "DESKTOP_FILE_CONFLICT",
       });
     } finally { await sink.close(); }
   });

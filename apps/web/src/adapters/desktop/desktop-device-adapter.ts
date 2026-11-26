@@ -103,3 +103,25 @@ export async function setDesktopLocalToolsEnabled(
   const value: unknown = await Desktop.setLocalToolsEnabled(enabled)
   return parseDesktopDeviceStatus(value)
 }
+
+/**
+ * Opens the native folder picker, registers the alias and mode with the API,
+ * and stores the absolute path locally. The path never enters this page or the
+ * server.
+ */
+export async function addDesktopFileRoot(
+  deviceId: string,
+  mode: "read" | "write"
+): Promise<string> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  if (!z.uuid().safeParse(deviceId).success) throw new Error("VALIDATION_ERROR")
+  const value: unknown = await Desktop.addFileRoot(deviceId, mode)
+  return z.uuid().parse(value)
+}
+
+/** Revokes the server grant first, then forgets the local path. */
+export async function removeDesktopFileRoot(rootId: string): Promise<void> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  if (!z.uuid().safeParse(rootId).success) throw new Error("VALIDATION_ERROR")
+  await Desktop.removeFileRoot(rootId)
+}

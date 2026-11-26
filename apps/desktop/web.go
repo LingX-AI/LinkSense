@@ -65,6 +65,7 @@ type Desktop struct {
 	// diagnostics guards the single native export and provides local test seams.
 	diagnostics  desktopDiagnostics
 	dataRoot     string
+	fileRoots    *localFileRoots
 	shutdownOnce sync.Once
 	// closeToTray and preferencesWritable are used only on the main thread.
 	closeToTray bool
@@ -83,6 +84,7 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 	// The native host answers the per-conversation workspace notice from the
 	// same private runtime root the supervisor uses, without starting it.
 	d.workspaceRoot = filepath.Join(dataRoot, "local-runtime")
+	d.fileRoots = newLocalFileRoots(dataRoot)
 	client := newDesktopHTTPClient(server, store)
 	d.session = client.Transport.(*sessionTransport)
 	d.session.account = &d.account

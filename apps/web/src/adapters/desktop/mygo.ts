@@ -214,6 +214,11 @@ export interface WorkspaceUsage {
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
   /**
+   * AddFileRoot opens the native folder picker, registers the alias and mode
+   * with the API, then stores the absolute path locally under the returned ID.
+   */
+  addFileRoot: bind<[string, string], string>("Desktop.AddFileRoot", (deviceID: string, mode: string) => [deviceID, mode]),
+  /**
    * ArmArtifactDownload binds the ticket to the exact blob URL created for the
    * authenticated bytes. It is still not a download target.
    */
@@ -287,6 +292,8 @@ export const Desktop = {
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
   openUpdateInstaller: bind<[], void>("Desktop.OpenUpdateInstaller", () => []),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
+  /** RemoveFileRoot revokes the server grant first, then forgets the local path. */
+  removeFileRoot: bind<[string], void>("Desktop.RemoveFileRoot", (rootID: string) => [rootID]),
   restartAfterUpdate: bind<[], void>("Desktop.RestartAfterUpdate", () => []),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
   /**

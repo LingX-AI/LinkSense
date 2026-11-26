@@ -651,6 +651,7 @@ func (d *Desktop) DeviceStatus(ctx context.Context) (DeviceConnectionStatus, err
 func (d *Desktop) connectDevice(credential deviceCredential, lease accountLease) DeviceConnectionStatus {
 	d.closeDevice()
 	connection := newDeviceConnection(d.server, credential, &d.account, lease)
+	connection.files = d.fileRoots
 	if d.session != nil {
 		connection.signOut = &d.session.signOutPending
 	}

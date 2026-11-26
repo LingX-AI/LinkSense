@@ -2184,6 +2184,11 @@ export const zhCN = {
       placeholder:
         "描述需要分析和规划的任务，LinkSense 会先提出问题并形成计划。",
     },
+    localTools: {
+      menuLabel: "允许访问本机文件",
+      menuSearchValue: "本机文件 文件夹 授权",
+      menuDescription: "让这个云端任务读写设置中共享的本机文件夹。",
+    },
     proposedPlan: {
       title: "方案",
     },

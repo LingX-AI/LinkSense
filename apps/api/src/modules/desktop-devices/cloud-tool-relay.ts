@@ -1,10 +1,9 @@
 import type { Redis } from "ioredis";
 import { z } from "zod";
 import {
-  desktopCloudToolErrorCodeSchema,
+  desktopCloudToolInvocationSchema,
   desktopCloudToolOperationSchema,
-  desktopCloudToolPingInputSchema,
-  desktopCloudToolPingResultSchema,
+  desktopCloudToolResultSchema,
   type DesktopCloudToolOperation,
 } from "@linksense/shared";
 
@@ -34,8 +33,7 @@ export const cloudToolRemoteRequestSchema = z.discriminatedUnion("type", [
     request_id: z.uuid(),
     connection_id: z.uuid(),
     owner_id: z.uuid(),
-    operation: desktopCloudToolOperationSchema,
-    input: desktopCloudToolPingInputSchema,
+    invocation: desktopCloudToolInvocationSchema,
   }),
   z.strictObject({
     type: z.literal("cancel"),
@@ -48,20 +46,11 @@ export type CloudToolRemoteRequest = z.infer<
   typeof cloudToolRemoteRequestSchema
 >;
 
-export const cloudToolRemoteReplySchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    type: z.literal("result"),
-    request_id: z.uuid(),
-    ok: z.literal(true),
-    data: desktopCloudToolPingResultSchema,
-  }),
-  z.strictObject({
-    type: z.literal("result"),
-    request_id: z.uuid(),
-    ok: z.literal(false),
-    error_code: desktopCloudToolErrorCodeSchema,
-  }),
-]);
+export const cloudToolRemoteReplySchema = z.strictObject({
+  type: z.literal("result"),
+  request_id: z.uuid(),
+  result: desktopCloudToolResultSchema,
+});
 export type CloudToolRemoteReply = z.infer<
   typeof cloudToolRemoteReplySchema
 >;

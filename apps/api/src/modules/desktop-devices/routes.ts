@@ -133,8 +133,11 @@ export async function registerDesktopDeviceRoutes(
   });
 
   const presenceMaxFrameBytes = 8192;
+  // Cloud file reads and writes share the presence socket, but only a
+  // connection that negotiated the lane gets the larger frame allowance.
+  const cloudToolMaxFrameBytes = 8 * 1024 * 1024;
   const server = new WebSocketServer({
-    noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
+    noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : cloudToolMaxFrameBytes, perMessageDeflate: false,
   });
   const connected = new Map<WebSocket, {
     device: DesktopDeviceRecord; connectionId: string; execution: boolean;
@@ -596,7 +599,9 @@ export async function registerDesktopDeviceRoutes(
         socket.terminate();
         return;
       }
-      if (!connected.get(socket)?.execution && data.length > presenceMaxFrameBytes) {
+      const current = connected.get(socket);
+      if (!current?.execution &&
+          data.length > (current?.cloudTools ? cloudToolMaxFrameBytes : presenceMaxFrameBytes)) {
         socket.close(1009);
         return;
       }

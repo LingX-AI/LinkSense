@@ -100,6 +100,7 @@ export * from "./public-knowledge-output.js";
 export * from "./privacy-masking.js";
 export * from "./desktop-protocol.js";
 export * from "./desktop-device.js";
+export * from "./desktop-file-tools.js";
 export * from "./desktop-cloud-tools.js";
 export * from "./desktop-activity.js";
 export * from "./desktop-execution.js";

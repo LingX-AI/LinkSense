@@ -25,5 +25,7 @@
   "viewCrashReports": "查看崩溃报告…",
   "crashReportsOpenFailedHeading": "无法打开控制台",
   "crashReportsOpenFailedDetail": "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。",
-  "approvalRequestNotice": "有一项任务正在等待你的审批。"
+  "approvalRequestNotice": "有一项任务正在等待你的审批。",
+  "fileRootPickerTitle": "选择要共享的文件夹",
+  "fileRootPickerMessage": "只有这个文件夹会共享给你启用的任务，绝对路径不会上传。"
 }

@@ -14,8 +14,12 @@ export const desktopDeviceStatusQueryKey = (ownerId: string | undefined) =>
  * disabled outside a macOS host and without a signed-in account, so a plain
  * Web or Windows window never calls the native bridge or polls.
  */
-export function useDesktopDeviceStatus(ownerId?: string) {
-  const enabled = isMacDesktopHost() && Boolean(ownerId)
+export function useDesktopDeviceStatus(
+  ownerId?: string,
+  options: { enabled?: boolean; poll?: boolean } = {}
+) {
+  const enabled =
+    options.enabled !== false && isMacDesktopHost() && Boolean(ownerId)
   return useQuery({
     queryKey: desktopDeviceStatusQueryKey(ownerId),
     queryFn: () => readDesktopDeviceStatus(),
@@ -26,7 +30,7 @@ export function useDesktopDeviceStatus(ownerId?: string) {
     // request. Go owns the real link state, so the WebView's online manager
     // must never queue the initial read until a browser "reconnect".
     networkMode: "always",
-    refetchInterval: enabled ? 5_000 : false,
+    refetchInterval: enabled && options.poll !== false ? 5_000 : false,
     refetchIntervalInBackground: false,
   })
 }

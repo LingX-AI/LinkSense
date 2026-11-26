@@ -2356,6 +2356,11 @@ export const enUS = {
       placeholder:
         "Describe the task to analyze and plan. LinkSense will ask questions and draft a plan first.",
     },
+    localTools: {
+      menuLabel: "Allow local files",
+      menuSearchValue: "local files folders access",
+      menuDescription: "Let this cloud task use the local folders shared in Settings.",
+    },
     proposedPlan: {
       title: "Plan",
     },

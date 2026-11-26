@@ -233,6 +233,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  DESKTOP_DEVICE_REVOKED: "L’accès à ce Mac a été révoqué. Le contenu existant a été conservé. Vérifiez sur le Mac où la tâche s’est arrêtée.",
  DESKTOP_LOCAL_TARGET_RETIRED: "L’exécution locale n’est plus disponible. Les nouvelles tâches s’exécutent uniquement dans le cloud.",
  DESKTOP_LOCAL_TOOLS_DISABLED: "Les outils locaux sont désactivés sur ce Mac. Réactivez-les dans les réglages.",
+ DESKTOP_FILE_ROOT_NOT_FOUND: "Ce dossier local n’existe plus ou a été supprimé.",
  DEPLOYMENT_STOPPED: "Cette tâche a été arrêtée pour une mise à jour du système. Le contenu existant est conservé. Vérifiez la progression avant de continuer manuellement.",
  EXECUTION_SERVICE_INCOMPATIBLE: "Les versions du service d’exécution sont incompatibles. Réessayez plus tard. Si le problème persiste, contactez un administrateur.",
  AUTH_INVALID_CREDENTIALS: "E-mail ou mot de passe invalide.",
@@ -295,6 +296,9 @@ export const auditMessages = {
  actions: {
    desktop_device_paired: "Ordinateur associé",
    desktop_device_registered: "Outils locaux connectés",
+   desktop_file_root_added: "Dossier local ajouté",
+   desktop_file_root_updated: "Autorisation du dossier local mise à jour",
+   desktop_file_root_removed: "Dossier local supprimé",
    desktop_device_renamed: "Ordinateur renommé",
    desktop_device_revoked: "Accès de l’ordinateur révoqué",
    desktop_tool_requested: "Requête d’outil de bureau",
@@ -324,6 +328,7 @@ export const auditMessages = {
  },
  targetTypes: {
    desktop_device: "Ordinateur",
+   desktop_file_root: "Dossier local",
    local_computer_session: "Session de l’ordinateur local",
    computer_permission_grant: "Autorisation de l’ordinateur local",
    web_search: "Configuration de recherche web",

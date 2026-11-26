@@ -111,6 +111,14 @@ export interface Messages {
    * `有一项任务正在等待你的审批。`
    */
   approvalRequestNotice(): string;
+  /**
+   * `选择要共享的文件夹`
+   */
+  fileRootPickerTitle(): string;
+  /**
+   * `只有这个文件夹会共享给你启用的任务，绝对路径不会上传。`
+   */
+  fileRootPickerMessage(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -152,6 +160,8 @@ const catalog = createCatalog<Messages>({
     "crashReportsOpenFailedHeading": [],
     "crashReportsOpenFailedDetail": [],
     "approvalRequestNotice": [],
+    "fileRootPickerTitle": [],
+    "fileRootPickerMessage": [],
   },
   messages: {
     "zh-CN": {
@@ -182,6 +192,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "无法打开控制台",
       "crashReportsOpenFailedDetail": "请从「应用程序」>「实用工具」打开「控制台」，再在边栏选择「崩溃报告」。",
       "approvalRequestNotice": "有一项任务正在等待你的审批。",
+      "fileRootPickerTitle": "选择要共享的文件夹",
+      "fileRootPickerMessage": "只有这个文件夹会共享给你启用的任务，绝对路径不会上传。",
     },
     "en-US": {
       "buildConfigurationTitle": "Unable to start LinkSense",
@@ -211,6 +223,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "Could not open Console",
       "crashReportsOpenFailedDetail": "Open Console from Applications > Utilities and select Crash Reports in the sidebar.",
       "approvalRequestNotice": "A task is waiting for your approval.",
+      "fileRootPickerTitle": "Choose a Folder to Share",
+      "fileRootPickerMessage": "Only this folder is shared with tasks you enable. Its absolute path is never uploaded.",
     },
     "es-ES": {
       "buildConfigurationTitle": "No se puede iniciar LinkSense",
@@ -240,6 +254,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "No se pudo abrir Consola",
       "crashReportsOpenFailedDetail": "Abre Consola desde Aplicaciones > Utilidades y selecciona «Informes de errores» en la barra lateral.",
       "approvalRequestNotice": "Una tarea está esperando tu aprobación.",
+      "fileRootPickerTitle": "Elige una carpeta para compartir",
+      "fileRootPickerMessage": "Solo esta carpeta se comparte con las tareas que actives. Su ruta absoluta nunca se sube.",
     },
     "fr-FR": {
       "buildConfigurationTitle": "Impossible de démarrer LinkSense",
@@ -269,6 +285,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "Impossible d’ouvrir Console",
       "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale.",
       "approvalRequestNotice": "Une tâche attend votre approbation.",
+      "fileRootPickerTitle": "Choisir un dossier à partager",
+      "fileRootPickerMessage": "Seul ce dossier est partagé avec les tâches que vous activez. Son chemin absolu n’est jamais envoyé.",
     },
     "ja-JP": {
       "buildConfigurationTitle": "LinkSense を起動できません",
@@ -298,6 +316,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "コンソールを開けませんでした",
       "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。",
       "approvalRequestNotice": "承認待ちのタスクがあります。",
+      "fileRootPickerTitle": "共有するフォルダーを選択",
+      "fileRootPickerMessage": "有効にしたタスクと共有されるのはこのフォルダーだけです。絶対パスはアップロードされません。",
     },
     "pt-BR": {
       "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
@@ -327,6 +347,8 @@ const catalog = createCatalog<Messages>({
       "crashReportsOpenFailedHeading": "Não foi possível abrir o Console",
       "crashReportsOpenFailedDetail": "Abra o Console em Aplicativos > Utilitários e selecione “Relatórios de Falha” na barra lateral.",
       "approvalRequestNotice": "Uma tarefa está aguardando sua aprovação.",
+      "fileRootPickerTitle": "Escolha uma pasta para compartilhar",
+      "fileRootPickerMessage": "Somente esta pasta é compartilhada com as tarefas que você ativar. O caminho absoluto nunca é enviado.",
     },
   },
 });

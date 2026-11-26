@@ -5227,9 +5227,9 @@ export class AppServerProcessPool {
   async localToolsExecute(
     conversationId: string,
     token: string,
-    input: import("@linksense/shared").DesktopCloudToolPingInput,
+    invocation: import("@linksense/shared").DesktopCloudToolInvocation,
     signal: AbortSignal,
-  ): Promise<import("@linksense/shared").DesktopCloudToolPingResult> {
+  ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (
       this.shuttingDown || !managed || managed.closing || !managed.activeTurnId ||
@@ -5240,7 +5240,9 @@ export class AppServerProcessPool {
     }
     if (!this.options.eventSink.localToolsExecute) throw new ConversationReferenceRequestError(503);
     const turnId = managed.activeProjectionTurnId;
-    const result = await this.options.eventSink.localToolsExecute({ conversationId, turnId, input, signal });
+    const result = await this.options.eventSink.localToolsExecute({
+      conversationId, turnId, operation: invocation.operation, input: invocation.input, signal,
+    });
     if (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId) {
       throw new ConversationReferenceRequestError(409);
     }

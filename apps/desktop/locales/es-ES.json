@@ -26,7 +26,6 @@
   "crashReportsOpenFailedHeading": "No se pudo abrir Consola",
   "crashReportsOpenFailedDetail": "Abre Consola desde Aplicaciones > Utilidades y selecciona «Informes de errores» en la barra lateral.",
   "approvalRequestNotice": "Una tarea está esperando tu aprobación.",
-
   "mygo.menuAbout": "Acerca de {app}",
   "mygo.menuServices": "Servicios",
   "mygo.menuHide": "Ocultar {app}",
@@ -56,10 +55,11 @@
   "mygo.menuMinimize": "Minimizar",
   "mygo.menuZoom": "Zoom",
   "mygo.menuBringAllToFront": "Traer todo al frente",
-
   "mygo.guideDrag": "Arrastra {app} a la lista de arriba para conceder el permiso «{permission}».",
   "mygo.guideDragHint": "Arrastra",
   "mygo.permissionAccessibility": "Accesibilidad",
   "mygo.permissionDeviceControlAndDataAccess": "Control de dispositivos y acceso a datos",
-  "mygo.permissionScreenRecording": "Grabación de pantalla"
+  "mygo.permissionScreenRecording": "Grabación de pantalla",
+  "fileRootPickerTitle": "Elige una carpeta para compartir",
+  "fileRootPickerMessage": "Solo esta carpeta se comparte con las tareas que actives. Su ruta absoluta nunca se sube."
 }

@@ -29,8 +29,39 @@ describe("local tools core MCP module", () => {
     expect(JSON.parse(String(result.content[0]?.type === "text" ? result.content[0].text : ""))).toEqual(response);
     expect(fetch).toHaveBeenCalledWith(environment.LINKSENSE_LOCAL_TOOLS_ENDPOINT, expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ input: { message: "hello" } }),
+      body: JSON.stringify({ operation: "local_tools.ping", input: { message: "hello" } }),
     }));
+  });
+
+  it("registers the file tools and preserves a conflict failure code", async () => {
+    const definition = localToolsCoreMcpModules({ environment })[0]!;
+    const fetchMock = vi.fn<typeof globalThis.fetch>(async () =>
+      new Response(JSON.stringify({ error_code: "DESKTOP_FILE_CONFLICT" }), {
+        status: 409, headers: { "content-type": "application/json" },
+      }));
+    const module = definition.create({ environment, workspaceRoot: "/tmp", fetch: fetchMock });
+    expect(module.tools.map(tool => tool.name)).toEqual([
+      "local_tools_ping", "local_files_roots", "local_files_list", "local_files_read",
+      "local_files_search", "local_files_write", "local_files_create",
+      "local_files_delete",
+    ]);
+    const result = await module.callTool({
+      toolName: "local_files_write",
+      argumentsValue: {
+        root_id: "50000000-0000-4000-8000-000000000001",
+        path: "notes.txt", content: "hello",
+        expected_digest: "0".repeat(64),
+      },
+      signal: new AbortController().signal,
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(String(result.content[0]?.type === "text" ? result.content[0].text : ""))).toMatchObject({
+      code: "DESKTOP_FILE_CONFLICT", retryable: false,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      operation: "local_files.write",
+      input: { path: "notes.txt", content: "hello" },
+    });
   });
 
   it("turns a denied or unavailable lane into a bounded tool failure", async () => {

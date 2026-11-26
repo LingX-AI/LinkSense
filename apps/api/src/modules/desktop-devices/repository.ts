@@ -214,6 +214,9 @@ export class PrismaDesktopDeviceRepository implements DesktopDeviceRepository {
       await tx.computerPermissionGrant.updateMany({
         where: { ownerId, deviceId: device.id, revokedAt: null }, data: { revokedAt: now },
       });
+      await tx.desktopFileRoot.updateMany({
+        where: { ownerId, deviceId: device.id, revokedAt: null }, data: { revokedAt: now },
+      });
       return device.id;
     });
   }

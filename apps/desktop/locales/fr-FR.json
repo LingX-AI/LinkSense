@@ -26,7 +26,6 @@
   "crashReportsOpenFailedHeading": "Impossible d’ouvrir Console",
   "crashReportsOpenFailedDetail": "Ouvrez Console depuis Applications > Utilitaires, puis sélectionnez « Rapports de blocage » dans la barre latérale.",
   "approvalRequestNotice": "Une tâche attend votre approbation.",
-
   "mygo.menuAbout": "À propos de {app}",
   "mygo.menuServices": "Services",
   "mygo.menuHide": "Masquer {app}",
@@ -56,10 +55,11 @@
   "mygo.menuMinimize": "Minimiser",
   "mygo.menuZoom": "Réduire/agrandir",
   "mygo.menuBringAllToFront": "Tout ramener au premier plan",
-
   "mygo.guideDrag": "Faites glisser {app} dans la liste ci-dessus pour accorder l’autorisation « {permission} ».",
   "mygo.guideDragHint": "Glissez",
   "mygo.permissionAccessibility": "Accessibilité",
   "mygo.permissionDeviceControlAndDataAccess": "Contrôle des appareils et accès aux données",
-  "mygo.permissionScreenRecording": "Enregistrement de l’écran"
+  "mygo.permissionScreenRecording": "Enregistrement de l’écran",
+  "fileRootPickerTitle": "Choisir un dossier à partager",
+  "fileRootPickerMessage": "Seul ce dossier est partagé avec les tâches que vous activez. Son chemin absolu n’est jamais envoyé."
 }

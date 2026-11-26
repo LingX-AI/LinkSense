@@ -25,5 +25,7 @@
   "viewCrashReports": "クラッシュレポートを表示…",
   "crashReportsOpenFailedHeading": "コンソールを開けませんでした",
   "crashReportsOpenFailedDetail": "「アプリケーション」>「ユーティリティ」から「コンソール」を開き、サイドバーで「クラッシュレポート」を選択してください。",
-  "approvalRequestNotice": "承認待ちのタスクがあります。"
+  "approvalRequestNotice": "承認待ちのタスクがあります。",
+  "fileRootPickerTitle": "共有するフォルダーを選択",
+  "fileRootPickerMessage": "有効にしたタスクと共有されるのはこのフォルダーだけです。絶対パスはアップロードされません。"
 }

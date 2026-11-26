@@ -33,7 +33,7 @@ async function fixture(options: { ownerId?: string; verify?: boolean } = {}) {
 describe("desktop cloud tool gateway", () => {
   it("sends one ping and resolves only its exact result", async () => {
     const { gateway, sent, connectionId } = await fixture();
-    const pending = gateway.execute(owner, operation, { message: "hello" }, new AbortController().signal);
+    const pending = gateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({
       type: "cloud_tool.request", operation, input: { message: "hello" },
@@ -45,23 +45,23 @@ describe("desktop cloud tool gateway", () => {
 
   it("fails closed when no matching online connection exists", async () => {
     const gateway = new DesktopCloudToolGateway();
-    await expect(gateway.execute(owner, operation, { message: "hello" }, new AbortController().signal))
+    await expect(gateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal))
       .rejects.toMatchObject({ code: "DESKTOP_TOOL_UNAVAILABLE" });
     const { gateway: otherGateway } = await fixture({ ownerId: other });
-    await expect(otherGateway.execute(owner, operation, { message: "hello" }, new AbortController().signal))
+    await expect(otherGateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal))
       .rejects.toMatchObject({ code: "DESKTOP_TOOL_UNAVAILABLE" });
   });
 
   it("rechecks the device credential before dispatch", async () => {
     const { gateway } = await fixture({ verify: false });
-    await expect(gateway.execute(owner, operation, { message: "hello" }, new AbortController().signal))
+    await expect(gateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal))
       .rejects.toMatchObject({ code: "DESKTOP_TOOL_UNAVAILABLE" });
   });
 
   it("cancels on abort and rejects a late result without leaking it", async () => {
     const { gateway, sent, connectionId } = await fixture();
     const controller = new AbortController();
-    const pending = gateway.execute(owner, operation, { message: "hello" }, controller.signal);
+    const pending = gateway.execute(owner, { operation, input: { message: "hello" } }, controller.signal);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
@@ -71,16 +71,44 @@ describe("desktop cloud tool gateway", () => {
 
   it("rejects pending work when the connection closes or the gateway shuts down", async () => {
     const first = await fixture();
-    const pending = first.gateway.execute(owner, operation, { message: "hello" }, new AbortController().signal);
+    const pending = first.gateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal);
     await vi.waitFor(() => expect(first.sent).toHaveLength(1));
     first.detach();
     await expect(pending).rejects.toMatchObject({ code: "DESKTOP_TOOL_UNAVAILABLE" });
 
     const second = await fixture();
-    const pendingSecond = second.gateway.execute(owner, operation, { message: "hello" }, new AbortController().signal);
+    const pendingSecond = second.gateway.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal);
     await vi.waitFor(() => expect(second.sent).toHaveLength(1));
     second.gateway.close();
     await expect(pendingSecond).rejects.toBeInstanceOf(DesktopCloudToolError);
+  });
+
+  it("dispatches only to the device that owns the granted root", async () => {
+    const gateway = new DesktopCloudToolGateway();
+    const otherDevice = "20000000-0000-4000-8000-000000000002";
+    const first: Array<Record<string, unknown>> = [];
+    const second: Array<Record<string, unknown>> = [];
+    const firstConnection = randomUUID();
+    const secondConnection = randomUUID();
+    await gateway.register({
+      ownerId: owner, deviceId: device, connectionId: firstConnection,
+      operations: new Set([operation]), verifyCredential: async () => true,
+      send: frame => { first.push(JSON.parse(frame)); return true; },
+    });
+    await gateway.register({
+      ownerId: owner, deviceId: otherDevice, connectionId: secondConnection,
+      operations: new Set([operation]), verifyCredential: async () => true,
+      send: frame => { second.push(JSON.parse(frame)); return true; },
+    });
+    const pending = gateway.execute(
+      owner, { operation, input: { message: "hello" } },
+      new AbortController().signal, { deviceId: otherDevice },
+    );
+    await vi.waitFor(() => expect(second).toHaveLength(1));
+    expect(first).toHaveLength(0);
+    gateway.receive(secondConnection, { ...result, id: second[0]!.id });
+    await expect(pending).resolves.toMatchObject({ deviceId: otherDevice });
+    gateway.close();
   });
 
   it("reaches a Mac owned by another API replica through the relay", async () => {
@@ -97,7 +125,7 @@ describe("desktop cloud tool gateway", () => {
       verifyCredential: async () => true,
       send: frame => { sent.push(JSON.parse(frame)); return true; },
     });
-    const pending = requesting.execute(owner, operation, { message: "hello" }, new AbortController().signal);
+    const pending = requesting.execute(owner, { operation, input: { message: "hello" } }, new AbortController().signal);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     owning.receive(connectionId, { ...result, id: sent[0]!.id });
     await expect(pending).resolves.toEqual({ deviceId: device, data: result.data });
@@ -120,7 +148,7 @@ describe("desktop cloud tool gateway", () => {
       send: frame => { sent.push(JSON.parse(frame)); return true; },
     });
     const controller = new AbortController();
-    const pending = requesting.execute(owner, operation, { message: "hello" }, controller.signal);
+    const pending = requesting.execute(owner, { operation, input: { message: "hello" } }, controller.signal);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });

@@ -375,6 +375,11 @@ export const conversationMessages = {
       placeholder:
         "Describe la tarea que quieres analizar y planificar. LinkSense hará preguntas y redactará un plan primero.",
     },
+    localTools: {
+      menuLabel: "Permitir archivos locales",
+      menuSearchValue: "archivos locales carpetas acceso",
+      menuDescription: "Permite que esta tarea en la nube use las carpetas locales compartidas en Ajustes.",
+    },
     proposedPlan: {
       title: "Plan",
     },
