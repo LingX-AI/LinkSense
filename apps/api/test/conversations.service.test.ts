@@ -39,6 +39,8 @@ import {
 } from "../src/adapters/runner.js";
 import {
   ConversationService,
+  deterministicUuid,
+  pendingStartProjectionTurnId,
   type ApplicationTurnConfiguration,
   type ExecutionCapability,
 } from "../src/modules/conversations/service.js";
@@ -8551,6 +8553,80 @@ describe("ConversationService pending and turn materialization", () => {
     ).not.toHaveBeenCalled();
     expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rotates the pending start turn id only after a runner-unavailable release", () => {
+    const retryAt = new Date("2026-11-26T08:00:00.000Z");
+    const queued = pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+      status: "waiting_previous_turn",
+      blockCode: null,
+      lastStartCheckedAt: null,
+    });
+    expect(queued).toBe(
+      deterministicUuid(CONVERSATION_ID, `pending-start:${PENDING_ID}`),
+    );
+    const released = {
+      status: "blocked_preflight",
+      blockCode: "runner_unavailable",
+      lastStartCheckedAt: retryAt,
+    };
+    const retry = pendingStartProjectionTurnId(
+      CONVERSATION_ID,
+      PENDING_ID,
+      released,
+    );
+    expect(retry).not.toBe(queued);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, released),
+    ).toBe(retry);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+        ...released,
+        lastStartCheckedAt: new Date(retryAt.getTime() + 1),
+      }),
+    ).not.toBe(retry);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+        ...released,
+        blockCode: "insufficient_credits",
+      }),
+    ).toBe(queued);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, null),
+    ).toBe(queued);
+  });
+
+  it("starts a released pending request under a fresh projection turn id", async () => {
+    const fixture = await conversationFixture();
+    const retryAt = new Date("2026-11-26T08:00:00.000Z");
+    const pending = pendingRow({
+      status: "blocked_preflight",
+      blockCode: "runner_unavailable",
+      lastStartCheckedAt: retryAt,
+    });
+    const expected = pendingStartProjectionTurnId(
+      CONVERSATION_ID,
+      PENDING_ID,
+      pending,
+    );
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.pendingRequest.findFirst.mockResolvedValue(pending);
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([]);
+    fixture.defaultTransaction.pendingRequest.deleteMany.mockResolvedValue({
+      count: 1,
+    });
+
+    await expect(
+      fixture.service.startPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).resolves.toMatchObject({ status: "running" });
+
+    expect(
+      fixture.prisma.conversationTurnStartIntent.create,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ projectionTurnId: expected }),
+      }),
+    );
   });
 
   it("atomically blocks a pending request when capacity state is unavailable", async () => {

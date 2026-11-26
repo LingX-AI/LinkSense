@@ -4607,9 +4607,22 @@ export class ConversationService {
     const lock = await this.acquireConversationLock(conversationId);
     let lockTransferred = false;
     try {
-      const projectedTurnId = deterministicUuid(
+      const pendingForRetry = await this.prisma.pendingRequest.findFirst({
+        where: {
+          id: pendingId,
+          conversationId,
+          submittedBy: ownerId,
+        },
+        select: {
+          status: true,
+          blockCode: true,
+          lastStartCheckedAt: true,
+        },
+      });
+      const projectedTurnId = pendingStartProjectionTurnId(
         conversationId,
-        `pending-start:${pendingId}`,
+        pendingId,
+        pendingForRetry,
       );
       const projected = await this.prisma.conversationTurn.findUnique({
         where: { id: projectedTurnId },
@@ -10253,8 +10266,22 @@ export class ConversationService {
         throw error;
       }
 
+      const pendingStart = pendingId
+        ? await this.prisma.pendingRequest.findFirst({
+            where: {
+              id: pendingId,
+              conversationId,
+              submittedBy: ownerId,
+            },
+            select: {
+              status: true,
+              blockCode: true,
+              lastStartCheckedAt: true,
+            },
+          })
+        : null;
       const projectionTurnId = pendingId
-        ? deterministicUuid(conversationId, `pending-start:${pendingId}`)
+        ? pendingStartProjectionTurnId(conversationId, pendingId, pendingStart)
         : input.idempotencyKey
           ? deterministicUuid(
               conversationId,
@@ -12764,7 +12791,7 @@ async function recordUnstartedTurnFailure(
   });
 }
 
-function deterministicUuid(namespace: string, name: string): string {
+export function deterministicUuid(namespace: string, name: string): string {
   const namespaceBytes = Buffer.from(namespace.replaceAll("-", ""), "hex");
   if (namespaceBytes.length !== 16) throw new AppError("VALIDATION_ERROR");
   const digest = createHash("sha1")
@@ -12781,4 +12808,32 @@ function deterministicUuid(namespace: string, name: string): string {
     hex.slice(16, 20),
     hex.slice(20, 32),
   ].join("-");
+}
+
+/**
+ * A queued request keeps its deterministic turn id until a release leaves the
+ * Runner operation sealed. Rotating the id from the release check time lets a
+ * user retry start a fresh Runner operation instead of hitting the sealed one.
+ */
+export function pendingStartProjectionTurnId(
+  conversationId: string,
+  pendingId: string,
+  pending: {
+    status: string;
+    blockCode: string | null;
+    lastStartCheckedAt: Date | null;
+  } | null,
+): string {
+  const retryAt =
+    pending?.status === "blocked_preflight" &&
+    pending.blockCode === "runner_unavailable" &&
+    pending.lastStartCheckedAt
+      ? pending.lastStartCheckedAt.getTime()
+      : null;
+  return deterministicUuid(
+    conversationId,
+    retryAt === null
+      ? `pending-start:${pendingId}`
+      : `pending-start:${pendingId}:retry:${retryAt}`,
+  );
 }
