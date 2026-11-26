@@ -598,6 +598,19 @@ disconnects this Mac while keeping its pairing. To remove the pairing, select
 **Also revoke access for this Mac** when signing out; the app removes the
 matching local credential after the server confirms the revoke.
 
+**Recent desktop activity** in **Settings → General → This Mac** expands on
+request and lists, when available, the account's latest 20 redacted device,
+approval, local-permission, computer-attempt and target-change entries. A
+recorded attempt does not prove delivery or effect. Entries never disclose
+typed text, commands, media or paths. The view is read-only and adds no new
+data collection. Besides the desktop protocol, it needs an API that exposes
+the endpoint. If the endpoint is missing, a 404 makes the section show as
+unavailable; that handling is covered by a mocked response, not by running an
+older release. The existing admin audit is unchanged. The verified development
+`.app` and DMG are from `eb0178ff`, so they do not contain this view; a package
+built from `5ee1eeee` or newer, paired with an API that exposes the endpoint,
+is needed.
+
 New tasks default to the cloud. In **Settings → General → This Mac**, you can
 set a **Default run location** for new tasks created from this Mac, even before
 pairing. LinkSense remembers it on this Mac for the signed-in account and server.
