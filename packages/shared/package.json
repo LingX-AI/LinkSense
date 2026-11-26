@@ -44,8 +44,10 @@
   },
   "dependencies": {
     "es-toolkit": "1.53.2",
+    "libphonenumber-js": "1.13.17",
     "mdast-util-from-markdown": "2.1.0",
     "pino": "^9.14.0",
+    "re2js": "2.10.0",
     "semver": "7.8.6",
     "zod": "^4.6.7"
   },

@@ -5,6 +5,8 @@ import type {
   PrivacyMasker,
 } from "@linksense/shared/privacy-masking-engine";
 
+import { MAX_SSE_EVENT_CHARACTERS } from "../model-gateway/sse.js";
+
 type JsonObject = Record<string, unknown>;
 
 export type RestoredEvent = {
@@ -17,9 +19,20 @@ type PendingEvent = {
   streamKey: string;
   tail: string;
   full: JsonObject;
-  cut: JsonObject;
-  event: string;
+  slot: QueuedEvent;
 };
+
+type QueuedEvent = {
+  output: RestoredEvent;
+  waiting: boolean;
+  characters: number;
+};
+
+const maxQueuedEvents = 256;
+const jsonArgumentDeltaEvents = new Set([
+  "response.function_call_arguments.delta",
+  "response.mcp_call_arguments.delta",
+]);
 
 const sealedKeys = new Set([
   "signature",
@@ -46,10 +59,7 @@ function contextFor(
   eventName: string,
 ): MaskContext {
   if (key === "arguments" || key === "partial_json") return "embedded-json";
-  if (
-    key === "delta" &&
-    eventName.includes("function_call_arguments")
-  ) {
+  if (key === "delta" && jsonArgumentDeltaEvents.has(eventName)) {
     return "embedded-json";
   }
   return "plain";
@@ -71,16 +81,10 @@ function restorePayload(
     );
   }
   if (!isObject(value)) return value;
-  const next: JsonObject = {};
-  for (const [childKey, childValue] of Object.entries(value)) {
-    next[childKey] = restorePayload(
-      childValue,
-      masker,
-      eventName,
-      childKey,
-    );
-  }
-  return next;
+  return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+    childKey,
+    restorePayload(childValue, masker, eventName, childKey),
+  ]));
 }
 
 export function restoreJsonValue(
@@ -90,35 +94,18 @@ export function restoreJsonValue(
   return restorePayload(value, masker, "");
 }
 
-type StreamingField = {
-  key: string;
-  context: MaskContext;
-};
-
 function streamingField(
   eventName: string,
   payload: JsonObject,
-): StreamingField | null {
-  if (
-    eventName === "response.function_call_arguments.delta" &&
-    typeof payload.delta === "string"
-  ) {
-    return { key: "delta", context: "embedded-json" };
-  }
-  if (
-    eventName === "response.custom_tool_call_input.delta" &&
-    typeof payload.delta === "string"
-  ) {
-    return { key: "delta", context: "plain" };
-  }
+): { key: string; text: string } | null {
   if (
     eventName.endsWith(".delta") &&
     typeof payload.delta === "string"
   ) {
-    return { key: "delta", context: "plain" };
+    return { key: "delta", text: payload.delta };
   }
   if (typeof payload.partial_json === "string") {
-    return { key: "partial_json", context: "embedded-json" };
+    return { key: "partial_json", text: payload.partial_json };
   }
   return null;
 }
@@ -159,11 +146,12 @@ function eventKey(payload: JsonObject): string {
 /**
  * Puts masked values back in a Responses stream event by event. A
  * placeholder the vendor split between two deltas is held until the rest
- * arrives; an event that says nothing of the answer (a keepalive) goes on
- * ahead of the held tail.
+ * arrives. Interleaved events stay in the order sent by the provider.
  */
 export class PrivacyRestorer {
   private readonly pending = new Map<string, PendingEvent>();
+  private readonly queue: QueuedEvent[] = [];
+  private queuedCharacters = 0;
 
   constructor(private readonly masker: PrivacyMasker) {}
 
@@ -172,8 +160,6 @@ export class PrivacyRestorer {
     payload: JsonObject,
   ): RestoredEvent[] {
     const field = streamingField(eventName, payload);
-    const output: RestoredEvent[] = [];
-
     if (!field) {
       for (const [context, pending] of this.pending) {
         if (
@@ -183,11 +169,12 @@ export class PrivacyRestorer {
           (eventName.endsWith(".done") &&
             pending.streamKey === eventKey(payload))
         ) {
-          output.push({ event: pending.event, payload: pending.full });
+          pending.slot.output.payload = pending.full;
+          pending.slot.waiting = false;
           this.pending.delete(context);
         }
       }
-      output.push({
+      this.enqueue({
         event: eventName,
         payload: restorePayload(
           payload,
@@ -195,32 +182,17 @@ export class PrivacyRestorer {
           eventName,
         ) as JsonObject,
       });
-      return output;
+      return this.drainReady();
     }
 
     const context = `${eventName}|${eventKey(payload)}|${field.key}`;
-    let carry = "";
     const pending = this.pending.get(context);
     if (pending) {
-      output.push({ event: pending.event, payload: pending.cut });
-      carry = pending.tail;
+      pending.slot.waiting = false;
       this.pending.delete(context);
     }
 
-    const original = payload[field.key];
-    if (typeof original !== "string") {
-      output.push({
-        event: eventName,
-        payload: restorePayload(
-          payload,
-          this.masker,
-          eventName,
-        ) as JsonObject,
-      });
-      return output;
-    }
-
-    const combined = carry + original;
+    const combined = (pending?.tail ?? "") + field.text;
     const tailLength = partialPlaceholderTail(combined);
     const head = tailLength > 0
       ? combined.slice(0, combined.length - tailLength)
@@ -235,27 +207,51 @@ export class PrivacyRestorer {
     };
 
     if (tail.length > 0) {
+      const full = withText(combined);
+      const slot = this.enqueue({ event: eventName, payload: withText(head) }, full);
       this.pending.set(context, {
         itemKey: itemKey(payload),
         streamKey: eventKey(payload),
         tail,
-        full: withText(combined),
-        cut: withText(head),
-        event: eventName,
+        full,
+        slot,
       });
-      return output;
+    } else {
+      this.enqueue({ event: eventName, payload: withText(combined) });
     }
-
-    output.push({ event: eventName, payload: withText(combined) });
-    return output;
+    return this.drainReady();
   }
 
   flush(): RestoredEvent[] {
-    const events = [...this.pending.values()].map((pending) => ({
-      event: pending.event,
-      payload: pending.full,
-    }));
+    for (const pending of this.pending.values()) {
+      pending.slot.output.payload = pending.full;
+      pending.slot.waiting = false;
+    }
     this.pending.clear();
-    return events;
+    return this.drainReady();
+  }
+
+  private enqueue(output: RestoredEvent, full?: JsonObject): QueuedEvent {
+    const characters = full || this.queue.length > 0
+      ? JSON.stringify(full ?? output.payload).length
+      : 0;
+    const slot = { output, waiting: full !== undefined, characters };
+    this.queue.push(slot);
+    this.queuedCharacters += characters;
+    return slot;
+  }
+
+  private drainReady(): RestoredEvent[] {
+    let ready = 0;
+    for (const slot of this.queue) {
+      if (slot.waiting) break;
+      ready++;
+      this.queuedCharacters -= slot.characters;
+    }
+    const output = this.queue.splice(0, ready).map((slot) => slot.output);
+    if (this.queue.length > maxQueuedEvents || this.queuedCharacters > MAX_SSE_EVENT_CHARACTERS) {
+      throw new Error("Privacy masking stream buffer limit exceeded");
+    }
+    return output;
   }
 }

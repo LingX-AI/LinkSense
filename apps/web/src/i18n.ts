@@ -33,6 +33,7 @@ import { applicationSetupMessages } from "@/features/applications/application-se
 import { accountAccessMessages } from "@/components/auth/account-access-messages"
 import { workspaceHomeMessages } from "@/features/conversations/workspace-home-messages"
 import { settingsInterfaceMessages } from "@/components/settings/interface-messages"
+import { privacyMaskingRuleMessages } from "@/features/privacy-masking/rule-messages"
 import { adminConnectionMessages } from "@/features/connections/admin-messages"
 
 export const supportedLanguages = supportedLocales
@@ -111,6 +112,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["zh-CN"],
         workspaceHome: workspaceHomeMessages["zh-CN"],
         settingsInterface: settingsInterfaceMessages["zh-CN"],
+        privacyMaskingRules: privacyMaskingRuleMessages["zh-CN"],
         browserPanel: browserPanelMessages["zh-CN"],
         monitoring: monitoringMessages["zh-CN"],
         taskReferences: taskReferenceMessages["zh-CN"],
@@ -140,6 +142,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["en-US"],
         workspaceHome: workspaceHomeMessages["en-US"],
         settingsInterface: settingsInterfaceMessages["en-US"],
+        privacyMaskingRules: privacyMaskingRuleMessages["en-US"],
         browserPanel: browserPanelMessages["en-US"],
         monitoring: monitoringMessages["en-US"],
         taskReferences: taskReferenceMessages["en-US"],
@@ -169,6 +172,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["es-ES"],
         workspaceHome: workspaceHomeMessages["es-ES"],
         settingsInterface: settingsInterfaceMessages["es-ES"],
+        privacyMaskingRules: privacyMaskingRuleMessages["es-ES"],
         browserPanel: browserPanelMessages["es-ES"],
         monitoring: monitoringMessages["es-ES"],
         taskReferences: taskReferenceMessages["es-ES"],
@@ -198,6 +202,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["pt-BR"],
         workspaceHome: workspaceHomeMessages["pt-BR"],
         settingsInterface: settingsInterfaceMessages["pt-BR"],
+        privacyMaskingRules: privacyMaskingRuleMessages["pt-BR"],
         browserPanel: browserPanelMessages["pt-BR"],
         monitoring: monitoringMessages["pt-BR"],
         taskReferences: taskReferenceMessages["pt-BR"],
@@ -227,6 +232,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["fr-FR"],
         workspaceHome: workspaceHomeMessages["fr-FR"],
         settingsInterface: settingsInterfaceMessages["fr-FR"],
+        privacyMaskingRules: privacyMaskingRuleMessages["fr-FR"],
         browserPanel: browserPanelMessages["fr-FR"],
         monitoring: monitoringMessages["fr-FR"],
         taskReferences: taskReferenceMessages["fr-FR"],
@@ -256,6 +262,7 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["ja-JP"],
         workspaceHome: workspaceHomeMessages["ja-JP"],
         settingsInterface: settingsInterfaceMessages["ja-JP"],
+        privacyMaskingRules: privacyMaskingRuleMessages["ja-JP"],
         browserPanel: browserPanelMessages["ja-JP"],
         monitoring: monitoringMessages["ja-JP"],
         taskReferences: taskReferenceMessages["ja-JP"],

@@ -17,6 +17,7 @@ import { createObjectStorage } from "../../src/adapters/object-storage.js";
 import { createServices } from "../../src/services.js";
 import { buildApi } from "../../src/app.js";
 import { sha256 } from "../../src/modules/web-sites/resources.js";
+import { createHistoricalSiteFile, createHistoricalSiteTask } from "./historical-web-site-fixtures.js";
 
 // Only disposable LS containers and a deliberately configured local Appwrite
 // instance are used. Credentials are read from a private file, never arguments.
@@ -89,17 +90,20 @@ try {
   db = createPrismaClient(databaseUrl);
   const owner = await db.user.create({ data: { email: "publisher@example.test", name: "Publisher", role: "admin", status: "active" } });
   const other = await db.user.create({ data: { email: "other@example.test", name: "Other", role: "user", status: "active" } });
-  const task = await db.conversation.create({ data: { ownerId: owner.id, title: "Dynamic application", titleSource: "manual", archiveStatus: "active", workspaceRelPath: `${owner.id}/home/workspace`, runtimeGeneration: randomUUID(), codexThreadId: "dynamic-test" } });
+  const task = await createHistoricalSiteTask(db, owner.id, "Dynamic application", "dynamic-test");
   const legacyHtml = Buffer.from("<!doctype html><title>Existing static site</title><p>Preserved</p>");
-  const legacyFile = await db.conversationFile.create({ data: { conversationId: task.id, kind: "artifact", source: "agent_generated", status: "registered", filename: "old.html", mimeType: "text/html", sizeBytes: legacyHtml.length, storageBackend: "minio", minioObjectKey: "legacy/index.html", downloadable: true, downloadCardEventId: randomUUID() } });
-  const oldSite = randomUUID(), oldRelease = randomUUID();
+  const legacyFile = await createHistoricalSiteFile(db, task.id, "old.html", legacyHtml.length);
+  const oldSite = randomUUID(), oldRelease = randomUUID(), oldSlug = randomUUID();
   const manifest = { entry_path: "index.html", files: [{ path: "index.html", object_key: "legacy/index.html", mime_type: "text/html", size_bytes: legacyHtml.length, checksum_sha256: sha256(legacyHtml) }] };
-  await db.$executeRaw`INSERT INTO web_sites (id, owner_id, conversation_id, source_task_title, origin_file_id, source_file_id, name, slug, status, current_release_id, updated_at) VALUES (${oldSite}::uuid, ${owner.id}::uuid, ${task.id}::uuid, 'Legacy', ${legacyFile.id}::uuid, ${legacyFile.id}::uuid, 'Legacy', 'legacy-dynamic-upgrade', 'published', ${oldRelease}::uuid, CURRENT_TIMESTAMP)`;
-  await db.$executeRaw`INSERT INTO web_site_addresses (slug,site_id) VALUES ('legacy-dynamic-upgrade', ${oldSite}::uuid)`;
+  await db.$executeRaw`INSERT INTO web_sites (id, owner_id, conversation_id, source_task_title, origin_file_id, source_file_id, name, slug, status, current_release_id, updated_at) VALUES (${oldSite}::uuid, ${owner.id}::uuid, ${task.id}::uuid, 'Legacy', ${legacyFile.id}::uuid, ${legacyFile.id}::uuid, 'Legacy', ${oldSlug}, 'published', ${oldRelease}::uuid, CURRENT_TIMESTAMP)`;
+  await db.$executeRaw`INSERT INTO web_site_addresses (slug,site_id) VALUES (${oldSlug}, ${oldSite}::uuid)`;
   await db.$executeRaw`INSERT INTO web_site_releases (id,site_id,source_file_id,manifest_json) VALUES (${oldRelease}::uuid,${oldSite}::uuid,${legacyFile.id}::uuid,${JSON.stringify(manifest)}::jsonb)`;
   const oldRecord = await db.$queryRaw`SELECT to_jsonb(s) AS row FROM web_sites s WHERE id=${oldSite}::uuid`;
   await migrate(migrations);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(s)-'backend_id' AS row FROM web_sites s WHERE id=${oldSite}::uuid`, oldRecord);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(s)-ARRAY['backend_id','passcode_hash','analytics_enabled','analytics_site_id','analytics_domain'] AS row FROM web_sites s WHERE id=${oldSite}::uuid`, oldRecord);
+  assert.deepEqual(await db.webSite.findUniqueOrThrow({ where: { id: oldSite }, select: {
+    backendId: true, passcodeHash: true, analyticsEnabled: true, analyticsSiteId: true, analyticsDomain: true,
+  } }), { backendId: null, passcodeHash: null, analyticsEnabled: false, analyticsSiteId: null, analyticsDomain: null });
   const config = testConfig({
     LINKSENSE_EDITION: "core", LINKSENSE_OBJECT_STORAGE_PROVIDER: "local-filesystem",
     DATABASE_URL: databaseUrl, REDIS_URL: `redis://127.0.0.1:${redisPort}`,
@@ -113,8 +117,8 @@ try {
   services = createServices({ config, prisma: db, redis, runner: new RunnerClient(config), storage });
   await db.systemSetting.create({ data: { settingsJson: { system_initialized: true } } });
   app = await buildApi(services);
-  assert.equal((await app.inject("/web/legacy-dynamic-upgrade")).statusCode, 200);
-  assert.match((await app.inject(`/web/legacy-dynamic-upgrade/_releases/${oldRelease}/index.html`)).body, /Existing static site.*Preserved/su);
+  assert.equal((await app.inject(`/web/${oldSlug}`)).statusCode, 200);
+  assert.match((await app.inject(`/web/${oldSlug}/_releases/${oldRelease}/index.html`)).body, /Existing static site.*Preserved/su);
   console.log("PASS: upgrade preserves pre-change static records, links and assets.");
 
   // A persisted pre-sandbox reservation must keep the native origin throughout recovery.
@@ -303,7 +307,10 @@ try {
   const hostedAccess = async (cookie?: string) => {
     const shell = await app!.inject({ url: hostedUrl.pathname, headers: { host: hostedUrl.host, ...(cookie ? { cookie } : {}) } });
     assert.equal(shell.statusCode, 200);
-    const packet = z.object({ capability: z.string() }).parse(JSON.parse(/id="app-config">(.*?)<\/script>/u.exec(shell.body)![1]!));
+    const packet = z.object({ capability: z.string(), path: z.string() }).parse(JSON.parse(/id="app-config">(.*?)<\/script>/u.exec(shell.body)![1]!));
+    const page = await app!.inject({ url: packet.path, headers: { host: hostedUrl.host } });
+    assert.equal(page.statusCode, 200);
+    assert.match(page.body, /Sandbox SDK integration/u);
     const browserCookie = cookie ?? z.array(z.string()).parse(shell.headers["set-cookie"])[0]!.split(";")[0]!;
     return { cookie: browserCookie, capability: packet.capability };
   };

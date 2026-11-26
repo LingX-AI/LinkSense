@@ -23,7 +23,16 @@ export class WebSiteAnalytics {
     return new URL(`/sites/${siteId}`, this.config.baseUrl).href;
   }
 
-  scriptTag(domain: string): string {
+  scriptTag(domain: string, canonicalUrl?: string): string {
+    if (canonicalUrl) {
+      const settings = JSON.stringify({ endpoint: `${this.config.baseUrl}/api/event`, body: { name: "pageview", url: canonicalUrl, domain } }).replaceAll("<", "\\u003c");
+      return `<script data-linksense-analytics="1">(() => {
+        if (/^(?:localhost|127(?:\\.\\d+){3}|\\[::1\\])$/u.test(location.hostname) || navigator.webdriver) return;
+        try { if (localStorage.getItem("tinytraffic_ignore") === "true") return; } catch {}
+        const { endpoint, body } = ${settings};
+        fetch(endpoint, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body), keepalive: true, credentials: "omit", referrerPolicy: "no-referrer" }).catch(() => {});
+      })();</script>`;
+    }
     return `<script defer data-linksense-analytics="1" data-domain="${escapeHtml(domain)}" data-api="${escapeHtml(`${this.config.baseUrl}/api/event`)}" src="${escapeHtml(`${this.config.baseUrl}/js/script.js`)}"></script>`;
   }
 

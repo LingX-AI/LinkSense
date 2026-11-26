@@ -93,8 +93,9 @@ const deliverableRoutingInstructions = (publicSiteName?: string): string => [
 ].join("\n");
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
   "Comparisons/charts/file groups: call get_rich_output_catalog. Short answers: prose.",
-  "Interactive HTML deliverables: one complete UTF-8 document; fence info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
-  "Current-conversation questions, choices, confirmation and feedback use request_user_form; preview forms are standalone demos only.",
+  "Inline preview: complete UTF-8 document; fence info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
+  "HTML files: register_artifact; point to the preview card, not a workspace path. State limits. Source-only: deliver a download.",
+  "Preview forms are standalone demos, not conversation input.",
 ].join("\n");
 const LOCAL_WEB_SERVER_RESTRICTION_INSTRUCTIONS = [
   "Mandatory platform rule: never start or keep alive a network-listening service for this task, including HTTP(S), WebSocket, development, preview or callback servers on any address or port, including loopback.",

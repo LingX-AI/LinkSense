@@ -289,6 +289,8 @@ describe("AssistantHtmlPreview actions", () => {
       screen.getByTitle<HTMLIFrameElement>("AI 生成的交互式 HTML 页面")
     const surface = frame.parentElement
     expect(surface).toHaveClass(heightClass)
+    expect(frame).not.toHaveClass("invisible")
+    expect(frame).toHaveAttribute("inert")
     for (const type of [
       assistantHtmlPreviewReadyMessageType,
       assistantHtmlPreviewErrorMessageType,
@@ -308,11 +310,16 @@ describe("AssistantHtmlPreview actions", () => {
       expect(surface).toHaveClass(heightClass)
       expect(frame).toHaveClass("h-full")
       expect(frame).not.toHaveAttribute("height")
+      if (type === assistantHtmlPreviewReadyMessageType)
+        expect(frame).not.toHaveAttribute("inert")
     }
 
     await user.click(screen.getByRole("button", { name: "重试" }))
     expect(screen.getByRole("status")).toBeVisible()
     expect(surface).toHaveClass(heightClass)
+    expect(
+      screen.getByTitle("AI 生成的交互式 HTML 页面")
+    ).toHaveAttribute("inert")
   })
 
   it("keeps the live iframe mounted when its parent rerenders the same HTML", () => {

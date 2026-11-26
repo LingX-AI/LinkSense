@@ -1,10 +1,12 @@
 import { z } from "zod";
 
-/**
- * Values the model gateway can replace before a request leaves LinkSense.
- * TERM is a user's own word; the rest are secret and personal-data kinds.
- * Personal-data kinds are reserved for the phase that adds those rules.
- */
+export const privacyMaskingPersonalKindValues = [
+  "EMAIL",
+  "PHONE",
+  "ID_CARD",
+  "BANK_CARD",
+] as const;
+
 export const privacyMaskingKindValues = [
   "PRIVATE_KEY",
   "API_KEY",
@@ -12,10 +14,7 @@ export const privacyMaskingKindValues = [
   "SECRET",
   "PASSWORD",
   "TERM",
-  "EMAIL",
-  "PHONE",
-  "ID_CARD",
-  "BANK_CARD",
+  ...privacyMaskingPersonalKindValues,
 ] as const;
 
 export const privacyMaskingKindSchema = z.enum(privacyMaskingKindValues);
@@ -29,6 +28,55 @@ export const MAX_PRIVACY_MASKING_WORDS = 200;
 export const MAX_PRIVACY_MASKING_VALUES = 200;
 export const MAX_PRIVACY_MASKING_VALUE_LENGTH = 256;
 export const MAX_PRIVACY_MASKING_SETTINGS_BYTES = 64 * 1024;
+export const MAX_PRIVACY_MASKING_CUSTOM_RULES = 16;
+export const MAX_PRIVACY_MASKING_RULE_NAME_LENGTH = 64;
+export const MAX_PRIVACY_MASKING_REGEX_LENGTH = 160;
+export const MAX_PRIVACY_MASKING_PREFIX_LENGTH = 32;
+export const MAX_PRIVACY_MASKING_TEMPLATE_DIGITS = 19;
+export const MAX_ADVANCED_PRIVACY_MASKING_TEXT_LENGTH = 1_000_000;
+export const MAX_ADVANCED_PRIVACY_MASKING_HITS = 16_384;
+
+export const privacyMaskingRuleActionValues = ["mask", "block"] as const;
+export type PrivacyMaskingRuleAction = (typeof privacyMaskingRuleActionValues)[number];
+const privacyMaskingRuleActionSchema = z.enum(privacyMaskingRuleActionValues);
+const privacyMaskingPersonalRulesSchema = z.partialRecord(
+  z.enum(privacyMaskingPersonalKindValues),
+  privacyMaskingRuleActionSchema,
+);
+export const privacyMaskingPhoneRegionValues = ["CN", "US", "ES", "BR", "FR", "JP"] as const;
+
+const privacyMaskingRuleFields = {
+  id: z.uuid(),
+  name: z.string().trim().min(1).max(MAX_PRIVACY_MASKING_RULE_NAME_LENGTH),
+  action: privacyMaskingRuleActionSchema,
+};
+
+const privacyMaskingRuleSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...privacyMaskingRuleFields,
+    type: z.literal("prefix_digits"),
+    prefix: z.string().trim().min(1).max(MAX_PRIVACY_MASKING_PREFIX_LENGTH).regex(/^[^\s]+$/u),
+    digits: z.number().int().min(1).max(MAX_PRIVACY_MASKING_TEMPLATE_DIGITS),
+  }),
+  z.strictObject({
+    ...privacyMaskingRuleFields,
+    type: z.literal("regex"),
+    pattern: z.string().min(1).max(MAX_PRIVACY_MASKING_REGEX_LENGTH),
+  }),
+]);
+
+export type PrivacyMaskingCustomRule = z.infer<typeof privacyMaskingRuleSchema>;
+
+const advancedPrivacyMaskingFields = {
+  personal_rules: privacyMaskingPersonalRulesSchema.optional(),
+  phone_region: z.enum(privacyMaskingPhoneRegionValues).nullable().optional(),
+  custom_rules: z.array(privacyMaskingRuleSchema)
+    .max(MAX_PRIVACY_MASKING_CUSTOM_RULES)
+    .refine((rules) => new Set(rules.map((rule) => rule.id)).size === rules.length, {
+      message: "privacy_masking_duplicate_rule_id",
+    })
+    .optional(),
+};
 
 const privacyMaskingValueSchema = z
   .string()
@@ -62,6 +110,7 @@ function refineKindKeys(
 
 export const privacyMaskingSettingsSchema = z
   .strictObject({
+    ...advancedPrivacyMaskingFields,
     enabled: z.boolean(),
     secrets: z.boolean(),
     personal: z.boolean(),
@@ -142,11 +191,14 @@ export const privacyMaskingPreviewHitSchema = z.strictObject({
   placeholder: z.string(),
   kind: privacyMaskingKindSchema,
   action: privacyMaskingActionSchema,
+  rule_ids: z.array(z.uuid()).max(MAX_PRIVACY_MASKING_CUSTOM_RULES).optional(),
+  related_kinds: z.array(privacyMaskingKindSchema).max(privacyMaskingKindValues.length).optional(),
 });
 
 export const privacyMaskingPreviewResponseSchema = z.strictObject({
   text: z.string(),
   hits: z.array(privacyMaskingPreviewHitSchema),
+  blocked: z.literal(true).optional(),
 });
 
 export type PrivacyMaskingPreviewResponse = z.infer<
@@ -227,9 +279,10 @@ export const privacyMaskingActivityRecordSchema = z.strictObject({
   model: z.string(),
   masked_count: z.number().int().nonnegative(),
   kinds: privacyMaskingKindCountsSchema,
-  hints: z.array(privacyMaskingHintSchema).max(
-    PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
-  ),
+  hints: z
+    .array(privacyMaskingHintSchema)
+    .max(PRIVACY_MASKING_ACTIVITY_HINT_LIMIT)
+    .default([]),
   created_at: z.iso.datetime(),
 });
 
@@ -246,15 +299,23 @@ export type PrivacyMaskingActivityResponse = z.infer<
   typeof privacyMaskingActivityResponseSchema
 >;
 
-export const privacyMaskingActivityQuerySchema = z.strictObject({
-  days: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS)
-    .default(7),
-  before: z.iso.datetime().optional(),
-});
+export const privacyMaskingActivityQuerySchema = z
+  .strictObject({
+    days: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS)
+      .default(7),
+    before: z.iso.datetime().optional(),
+    before_id: z.uuid().optional(),
+  })
+  .refine(({ before, before_id }) => !before_id || !!before, {
+    path: ["before"],
+    message: "privacy_masking_activity_cursor_time_required",
+  });
+
+export type PrivacyMaskingActivityQuery = z.infer<typeof privacyMaskingActivityQuerySchema>;
 
 /**
  * Sent to the runner only while masking is enabled; its presence is the
@@ -262,6 +323,7 @@ export const privacyMaskingActivityQuerySchema = z.strictObject({
  * values in different users' traffic never share a placeholder.
  */
 export const privacyMaskingRuntimeSchema = z.strictObject({
+  ...advancedPrivacyMaskingFields,
   revision: z.number().int().nonnegative(),
   secrets: z.boolean(),
   personal: z.boolean(),

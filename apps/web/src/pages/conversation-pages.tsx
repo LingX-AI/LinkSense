@@ -4424,7 +4424,7 @@ export function ConversationPage({
       routeEpoch,
       precedingTurnId,
     }: {
-      commandValue: string
+      commandValue?: string
       targetConversationId: string
       routeEpoch: number
       precedingTurnId: string | null
@@ -4496,15 +4496,32 @@ export function ConversationPage({
       if (contextCompactionOperationRef.current?.id === result.idempotencyKey) {
         contextCompactionOperationRef.current = null
       }
-      if (user) {
-        clearLocalConversationDraft(
-          window.localStorage,
-          user.id,
-          result.conversationId
-        )
-      }
-      if (routeConversationIdRef.current === result.conversationId) {
-        setValue((current) => (current === result.commandValue ? "" : current))
+      if (result.commandValue !== undefined) {
+        const currentInput =
+          routeConversationIdRef.current === result.conversationId
+            ? composerValue.getSnapshot()
+            : null
+        if (currentInput === result.commandValue) setValue("")
+        if (user) {
+          const draft = readLocalConversationDraft(
+            window.localStorage,
+            user.id,
+            result.conversationId
+          )
+          if (draft.input === result.commandValue) {
+            writeLocalConversationDraft(
+              window.localStorage,
+              user.id,
+              result.conversationId,
+              {
+                ...draft,
+                input:
+                  currentInput === result.commandValue ? "" : (currentInput ?? ""),
+                idempotencyKey: undefined,
+              }
+            )
+          }
+        }
       }
       void refreshConversationList()
     },
@@ -6442,7 +6459,7 @@ export function ConversationPage({
     })
   }
 
-  const startContextCompaction = () => {
+  const startContextCompaction = (commandValue?: string) => {
     if (
       contextCompactionMutation.isPending ||
       composerSubmissionInFlightRef.current ||
@@ -6462,7 +6479,7 @@ export function ConversationPage({
     scrollToBottom("auto")
     composerSubmissionInFlightRef.current = true
     contextCompactionMutation.mutate({
-      commandValue: composerValue.getSnapshot(),
+      commandValue,
       targetConversationId,
       routeEpoch: routeEpochRef.current,
       precedingTurnId: conversation?.turns?.at(-1)?.id ?? null,
@@ -6496,7 +6513,7 @@ export function ConversationPage({
     )
       return
     if (isConversationContextCompactionCommand(input)) {
-      startContextCompaction()
+      startContextCompaction(input)
       return
     }
     if (
@@ -7098,7 +7115,10 @@ export function ConversationPage({
   ].filter((event) => event.turn_id !== optimisticallyReplacedTurnId)
   const modelContextUsage = selectConversationModelContextUsage(
     visibleEvents,
-    displayConversation.model_context_usage
+    displayConversation.model_context_usage,
+    modelPreferenceQuery.data?.models.find(
+      (model) => model.id === modelPreferenceQuery.data?.selected_model
+    )?.context_window
   )
   const modelContextBreakdown =
     selectLatestConversationContextBreakdown(visibleEvents)
@@ -7826,6 +7846,22 @@ export function ConversationPage({
                         : "conversation.archive"
                     )}
                   </DropdownMenuItem>
+                  {!readOnly &&
+                    displayConversation.project_id &&
+                    developmentRole !== "development" && (
+                      <DropdownMenuItem
+                        disabled={
+                          patchConversationMutation.isPending ||
+                          turnExecutionActive
+                        }
+                        onClick={() =>
+                          patchConversationMutation.mutate({ project_id: null })
+                        }
+                      >
+                        <DesignIcon name="move-project" className="size-4" />
+                        {t("projects.moveToPublicWorkspace")}
+                      </DropdownMenuItem>
+                    )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
@@ -7891,7 +7927,7 @@ export function ConversationPage({
               changedFileCount={changedFileCount}
               compactAvailable={compactionAvailable}
               compacting={contextCompactionMutation.isPending}
-              onCompact={startContextCompaction}
+              onCompact={() => startContextCompaction()}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}

@@ -1,19 +1,27 @@
 import Fastify from "fastify";
 import { createHash } from "node:crypto";
 import cors from "@fastify/cors";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 import { registerResponseSecurityHeaders } from "../src/app.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { createApiCorsOptions } from "../src/lib/cors.js";
 import { publicWebSiteRoutes, webSiteRoutes } from "../src/modules/web-sites/routes.js";
+import type { SiteUnlockLimiter } from "../src/modules/web-sites/access.js";
+import { WebSiteAnalytics } from "../src/modules/web-sites/analytics.js";
+import { WebSiteService } from "../src/modules/web-sites/service.js";
 import { ownerId, taskId, fileId, siteId, releaseId, siteFixture } from "./web-sites.fixture.js";
+import { sha256 } from "../src/modules/web-sites/resources.js";
 import { hashPassword } from "../src/lib/password.js";
 
 const apps: Array<ReturnType<typeof Fastify>> = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())); });
-async function setup(publicBaseUrl = "https://linksense.example.test") {
+async function setup(publicBaseUrl = "https://linksense.example.test", analyticsBaseUrl?: string) {
   const fixture = siteFixture();
+  const service = analyticsBaseUrl
+    ? new WebSiteService(fixture.store, fixture.storage, undefined, new WebSiteAnalytics({ baseUrl: analyticsBaseUrl, apiKey: "test-key" }))
+    : fixture.service;
   const app = Fastify();
   apps.push(app);
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
@@ -24,8 +32,9 @@ async function setup(publicBaseUrl = "https://linksense.example.test") {
     Object.assign(request, { authUser: { id: ownerId } });
   });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service, publicBaseUrl });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl, accessSecret: "test-access-secret" });
-  return { ...fixture, app };
+  const takeUnlockAttempt = vi.fn<SiteUnlockLimiter>().mockResolvedValue(true);
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service, publicBaseUrl, accessSecret: "test-access-secret", takeUnlockAttempt, ...(analyticsBaseUrl ? { analyticsBaseUrl } : {}) });
+  return { ...fixture, app, takeUnlockAttempt };
 }
 describe("website HTTP boundary", () => {
   it("returns a configured public slug link separately from the stable URL on list and rename", async () => {
@@ -101,6 +110,26 @@ describe("website HTTP boundary", () => {
     expect(response.statusCode).toBe(200);
     expect(policy).toContain("http://127.0.0.1:5273/web/");
     expect(policy).toContain("https://linksense.example.test/web/");
+  });
+  it("serves current and retired UUID slugs without treating them as site IDs", async () => {
+    const fixture = await setup();
+    const defaultSlug = "40000000-0000-4000-8000-000000000002";
+    fixture.row.site.slug = defaultSlug;
+    fixture.store.publicSiteById.mockImplementation(async id => {
+      if (id !== siteId) throw new AppError("WEB_SITE_NOT_FOUND");
+      return fixture.row;
+    });
+    const release = `/web/${defaultSlug}/_releases/${releaseId}/index.html`;
+    const shell = await fixture.app.inject(`/web/${defaultSlug}`);
+    expect(shell.statusCode).toBe(200);
+    expect(shell.body).toContain(`src="${release}"`);
+    expect((await fixture.app.inject(release)).statusCode).toBe(200);
+
+    fixture.row.site.slug = "renamed-site";
+    const retired = await fixture.app.inject(`/web/${defaultSlug}`);
+    expect(retired.statusCode).toBe(200);
+    expect(retired.body).toContain(`src="/web/renamed-site/_releases/${releaseId}/index.html"`);
+    expect((await fixture.app.inject(release)).statusCode).toBe(200);
   });
   it.each(["/web/sample", "/web/sample/", `/web/sample/_releases/${releaseId}/index.html`])("keeps existing site HEAD responses embeddable at %s", async (url) => {
     const fixture = await setup();
@@ -219,6 +248,134 @@ describe("website HTTP boundary", () => {
     expect(setCookie).not.toContain("Secure");
     const cookie = setCookie.split(";")[0]!;
     expect((await fixture.app.inject({ url: "/web/sample", headers: { cookie } })).statusCode).toBe(200);
+  });
+
+  it("returns to the original address and query after retrying the passcode form", async () => {
+    const fixture = await setup();
+    fixture.row.site.passcodeHash = await hashPassword("sunrise");
+    const destination = "/web/sample?from=share&view=full";
+    const nextField = (html: string): string => {
+      const pending: DefaultTreeAdapterMap["node"][] = [parse(html)];
+      while (pending.length) {
+        const node = pending.pop();
+        if (node && "attrs" in node && node.tagName === "input" &&
+            node.attrs.some(attr => attr.name === "name" && attr.value === "next")) {
+          return node.attrs.find(attr => attr.name === "value")?.value ?? "";
+        }
+        if (node && "childNodes" in node) pending.push(...node.childNodes);
+      }
+      return "";
+    };
+    const submit = (passcode: string, next: string) => fixture.app.inject({
+      method: "POST", url: "/web/sample/unlock",
+      payload: new URLSearchParams({ passcode, next }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded", "accept-language": "en-US" },
+    });
+    const gate = await fixture.app.inject(destination);
+    expect(gate.statusCode).toBe(401);
+    const wrong = await submit("wrong", nextField(gate.body));
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.body).toContain("That passcode is not correct");
+    const retry = await submit("sunrise", nextField(wrong.body));
+    expect(retry.statusCode).toBe(303);
+    expect(retry.headers.location).toBe(destination);
+  });
+
+  it("rejects unlocks before password verification when admission fails", async () => {
+    const fixture = await setup();
+    fixture.row.site.passcodeHash = "not-a-verifiable-hash";
+    const request = {
+      method: "POST", url: "/web/sample/unlock", payload: "passcode=sunrise",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    } as const;
+    fixture.takeUnlockAttempt.mockResolvedValueOnce(false);
+    expect((await fixture.app.inject(request)).statusCode).toBe(429);
+    expect(fixture.takeUnlockAttempt).toHaveBeenCalledWith(siteId, "127.0.0.1");
+    fixture.takeUnlockAttempt.mockRejectedValueOnce(new Error("redis unavailable"));
+    const unavailable = await fixture.app.inject(request);
+    expect(unavailable.statusCode).toBe(503);
+    expect(unavailable.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it.each(["http", "https"])("loads protected release assets without iframe cookies on %s", async protocol => {
+    const fixture = await setup(`${protocol}://linksense.example.test`);
+    fixture.row.site.passcodeHash = await hashPassword("sunrise");
+    const document = Buffer.from('<!doctype html><script type="module" src="./assets/main.js"></script>');
+    const module = Buffer.from('export const ready = true;');
+    fixture.objects.set("original/index.html", document);
+    fixture.objects.set("original/assets/main.js", module);
+    fixture.manifest.files = [
+      { path: "index.html", object_key: "original/index.html", mime_type: "text/html", size_bytes: document.length, checksum_sha256: sha256(document) },
+      { path: "assets/main.js", object_key: "original/assets/main.js", mime_type: "application/javascript", size_bytes: module.length, checksum_sha256: sha256(module) },
+    ];
+    const unlocked = await fixture.app.inject({
+      method: "POST", url: "/web/sample/unlock", payload: "passcode=sunrise",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    const cookie = String(unlocked.headers["set-cookie"]).split(";")[0]!;
+    const shell = await fixture.app.inject({ url: "/web/sample", headers: { cookie } });
+    const entry = /<iframe[^>]+src="([^"]+)"/u.exec(shell.body)?.[1];
+    expect(entry).toBeDefined();
+    if (!entry) throw new Error("Missing release iframe");
+    const moduleUrl = new URL("./assets/main.js", new URL(entry, `${protocol}://linksense.example.test`)).pathname;
+    const documentResponse = await fixture.app.inject(entry);
+    const moduleResponse = await fixture.app.inject({ url: moduleUrl, headers: { origin: "null" } });
+    expect(documentResponse.statusCode).toBe(200);
+    expect(documentResponse.headers["content-security-policy"]).not.toContain("allow-same-origin");
+    expect(moduleResponse.statusCode).toBe(200);
+    expect(moduleResponse.body).toBe(module.toString());
+    expect(moduleResponse.headers["access-control-allow-credentials"]).toBeUndefined();
+    expect(moduleResponse.headers["cache-control"]).toBe("no-store");
+    expect((await fixture.app.inject(`/web/sample/_releases/${releaseId}/assets/main.js`)).statusCode).toBe(401);
+    fixture.store.publicSiteById.mockImplementation(async (id, publishedRelease) => ({
+      site: { ...fixture.row.site, id },
+      release: { ...fixture.row.release, id: publishedRelease ?? releaseId, siteId: id },
+    }));
+    const differentSite = moduleUrl.replace(siteId, "40000000-0000-4000-8000-000000000002");
+    const differentRelease = moduleUrl.replace(releaseId, "50000000-0000-4000-8000-000000000002");
+    expect((await fixture.app.inject(differentSite)).statusCode).toBe(404);
+    expect((await fixture.app.inject(differentRelease)).statusCode).toBe(404);
+
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(Date.now() + 15 * 60_000);
+      expect((await fixture.app.inject(moduleUrl)).statusCode).toBe(404);
+    } finally {
+      clock.mockRestore();
+    }
+
+    // Even a valid release credential must stop working when access changes.
+    fixture.row.site.passcodeHash = await hashPassword("sunset");
+    expect((await fixture.app.inject(moduleUrl)).statusCode).not.toBe(200);
+    fixture.row.site.passcodeHash = null;
+    expect((await fixture.app.inject(moduleUrl)).statusCode).not.toBe(200);
+  });
+
+  it("reports a protected pageview without its release credential or query string", async () => {
+    const origin = "https://linksense.example.test";
+    const stats = "https://stats.example.test";
+    const fixture = await setup(origin, stats);
+    fixture.row.site.passcodeHash = await hashPassword("sunrise");
+    fixture.row.site.analyticsEnabled = true;
+    fixture.row.site.analyticsDomain = `${siteId}.linksense.invalid`;
+    const unlock = await fixture.app.inject({
+      method: "POST", url: "/web/sample/unlock", payload: "passcode=sunrise",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    const cookie = String(unlock.headers["set-cookie"]).split(";")[0]!;
+    const shell = await fixture.app.inject({ url: "/web/sample", headers: { cookie } });
+    const source = /<iframe[^>]+src="([^"]+)"/u.exec(shell.body)?.[1];
+    if (!source) throw new Error("Missing release iframe");
+    const page = await fixture.app.inject(`${source}?private=fixture`);
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain(JSON.stringify({
+      endpoint: `${stats}/api/event`,
+      body: { name: "pageview", url: `${origin}/web/sample/_releases/${releaseId}/index.html`, domain: `${siteId}.linksense.invalid` },
+    }));
+    expect(page.body).not.toContain("/web/_protected/");
+    expect(page.body).not.toContain("private=fixture");
+    expect(page.body).toContain('credentials: "omit"');
+    expect(page.body).toContain('referrerPolicy: "no-referrer"');
   });
 
   it("requires authentication for all management operations and checks resource ownership", async () => {

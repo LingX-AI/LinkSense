@@ -398,6 +398,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(await readFile(join(next.skillsRoot, "linksense-browser", "SKILL.md"), "utf8")).toContain("CLOUD managed Chromium")
     const publicSiteSkill = await readFile(join(next.skillsRoot, "linksense-public-site", "SKILL.md"), "utf8")
     expect(publicSiteSkill).toContain("directly in the current conversation")
+    expect(publicSiteSkill).toContain("deliver a private preview without asking first")
     expect(publicSiteSkill).toContain("reuse the prepared `backend_id`")
     expect(publicSiteSkill).toContain("one transaction and keeps the application ID and link")
     expect(publicSiteSkill).toContain("Call `account.get()` first")

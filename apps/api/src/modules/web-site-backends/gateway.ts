@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { webBundlePathSchema } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
+import { hasSiteAccess, safeAccessNext, sendPasscodePage, siteUnlockBodyLimit, unlockSite, type SiteUnlockLimiter } from "../web-sites/access.js";
 import type { WebSiteService } from "../web-sites/service.js";
 import { resourceContentType } from "../web-sites/resources.js";
 import type { WebSiteBackendService } from "./service.js";
@@ -9,6 +10,7 @@ import type { WebSiteBackendService } from "./service.js";
 const apiPrefix = "/appwrite/v1";
 const gatewayPrefix = "/api/v1/public-app-gateway";
 const maximumBytes = 21 * 1024 * 1024;
+const unlockPath = "/_linksense/unlock";
 const clientPath = /^\/(?:account(?:\/[a-zA-Z0-9_.-]+)*|tablesdb\/[a-zA-Z0-9_.-]+\/tables\/[a-zA-Z0-9_.-]+\/(?:rows|transactions)(?:\/[a-zA-Z0-9_.-]+)*|tablesdb\/transactions(?:\/[a-zA-Z0-9_.-]+)*|storage\/buckets\/[a-zA-Z0-9_.-]+\/files(?:\/[a-zA-Z0-9_.-]+)*|functions\/[a-zA-Z0-9_.-]+\/executions(?:\/[a-zA-Z0-9_.-]+)?)$/u;
 
 export function validatePublicAppUrl(url: URL, projectId: string): void {
@@ -39,7 +41,8 @@ export function publicFunctionExecution(value: unknown, url: URL): string {
 }
 
 /** Route application hosts before platform authentication, parsing or CORS. */
-export function registerWebSiteBackendGateway(app: FastifyInstance, backends: WebSiteBackendService, sites: WebSiteService): void {
+export function registerWebSiteBackendGateway(app: FastifyInstance, backends: WebSiteBackendService, sites: WebSiteService,
+  options: { accessSecret: string; takeUnlockAttempt: SiteUnlockLimiter; analyticsOrigin?: string }): void {
   app.addHook("onRequest", async (request, reply) => {
     const host = request.headers.host ?? "";
     if (!backends.isAppHost(host)) return;
@@ -56,20 +59,39 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
     if (backends.matchHost(new URL(origin).host) !== label) throw new AppError("WEB_SITE_NOT_FOUND");
     const url = new URL(routedUrl, origin);
     if (url.origin !== origin || url.pathname.includes("\\")) throw new AppError("WEB_SITE_NOT_FOUND");
+    const accessOptions = { secret: options.accessSecret, secure: url.protocol === "https:", isolatedOrigin: origin };
+    const access = { id: binding.siteId, passcodeHash: binding.passcodeHash };
+    if (url.pathname === unlockPath && request.method === "POST") {
+      if (request.headers.origin !== undefined && request.headers.origin !== origin && request.headers.origin !== "null") throw new AppError("FORBIDDEN");
+      if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/iu.test(request.headers["content-type"] ?? "")) throw new AppError("VALIDATION_ERROR");
+      const form = (await readRequest(request, siteUnlockBodyLimit)).toString("utf8");
+      return unlockSite(request, reply, form, access, accessOptions, options.takeUnlockAttempt, unlockPath, "/");
+    }
     if (request.headers.origin !== undefined && request.headers.origin !== origin) throw new AppError("FORBIDDEN");
-    if (url.pathname.startsWith(`${apiPrefix}/`)) {
+    const backendRequest = url.pathname.startsWith(`${apiPrefix}/`);
+    if (!hasSiteAccess(request.headers.cookie, accessOptions, access)) {
+      if (backendRequest || !["GET", "HEAD"].includes(request.method)) throw new AppError("AUTH_REQUIRED");
+      const next = safeAccessNext(routedUrl);
+      return sendPasscodePage(request, reply, { action: unlockPath, ...(next ? { next } : {}) });
+    }
+    const assertLiveAccess = async () => {
+      const live = await backends.store.publicBinding(id);
+      if (live.siteId !== binding.siteId) throw new AppError("WEB_SITE_NOT_FOUND");
+      if (!hasSiteAccess(request.headers.cookie, accessOptions, { id: live.siteId, passcodeHash: live.passcodeHash })) throw new AppError("AUTH_REQUIRED");
+    };
+    if (backendRequest) {
       if (url.pathname.startsWith(`${apiPrefix}/storage/`)) {
         reply.header("content-security-policy", "sandbox; default-src 'none'; frame-ancestors 'none'");
       }
-      return forward(request, reply, url, binding.backend.projectId, origin, backends, id);
+      return forward(request, reply, url, binding.backend.projectId, origin, backends, assertLiveAccess);
     }
     if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
     let path: string;
     try { path = decodeURIComponent(url.pathname); } catch { throw new AppError("WEB_SITE_NOT_FOUND"); }
     const resourcePath = path.endsWith("/") ? `${path}index.html` : path;
     if (!webBundlePathSchema.safeParse(resourcePath.slice(1)).success) throw new AppError("WEB_SITE_NOT_FOUND");
-    const resource = await sites.applicationResource(binding.backend.ownerId, binding.siteId, path);
-    await backends.store.publicBinding(id);
+    const resource = await sites.applicationResource(binding.backend.ownerId, binding.siteId, path, `${url.origin}${url.pathname}`);
+    await assertLiveAccess();
     if ("redirect" in resource) return reply.redirect(`${resource.redirect}${url.search}`);
     return reply.type(resourceContentType(resource.mimeType)).send(resource.data);
   });
@@ -82,7 +104,7 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
       .header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
       .header("content-security-policy", reply.getHeader("content-security-policy") ?? [
         "default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'",
-        "connect-src 'self'", "img-src 'self' data: blob:", "font-src 'self'", "media-src 'self' blob:",
+        `connect-src 'self'${options.analyticsOrigin ? ` ${options.analyticsOrigin}` : ""}`, "img-src 'self' data: blob:", "font-src 'self'", "media-src 'self' blob:",
         "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'", "worker-src 'none'",
       ].join("; "));
     return payload;
@@ -91,7 +113,7 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
 
 async function forward(
   request: FastifyRequest, reply: FastifyReply, url: URL, projectId: string, origin: string,
-  backends: WebSiteBackendService, backendId: string,
+  backends: WebSiteBackendService, assertLiveAccess: () => Promise<void>,
 ): Promise<FastifyReply> {
   const path = url.pathname.slice(apiPrefix.length);
   validatePublicAppUrl(url, projectId);
@@ -137,7 +159,7 @@ async function forward(
   }
   const data = await readResponse(response);
   // A disable, owner suspension or task deletion fences an in-flight response too.
-  await backends.store.publicBinding(backendId);
+  await assertLiveAccess();
   const contentType = response.headers.get("content-type");
   if (contentType) reply.header("content-type", contentType);
   const cookieHeaders = response.headers.getSetCookie().flatMap(value => {
@@ -157,13 +179,13 @@ async function forward(
   return reply.code(response.status).send(data);
 }
 
-export async function readRequest(request: FastifyRequest): Promise<Buffer> {
+export async function readRequest(request: FastifyRequest, maximum = maximumBytes): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const value of request.raw) {
     if (!Buffer.isBuffer(value)) throw new AppError("VALIDATION_ERROR");
     size += value.length;
-    if (size > maximumBytes) throw new AppError("FILE_LIMIT_EXCEEDED");
+    if (size > maximum) throw new AppError("FILE_LIMIT_EXCEEDED");
     chunks.push(value);
   }
   return Buffer.concat(chunks, size);

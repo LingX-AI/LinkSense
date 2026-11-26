@@ -509,7 +509,7 @@ type ConversationComposerProps = Readonly<{
   onSubmit: (value: string) => void
   taskReferences?: TaskReference[]
   onTaskReferencesChange?: (references: TaskReference[]) => void
-  onCompact?: () => void
+  onCompact?: (commandValue: string) => void
   compactAvailable?: boolean
   compacting?: boolean
   taskStartDisabled?: boolean
@@ -1214,8 +1214,11 @@ export const ConversationComposer = forwardRef<
 
   const compactFromSlash = () => {
     if (!compactAvailable || compacting || modelPreferencePending) return
+    const current = latestValueRef.current
+    const trigger = findConversationSlashCommandTrigger(current)
+    if (!trigger || current.slice(0, trigger.start).trim()) return
     dismissSlashMenu()
-    onCompact()
+    onCompact(current)
   }
 
   const startApplicationFromSlash = (application: Application) => {
@@ -1230,7 +1233,7 @@ export const ConversationComposer = forwardRef<
   const trySubmitValue = (nextValue: string, focusTextarea = false) => {
     if (!canSendValue(nextValue)) return false
     if (isCompactionValue(nextValue)) {
-      onCompact()
+      onCompact(nextValue)
       return true
     }
     if (focusTextarea) textareaRef.current?.focus({ preventScroll: true })

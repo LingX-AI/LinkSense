@@ -314,7 +314,35 @@ describe("rich resource output", () => {
     }
   )
 
-  it("removes duplicate automatic cards only while rich resource cards are mounted", async () => {
+  it("keeps the automatic download until the rich resource is visible in the active expanded panel", async () => {
+    const details = {
+      type: "Details",
+      props: { title: "Show files" },
+      children: ["files"],
+    }
+    const nested = JSON.stringify({
+      ...output,
+      spec: {
+        ...output.spec,
+        elements: {
+          ...output.spec.elements,
+          panel: { ...output.spec.elements.panel, children: ["views"] },
+          views: {
+            type: "Tabs",
+            props: {
+              title: "Result views",
+              tabs: [
+                { id: "gallery", label: "Images" },
+                { id: "details", label: "Attachments" },
+              ],
+            },
+            children: ["gallery", "details"],
+          },
+          details,
+        },
+      },
+    })
+    const user = userEvent.setup()
     const conversation = conversationSchema.parse({
       id: "conversation-1",
       title: "Files",
@@ -346,19 +374,34 @@ describe("rich resource output", () => {
         onDownload={onDownload}
       />
     )
-    const { rerender } = render(view(markdown), { wrapper: MemoryRouter })
-    await screen.findByTestId("assistant-rich-output")
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole("button", { name: "Download private-results.zip" })
-      ).toHaveLength(1)
-    )
+    const { rerender } = render(view(`\`\`\`json-render\n${nested}\n\`\`\``), {
+      wrapper: MemoryRouter,
+    })
+    const rich = await screen.findByTestId("assistant-rich-output")
+    const downloadLabel = "Download private-results.zip"
+    const expectDownload = async (inRichOutput: boolean) => {
+      await waitFor(() => {
+        const buttons = screen.getAllByRole("button", { name: downloadLabel })
+        expect(buttons).toHaveLength(1)
+        expect(rich.contains(buttons[0]!)).toBe(inRichOutput)
+      })
+    }
+    await expectDownload(false)
+    const attachments = screen.getByRole("tab", { name: "Attachments" })
+    const images = screen.getByRole("tab", { name: "Images" })
+    await user.click(attachments)
+    await expectDownload(false)
+    const disclosure = screen.getByRole("button", { name: "Show files" })
+    await user.click(disclosure)
+    await expectDownload(true)
+    await user.click(images)
+    await expectDownload(false)
+    await user.click(attachments)
+    await expectDownload(true)
+    await user.click(disclosure)
+    await expectDownload(false)
     rerender(view("Finished."))
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole("button", { name: "Download private-results.zip" })
-      ).toHaveLength(1)
-    )
+    await expectDownload(false)
     expect(
       screen.queryByTestId("assistant-rich-output")
     ).not.toBeInTheDocument()

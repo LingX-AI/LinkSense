@@ -421,6 +421,7 @@ describe("AppServerProcessPool", () => {
     const controlled = createControlledAppServer({
       threadReadTurns: [previousTurn],
       compactTurn,
+      compactNotifications: "manual",
       threadResumeDefaultModel: "different-default-model",
     });
     const { pool, capabilityRuntimeManager, nativePluginManager } =
@@ -466,6 +467,195 @@ describe("AppServerProcessPool", () => {
     expect(nativePluginManager.verifyAfterStart).not.toHaveBeenCalled();
     await pool.closeAll();
   });
+
+  it.each(["before", "after"] as const)(
+    "registers an itemless native compaction starting %s the RPC reply and projects its failure",
+    async (timing) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-itemless-compact-"));
+      roots.push(root);
+      const threadId = "thread-native-1";
+      const compactTurn: CodexTurn = {
+        id: "turn-native-compact",
+        status: "inProgress",
+        items: [],
+        error: null,
+      };
+      const failedTurn: CodexTurn = {
+        ...compactTurn,
+        status: "failed",
+        error: {
+          message: "Model provider unavailable",
+          codexErrorInfo: "serverOverloaded",
+          additionalDetails: null,
+        },
+      };
+      const controlled = createControlledAppServer({
+        threadReadTurns: [],
+        ...(timing === "before" ? { compactTurn: failedTurn } : {}),
+      });
+      const { pool, eventSink } = createStartOperationPool(
+        root,
+        controlled.factory,
+        undefined,
+        { nativeTurnRegistrationTimeoutMs: 500 },
+      );
+      const input = startOperationInput();
+      input.operationKind = "compact";
+      input.codexThreadId = threadId;
+      input.context.userInput = "";
+
+      try {
+        await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
+          status: "starting",
+        });
+        if (timing === "after") {
+          await waitForFast(() =>
+            expect(controlled.methods.filter((method) => method === "thread/read").length)
+              .toBeGreaterThanOrEqual(2),
+          );
+          controlled.notify({
+            method: "turn/started",
+            params: { threadId: "another-thread", turn: { ...compactTurn, id: "unrelated-turn" } },
+          });
+          controlled.notify({
+            method: "turn/started",
+            params: { threadId, turn: compactTurn },
+          });
+        }
+        await waitForFast(() =>
+          expect(eventSink.reportStartSettled).toHaveBeenCalledOnce(),
+        );
+        await expect(
+          pool.getStartOperation(input.conversationId, input.projectionTurnId),
+        ).resolves.toMatchObject({
+          status: "succeeded",
+          result: { codexThreadId: threadId, codexTurnId: compactTurn.id },
+        });
+
+        if (timing === "after") {
+          expect(pool.runningCount).toBe(1);
+          controlled.notify({
+            method: "turn/completed",
+            params: { threadId, turn: failedTurn },
+          });
+        }
+        await waitForFast(() => {
+          expect(eventSink.publish).toHaveBeenCalledWith(
+            input.conversationId,
+            expect.objectContaining({
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: expect.objectContaining({
+                  id: compactTurn.id,
+                  status: "failed",
+                }),
+              },
+            }),
+          );
+          expect(pool.runningCount).toBe(0);
+        });
+        await expect(pool.closeConversation(input.conversationId)).resolves.toBeUndefined();
+        expect(
+          controlled.methods.filter((method) => method === "thread/compact/start"),
+        ).toHaveLength(1);
+        expect(controlled.methods).not.toContain("turn/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
+  it("does not register a compaction with competing new native turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-ambiguous-compact-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [] });
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      { nativeTurnRegistrationTimeoutMs: 500 },
+    );
+    const input = startOperationInput();
+    input.operationKind = "compact";
+    input.codexThreadId = "thread-native-1";
+    input.context.userInput = "";
+
+    try {
+      await pool.beginStartOperation(input);
+      await waitForFast(() => {
+        expect(controlled.methods).toContain("thread/compact/start");
+      });
+      for (const id of ["turn-native-first", "turn-native-second"]) {
+        controlled.notify({
+          method: "turn/started",
+          params: {
+            threadId: input.codexThreadId,
+            turn: { id, status: "inProgress", items: [], error: null },
+          },
+        });
+      }
+      await waitForFast(async () =>
+        expect(
+          await pool.getStartOperation(input.conversationId, input.projectionTurnId),
+        ).toMatchObject({
+          status: "uncertain",
+          errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+        }),
+      );
+      expect(
+        controlled.methods.filter((method) => method === "thread/compact/start"),
+      ).toHaveLength(1);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it.each([
+    ["running native turn", {
+      threadReadTurns: [{ id: "turn-native-running", status: "inProgress", items: [], error: null }],
+    }],
+    ["active native Goal", {
+      threadReadTurns: [],
+      initialGoal: {
+        threadId: "thread-native-1",
+        objective: "Complete the goal",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    }],
+    ["missing native thread", { threadResumeMissing: true }],
+  ] satisfies [string, NonNullable<Parameters<typeof createControlledAppServer>[0]>][])(
+    "does not submit compaction or replace the source with a %s",
+    async (condition, options) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-compact-admission-"));
+      roots.push(root);
+      const controlled = createControlledAppServer(options);
+      const { pool } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      input.operationKind = "compact";
+      input.codexThreadId = "thread-native-1";
+      input.context.userInput = "";
+
+      try {
+        await pool.beginStartOperation(input);
+        await waitForFast(async () =>
+          expect(
+            await pool.getStartOperation(input.conversationId, input.projectionTurnId),
+          ).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_FAILED" }),
+        );
+        expect(controlled.methods).not.toContain("thread/compact/start");
+        expect(controlled.methods).not.toContain("thread/start");
+        expect(controlled.methods).not.toContain("turn/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
 
   it("starts a native Goal turn with the selected Skill input before activating it", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-native-goal-"));
@@ -13636,9 +13826,7 @@ function createStartOperationPool(
     ...(overrides.desktopArtifactsWebsiteEnabled ? { desktopArtifactsWebsiteEnabled: true } : {}),
     command: "codex",
     model: "test-model",
-    ...(overrides.modelCatalog
-      ? { modelCatalog: overrides.modelCatalog }
-      : {}),
+    modelCatalog: overrides.modelCatalog ?? { ensure: async () => null },
     processLimit: 2,
     idleTtlMs: overrides.idleTtlMs ?? 60_000,
     templateVersion: "test",

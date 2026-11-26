@@ -98,9 +98,13 @@ describe("controller and dynamic worker HTTP contracts", () => {
     },
   );
 
-  it.each([undefined, "01900000-0000-7000-8000-000000000006"])(
-    "relays privacy masking captures from the worker sink through the controller with service session %s",
-    async (serviceSessionId) => {
+  it.each([
+    { serviceSessionId: undefined, legacyApi: false },
+    { serviceSessionId: "01900000-0000-7000-8000-000000000006", legacyApi: false },
+    { serviceSessionId: undefined, legacyApi: true },
+  ])(
+    "relays privacy masking captures through the controller ($serviceSessionId, legacy API: $legacyApi)",
+    async ({ serviceSessionId, legacyApi }) => {
       const capture: RunnerPrivacyMaskingCapture = {
         request_id: "01900000-0000-7000-8000-000000000020",
         owner_id: ownerId,
@@ -113,15 +117,16 @@ describe("controller and dynamic worker HTTP contracts", () => {
         observed_at: "2026-11-20T00:00:00.000Z",
       };
       const api = Fastify({ logger: false });
-      const record = vi.fn((body: unknown) => {
-        expect(runnerPrivacyMaskingCaptureSchema.parse(body)).toEqual(capture);
-        return { recorded: true };
-      });
-      api.post("/internal/runner/privacy-masking", async (request) => {
+      const record = vi.fn();
+      api.post("/internal/runner/privacy-masking", async (request, reply) => {
         expect(request.headers.authorization).toBe(`Bearer ${globalSecret}`);
         expect(request.headers["x-linksense-owner-id"]).toBe(ownerId);
         expect(request.headers["x-linksense-service-session"]).toBe(serviceSessionId);
-        return record(request.body);
+        if (legacyApi && Object.hasOwn(Object(request.body), "hints")) {
+          return reply.code(400).send({ success: false, error_code: "VALIDATION_ERROR" });
+        }
+        record(runnerPrivacyMaskingCaptureSchema.parse(request.body));
+        return { recorded: true };
       });
       const apiUrl = await api.listen({ host: "127.0.0.1", port: 0 });
       const workers = { request: vi.fn<WorkerManager["request"]>() } as unknown as WorkerManager;
@@ -144,7 +149,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
         );
 
         await expect(sink.recordPrivacyMasking(capture)).resolves.toBeUndefined();
-        expect(record).toHaveBeenCalledExactlyOnceWith(capture);
+        expect(record).toHaveBeenCalledExactlyOnceWith(legacyApi ? { ...capture, hints: [] } : capture);
         expect(workers.request).not.toHaveBeenCalled();
       } finally {
         await sink?.close();

@@ -215,6 +215,8 @@ describe("security boundaries", () => {
       "req.body.initialization_credential",
     );
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.audio_data_url");
+    expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.passcode");
+    expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.request.passcode");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.environment");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.json");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.instruction");

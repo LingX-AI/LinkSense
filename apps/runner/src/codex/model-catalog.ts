@@ -1,33 +1,45 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmod,
   mkdtemp,
   mkdir,
   open,
-  readdir,
+  realpath,
   rename,
   rm,
-  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
+import pino from "pino";
 import { z } from "zod";
 
 import {
   isolatedChildInvocation,
   type ProcessIdentity,
 } from "../child-process-isolation.js";
+import { makeDirectoryTreeRemovable } from "../workspace/filesystem.js";
+import { CodexJsonRpcClient } from "./json-rpc-client.js";
 
 const execFileAsync = promisify(execFile);
 const templateCatalogSchema = z.object({
-  models: z.array(z.record(z.string(), z.unknown())).min(1),
+  models: z.array(z.object({ slug: z.string().min(1) }).passthrough()).min(1),
 });
-
-type JsonObject = Record<string, unknown>;
+const probeThreadSchema = z.object({
+  thread: z.object({ id: z.string().min(1), path: z.string().min(1) }),
+});
+const catalogProbeProvider = "linksense-catalog-probe";
+const probeRolloutSchema = z.object({
+  type: z.literal("session_meta"),
+  payload: z.object({
+    model_provider: z.literal(catalogProbeProvider),
+    base_instructions: z.object({ text: z.string().refine((text) => text.trim() !== "") }),
+  }),
+});
+type TemplateCatalog = z.infer<typeof templateCatalogSchema>;
 
 export type CodexModelCatalogInput = {
   command: string;
@@ -43,6 +55,8 @@ export interface CodexModelCatalogWriter {
   ensure(input: CodexModelCatalogInput): Promise<string | null>;
 }
 
+type ProbeIdentity = Pick<CodexModelCatalogInput, "command" | "processIdentity">;
+
 type CommandRunner = (
   command: string,
   args: string[],
@@ -50,6 +64,7 @@ type CommandRunner = (
     encoding: "utf8";
     timeout: number;
     maxBuffer: number;
+    cwd?: string;
     env?: NodeJS.ProcessEnv;
   }
 ) => Promise<{ stdout: string }>;
@@ -67,59 +82,53 @@ type CommandRunner = (
 export function createCodexModelCatalogWriter(
   deps: {
     runCommand?: CommandRunner;
+    readDefaultInstructions?: (input: ProbeIdentity) => Promise<string | null>;
   } = {}
 ): CodexModelCatalogWriter {
   const runCommand = deps.runCommand ?? execFileAsync;
-  const templates = new Map<string, Promise<JsonObject | null>>();
-  const baseInstructions = new Map<string, Promise<string | null>>();
+  const readDefaultInstructions = deps.readDefaultInstructions ?? probeDefaultInstructions;
+  const templates = new Map<string, Promise<TemplateCatalog | null>>();
+  const genericInstructions = new Map<string, Promise<string | null>>();
   const writeLocks = new Map<string, Promise<void>>();
-
-  async function templateFor(
-    command: string,
-    processIdentity: ProcessIdentity | undefined
-  ): Promise<JsonObject | null> {
-    const key = processIdentity
-      ? `${command}\0${processIdentity.uid}:${processIdentity.gid}`
-      : command;
-    let template = templates.get(key);
-    if (!template) {
-      template = loadTemplate(command, processIdentity, runCommand);
-      templates.set(key, template);
-    }
-    const value = await template;
-    if (value === null && templates.get(key) === template) {
-      templates.delete(key);
-    }
-    return value;
-  }
 
   return {
     async ensure(input) {
       if (input.modelContextWindow === undefined) return null;
-      const template = await templateFor(input.command, input.processIdentity);
+      const { uid, gid } = input.processIdentity ?? {};
+      const key = JSON.stringify([input.command, uid, gid]);
+      const template = await cachedProbe(templates, key, () => loadTemplate(input, runCommand));
       if (!template) return null;
-      const instructions = await instructionsFor(
-        input.codexHome,
-        baseInstructions
-      );
-      // Without a prior LinkSense session there is no known-good synthetic
-      // instruction template; skip rather than replacing Codex's instructions.
-      if (!instructions) return null;
-      const entry = buildModelEntry(template, {
-        model: input.model,
-        contextWindow: input.modelContextWindow,
-        supportsImageInput: input.supportsImageInput === true,
-        instructions,
+      const bundled = template.models.find((model) => model.slug === input.model);
+      let base: Record<string, unknown>;
+      if (bundled) {
+        base = bundled;
+      } else {
+        const instructions = await cachedProbe(genericInstructions, key, () =>
+          readDefaultInstructions(input)
+        );
+        if (!instructions) return null;
+        base = genericModelEntry(input.model, instructions);
+      }
+      const entry = {
+        ...base,
+        context_window: input.modelContextWindow,
+        max_context_window: input.modelContextWindow,
+        effective_context_window_percent: 100,
+        auto_compact_token_limit: null,
+        input_modalities: input.supportsImageInput ? ["text", "image"] : ["text"],
+        supports_image_detail_original: input.supportsImageInput === true &&
+          bundled?.supports_image_detail_original === true,
+      };
+      const payload = JSON.stringify({
+        models: [...template.models.filter((model) => model.slug !== input.model), entry],
       });
       // Other conversations can start with a different model before Codex loads this file.
-      const identity = createHash("sha256")
-        .update(JSON.stringify([input.model, input.modelContextWindow]))
-        .digest("hex");
+      const identity = createHash("sha256").update(payload).digest("hex");
       const catalogPath = join(input.codexHome, `linksense-models-${identity}.json`);
       const previous = writeLocks.get(catalogPath) ?? Promise.resolve();
       const next = previous
         .catch(() => undefined)
-        .then(() => writeCatalog(catalogPath, template, entry));
+        .then(() => writeCatalog(catalogPath, payload));
       writeLocks.set(catalogPath, next);
       try {
         await next;
@@ -131,181 +140,150 @@ export function createCodexModelCatalogWriter(
   };
 }
 
-async function loadTemplate(
-  command: string,
-  processIdentity: ProcessIdentity | undefined,
-  runCommand: CommandRunner
-): Promise<JsonObject | null> {
-  const root = await mkdtemp(join(tmpdir(), "linksense-codex-models-"));
-  try {
-    // The probe runs as the task identity while the supervisor owns the temp
-    // root with mode 0700. Share the supervisor group so Codex can enter and
-    // write its throwaway home; otherwise the probe fails and Codex clamps the
-    // configured model window to its unknown-model default.
-    await chmod(root, 0o770);
-    const codexHome = join(root, "codex");
-    const home = join(root, "home");
-    await mkdir(codexHome, { recursive: true, mode: 0o770 });
-    await mkdir(home, { recursive: true, mode: 0o770 });
-    // mkdir modes are masked by umask, so set the shared group explicitly.
-    await Promise.all([chmod(codexHome, 0o770), chmod(home, 0o770)]);
-    const invocation = isolatedChildInvocation(
-      command,
-      ["debug", "models"],
-      processIdentity
-    );
-    const { stdout } = await runCommand(invocation.command, invocation.args, {
-      encoding: "utf8",
-      timeout: 15_000,
-      maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, CODEX_HOME: codexHome, HOME: home },
-    });
-    const parsed = templateCatalogSchema.safeParse(JSON.parse(stdout));
-    if (!parsed.success) return null;
-    if (!baseTemplateModel(parsed.data.models)) return null;
-    return parsed.data;
-  } catch {
-    return null;
-  } finally {
-    await rm(root, { recursive: true, force: true }).catch(() => undefined);
+async function cachedProbe<T>(
+  cache: Map<string, Promise<T | null>>,
+  key: string,
+  load: () => Promise<T | null>,
+): Promise<T | null> {
+  let probe = cache.get(key);
+  if (!probe) {
+    probe = load().catch(() => null);
+    cache.set(key, probe);
   }
-}
-
-function baseTemplateModel(models: readonly JsonObject[]): JsonObject | null {
-  return (
-    models.find((model) => {
-      const messages = model.model_messages;
-      return (
-        isRecord(messages) &&
-        typeof messages.instructions_template === "string" &&
-        messages.instructions_template.trim() !== ""
-      );
-    }) ?? null
-  );
-}
-
-async function instructionsFor(
-  codexHome: string,
-  cache: Map<string, Promise<string | null>>
-): Promise<string | null> {
-  let instructions = cache.get(codexHome);
-  if (!instructions) {
-    instructions = readLatestBaseInstructions(codexHome);
-    cache.set(codexHome, instructions);
-  }
-  const value = await instructions;
-  if (value === null && cache.get(codexHome) === instructions) {
-    cache.delete(codexHome);
-  }
+  const value = await probe;
+  if (value === null && cache.get(key) === probe) cache.delete(key);
   return value;
 }
 
-async function readLatestBaseInstructions(
-  codexHome: string
-): Promise<string | null> {
+async function withProbeHome<T>(
+  identity: ProcessIdentity | undefined,
+  probe: (home: string, codexHome: string) => Promise<T>,
+): Promise<T> {
+  const home = await mkdtemp(join(tmpdir(), "linksense-codex-models-"));
   try {
-    const sessionsRoot = join(codexHome, "sessions");
-    const files = await collectSessionFiles(sessionsRoot, 3);
-    for (const file of files) {
-      const firstLine = await readFirstLine(file);
-      const parsed = safeJson(firstLine);
-      const payload =
-        isRecord(parsed) && isRecord(parsed.payload) ? parsed.payload : null;
-      const base =
-        payload && isRecord(payload.base_instructions)
-          ? payload.base_instructions
-          : null;
-      if (
-        payload?.model_provider === "link-sense" &&
-        base &&
-        typeof base.text === "string" &&
-        base.text.trim() !== ""
-      ) {
-        return base.text;
-      }
-    }
-    return null;
-  } catch {
-    return null;
+    const codexHome = join(home, ".codex");
+    await mkdir(codexHome);
+    if (identity) await Promise.all([chmod(home, 0o770), chmod(codexHome, 0o770)]);
+    return await probe(home, codexHome);
+  } finally {
+    if (identity) await makeDirectoryTreeRemovable(home, identity).catch(() => undefined);
+    await rm(home, { recursive: true, force: true });
   }
 }
 
-async function collectSessionFiles(
-  root: string,
-  limit: number
-): Promise<string[]> {
-  const files: Array<{ path: string; mtimeMs: number }> = [];
-  async function walk(directory: string, depth: number): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (depth > 0) await walk(path, depth - 1);
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        const info = await stat(path);
-        files.push({ path, mtimeMs: info.mtimeMs });
-      }
-    }
-  }
-  await walk(root, 4);
-  return files
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .slice(0, limit)
-    .map((file) => file.path);
+async function loadTemplate(
+  input: ProbeIdentity,
+  runCommand: CommandRunner,
+): Promise<TemplateCatalog> {
+  return withProbeHome(input.processIdentity, async (home, codexHome) => {
+    const invocation = isolatedChildInvocation(
+      input.command,
+      ["debug", "models", "--bundled"],
+      input.processIdentity,
+    );
+    const { stdout } = await runCommand(invocation.command, invocation.args, {
+      encoding: "utf8",
+      cwd: home,
+      timeout: 15_000,
+      maxBuffer: 16 * 1024 * 1024,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TMPDIR: home,
+        TEMP: home,
+        TMP: home,
+        CODEX_HOME: codexHome,
+        HOME: home,
+      },
+    });
+    return templateCatalogSchema.parse(JSON.parse(stdout));
+  });
 }
 
-function buildModelEntry(
-  template: JsonObject,
-  input: {
-    model: string;
-    contextWindow: number;
-    supportsImageInput: boolean;
-    instructions: string;
-  }
-): JsonObject {
-  const base = baseTemplateModel(
-    Array.isArray(template.models) ? template.models : []
-  );
-  const messages =
-    base && isRecord(base.model_messages) ? base.model_messages : {};
+async function probeDefaultInstructions(input: ProbeIdentity): Promise<string> {
+  return withProbeHome(input.processIdentity, async (home, codexHome) => {
+    const client = new CodexJsonRpcClient({
+      command: input.command,
+      cwd: home,
+      userHome: home,
+      codexHome,
+      logger: pino({ enabled: false }),
+      requestTimeoutMs: 5_000,
+      ...(input.processIdentity ? { processIdentity: input.processIdentity } : {}),
+      configOverrides: [
+        'cli_auth_credentials_store="ephemeral"',
+        "check_for_update_on_startup=false",
+        "analytics.enabled=false",
+        "features.apps=false",
+        "features.plugins=false",
+        "features.remote_models=false",
+        "features.memories=false",
+        `model_providers.${catalogProbeProvider}={name="Catalog probe",base_url="http://127.0.0.1:1/v1",wire_api="responses"}`,
+      ],
+    });
+    try {
+      await client.initialize();
+      const { thread } = probeThreadSchema.parse(await client.request("thread/start", {
+        model: `${catalogProbeProvider}-model`,
+        modelProvider: catalogProbeProvider,
+        cwd: home,
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        ephemeral: false,
+      }));
+      await client.request("thread/inject_items", {
+        threadId: thread.id,
+        items: [{
+          type: "message",
+          role: "developer",
+          content: [{ type: "input_text", text: "Catalog probe" }],
+        }],
+      });
+      const file = await realpath(thread.path);
+      const relativePath = relative(await realpath(codexHome), file);
+      if (!relativePath.startsWith(`sessions${sep}`) || isAbsolute(relativePath)) {
+        throw new Error("Codex catalog probe rollout escaped its temporary home");
+      }
+      return probeRolloutSchema.parse(JSON.parse(await readFirstLine(file)))
+        .payload.base_instructions.text;
+    } finally {
+      await client.close();
+    }
+  });
+}
+
+/** Match the pinned native descriptor for an unknown model, not a bundled model's capabilities. */
+function genericModelEntry(model: string, instructions: string): Record<string, unknown> {
   return {
-    ...base,
-    slug: input.model,
-    display_name: input.model,
+    slug: model,
+    display_name: model,
     description: null,
-    priority: 1,
-    context_window: input.contextWindow,
-    max_context_window: input.contextWindow,
-    effective_context_window_percent: 100,
-    auto_compact_token_limit: null,
-    // Never inherit the template's modalities: a text-only provider model must
-    // not receive view_image results (base64 images are counted as tokens).
-    input_modalities: input.supportsImageInput ? ["text", "image"] : ["text"],
-    supports_image_detail_original: input.supportsImageInput
-      ? base?.supports_image_detail_original === true
-      : false,
-    model_messages: {
-      ...messages,
-      instructions_template: input.instructions,
-    },
+    supported_reasoning_levels: [],
+    shell_type: "unified_exec",
+    visibility: "none",
+    supported_in_api: true,
+    priority: 99,
+    model_messages: { instructions_template: instructions },
+    include_apps_usage_instructions: false,
+    default_reasoning_summary: "auto",
+    support_verbosity: false,
+    truncation_policy: { mode: "bytes", limit: 10_000 },
+    experimental_supported_tools: [],
+    use_responses_lite: false,
   };
 }
 
-async function writeCatalog(
-  catalogPath: string,
-  template: JsonObject,
-  entry: JsonObject
-): Promise<void> {
-  const models = (
-    Array.isArray(template.models) ? template.models : []
-  ).filter((model) => !isRecord(model) || model.slug !== entry.slug);
-  const payload = { models: [...models, entry] };
+async function writeCatalog(catalogPath: string, payload: string): Promise<void> {
   await mkdir(dirname(catalogPath), { recursive: true });
-  const temporary = `${catalogPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  const temporary = `${catalogPath}.${randomUUID()}.tmp`;
   // The task identity reads the catalog, so keep it readable inside the
   // group-shared CODEX_HOME.
-  await writeFile(temporary, JSON.stringify(payload), { mode: 0o644 });
-  await rename(temporary, catalogPath);
+  await writeFile(temporary, payload, { mode: 0o644, flag: "wx" });
+  try {
+    await rename(temporary, catalogPath);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
 }
 
 async function readFirstLine(path: string): Promise<string> {
@@ -319,16 +297,4 @@ async function readFirstLine(path: string): Promise<string> {
   } finally {
     await handle.close();
   }
-}
-
-function safeJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

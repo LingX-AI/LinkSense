@@ -171,16 +171,20 @@ export function selectContextCompactionSavedTokens(
 
 export function selectConversationModelContextUsage(
   events: readonly ConversationEvent[],
-  snapshot?: ConversationModelContextUsageSnapshot | null
+  snapshot?: ConversationModelContextUsageSnapshot | null,
+  catalogWindow?: number | null
 ): ConversationModelContextUsage | null {
-  const eventUsage = selectLatestConversationModelContextUsage(events)
-  if (eventUsage) return eventUsage
-  if (!snapshot) return null
-  return {
-    turnId: null,
-    usedTokens: snapshot.used_tokens,
-    modelContextWindow: snapshot.model_context_window,
-  }
+  const usage = selectLatestConversationModelContextUsage(events) ??
+    (snapshot
+      ? {
+          turnId: null,
+          usedTokens: snapshot.used_tokens,
+          modelContextWindow: snapshot.model_context_window,
+        }
+      : null)
+  return usage
+    ? { ...usage, modelContextWindow: usage.modelContextWindow ?? catalogWindow ?? null }
+    : null
 }
 
 export function selectLatestConversationModelContextUsage(

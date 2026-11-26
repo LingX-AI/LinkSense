@@ -72,6 +72,25 @@ describe("Redis atomic protection", () => {
     await setSuccessfulRecoveryBaseline(client)
   })
 
+  it("shares unlock limits across API instances, IPs and site aliases", async () => {
+    const other = new LinkSenseRedis(testConfig(), client)
+    const siteId = "30000000-0000-4000-8000-000000000001"
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        (index % 2 ? protection : other).takeWebSiteUnlockAttempt(siteId, "192.0.2.1")
+      )
+    )
+    expect(attempts.filter(Boolean)).toHaveLength(5)
+    const otherIps = await Promise.all(
+      Array.from({ length: 27 }, (_, index) =>
+        other.takeWebSiteUnlockAttempt(siteId, `198.51.100.${index + 1}`)
+      )
+    )
+    expect(otherIps.filter(Boolean)).toHaveLength(25)
+    expect(await protection.takeWebSiteUnlockAttempt(siteId, "203.0.113.1")).toBe(false)
+    expect(await other.takeWebSiteUnlockAttempt("30000000-0000-4000-8000-000000000002", "203.0.113.1")).toBe(true)
+  })
+
   it("deduplicates thumbnail work across API instances and limits decoding to four concurrent files", async () => {
     const other = new LinkSenseRedis(testConfig(), client)
     const files = [1, 2, 3, 4, 5].map(index => `30000000-0000-4000-8000-00000000000${index}`)

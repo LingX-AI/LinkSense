@@ -12,6 +12,16 @@ import { WebArtifactResources } from "./artifact-resources.js";
 import { analyticsDomain, type WebSiteAnalytics } from "./analytics.js";
 import type { WebSiteBackendService } from "../web-site-backends/service.js";
 import type { WebSiteBackend } from "@linksense/shared";
+import type { SiteAccess } from "./access.js";
+
+export type PublicSiteAddress = { id: string } | { slug: string };
+export type PublicSitePage = {
+  title: string; access: SiteAccess; releaseId: string; entryPath: string; backendId?: string; url?: string;
+};
+
+function siteAccess(site: SiteAndRelease["site"]): SiteAccess {
+  return { id: site.id, slug: webSiteSchema.shape.slug.parse(site.slug), passcodeHash: site.passcodeHash ?? null };
+}
 
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
@@ -47,10 +57,8 @@ export class WebSiteService {
     return (await this.store.publicSite(slug.data)).site.id;
   }
   /** Published access state for the passcode gate; the hash itself stays server-side. */
-  async publicAccess(address: string): Promise<{ id: string; slug: string; passcodeHash: string | null }> {
-    const siteId = await this.publishedSiteIdByAddress(address);
-    const { site } = await this.store.publicSiteById(siteId);
-    return { id: site.id, slug: site.slug, passcodeHash: site.passcodeHash ?? null };
+  async publicAccess(address: PublicSiteAddress): Promise<SiteAccess> {
+    return siteAccess((await this.publicSite(address)).site);
   }
   private async passcodeHash(passcode: string | null | undefined): Promise<string | null | undefined> {
     if (passcode === undefined) return undefined;
@@ -78,8 +86,16 @@ export class WebSiteService {
       : await this.store.create(ownerId, input, ids, sourceTitle, manifest, undefined, passcodeHash));
   }
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
+    if (input.analytics === true) {
+      const { analytics, ...metadata } = input;
+      if (Object.keys(metadata).length) await this.saveUpdate(ownerId, id, metadata);
+      return await this.saveUpdate(ownerId, id, { analytics }, await this.enableAnalytics(ownerId, id));
+    }
+    return await this.saveUpdate(ownerId, id, input, input.analytics === false ? { enabled: false } : undefined);
+  }
+  private async saveUpdate(ownerId: string, id: string, input: WebSiteUpdate,
+    analytics?: { enabled: boolean; siteId?: number; domain?: string }): Promise<WebSite> {
     const passcodeHash = await this.passcodeHash(input.passcode);
-    const analytics = await this.analyticsUpdate(ownerId, id, input.analytics);
     if (input.status === "published") {
       const { site } = await this.store.owned(ownerId, id);
       if (site.backendId) return await this.project(await this.requiredBackends().withPublishable(
@@ -88,14 +104,7 @@ export class WebSiteService {
     }
     return await this.project(await this.store.update(ownerId, id, input, undefined, passcodeHash, analytics));
   }
-  /** Enabling needs the remote site first; disabling only stops injection and keeps its history. */
-  private async analyticsUpdate(
-    ownerId: string, id: string, enabled: boolean | undefined,
-  ): Promise<{ enabled: boolean; siteId?: number; domain?: string } | undefined> {
-    if (enabled === undefined) return undefined;
-    // Turning collection off needs no upstream call, even if the service was
-    // removed from configuration after the site had enabled it.
-    if (!enabled) return { enabled: false };
+  private async enableAnalytics(ownerId: string, id: string): Promise<{ enabled: true; siteId: number; domain: string }> {
     if (!this.analytics) throw new AppError("WEB_SITE_ANALYTICS_NOT_CONFIGURED");
     const { site } = await this.store.owned(ownerId, id);
     if (site.status !== "published") throw new AppError("WEB_SITE_ANALYTICS_UNPUBLISHED");
@@ -120,47 +129,45 @@ export class WebSiteService {
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
   delete(ownerId: string, id: string): Promise<void> { return this.store.delete(ownerId, id); }
-  async publicEntry(slug: string): Promise<{ title: string; path: string; url?: string }> {
-    const { site, release } = await this.store.publicSite(slug);
-    const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: await this.requiredBackends().publishedUrl(site.backendId, site.id) } : {}) };
+  private publicSite(address: PublicSiteAddress, releaseId?: string): Promise<SiteAndRelease> {
+    return "id" in address
+      ? releaseId ? this.store.publicSiteById(address.id, releaseId) : this.store.publicSiteById(address.id)
+      : releaseId ? this.store.publicSite(address.slug, releaseId) : this.store.publicSite(address.slug);
   }
-  async publicApplication(id: string): Promise<{ title: string; path: string; releasePath: string; backendId?: string; url?: string }> {
-    const { site, release } = await this.store.publicSiteById(id);
+  async publicEntry(address: PublicSiteAddress): Promise<PublicSitePage> {
+    const { site, release } = await this.publicSite(address);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    const releasePath = `/web/${webSiteSchema.shape.slug.parse(site.slug)}/_releases/${release.id}/`;
-    return { title: site.name, path: `${releasePath}${encodeResourcePath(manifest.entry_path)}`, releasePath,
+    return { title: site.name, access: siteAccess(site), releaseId: release.id, entryPath: encodeResourcePath(manifest.entry_path),
       ...(site.backendId ? { backendId: site.backendId, url: await this.requiredBackends().publishedUrl(site.backendId, site.id) } : {}) };
   }
-  async applicationResource(ownerId: string, id: string, path: string): Promise<{ data: Buffer; mimeType: string } | { redirect: string }> {
+  async applicationResource(ownerId: string, id: string, path: string, canonicalUrl: string): Promise<{ data: Buffer; mimeType: string } | { redirect: string }> {
     const { site, release } = await this.store.owned(ownerId, id);
     if (site.status !== "published" || !site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
     if (path === "/" && manifest.entry_path.includes("/")) return { redirect: `/${encodeResourcePath(manifest.entry_path)}` };
-    return this.resources.resource(manifest, path === "/" ? manifest.entry_path : path.slice(1));
+    return this.injectAnalytics(site, await this.resources.resource(manifest, path === "/" ? manifest.entry_path : path.slice(1)), canonicalUrl);
   }
-  async applicationEntry(ownerId: string, id: string): Promise<{ title: string; path: string; releasePath: string }> {
-    const { site, release } = await this.store.owned(ownerId, id);
-    if (site.status !== "published" || !site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+  async resource(address: PublicSiteAddress, releaseId: string, path: string, authorize: (access: SiteAccess) => void,
+    publicBaseUrl?: string): Promise<{ data: Buffer; mimeType: string }> {
+    const { site, release } = await this.publicSite(address, releaseId);
+    authorize(siteAccess(site));
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    const releasePath = `/web/${webSiteSchema.shape.slug.parse(site.slug)}/_releases/${webSiteSchema.shape.release_id.parse(release.id)}/`;
-    return { title: site.name, path: `${releasePath}${encodeResourcePath(manifest.entry_path)}`, releasePath };
-  }
-  async resource(slug: string, releaseId: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
-    const { site, release } = await this.store.publicSite(slug, releaseId);
-    const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return this.injectAnalytics(site, await this.resources.resource(manifest, path));
+    const canonicalUrl = publicBaseUrl
+      ? new URL(`/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(path)}`, publicBaseUrl).href
+      : undefined;
+    return this.injectAnalytics(site, await this.resources.resource(manifest, path), canonicalUrl);
   }
   /** Publishes the tracker into HTML documents only; other assets pass through untouched. */
   private injectAnalytics(
     site: { analyticsEnabled: boolean; analyticsDomain: string | null },
     resource: { data: Buffer; mimeType: string },
+    canonicalUrl?: string,
   ): { data: Buffer; mimeType: string } {
     if (!site.analyticsEnabled || !site.analyticsDomain || !this.analytics ||
         resource.mimeType.toLowerCase() !== "text/html") return resource;
     const html = resource.data.toString("utf8");
     if (html.includes("data-linksense-analytics")) return resource;
-    const tag = this.analytics.scriptTag(site.analyticsDomain);
+    const tag = this.analytics.scriptTag(site.analyticsDomain, canonicalUrl);
     if (/<\/head\s*>/iu.test(html)) {
       return { ...resource, data: Buffer.from(html.replace(/<\/head\s*>/iu, match => `${tag}${match}`)) };
     }

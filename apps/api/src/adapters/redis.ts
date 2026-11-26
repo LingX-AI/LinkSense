@@ -271,7 +271,7 @@ const CLAWHUB_PREVIEW_MAX_GLOBAL_IN_FLIGHT = 2
 const CLAWHUB_PREVIEW_ACTIVE_TTL_MS = 15 * 60 * 1_000
 const CLAWHUB_PREVIEW_LOCK_TTL_MS = 15 * 60 * 1_000
 
-const TAKE_SITE_ICON_REQUEST_SCRIPT = `
+const TAKE_FIXED_WINDOW_REQUEST_SCRIPT = `
 local count = redis.call('INCR', KEYS[1])
 if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end
 if count <= tonumber(ARGV[1]) then return 1 end
@@ -1459,7 +1459,7 @@ export class LinkSenseRedis {
     )
     try {
       const result = await this.client.eval(
-        TAKE_SITE_ICON_REQUEST_SCRIPT,
+        TAKE_FIXED_WINDOW_REQUEST_SCRIPT,
         1,
         SITE_ICON_RATE_LIMIT_KEY_PREFIX + userDigest,
         SITE_ICON_RATE_LIMIT_MAX_REQUESTS,
@@ -1468,6 +1468,21 @@ export class LinkSenseRedis {
       return Number(result) === 1
     } catch {
       throw new RedisUnavailableError("site_icon_rate_limit")
+    }
+  }
+
+  async takeWebSiteUnlockAttempt(siteId: string, ip: string): Promise<boolean> {
+    const ipDigest = hmacSha256(this.config.loginRateLimitHmacSecret, "site-unlock:ip:", this.normalizeIp(ip))
+    try {
+      const accepted = await this.client.eval(
+        TAKE_FIXED_WINDOW_REQUEST_SCRIPT, 1, `linksense:v1:site-unlock:ip:${ipDigest}`, 5, 60,
+      )
+      if (accepted !== 1) return false
+      return await this.client.eval(
+        TAKE_FIXED_WINDOW_REQUEST_SCRIPT, 1, `linksense:v1:site-unlock:site:${siteId}`, 30, 60,
+      ) === 1
+    } catch {
+      throw new RedisUnavailableError("site_unlock_rate_limit")
     }
   }
 

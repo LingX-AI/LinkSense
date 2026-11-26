@@ -29,5 +29,11 @@ describe("logging", () => {
         url: `/html-preview/${"a".repeat(64)}/asset.js?private=value`,
       }).url,
     ).toBe("/html-preview/[redacted]/asset.js");
+    expect(
+      sanitizeRequestForLog({
+        method: "GET",
+        url: `/web/_protected/site/release/${"a".repeat(43)}/assets/main.js?private=value`,
+      }).url,
+    ).toBe("/web/_protected/[redacted]");
   });
 });

@@ -38,6 +38,9 @@ describe("built-in public site builder", () => {
       expect(skill).toContain("/app/s/<site-id>");
       expect(skill).toContain('action: "open_site"');
       expect(skill).toContain("Do not publish");
+      expect(skill).toContain("deliver a private preview without asking first");
+      expect(skill).toContain("lead with the registered HTML preview card");
+      expect(skill).toContain("Ask about publication only when the intended audience is unclear");
       expect(parse(await readFile(join(path, "agents/openai.yaml"), "utf8"))).toMatchObject({
         interface: { display_name: "LinkSense 公开站点开发" },
         policy: { allow_implicit_invocation: true },
@@ -97,7 +100,8 @@ describe("built-in public site builder", () => {
       expect(workflow).toContain("one transaction and keeps the application ID and link");
       expect(workflow).toContain("Never replace an existing backend");
       expect(workflow).toContain("previous page available");
-      expect(skill).toContain("choosing a delivery shape alone does not authorize publication");
+      expect(skill).toContain("Public publishing and schedule activation require explicit authorization");
+      expect(skill).toContain("preview and delivery choice are not consent");
       expect(skill).toContain("only the next outcome-changing question");
     } finally {
       await rm(root, { recursive: true, force: true });

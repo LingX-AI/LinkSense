@@ -193,10 +193,14 @@ export class PublicKnowledgeService {
   ) {
     this.actor(actor);
     const { icon, ...settings } = publicKnowledgeSaveInputSchema.parse(input);
-    if (applicationId) await this.owned(actor, applicationId);
+    const current = applicationId ? await this.owned(actor, applicationId) : null;
+    const keepsSelection =
+      current?.model === settings.model &&
+      current.reasoningEffort === settings.reasoning_effort;
     await this.deps.models.resolveRuntimeForSelection(
       settings.model,
       settings.reasoning_effort,
+      keepsSelection ? "persisted" : "requested",
     );
     if (!this.deps.knowledge || !this.deps.retrieve)
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
@@ -251,6 +255,13 @@ export class PublicKnowledgeService {
               },
             });
         if (!application) throw new AppError("APPLICATION_NOT_FOUND");
+        if (
+          keepsSelection &&
+          (application.model !== settings.model ||
+            application.reasoningEffort !== settings.reasoning_effort)
+        ) {
+          throw new AppError("CONFLICT");
+        }
         previousIconObjectKey = application.iconObjectKey;
         await skills.assertCurrent(tx);
         const previous = await tx.applicationVersion.findFirst({
@@ -930,6 +941,7 @@ export class PublicKnowledgeService {
       const runtime = await this.deps.models.resolveRuntimeForSelection(
         definition.model,
         definition.reasoningEffort,
+        "persisted",
       );
       const history = await prisma.publicKnowledgeTurn.findMany({
         where: { conversationId, status: "completed" },

@@ -155,6 +155,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   'req.headers["x-linksense-desktop-attachment-grant"]',
   "req.headers.authorization",
   "req.headers.cookie",
+  "req.body.passcode",
+  "req.body.request.passcode",
   "req.body.password",
   "req.body.initialization_credential",
   "req.body.current_password",
@@ -213,7 +215,11 @@ export async function buildApi(
 
   registerPublicAppGateway(app, services.webSiteBackends, services.webSites,
     new WebSiteVisitorSessions(services.redis.client, services.config), services.config);
-  registerWebSiteBackendGateway(app, services.webSiteBackends, services.webSites);
+  const takeUnlockAttempt = (siteId: string, ip: string) => services.redis.takeWebSiteUnlockAttempt(siteId, ip);
+  registerWebSiteBackendGateway(app, services.webSiteBackends, services.webSites, {
+    accessSecret: services.config.jwtSecret, takeUnlockAttempt,
+    ...(services.config.analytics ? { analyticsOrigin: new URL(services.config.analytics.baseUrl).origin } : {}),
+  });
   app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
@@ -587,7 +593,7 @@ export async function buildApi(
   await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
   await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl, accessSecret: services.config.jwtSecret,
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl, accessSecret: services.config.jwtSecret, takeUnlockAttempt,
     ...(services.config.analytics ? { analyticsBaseUrl: services.config.analytics.baseUrl } : {}) });
   await app.register(internalWebSiteRoutes, { prefix: "/internal/web-sites", service: services.webSites, sharedSecret: services.config.runnerSharedSecret, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {

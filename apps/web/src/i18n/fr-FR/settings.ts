@@ -306,7 +306,7 @@ export const settingsResources = {
       "Remplace les secrets par des jetons avant l’envoi au fournisseur du modèle et les restaure avant que la réponse n’atteigne l’environnement d’exécution.",
     privacyMaskingEnabled: "Activer le masquage de confidentialité",
     privacyMaskingEnabledDescription:
-      "S’applique uniquement aux requêtes envoyées au fournisseur du modèle. LinkSense conserve l’historique et les événements tels qu’ils ont été écrits.",
+      "Masque le texte envoyé par la passerelle de modèles des tâches. Il ne protège pas les titres automatiques, les recherches web, la génération d’images ni la vectorisation de la base de connaissances. L’historique et les événements conservent le texte d’origine.",
     privacyMaskingSecrets: "Secrets et identifiants",
     privacyMaskingSecretsDescription:
       "Clés d’API, jetons, clés privées, mots de passe et valeurs des en-têtes Authorization ou Cookie.",
@@ -323,7 +323,7 @@ export const settingsResources = {
       "Ne masque pas un mot à l’intérieur d’un mot ou d’un identifiant plus long.",
     privacyMaskingAllow: "Valeurs autorisées",
     privacyMaskingAllowDescription:
-      "Une valeur par ligne. Une valeur qui correspond exactement est envoyée telle quelle, par exemple une adresse e-mail de test.",
+      "Une valeur par ligne. Une valeur détectée n’est envoyée telle quelle que si elle correspond en entier et respecte la casse. Le réglage de casse des mots personnalisés n’affecte pas cette liste.",
     privacyMaskingAllowPlaceholder: "exemple@exemple.test",
     privacyMaskingSaved: "Paramètres de masquage enregistrés.",
     privacyMaskingSave: "Enregistrer le masquage",
@@ -335,7 +335,7 @@ export const settingsResources = {
       "Collez un texte qu'un agent pourrait envoyer. Il est masqué ici comme dans une vraie requête, et rien n'est conservé.",
     privacyMaskingTryItPlaceholder:
       "Déployez avec la clé sk-proj-… puis appelez l'API de préproduction",
-    privacyMaskingTryItOutput: "Ce que le fournisseur recevrait",
+    privacyMaskingTryItOutput: "Aperçu du texte avec les règles du brouillon",
     privacyMaskingTryItEmpty: "Rien dans ce texte ne serait masqué.",
     privacyMaskingTryItOffNote:
       "Le masquage est désactivé. Cet aperçu montre ce qui serait remplacé une fois activé.",
@@ -351,7 +351,10 @@ export const settingsResources = {
     privacyMaskingKindBankCard: "Numéro de carte bancaire",
     privacyMaskingActivity: "Activité de masquage",
     privacyMaskingActivityDescription:
-      "Requêtes au modèle où des valeurs ont été remplacées, conservées 30 jours. Seuls les compteurs sont stockés, jamais les valeurs.",
+      "Consultez les requêtes avec des remplacements des 30 derniers jours. L’activité indique les types, les longueurs, les emplacements et les nombres de remplacements, jamais les valeurs d’origine.",
+    privacyMaskingSections: "Configuration et activité",
+    privacyMaskingSectionSettings: "Configuration",
+    privacyMaskingSectionActivity: "Activité",
     privacyMaskingActivityPeriod: "Période",
     privacyMaskingActivity7Days: "7 jours",
     privacyMaskingActivity30Days: "30 jours",

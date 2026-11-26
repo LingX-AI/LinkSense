@@ -55,11 +55,11 @@ export function backendFixture(appsBaseUrl: string | null = "https://apps.exampl
     }),
     publicBinding: vi.fn(async () => {
       if (!published) throw new AppError("WEB_SITE_NOT_FOUND");
-      return { backend: row, siteId };
+      return { backend: row, siteId, passcodeHash: site.row.site.passcodeHash };
     }),
     publicBindingForSite: vi.fn(async id => {
       if (!published || id !== siteId || !site.row.site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
-      return { backend: row, siteId };
+      return { backend: row, siteId, passcodeHash: site.row.site.passcodeHash };
     }),
     source: vi.fn(async () => ({ objectKey: "source/code.tar.gz", size: 4, checksum: null })),
   };

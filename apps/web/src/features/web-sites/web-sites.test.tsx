@@ -273,14 +273,52 @@ describe("website management", () => {
       expect.stringContaining(`/web-sites/${id}`),
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({
-          name: site.name,
-          description: site.description,
-          slug: site.slug,
-          analytics: true,
-        }),
+        body: JSON.stringify({ analytics: true }),
       })
     )
+  })
+
+  it("keeps saved site settings when enabling visitor analytics fails", async () => {
+    const saved = { ...site, name: "New name" }
+    const message = "The analytics service is temporarily unavailable."
+    const errorToast = vi
+      .spyOn(notify, "error")
+      .mockImplementation(() => "toast")
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(success(saved))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            success: false,
+            error_code: "WEB_SITE_ANALYTICS_UNAVAILABLE",
+            message,
+          },
+          { status: 502 }
+        )
+      )
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    const name = screen.getByRole("textbox", { name: i18n.t("webSites.name") })
+    await userEvent.clear(name)
+    await userEvent.type(name, saved.name)
+    await userEvent.click(
+      screen.getByRole("switch", { name: i18n.t("webSites.analytics") })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalledWith(saved))
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ analytics: true }),
+      })
+    )
+    expect(errorToast).toHaveBeenCalledWith(message)
   })
 
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
@@ -533,12 +571,14 @@ describe("website management", () => {
       </MemoryRouter>
     )
     const open = screen.getByRole("link", { name: "打开网站" })
-    expect(
-      screen.getByRole("link", { name: i18n.t("webSites.title") })
-    ).toHaveAttribute(
+    const manage = screen.getByRole("link", { name: i18n.t("webSites.title") })
+    expect(manage).toHaveAttribute(
       "href",
       "/capabilities?section=application&app_scope=sites"
     )
+    expect(
+      manage.querySelector('svg[data-icon="inline-start"]')
+    ).toHaveAttribute("aria-hidden", "true")
     expect(open).toHaveAttribute("href", url)
     expect(open).toHaveAttribute("target", "_blank")
     expect(open).toHaveAttribute("rel", "noopener noreferrer")

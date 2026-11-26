@@ -46,6 +46,8 @@ export function usePrivacyMaskingPreview(
       }),
     enabled: text.trim().length > 0,
     staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 0,
+    retry: false,
   })
 }
 

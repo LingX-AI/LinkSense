@@ -4,11 +4,19 @@ import type {
   PublicKnowledgeTurn,
 } from "../src/generated/prisma/client.js";
 import { PublicKnowledgeService } from "../src/modules/public-knowledge/service.js";
-import { publicKnowledgeSettingsSchema } from "@linksense/shared";
-import { sha256 } from "../src/lib/crypto.js";
+import {
+  genericModelReasoningProfile,
+  publicKnowledgeSettingsSchema,
+} from "@linksense/shared";
+import { encryptJson, sha256 } from "../src/lib/crypto.js";
 import { AppError } from "../src/lib/errors.js";
 import { PublicKnowledgeCapacityUnavailableError } from "../src/modules/public-knowledge/coordinator.js";
+import {
+  ModelProviderSettingsService,
+  type ModelRuntimeSettingsReader,
+} from "../src/modules/system/model-provider-settings.js";
 import { publicKnowledgeProgressFixture } from "./fixtures/public-knowledge-progress.js";
+import { testConfig } from "./test-config.js";
 
 const id = (value: number) =>
   `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
@@ -31,7 +39,7 @@ const settings = publicKnowledgeSettingsSchema.parse({
   allowed_origins: ["https://website.example"],
 });
 
-function fixture() {
+function fixture(modelsOverride?: ModelRuntimeSettingsReader) {
   const application = {
     id: appId,
     ownerId,
@@ -335,7 +343,7 @@ function fixture() {
       resolve: vi.fn(async () => []),
     },
     prisma,
-    models,
+    models: modelsOverride ?? models,
     knowledge: { resolveUsableKnowledgeBaseIds: vi.fn(async () => [baseId]) },
     retrieve,
     runner,
@@ -380,6 +388,69 @@ function fixture() {
 }
 
 describe("public knowledge authorization and execution", () => {
+  it.each([true, false])(
+    "preserves a pre-upgrade publication only when its original model is still enabled (%s)",
+    async (enabled) => {
+      const config = testConfig();
+      const stored = {
+        version: 9,
+        revision: 1,
+        defaultModel: "other-model",
+        titleModel: null,
+        providers: [{
+          id: "published-channel", name: null, provider: "openai_compatible",
+          providerProject: null, providerLocation: null,
+          baseUrl: "https://models.example.test/v1", protocolMode: "native_responses",
+          apiKey: "synthetic-provider-key",
+          models: [settings.model, "other-model"].map((model) => ({
+            id: model, kind: "chat", display_name: model, enabled: model !== settings.model || enabled,
+            ...genericModelReasoningProfile,
+            input_price_per_million: "0", cached_input_price_per_million: "0",
+            output_price_per_million: "0", supports_image_input: false,
+          })),
+        }],
+      };
+      const prisma = {
+        systemSetting: {
+          findUnique: async () => ({
+            settingsJson: {
+              model_provider_settings_key_id: config.credentialKeyId,
+              model_provider_settings_encrypted: encryptJson(
+                stored, config.credentialMasterKey, config.credentialKeyId,
+                "linksense:model-provider-settings:v1",
+              ),
+            },
+          }),
+        },
+      } as unknown as PrismaClient;
+      const models = new ModelProviderSettingsService(prisma, config, {
+        readContextWindows: async () => new Map(),
+        readCatalogReasoningProfiles: async () => new Map([[
+          settings.model,
+          { supported_reasoning_efforts: ["low", "high"], default_reasoning_effort: "high" },
+        ]]),
+      });
+      await expect(models.resolveRuntimeForSelection(settings.model, "medium"))
+        .rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+
+      const fixtureData = fixture(models);
+      const result = fixtureData.askAndRun({
+        input_text: "A published website question",
+        request_id: id(84),
+      });
+      if (enabled) {
+        await expect(result).resolves.toMatchObject({ status: "completed", application_version: "1.0.0" });
+        expect(fixtureData.runner.runPublicKnowledgeTurn).toHaveBeenCalledOnce();
+        expect(fixtureData.runner.runPublicKnowledgeTurn).toHaveBeenCalledWith(
+          expect.objectContaining({ model: settings.model, reasoningEffort: "high" }),
+        );
+      } else {
+        await expect(result).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" });
+        expect(fixtureData.runner.runPublicKnowledgeTurn).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("returns source names without excerpts to visitors and preserves full evidence for creator review", async () => {
     const f = fixture(),
       question = { input_text: "Question", request_id: id(81) };

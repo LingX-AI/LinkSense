@@ -70,10 +70,9 @@ export function sanitizeRequestForLog(request: unknown) {
     numberValue(rawSocket.remotePort);
   return {
     method: stringValue(value.method) ?? "UNKNOWN",
-    url: requestPathname(stringValue(value.url) ?? "/").replace(
-      /^\/html-preview\/[^/]+/u,
-      "/html-preview/[redacted]",
-    ),
+    url: requestPathname(stringValue(value.url) ?? "/")
+      .replace(/^\/html-preview\/[^/]+/u, "/html-preview/[redacted]")
+      .replace(/^\/web\/_protected\/.*$/u, "/web/_protected/[redacted]"),
     ...(host ? { host } : {}),
     ...(requestId ? { requestId } : {}),
     ...(remoteAddress ? { remoteAddress } : {}),

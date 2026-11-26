@@ -1,6 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Locale } from "@linksense/shared";
+import { AppError } from "../../lib/errors.js";
 import { translateBackend } from "../../lib/i18n.js";
+import { resolveLocale } from "../../lib/locale.js";
+import { verifyPassword } from "../../lib/password.js";
+import { containsControlCharacter } from "../../lib/text.js";
 import { escapeHtml } from "./public-page.js";
 
 // The passcode gate must render without the application bundle; keep the page
@@ -37,14 +42,31 @@ export function sitePasscodePolicy(script: string): string {
 }
 
 export const siteAccessCookiePrefix = "linksense_site_access_";
+export const protectedReleasePath = "/_protected";
+export const siteUnlockBodyLimit = 4_096;
+export const siteIdUnlockPath = (id: string): string => `/web/_unlock/${id}`;
+export type SiteAccess = { id: string; slug: string; passcodeHash: string | null };
+type SitePasscode = Pick<SiteAccess, "id" | "passcodeHash">;
+export type SiteUnlockLimiter = (siteId: string, ip: string) => Promise<boolean>;
+export type SiteAccessOptions = { secret: string; secure: boolean; isolatedOrigin?: string };
 
-export function siteAccessCookieName(siteId: string): string {
-  return `${siteAccessCookiePrefix}${siteId.replaceAll("-", "")}`;
+function siteAccessCookieName(siteId: string, options: SiteAccessOptions): string {
+  return `${options.secure && options.isolatedOrigin ? "__Host-" : ""}${siteAccessCookiePrefix}${siteId.replaceAll("-", "")}`;
 }
 
-/** Binds an unlock to the site and to the current passcode hash, so changing the passcode revokes access. */
-export function siteAccessToken(secret: string, siteId: string, passcodeHash: string): string {
-  return createHmac("sha256", secret).update(`site-access\0${siteId}\0${passcodeHash}`).digest("base64url");
+function siteAccessToken(options: SiteAccessOptions, siteId: string, passcodeHash: string): string {
+  const scope = options.isolatedOrigin ? `site-origin-access\0${options.isolatedOrigin}` : "site-access";
+  return sign(options.secret, `${scope}\0${siteId}\0${passcodeHash}`);
+}
+
+function sign(secret: string, value: string): string {
+  return createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function isMatchingSignature(provided: string, expected: string): boolean {
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 const cookieValue = (cookieHeader: string | undefined, name: string): string | undefined => {
@@ -55,34 +77,66 @@ const cookieValue = (cookieHeader: string | undefined, name: string): string | u
 
 export function hasSiteAccess(
   cookieHeader: string | undefined,
-  secret: string,
-  site: { id: string; passcodeHash?: string | null },
+  options: SiteAccessOptions,
+  site: SitePasscode,
 ): boolean {
   if (!site.passcodeHash) return true;
-  const provided = cookieValue(cookieHeader, siteAccessCookieName(site.id));
+  const provided = cookieValue(cookieHeader, siteAccessCookieName(site.id, options));
   if (!provided) return false;
-  const expected = siteAccessToken(secret, site.id, site.passcodeHash);
-  const left = Buffer.from(provided);
-  const right = Buffer.from(expected);
-  return left.length === right.length && timingSafeEqual(left, right);
+  return isMatchingSignature(provided, siteAccessToken(options, site.id, site.passcodeHash));
 }
 
-export function siteAccessCookie(secret: string, site: { id: string; passcodeHash: string }, options: { secure: boolean }): string {
+function siteAccessCookie(options: SiteAccessOptions, siteId: string, passcodeHash: string): string {
   const maxAge = 30 * 24 * 60 * 60;
-  // Release assets load in a sandboxed iframe, whose opaque origin is treated as
-  // cross-site, so HTTPS needs SameSite=None; browsers reject that without Secure,
-  // which plain-HTTP deployments (local, UAT) cannot provide. They fall back to
-  // Lax: the shell and release documents still receive it, cross-site
-  // subresources inside the frame cannot.
-  const attributes = ["Path=/", "HttpOnly", options.secure ? "SameSite=None" : "SameSite=Lax",
+  const attributes = ["Path=/", "HttpOnly", options.secure && !options.isolatedOrigin ? "SameSite=None" : "SameSite=Lax",
     ...(options.secure ? ["Secure"] : []), `Max-Age=${maxAge}`];
-  return `${siteAccessCookieName(site.id)}=${siteAccessToken(secret, site.id, site.passcodeHash)}; ${attributes.join("; ")}`;
+  return `${siteAccessCookieName(siteId, options)}=${siteAccessToken(options, siteId, passcodeHash)}; ${attributes.join("; ")}`;
+}
+
+function releaseSignature(secret: string, site: SiteAccess, releaseId: string, expires: string): string {
+  return sign(secret, `site-release\0${site.id}\0${releaseId}\0${site.passcodeHash}\0${expires}`);
+}
+
+export function releaseAccessPath(secret: string, site: SiteAccess, releaseId: string): string {
+  if (!site.passcodeHash) return `/web/${site.slug}/_releases/${releaseId}/`;
+  const expires = String(Date.now() + 15 * 60 * 1000);
+  return `/web${protectedReleasePath}/${site.id}/${releaseId}/${expires}.${releaseSignature(secret, site, releaseId, expires)}/`;
+}
+
+export function hasReleaseAccess(secret: string, site: SiteAccess, releaseId: string, grant: string): boolean {
+  if (!site.passcodeHash) return false;
+  const [, expires, signature] = /^(\d{1,13})\.([a-zA-Z0-9_-]{43})$/u.exec(grant) ?? [];
+  return !!expires && !!signature && Number(expires) > Date.now()
+    && isMatchingSignature(signature, releaseSignature(secret, site, releaseId, expires));
 }
 
 /** Only same-site paths may be used as the post-unlock destination. */
 export function safeAccessNext(value: string | null): string | undefined {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || value.length > 2_000) return undefined;
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") ||
+      value.length > 2_000 || containsControlCharacter(value)) return undefined;
   return value;
+}
+
+export function sendPasscodePage(request: FastifyRequest, reply: FastifyReply,
+  input: { action: string; next?: string; incorrect?: boolean }): FastifyReply {
+  const page = sitePasscodePage(resolveLocale(request), input);
+  return reply.code(401).type("text/html; charset=utf-8")
+    .header("content-security-policy", page.policy).header("referrer-policy", "no-referrer")
+    .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
+    .send(page.html);
+}
+
+export async function unlockSite(request: FastifyRequest, reply: FastifyReply, formBody: string, site: SitePasscode,
+  options: SiteAccessOptions, takeAttempt: SiteUnlockLimiter, action: string, fallback: string): Promise<FastifyReply> {
+  const form = new URLSearchParams(formBody);
+  const next = safeAccessNext(form.get("next")) ?? fallback;
+  if (!site.passcodeHash) return reply.redirect(next, 303);
+  const allowed = await takeAttempt(site.id, request.ip).catch(() => { throw new AppError("SERVICE_TEMPORARILY_UNAVAILABLE"); });
+  if (!allowed) throw new AppError("APPLICATION_EXTERNAL_RATE_LIMITED");
+  if (!(await verifyPassword(site.passcodeHash, (form.get("passcode") ?? "").slice(0, 128)))) {
+    return sendPasscodePage(request, reply, { action, next, incorrect: true });
+  }
+  return reply.header("set-cookie", siteAccessCookie(options, site.id, site.passcodeHash)).redirect(next, 303);
 }
 
 export function sitePasscodePage(locale: Locale, input: { action: string; next?: string; incorrect?: boolean }): { html: string; policy: string } {

@@ -33,6 +33,10 @@ const template = {
       truncation_policy: { mode: "tokens", limit: 10_000 },
       experimental_supported_tools: [],
       input_modalities: ["text", "image"],
+      supports_image_detail_original: true,
+      use_responses_lite: true,
+      tool_mode: "code_mode_only",
+      comp_hash: "3000",
     },
   ],
 };
@@ -83,14 +87,74 @@ async function readCatalog(catalogPath: string) {
   };
 }
 
+const readDefaultInstructions = async () => "native generic instructions";
+const readBundledCatalog = async () => ({ stdout: JSON.stringify(template) });
+
 describe("Codex model catalog", () => {
-  it("writes the configured model window with LinkSense's synthetic instructions", async () => {
+  it("seeds a generic model on first use without copying bundled tool or compaction flags", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "linksense instructions", "a");
-    const runCommand = vi.fn(async () => ({
-      stdout: JSON.stringify(template),
-    }));
-    const writer = createCodexModelCatalogWriter({ runCommand });
+    const writer = createCodexModelCatalogWriter({
+      runCommand: readBundledCatalog,
+      readDefaultInstructions,
+    });
+    const catalogPath = await writer.ensure({
+      command: "codex",
+      codexHome,
+      model: "new-generic-model",
+      modelContextWindow: 1_000_000,
+      supportsImageInput: true,
+    });
+    if (!catalogPath) throw new Error("expected a catalog before the first turn");
+    const catalog = await readCatalog(catalogPath);
+    expect(catalog.models[0]).toEqual(template.models[0]);
+    const model = catalog.models.find(({ slug }) => slug === "new-generic-model");
+    expect(model).toMatchObject({
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      input_modalities: ["text", "image"],
+      supports_image_detail_original: false,
+      supported_reasoning_levels: [],
+      use_responses_lite: false,
+      model_messages: { instructions_template: "native generic instructions" },
+    });
+    expect(model).not.toHaveProperty("tool_mode");
+    expect(model).not.toHaveProperty("comp_hash");
+  });
+
+  it("preserves an exact bundled model's tool and prompt settings without probing generic instructions", async () => {
+    const { codexHome } = await fixture();
+    const readInstructions = vi.fn(readDefaultInstructions);
+    const writer = createCodexModelCatalogWriter({
+      runCommand: readBundledCatalog,
+      readDefaultInstructions: readInstructions,
+    });
+    const catalogPath = await writer.ensure({
+      command: "codex",
+      codexHome,
+      model: "gpt-6-astra",
+      modelContextWindow: 1_000_000,
+      supportsImageInput: false,
+    });
+    if (!catalogPath) throw new Error("expected a catalog before the first turn");
+    expect((await readCatalog(catalogPath)).models).toEqual([
+      {
+        ...template.models[0],
+        context_window: 1_000_000,
+        max_context_window: 1_000_000,
+        effective_context_window_percent: 100,
+        auto_compact_token_limit: null,
+        input_modalities: ["text"],
+        supports_image_detail_original: false,
+      },
+    ]);
+    expect(readInstructions).not.toHaveBeenCalled();
+  });
+
+  it("loads the bundled catalog in a separate HOME without reading existing session instructions", async () => {
+    const { codexHome } = await fixture();
+    await writeSession(codexHome, "link-sense", "Previous task's instructions", "a");
+    const runCommand = vi.fn(readBundledCatalog);
+    const writer = createCodexModelCatalogWriter({ runCommand, readDefaultInstructions });
 
     const catalogPath = await writer.ensure({
       command: "/managed/codex",
@@ -119,15 +183,15 @@ describe("Codex model catalog", () => {
       input_modalities: ["text"],
       supports_image_detail_original: false,
       model_messages: {
-        instructions_template: "linksense instructions",
+        instructions_template: "native generic instructions",
       },
     });
     expect(runCommand).toHaveBeenCalledWith(
       "/managed/codex",
-      ["debug", "models"],
+      ["debug", "models", "--bundled"],
       expect.objectContaining({
         env: expect.objectContaining({
-          CODEX_HOME: expect.any(String),
+          CODEX_HOME: expect.not.stringContaining(codexHome),
           HOME: expect.any(String),
         }),
       })
@@ -136,9 +200,9 @@ describe("Codex model catalog", () => {
 
   it("declares image input only for models whose provider settings allow it", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "a");
     const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+      runCommand: readBundledCatalog,
+      readDefaultInstructions,
     });
 
     const catalogPath = await writer.ensure({
@@ -159,19 +223,17 @@ describe("Codex model catalog", () => {
 
   it("makes the temporary catalog probe accessible to the task identity", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "a");
-    let modes: { root: number; codexHome: number; home: number } | null = null;
+    let modes: { codexHome: number; home: number } | null = null;
     const writer = createCodexModelCatalogWriter({
+      readDefaultInstructions,
       runCommand: async (_command, _args, options) => {
         const probeCodexHome = options.env?.CODEX_HOME ?? "";
         const probeHome = options.env?.HOME ?? "";
-        const [root, codex, home] = await Promise.all([
-          stat(dirname(probeCodexHome)),
+        const [codex, home] = await Promise.all([
           stat(probeCodexHome),
           stat(probeHome),
         ]);
         modes = {
-          root: root.mode & 0o777,
           codexHome: codex.mode & 0o777,
           home: home.mode & 0o777,
         };
@@ -187,14 +249,14 @@ describe("Codex model catalog", () => {
       processIdentity: { uid: 1001, gid: 1000 },
     });
 
-    expect(modes).toEqual({ root: 0o770, codexHome: 0o770, home: 0o770 });
+    expect(modes).toEqual({ codexHome: 0o770, home: 0o770 });
   });
 
   it("replaces the seeded model when the window changes", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "a");
     const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+      runCommand: readBundledCatalog,
+      readDefaultInstructions,
     });
 
     await writer.ensure({
@@ -220,34 +282,13 @@ describe("Codex model catalog", () => {
     });
   });
 
-  it("uses the newest LinkSense session and ignores other providers", async () => {
+  it("retries a failed native instructions probe without using a previous task's instructions", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "openai", "openai instructions", "old");
-    await writeSession(codexHome, "link-sense", "older link-sense", "newer");
+    const readInstructions = vi.fn(readDefaultInstructions)
+      .mockRejectedValueOnce(new Error("temporary native probe failure"));
     const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
-    });
-
-    const catalogPath = await writer.ensure({
-      command: "codex",
-      codexHome,
-      model: "model-a",
-      modelContextWindow: 1_000_000,
-    });
-    if (!catalogPath) throw new Error("expected a catalog path");
-    const seeded = (await readCatalog(catalogPath)).models.find(
-      (model) => model.slug === "model-a"
-    );
-    expect(
-      (seeded?.model_messages as { instructions_template: string })
-        .instructions_template
-    ).toBe("older link-sense");
-  });
-
-  it("retries reading instructions after the first LinkSense session is created", async () => {
-    const { codexHome } = await fixture();
-    const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+      runCommand: readBundledCatalog,
+      readDefaultInstructions: readInstructions,
     });
     const input = {
       command: "codex",
@@ -257,7 +298,7 @@ describe("Codex model catalog", () => {
     };
 
     expect(await writer.ensure(input)).toBeNull();
-    await writeSession(codexHome, "link-sense", "first session instructions", "first");
+    await writeSession(codexHome, "link-sense", "Prior task instructions", "first");
 
     const catalogPath = await writer.ensure(input);
     if (!catalogPath) throw new Error("expected a catalog path");
@@ -266,17 +307,17 @@ describe("Codex model catalog", () => {
       (model) => model.slug === input.model
     );
     expect(seeded).toMatchObject({
-      model_messages: { instructions_template: "first session instructions" },
+      model_messages: { instructions_template: "native generic instructions" },
     });
+    expect(readInstructions).toHaveBeenCalledTimes(2);
   });
 
   it("retries the model probe after a transient failure", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "first");
     const runCommand = vi.fn()
       .mockRejectedValueOnce(new Error("temporary probe failure"))
       .mockResolvedValue({ stdout: JSON.stringify(template) });
-    const writer = createCodexModelCatalogWriter({ runCommand });
+    const writer = createCodexModelCatalogWriter({ runCommand, readDefaultInstructions });
     const input = {
       command: "codex", codexHome, model: "model-a", modelContextWindow: 1_000_000,
     };
@@ -286,22 +327,25 @@ describe("Codex model catalog", () => {
     expect(runCommand).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps catalogs for concurrent models and context windows isolated", async () => {
+  it("keeps concurrent models, context windows, and image capabilities isolated", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "first");
+    const readInstructions = vi.fn(readDefaultInstructions);
     const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+      runCommand: readBundledCatalog,
+      readDefaultInstructions: readInstructions,
     });
     const requests = [
       { model: "model-a", modelContextWindow: 1_000_000 },
       { model: "model-b", modelContextWindow: 500_000 },
       { model: "model-a", modelContextWindow: 250_000 },
+      { model: "model-a", modelContextWindow: 1_000_000, supportsImageInput: true },
     ];
     const paths = await Promise.all(requests.map((request) =>
       writer.ensure({ command: "codex", codexHome, ...request })
     ));
 
     expect(new Set(paths).size).toBe(requests.length);
+    expect(readInstructions).toHaveBeenCalledOnce();
     for (const [index, catalogPath] of paths.entries()) {
       if (!catalogPath) throw new Error("expected a catalog path");
       const request = requests[index]!;
@@ -309,15 +353,16 @@ describe("Codex model catalog", () => {
       expect(catalog.models.find((model) => model.slug === request.model)).toMatchObject({
         context_window: request.modelContextWindow,
         max_context_window: request.modelContextWindow,
+        input_modalities: request.supportsImageInput ? ["text", "image"] : ["text"],
       });
     }
   });
 
-  it("does not write a catalog without a window, a LinkSense session, or a template", async () => {
+  it("does not write a catalog without a configured window or a valid bundled template", async () => {
     const { codexHome } = await fixture();
-    await writeSession(codexHome, "link-sense", "instructions", "a");
     const writer = createCodexModelCatalogWriter({
-      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+      runCommand: readBundledCatalog,
+      readDefaultInstructions,
     });
 
     expect(
@@ -329,21 +374,11 @@ describe("Codex model catalog", () => {
     ).toBeNull();
     expect((await readdir(codexHome)).filter((name) => name.endsWith(".json"))).toEqual([]);
 
-    const noSession = await fixture();
-    expect(
-      await writer.ensure({
-        command: "codex",
-        codexHome: noSession.codexHome,
-        model: "model-a",
-        modelContextWindow: 1_000_000,
-      })
-    ).toBeNull();
-    expect((await readdir(noSession.codexHome)).filter((name) => name.endsWith(".json"))).toEqual([]);
-
     const failing = createCodexModelCatalogWriter({
       runCommand: async () => {
         throw new Error("debug models failed");
       },
+      readDefaultInstructions,
     });
     expect(
       await failing.ensure({

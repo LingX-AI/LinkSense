@@ -364,6 +364,8 @@ export interface ManagedModelReferenceReader {
   getReferencedModelIds(): Promise<ReadonlySet<string>>
 }
 
+export type ModelSelectionSource = "requested" | "persisted"
+
 export interface ModelRuntimeSettingsReader {
   resolveRuntime(
     userId: string,
@@ -371,7 +373,8 @@ export interface ModelRuntimeSettingsReader {
   ): Promise<ResolvedModelRuntime>
   resolveRuntimeForSelection(
     model: string,
-    reasoningEffort: ReasoningEffort
+    reasoningEffort: ReasoningEffort,
+    source?: ModelSelectionSource
   ): Promise<ResolvedModelRuntime>
   resolveModelTransitionRuntime(
     model: string
@@ -1054,7 +1057,7 @@ export class ModelProviderSettingsService
         throw new AppError("CONFLICT")
       }
       const stored = effective
-      assertSelectionAvailable(
+      resolveSelectedReasoningEffort(
         stored,
         input.selected_model,
         input.selected_reasoning_effort
@@ -1126,13 +1129,14 @@ export class ModelProviderSettingsService
 
   async resolveRuntimeForSelection(
     model: string,
-    reasoningEffort: ReasoningEffort
+    reasoningEffort: ReasoningEffort,
+    source: ModelSelectionSource = "requested"
   ): Promise<ResolvedModelRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
     const effective = await this.withCatalogCapabilities(stored)
-    assertSelectionAvailable(effective, model, reasoningEffort)
-    return projectRuntime(effective, model, reasoningEffort)
+    const effort = resolveSelectedReasoningEffort(effective, model, reasoningEffort, source)
+    return projectRuntime(effective, model, effort)
   }
 
   async resolveModelTransitionRuntime(
@@ -1873,18 +1877,22 @@ function resolveSelection(
   return { model: selected.id, reasoningEffort }
 }
 
-function assertSelectionAvailable(
+function resolveSelectedReasoningEffort(
   stored: StoredModelProviderSettings,
   modelId: string,
-  reasoningEffort: ReasoningEffort
-): ManagedModel {
+  reasoningEffort: ReasoningEffort,
+  source: ModelSelectionSource = "requested"
+): ReasoningEffort {
   const model = conversationModels(stored).find(
     (candidate) => candidate.enabled && candidate.id === modelId
   )
-  if (!model || !model.supported_reasoning_efforts.includes(reasoningEffort)) {
-    throw new AppError("MODEL_SELECTION_INVALID")
+  if (model) {
+    if (model.supported_reasoning_efforts.includes(reasoningEffort)) return reasoningEffort
+    if (source === "persisted" && reasoningEffortSchema.safeParse(reasoningEffort).success) {
+      return model.default_reasoning_effort
+    }
   }
-  return model
+  throw new AppError("MODEL_SELECTION_INVALID")
 }
 
 function usesGenericReasoningProfile(

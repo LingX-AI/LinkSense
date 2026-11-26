@@ -547,7 +547,7 @@ export const enUS = {
       "Replace secrets with placeholders before a request goes to the model provider, and restore them before a reply reaches the runtime.",
     privacyMaskingEnabled: "Enable privacy masking",
     privacyMaskingEnabledDescription:
-      "Applies only to requests sent to the model provider. LinkSense still stores task history and events as written.",
+      "Masks text sent through the task model gateway. It does not protect automatic titles, web searches, image generation, or knowledge embeddings. Task history and events still keep the original text.",
     privacyMaskingSecrets: "Secrets and credentials",
     privacyMaskingSecretsDescription:
       "API keys, tokens, private keys, passwords, and Authorization or Cookie header values.",
@@ -564,7 +564,7 @@ export const enUS = {
       "Do not mask a word inside a longer word or identifier.",
     privacyMaskingAllow: "Allowed values",
     privacyMaskingAllowDescription:
-      "One value per line. A value that matches exactly is sent as written, for example a test email address.",
+      "One value per line. A detected value is sent as-is only on a full, case-sensitive match. The custom-word case setting does not affect this list.",
     privacyMaskingAllowPlaceholder: "example@example.test",
     privacyMaskingSaved: "Privacy masking settings saved.",
     privacyMaskingSave: "Save privacy masking",
@@ -578,7 +578,7 @@ export const enUS = {
       "Paste text an agent might send. It is masked here the same way a request is, and nothing is stored.",
     privacyMaskingTryItPlaceholder:
       "Deploy with key sk-proj-… and call the staging API",
-    privacyMaskingTryItOutput: "What the provider would get",
+    privacyMaskingTryItOutput: "Text preview with draft rules",
     privacyMaskingTryItEmpty: "Nothing in this text would be masked.",
     privacyMaskingTryItOffNote:
       "Masking is off. This preview shows what would be replaced once you turn it on.",
@@ -594,7 +594,10 @@ export const enUS = {
     privacyMaskingKindBankCard: "Bank card number",
     privacyMaskingActivity: "Masking activity",
     privacyMaskingActivityDescription:
-      "Model requests where values were replaced, kept for 30 days. Only counts are stored, never the values.",
+      "View requests with replacements from the last 30 days. Records show types, lengths, locations, and counts, never the original values.",
+    privacyMaskingSections: "Settings and activity",
+    privacyMaskingSectionSettings: "Settings",
+    privacyMaskingSectionActivity: "Activity",
     privacyMaskingActivityPeriod: "Period",
     privacyMaskingActivity7Days: "7 days",
     privacyMaskingActivity30Days: "30 days",
@@ -1984,6 +1987,7 @@ export const enUS = {
     delete: "Remove",
     newTaskNamed: "New task in project “{{title}}”",
     move: "Move to project",
+    moveToPublicWorkspace: "Move to public workspace",
     moveNamed: "Move “{{title}}” to a project",
     name: "Project name",
     namePlaceholder: "Enter a project name",

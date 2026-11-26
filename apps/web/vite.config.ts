@@ -115,6 +115,21 @@ export default defineConfig({
   plugins: [
     desktopDocumentPolicy(),
     {
+      name: "linksense-protected-release-proxy-logging",
+      apply: "serve",
+      configResolved({ logger }) {
+        const logError = logger.error.bind(logger)
+        logger.error = (message, options) =>
+          logError(
+            message.replace(
+              /^.*?http proxy error: \/web\/_protected\/[^\r\n]*/u,
+              "http proxy error: /web/_protected/[redacted]"
+            ),
+            options
+          )
+      },
+    },
+    {
       name: "linksense-html-preview-shell",
       configureServer(server) {
         server.middlewares.use((request, response, next) => {

@@ -255,6 +255,7 @@ export const previewMessages = {
     delete: "Eliminar",
     newTaskNamed: "Nueva tarea en el proyecto «{{title}}»",
     move: "Mover a un proyecto",
+    moveToPublicWorkspace: "Mover al espacio de trabajo común",
     moveNamed: "Mover «{{title}}» a un proyecto",
     name: "Nombre del proyecto",
     namePlaceholder: "Introduce un nombre para el proyecto",

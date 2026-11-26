@@ -12,6 +12,7 @@ import { createPrismaClient } from "../../src/db.js";
 import { WebSiteBackendRepository } from "../../src/modules/web-site-backends/repository.js";
 import { WebSiteRepository } from "../../src/modules/web-sites/repository.js";
 import { projectSite } from "../../src/modules/web-sites/service.js";
+import { createHistoricalSiteTask } from "./historical-web-site-fixtures.js";
 
 // This check applies migrations only to an explicitly supplied, empty local
 // test database. It never loads the application .env or contacts Appwrite.
@@ -45,10 +46,7 @@ try {
   const owner = await db.user.create({ data: {
     email: "address-owner@example.test", name: "Address owner", role: "admin", status: "active",
   } });
-  const task = await db.conversation.create({ data: {
-    ownerId: owner.id, title: "Address upgrade", titleSource: "manual", archiveStatus: "active",
-    workspaceRelPath: `${owner.id}/home/workspace`, runtimeGeneration: randomUUID(),
-  } });
+  const task = await createHistoricalSiteTask(db, owner.id, "Address upgrade");
   const legacyId = randomUUID(), chosenId = randomUUID();
   await db.$executeRaw`INSERT INTO web_site_backends
     (id, owner_id, conversation_id, name, project_id, status, encrypted_credential, updated_at)

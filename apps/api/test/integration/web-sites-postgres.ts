@@ -16,6 +16,7 @@ import { RunnerClient } from "../../src/adapters/runner.js";
 import { createObjectStorage } from "../../src/adapters/object-storage.js";
 import { createServices } from "../../src/services.js";
 import { buildApi } from "../../src/app.js";
+import { createHistoricalSiteFile, createHistoricalSiteTask } from "./historical-web-site-fixtures.js";
 
 // All infrastructure and accounts in this test are disposable and test-owned.
 // No application .env or existing database is read. --serve keeps the actual
@@ -64,15 +65,15 @@ try {
   db = createPrismaClient(databaseUrl);
   const owner = await db.user.create({ data: { email: "web-owner@example.test", name: "站点测试", role: "admin", status: "active", preferredLocale: "zh-CN" } });
   const other = await db.user.create({ data: { email: "web-other@example.test", name: "Other", role: "user", status: "active" } });
-  const task = await db.conversation.create({ data: { ownerId: owner.id, title: "网页分享功能验证", titleSource: "manual", archiveStatus: "active", workspaceRelPath: `${owner.id}/home/workspace`, runtimeGeneration: randomUUID() } });
+  const task = await createHistoricalSiteTask(db, owner.id, "网页分享功能验证");
   const legacyHtml = Buffer.from('<!doctype html><title>Existing webpage</title><button onclick="this.textContent=42">Run</button>');
-  const legacy = await db.conversationFile.create({ data: { conversationId: task.id, kind: "artifact", source: "agent_generated", status: "registered", filename: "existing.html", mimeType: "text/html", sizeBytes: legacyHtml.length, storageBackend: "minio", minioObjectKey: "legacy/index.html", downloadable: true, downloadCardEventId: randomUUID() } });
+  const legacy = await createHistoricalSiteFile(db, task.id, "existing.html", legacyHtml.length);
   const oldTask = await db.$queryRaw`SELECT to_jsonb(c) AS row FROM conversations c WHERE id=${task.id}::uuid`;
   const oldFile = await db.$queryRaw`SELECT to_jsonb(f) AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`;
   await migrate(beforeHardDelete);
   const upgradeSites = [];
   for (const status of ["published", "disabled", "deleted"]) {
-    const upgradeSite = await db.webSite.create({ data: { ownerId: owner.id, conversationId: task.id, sourceTaskTitle: task.title, originFileId: randomUUID(), sourceFileId: legacy.id, name: status, slug: `upgrade-${status}`, status: status === "published" ? "published" : "disabled", currentReleaseId: randomUUID() } });
+    const upgradeSite = await db.webSite.create({ data: { ownerId: owner.id, conversationId: task.id, sourceTaskTitle: task.title, originFileId: randomUUID(), sourceFileId: legacy.id, name: status, slug: status === "published" ? randomUUID() : `upgrade-${status}`, status: status === "published" ? "published" : "disabled", currentReleaseId: randomUUID() } });
     await db.webSiteAddress.createMany({ data: [upgradeSite.slug, `${upgradeSite.slug}-old`].map(slug => ({ slug, siteId: upgradeSite.id })) });
     await db.webSiteRelease.create({ data: { id: upgradeSite.currentReleaseId, siteId: upgradeSite.id, sourceFileId: legacy.id, manifestJson: { entry_path: "index.html", files: [{ path: "index.html", object_key: "legacy/index.html", mime_type: "text/html", size_bytes: legacyHtml.length, checksum_sha256: createHash("sha256").update(legacyHtml).digest("hex") }] } } });
     if (status === "deleted") await db.$executeRaw`UPDATE web_sites SET deleted_at = CURRENT_TIMESTAMP WHERE id = ${upgradeSite.id}::uuid`;
@@ -91,8 +92,8 @@ try {
     }
   }
   assert.equal((await db.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM information_schema.columns WHERE table_name='web_sites' AND column_name='deleted_at'`)[0]?.count, 0n);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(c) AS row FROM conversations c WHERE id=${task.id}::uuid`, oldTask);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(f) AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`, oldFile);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(c)-ARRAY['execution_target','desktop_device_id'] AS row FROM conversations c WHERE id=${task.id}::uuid`, oldTask);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(f)-'workspace_path_digest' AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`, oldFile);
   assert.equal((await db.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_name IN ('web_sites','web_site_addresses','web_site_releases','web_artifact_bundles')`)[0]?.count, 0n);
 
   const publicBaseUrl = "http://localhost:19542";
@@ -115,10 +116,18 @@ try {
   const headers = { authorization: `Bearer ${token}` };
   const prefix = "/api/v1/web-sites";
   const publicRequest = (url: string) => api.inject({ url, headers: { host: new URL(publicBaseUrl).host } });
+  const framePath = async (url: string): Promise<string> => {
+    const shell = await publicRequest(url);
+    assert.equal(shell.statusCode, 200);
+    const path = /<iframe[^>]+src="([^"]+)"/u.exec(shell.body)?.[1];
+    assert(path, "The public page must include its release document");
+    return path;
+  };
   for (const { site: upgradeSite, deleted } of upgradeSites) {
     if (deleted) continue;
     assert.equal((await api.inject(`/web/${upgradeSite.slug}`)).statusCode, upgradeSite.status === "published" ? 200 : 404);
     assert.equal((await api.inject(`/web/${upgradeSite.slug}/_releases/${upgradeSite.currentReleaseId}/index.html`)).statusCode, upgradeSite.status === "published" ? 200 : 404);
+    if (upgradeSite.status === "published") assert.equal((await publicRequest(await framePath(webApplicationPath(upgradeSite.id)))).statusCode, 200);
     assert.equal((await api.inject({ url: `${prefix}/${upgradeSite.id}/download`, headers })).statusCode, 200);
     assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${upgradeSite.id}`, headers, payload: { name: "Upgraded site" } })).statusCode, 200);
     assert.equal((await api.inject({ method: "DELETE", url: `${prefix}/${upgradeSite.id}`, headers })).statusCode, 204);
@@ -132,6 +141,7 @@ try {
   const legacySite = await createSite(legacy.id);
   assert.match(legacySite.slug, /^[a-f0-9-]{36}$/u);
   assert.equal((await publicRequest(legacySite.url_path)).statusCode, 200);
+  assert.equal((await publicRequest(await framePath(legacySite.url_path))).statusCode, 200);
 
   const workspace = join(config.userDataRoot, task.workspaceRelPath);
   const publicDirectory = join(workspace, "artifacts/site");
@@ -159,8 +169,8 @@ try {
     name: site.name, slug: site.slug, status: "published", url: `${publicBaseUrl}${site.url_path}`,
   }]);
   assert.deepEqual((await api.inject({ url: deliveryUrl, headers: { authorization: `Bearer ${otherToken}` } })).json().data, []);
-  const initialEntry = await services.webSites.publicEntry(site.slug);
-  const firstContent = await api.inject(initialEntry.path);
+  const initialEntry = await framePath(site.url_path);
+  const firstContent = await api.inject(initialEntry);
   assert.equal(firstContent.statusCode, 200, firstContent.body);
   assert.match(firstContent.headers["content-security-policy"]!, /sandbox allow-scripts/u);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers: { authorization: `Bearer ${otherToken}` } })).statusCode, 404);
@@ -171,20 +181,20 @@ try {
   assert.equal(await db.webSite.count({ where: { originFileId: first.file_id } }), 1);
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第二版";');
   const second = await register();
-  const originalModule = initialEntry.path.replace("index.html", "assets/counter.js");
+  const originalModule = initialEntry.replace("index.html", "assets/counter.js");
   assert.match((await api.inject(originalModule)).body, /第一版/u);
   const published = await api.inject({ method: "POST", url: `${prefix}/${site.id}/releases`, headers, payload: { file_id: second.file_id } });
   assert.equal(published.statusCode, 201, published.body);
   assert.equal(published.json().data.url_path, site.url_path);
   assert.notEqual(published.json().data.release_id, site.release_id);
   assert.match((await api.inject(originalModule)).body, /第一版/u);
-  const currentEntry = await services.webSites.publicEntry(site.slug);
-  assert.match((await api.inject(currentEntry.path.replace("index.html", "assets/counter.js"))).body, /第二版/u);
+  const currentEntry = await framePath(site.url_path);
+  assert.match((await api.inject(currentEntry.replace("index.html", "assets/counter.js"))).body, /第二版/u);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { slug: legacySite.slug } })).statusCode, 409);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "disabled" } })).statusCode, 200);
   assert.equal((await publicRequest(site.url_path)).statusCode, 404);
   assert.equal((await api.inject(originalModule)).statusCode, 404);
-  assert.equal((await api.inject(currentEntry.path)).statusCode, 404);
+  assert.equal((await api.inject(currentEntry)).statusCode, 404);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers })).statusCode, 200);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "published", slug: "shanhai-published" } })).statusCode, 200);
   assert.equal((await publicRequest(site.url_path)).statusCode, 200);
@@ -293,10 +303,10 @@ try {
   assert.equal(updatedSite.source_task_title, newTask.title);
   assert.equal(updatedSite.source_file_id, redesigned.file_id);
   assert.equal(await db.webSite.count({ where: { sourceFileId: redesigned.file_id } }), 1);
-  const crossEntry = await services.webSites.publicEntry(updatedSite.slug);
-  assert.match((await api.inject(crossEntry.path.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
-  assert.equal((await api.inject(crossEntry.path.replace("index.html", "assets/style.css"))).statusCode, 200);
-  assert.equal((await api.inject(crossEntry.path.replace("index.html", "assets/logo.svg"))).statusCode, 200);
+  const crossEntry = await framePath(updatedSite.url_path);
+  assert.match((await api.inject(crossEntry.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
+  assert.equal((await api.inject(crossEntry.replace("index.html", "assets/style.css"))).statusCode, 200);
+  assert.equal((await api.inject(crossEntry.replace("index.html", "assets/logo.svg"))).statusCode, 200);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/sources`, headers })).json().data.some((file: { id: string }) => file.id === redesigned.file_id), true);
   assert.equal((await api.inject({ url: `${prefix}?conversation_id=${newTask.id}`, headers })).json().data.items[0].id, site.id);
   assert((await deliveries()).some(delivery => delivery.source_file_id === first.file_id));
@@ -314,7 +324,7 @@ try {
     assert.equal((await api.inject({ url: `${prefix}/${remaining.id}/download`, headers })).statusCode, 200);
   }
   assert.equal((await publicRequest(updatedSite.url_path)).statusCode, 200);
-  assert.match((await api.inject(crossEntry.path.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
+  assert.match((await api.inject(crossEntry.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
   const retained = remainingSites[0];
   assert(retained, "A retained site from the deleted original task must be available");
   const restoreSource = await api.inject({ method: "POST", url: `${prefix}/${retained.id}/releases`, headers, payload: { file_id: redesigned.file_id } });

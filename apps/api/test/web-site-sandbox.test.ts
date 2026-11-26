@@ -33,7 +33,9 @@ function setup() {
   const app = Fastify();
   apps.push(app);
   registerPublicAppGateway(app, fixture.service, fixture.sites, sessions, fixture.config);
-  registerWebSiteBackendGateway(app, fixture.service, fixture.sites);
+  registerWebSiteBackendGateway(app, fixture.service, fixture.sites, {
+    accessSecret: fixture.config.jwtSecret, takeUnlockAttempt: async () => true,
+  });
   app.setErrorHandler((error, _request, reply) => {
     const normalized = normalizeError(error);
     return reply.code(normalized.code === "FORBIDDEN" ? 403 : normalized.code === "AUTH_REQUIRED" ? 401
@@ -142,7 +144,7 @@ describe("same-host public dynamic applications", () => {
     const f = setup(), url = `/app/s/${siteId}`;
     expect((await f.app.inject({ url, headers: { host: "evil.example.test" } })).statusCode).toBe(404);
     expect((await f.app.inject({ url, headers: { host: f.host, "sec-fetch-dest": "iframe" } })).statusCode).toBe(403);
-    vi.spyOn(f.store, "publicBinding").mockResolvedValueOnce({ backend: f.row, siteId: "40000000-0000-4000-8000-000000000002" });
+    vi.spyOn(f.store, "publicBinding").mockResolvedValueOnce({ backend: f.row, siteId: "40000000-0000-4000-8000-000000000002", passcodeHash: null });
     expect((await f.app.inject({ url, headers: { host: f.host } })).statusCode).toBe(404);
     expect(f.fetcher).not.toHaveBeenCalled();
   });

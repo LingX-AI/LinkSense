@@ -151,4 +151,40 @@ describe("privacy masking activity", () => {
       new Date("2026-11-17T09:00:00.000Z"),
     );
   });
+
+  it("continues within a timestamp shared by records on both pages", async () => {
+    const fixtureActivity = fixture();
+    const time = "2026-11-17T08:00:00.000Z";
+    const newerId = "40000000-0000-4000-8000-000000000003";
+    const pageEdgeId = "40000000-0000-4000-8000-000000000002";
+    const olderId = "40000000-0000-4000-8000-000000000001";
+    const rows = [newerId, pageEdgeId, olderId].map((id) => ({
+      id,
+      model: "model-a",
+      maskedCount: 1,
+      kinds: { TERM: 1 },
+      hints: [],
+      createdAt: new Date(time),
+    }));
+    fixtureActivity.findMany.mockImplementation(async ({ where }) =>
+      where.OR ? rows.filter((row) => row.id < where.OR[1].id.lt) : [],
+    );
+
+    const result = await fixtureActivity.service.listForUser(userId, {
+      days: 7,
+      before: time,
+      before_id: pageEdgeId,
+    });
+
+    expect(result.records.map((row) => row.id)).toEqual([olderId]);
+    expect(fixtureActivity.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        userId,
+        OR: [
+          { createdAt: { lt: new Date(time) } },
+          { createdAt: new Date(time), id: { lt: pageEdgeId } },
+        ],
+      }),
+    }));
+  });
 });

@@ -11,10 +11,12 @@ import { promisify } from "node:util";
 
 import type { ModelProviderProtocolMode } from "@linksense/shared";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
+import { z } from "zod";
 
 import pino from "../apps/runner/node_modules/pino/pino.js";
 import { desktopModelProviders } from "../apps/runner/src/desktop/model-providers.js";
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts";
+import { createCodexModelCatalogWriter } from "../apps/runner/src/codex/model-catalog.ts";
 import {
   CODEX_SCHEMA_VERSION,
   type CodexThread,
@@ -35,7 +37,14 @@ const modes: ModelProviderProtocolMode[] = [
   "chat_completions_bridge",
 ];
 const execFileAsync = promisify(execFile);
-const model = "gpt-5.3-codex";
+const model = "linksense-smoke-custom-model";
+const contextWindow = 1_000_000;
+const reasoningEffort = "high";
+const catalogWriter = createCodexModelCatalogWriter();
+const tokenUsage = z.object({
+  turnId: z.string(),
+  tokenUsage: z.object({ modelContextWindow: z.number().nullable() }),
+});
 const forceWebSocketFallback =
   process.env.LINKSENSE_SMOKE_FORCE_WS_FALLBACK === "true";
 const useDesktopProxy = process.argv.includes("--desktop-proxy");
@@ -130,6 +139,7 @@ try {
     threadId: string;
     turnId: string;
     answer: string;
+    contextWindow: number;
   }> = [];
   for (const [index, mode] of modes.entries()) {
     activeMode = mode;
@@ -143,6 +153,12 @@ try {
       mkdir(codexHome, { recursive: true }),
       mkdir(workspace, { recursive: true }),
     ]);
+    const command = process.env.CODEX_BIN?.trim() || "codex";
+    const catalogPath = await catalogWriter.ensure({
+      command, codexHome, model, modelContextWindow: contextWindow,
+      supportsImageInput: true,
+    });
+    if (!catalogPath) throw new Error("No catalog was written before the first turn");
     await writeFile(
       path.join(codexHome, "config.toml"),
       [
@@ -150,6 +166,8 @@ try {
         // thread. Keep the top-level selector absent so this smoke test fails
         // if thread/start ever falls back to Codex's built-in OpenAI provider.
         `model = ${JSON.stringify(model)}`,
+        `model_context_window = ${contextWindow}`,
+        `model_catalog_json = ${JSON.stringify(catalogPath)}`,
         "check_for_update_on_startup = false",
         'forced_login_method = "api"',
         "allow_login_shell = false",
@@ -192,8 +210,9 @@ try {
         output_price_per_million: "0",
       },
     });
-    const client = new CodexJsonRpcClient({
-      command: process.env.CODEX_BIN?.trim() || "codex",
+    const connect = () => new CodexJsonRpcClient({
+      command,
+      cwd: workspace,
       userHome,
       codexHome,
       logger,
@@ -202,7 +221,17 @@ try {
         [modelGatewayEnvironmentKey]: lease.token,
       },
     });
+    let client = connect();
     try {
+      const windows = new Map<string, number | null>();
+      function watchContextWindow() {
+        client.on("notification", (event: JsonRpcNotification) => {
+          if (event.method !== "thread/tokenUsage/updated") return;
+          const usage = tokenUsage.parse(event.params);
+          windows.set(usage.turnId, usage.tokenUsage.modelContextWindow);
+        });
+      }
+      watchContextWindow();
       const completedTurns = collectCompletedTurns(client);
       await client.initialize();
       const started = await client.request<{ thread: CodexThread }>(
@@ -217,18 +246,20 @@ try {
           ephemeral: false,
         },
       );
+      const text = requiresTool
+        ? `Create gateway-tool.txt with the model gateway tool, then reply with exactly ${marker}.`
+        : `Reply with exactly ${marker}. Do not call tools.`;
       const turn = await client.request<{ turn: CodexTurn }>("turn/start", {
         threadId: started.thread.id,
         model,
+        effort: reasoningEffort,
         clientUserMessageId: `01900000-0000-7000-8000-${String(
           index + 1,
         ).padStart(12, "0")}`,
         input: [
           {
             type: "text",
-            text: requiresTool
-              ? `Create gateway-tool.txt with the model gateway tool, then reply with exactly ${marker}.`
-              : `Reply with exactly ${marker}. Do not call tools.`,
+            text,
             text_elements: [],
           },
         ],
@@ -246,6 +277,9 @@ try {
             message: completed.error?.message,
           })}`,
         );
+      }
+      if (windows.get(turn.turn.id) !== contextWindow) {
+        throw new Error(`${mode} did not use the configured first-turn window`);
       }
       const read = await client.request<{ thread: CodexThread }>(
         "thread/read",
@@ -280,11 +314,31 @@ try {
           throw new Error(`${mode} did not execute exec_command in Codex`);
         }
       }
+      if (mode === "native_responses") {
+        await client.close();
+        client = connect();
+        watchContextWindow();
+        const resumedTurns = collectCompletedTurns(client);
+        await client.initialize();
+        await client.request("thread/resume", {
+          threadId: started.thread.id, model, modelProvider: "link-sense",
+          cwd: workspace, approvalPolicy: "never", sandbox: "danger-full-access",
+        });
+        const next = await client.request<{ turn: CodexTurn }>("turn/start", {
+          threadId: started.thread.id, model, effort: reasoningEffort,
+          input: [{ type: "text", text: `Continue. ${text}`, text_elements: [] }],
+        });
+        const resumed = await resumedTurns.wait(next.turn.id);
+        if (resumed.status !== "completed" || windows.get(next.turn.id) !== contextWindow) {
+          throw new Error("The catalog-backed native conversation did not resume");
+        }
+      }
       results.push({
         mode,
         threadId: started.thread.id,
         turnId: turn.turn.id,
         answer,
+        contextWindow,
       });
     } finally {
       await client.close().catch(() => undefined);
@@ -330,6 +384,11 @@ async function handleUpstream(
     body,
     transport: "http",
   });
+  if (activeMode === "native_responses" && !supportsStandardResponsesTools(body)) {
+    response.writeHead(400, { "content-type": "application/json" });
+    response.end('{"error":{"message":"Expected standard top-level tools"}}');
+    return;
+  }
   const marker = `LINKSENSE_GATEWAY_${activeMode.toUpperCase()}_OK`;
   const modeRequestCount = requests.filter(
     (entry) => entry.mode === activeMode,
@@ -375,6 +434,7 @@ async function handleUpstream(
         id: "chat-smoke",
         model,
         choices: [{ index: 0, delta: { content: marker } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       })}\n\n`,
     );
     response.write("data: [DONE]\n\n");
@@ -409,6 +469,9 @@ async function handleUpstreamWebSocketMessage(
     body,
     transport: "websocket",
   });
+  if (mode === "native_responses" && !supportsStandardResponsesTools(body)) {
+    throw new Error("Expected standard top-level tools");
+  }
   const modeRequests = requests.filter(
     (entry) => entry.mode === mode && entry.body.generate !== false,
   );
@@ -725,12 +788,21 @@ function assertUpstreamRequests(
     throw new Error("chat mode unexpectedly attempted a websocket upgrade");
   }
   const generated = received.filter((entry) => entry.body.generate !== false);
-  if (generated.length !== 5) {
+  if (generated.length !== 6) {
     throw new Error(
-      `expected five generated upstream requests, got ${generated.length}`,
+      `expected six generated upstream requests, got ${generated.length}`,
     );
   }
   for (const entry of received) {
+    if (entry.body.generate !== false) {
+      const reasoning = entry.body.reasoning;
+      const effort = entry.mode === "chat_completions_bridge"
+        ? entry.body.reasoning_effort
+        : isRecord(reasoning) ? reasoning.effort : undefined;
+      if (effort !== reasoningEffort) {
+        throw new Error(`${entry.mode} did not forward the selected reasoning effort`);
+      }
+    }
     if (entry.mode === "chat_completions_bridge") {
       if (entry.path !== "/v1/chat/completions") {
         throw new Error("chat mode did not use /chat/completions");
@@ -775,7 +847,7 @@ function assertUpstreamRequests(
     }
   }
   for (const mode of modes) {
-    const expected = mode === "native_responses" ? 1 : 2;
+    const expected = 2;
     const modeRequests = generated.filter((entry) => entry.mode === mode);
     if (modeRequests.length !== expected) {
       throw new Error(
@@ -822,6 +894,14 @@ function assertUpstreamRequests(
       }
     }
   }
+}
+
+function supportsStandardResponsesTools(body: JsonObject): boolean {
+  return Array.isArray(body.tools) &&
+    body.tools.some((tool) => isRecord(tool) && tool.name === "update_plan") &&
+    !(Array.isArray(body.input) && body.input.some(
+      (item) => isRecord(item) && item.type === "additional_tools",
+    ));
 }
 
 function findResponsesExecCommandTool(body: JsonObject): string {

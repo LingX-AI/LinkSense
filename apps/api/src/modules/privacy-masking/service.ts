@@ -11,7 +11,11 @@ import {
   type PrivacyMaskingSettingsResponse,
   type UpdatePrivacyMaskingSettings,
 } from "@linksense/shared";
-import { PrivacyMasker } from "@linksense/shared/privacy-masking-engine";
+import {
+  InvalidPrivacyMaskingRegex,
+  PrivacyMasker,
+  validatePrivacyMaskingRegexRules,
+} from "@linksense/shared/privacy-masking-engine";
 
 import type { AppConfig } from "../../config.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
@@ -34,9 +38,16 @@ function cloneSettings(
   };
 }
 
+function throwPrivacyMaskingRuleError(error: unknown): never {
+  if (error instanceof InvalidPrivacyMaskingRegex) {
+    throw new AppError("VALIDATION_ERROR", { privacy_masking_rule_id: error.ruleId });
+  }
+  throw error;
+}
+
 function uniqueValues(
   values: readonly string[],
-  anyCase = true,
+  anyCase: boolean,
 ): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -57,7 +68,7 @@ function normalize(
   return {
     ...settings,
     words: uniqueValues(settings.words, settings.words_any_case),
-    allow: uniqueValues(settings.allow),
+    allow: uniqueValues(settings.allow, false),
   };
 }
 
@@ -86,6 +97,11 @@ export class PrivacyMaskingSettingsService {
     audit: AuditContext,
   ): Promise<PrivacyMaskingSettingsResponse> {
     const input = updatePrivacyMaskingSettingsSchema.parse(raw);
+    try {
+      validatePrivacyMaskingRegexRules(input.settings.custom_rules ?? []);
+    } catch (error) {
+      throwPrivacyMaskingRuleError(error);
+    }
     return this.prisma.$transaction(async (transaction) => {
       await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`linksense-user-privacy-masking:${userId}`}, 0))`;
       const row = await transaction.userPrivacyMaskingSetting.findUnique({
@@ -99,7 +115,13 @@ export class PrivacyMaskingSettingsService {
       if ((row?.revision ?? 0) !== input.expected_revision) {
         throw new AppError("CONFLICT");
       }
-      const settings = normalize(input.settings);
+      const previous = row
+        ? this.decrypt(row.encryptedSettings, row.encryptionKeyId)
+        : undefined;
+      const settings = normalize(privacyMaskingSettingsSchema.parse({
+        ...previous,
+        ...input.settings,
+      }));
       const revision = (row?.revision ?? 0) + 1;
       const encryptedSettings = encryptJson(
         settings,
@@ -136,6 +158,7 @@ export class PrivacyMaskingSettingsService {
             word_count: settings.words.length,
             allow_count: settings.allow.length,
             action_count: Object.keys(settings.actions).length,
+            custom_rule_count: settings.custom_rules?.length ?? 0,
           },
           ipAddress: audit.ipAddress ?? null,
           userAgent: audit.userAgent ?? null,
@@ -155,18 +178,7 @@ export class PrivacyMaskingSettingsService {
   ): Promise<PrivacyMaskingRuntime | undefined> {
     const stored = await this.readForUser(userId);
     if (!stored.settings.enabled) return undefined;
-    return privacyMaskingRuntimeSchema.parse({
-      revision: stored.revision,
-      secrets: stored.settings.secrets,
-      personal: stored.settings.personal,
-      kinds: stored.settings.kinds,
-      words: stored.settings.words,
-      words_any_case: stored.settings.words_any_case,
-      words_whole: stored.settings.words_whole,
-      actions: stored.settings.actions,
-      allow: stored.settings.allow,
-      placeholder_key: this.placeholderKeyFor(userId),
-    });
+    return this.toRuntime(userId, stored.revision, stored.settings);
   }
 
   /**
@@ -182,34 +194,42 @@ export class PrivacyMaskingSettingsService {
   ): Promise<PrivacyMaskingPreviewResponse> {
     const settings =
       input.settings ?? (await this.readForUser(userId)).settings;
-    const masker = new PrivacyMasker({
-      revision: 0,
-      secrets: settings.secrets,
-      personal: settings.personal,
-      kinds: settings.kinds,
-      words: settings.words,
-      words_any_case: settings.words_any_case,
-      words_whole: settings.words_whole,
-      actions: settings.actions,
-      allow: settings.allow,
+    try {
+      const masker = new PrivacyMasker(this.toRuntime(userId, 0, settings));
+      const masked = masker.maskText(input.text);
+      const blocked = masked.hits.some((hit) => hit.action === "block");
+      const hits = new Map<string, PrivacyMaskingPreviewResponse["hits"][number]>();
+      for (const { placeholder, kind, action, rule_ids, related_kinds } of masked.hits) {
+        const hit = {
+          placeholder,
+          kind,
+          action,
+          ...(rule_ids ? { rule_ids } : {}),
+          ...(related_kinds ? { related_kinds } : {}),
+        };
+        hits.set(JSON.stringify(hit), hit);
+      }
+      return privacyMaskingPreviewResponseSchema.parse({
+        text: blocked ? "" : masked.text,
+        hits: [...hits.values()],
+        ...(blocked ? { blocked: true } : {}),
+      });
+    } catch (error) {
+      throwPrivacyMaskingRuleError(error);
+    }
+  }
+
+  private toRuntime(
+    userId: string,
+    revision: number,
+    settings: PrivacyMaskingSettings,
+  ): PrivacyMaskingRuntime {
+    const policy: Partial<PrivacyMaskingSettings> = { ...settings };
+    delete policy.enabled;
+    return privacyMaskingRuntimeSchema.parse({
+      ...policy,
+      revision,
       placeholder_key: this.placeholderKeyFor(userId),
-    });
-    const masked = masker.maskText(input.text);
-    const seen = new Set<string>();
-    const hits = masked.hits
-      .filter((hit) => {
-        if (seen.has(hit.placeholder)) return false;
-        seen.add(hit.placeholder);
-        return true;
-      })
-      .map(({ placeholder, kind, action }) => ({
-        placeholder,
-        kind,
-        action,
-      }));
-    return privacyMaskingPreviewResponseSchema.parse({
-      text: masked.text,
-      hits,
     });
   }
 
