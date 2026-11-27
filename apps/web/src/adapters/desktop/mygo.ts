@@ -13,6 +13,22 @@ export interface ArtifactDownloadSaved {
   name: string;
 }
 
+/**
+ * cloudApprovalRequest carries only grant-relative paths and the command the
+ * user must judge. It is local UI state, never API or audit input.
+ */
+export interface CloudApprovalRequest {
+  id: string;
+  conversation_id: string;
+  kind: string;
+  operation: string;
+  command?: string;
+  cwd?: string;
+  path?: string;
+  root_name: string;
+  expires_at: string;
+}
+
 export interface CloudComputerControlStatus {
   state: string;
   expiresAt?: string;
@@ -198,23 +214,6 @@ export interface LocalFileRootView {
   updated_at: string;
 }
 
-/**
- * CloudApprovalRequest is one local consent prompt for a cloud command or a
- * mutating file tool. It carries only grant-relative paths and renders on
- * this Mac; it is never sent to the API.
- */
-export interface CloudApprovalRequest {
-  id: string;
-  conversation_id: string;
-  kind: string;
-  operation: string;
-  command?: string;
-  cwd?: string;
-  path?: string;
-  root_name: string;
-  expires_at: string;
-}
-
 /** MacSignOutOptions preserves the pairing unless the UI confirmed a revoke. */
 export interface MacSignOutOptions {
   revokedDevice?: RevokedMacDevice;
@@ -271,8 +270,8 @@ export const Desktop = {
    */
   addFileRoot: bind<[string, string], LocalFileRootView>("Desktop.AddFileRoot", (conversationID: string, mode: string) => [conversationID, mode]),
   /**
-   * AnswerCloudApproval answers exactly one live local approval. The native
-   * host refuses a stale, repeated or unknown request id.
+   * AnswerCloudApproval answers exactly one live approval. A stale, repeated or
+   * unknown id is refused; the shell or file operation remains failed closed.
    */
   answerCloudApproval: bind<[string, string], void>("Desktop.AnswerCloudApproval", (requestID: string, decision: string) => [requestID, decision]),
   /**
@@ -308,6 +307,7 @@ export const Desktop = {
   cleanupWorkspaces: bind<[], WorkspaceCleanupResult>("Desktop.CleanupWorkspaces", () => []),
   clearMacSession: bind<[MacSignOutOptions], void>("Desktop.ClearMacSession", (options: MacSignOutOptions) => [options]),
   clearSession: bind<[], void>("Desktop.ClearSession", () => []),
+  /** CloudApprovals returns the live approvals so a page reload can restore them. */
   cloudApprovals: bind<[], CloudApprovalRequest[]>("Desktop.CloudApprovals", () => []),
   cloudComputerControl: bind<[string, string, string], CloudComputerControlStatus>("Desktop.CloudComputerControl", (conversationID: string, turnID: string, action: string) => [conversationID, turnID, action]),
   cloudComputerStatus: bind<[], CloudComputerControlStatus>("Desktop.CloudComputerStatus", () => []),
@@ -352,12 +352,6 @@ export const Desktop = {
    */
   notificationsSupported: bind<[], boolean>("Desktop.NotificationsSupported", () => []),
   /**
-   * PermissionMode returns the conversation's saved local permission mode
-   * (auto, manual, accept_edits or bypass). A conversation without a choice is
-   * manual.
-   */
-  permissionMode: bind<[string], string>("Desktop.PermissionMode", (conversationID: string) => [conversationID]),
-  /**
    * OpenComputerPermissionSettings is the manual add fallback after
    * GuideComputerPermission reports a failure. MyGo's Guide registers its panel
    * classes before it opens System Settings, so a failure there leaves the user
@@ -368,6 +362,11 @@ export const Desktop = {
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
   openUpdateInstaller: bind<[], void>("Desktop.OpenUpdateInstaller", () => []),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
+  /**
+   * PermissionMode returns the conversation's saved mode; a conversation that
+   * never chose one is Manual.
+   */
+  permissionMode: bind<[string], string>("Desktop.PermissionMode", (conversationID: string) => [conversationID]),
   restartAfterUpdate: bind<[], void>("Desktop.RestartAfterUpdate", () => []),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
   /**
@@ -384,11 +383,6 @@ export const Desktop = {
    * folder, including the default Home grant, without reopening the picker.
    */
   setFileRootMode: bind<[string, string], LocalFileRootView>("Desktop.SetFileRootMode", (conversationID: string, mode: string) => [conversationID, mode]),
-  /**
-   * SetPermissionMode saves the conversation's local permission mode on this
-   * Mac. The mode is a local trust decision; it never leaves the Mac.
-   */
-  setPermissionMode: bind<[string, string], string>("Desktop.SetPermissionMode", (conversationID: string, mode: string) => [conversationID, mode]),
   setLocalToolsEnabled: bind<[boolean], DeviceConnectionStatus>("Desktop.SetLocalToolsEnabled", (enabled: boolean) => [enabled]),
   /**
    * SetLocale makes the macOS app language follow an explicit language choice
@@ -399,6 +393,11 @@ export const Desktop = {
    * changed.
    */
   setLocale: bind<[string], void>("Desktop.SetLocale", (tag: string) => [tag]),
+  /**
+   * SetPermissionMode saves the mode for this conversation on this Mac. The mode
+   * is a local trust decision and never leaves the Mac.
+   */
+  setPermissionMode: bind<[string, string], string>("Desktop.SetPermissionMode", (conversationID: string, mode: string) => [conversationID, mode]),
   setUpdateChannel: bind<[string], DesktopUpdateResult>("Desktop.SetUpdateChannel", (channel: string) => [channel]),
   /**
    * ShowApprovalNotification shows one generic reminder for the live approval
