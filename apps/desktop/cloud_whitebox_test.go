@@ -627,10 +627,28 @@ func (b *cloudBrowserFixture) serve(w http.ResponseWriter, r *http.Request) bool
 }
 
 func cloudBrowserConversationData(conversation, title string) map[string]any {
+	// The panel entry follows the latest turn, and only a turn that drove the
+	// managed browser command exposes it.
+	turnID := conversation + "-browser-turn"
 	return map[string]any{
 		"id": conversation, "title": title, "project_id": nil, "updated_at": fixtureTime,
 		"created_at": fixtureTime, "archive_status": "active", "execution_status": "running",
 		"execution_target": "cloud", "desktop_device_id": nil,
+		"turns": []any{map[string]any{"id": turnID, "status": "completed"}},
+		"events": []any{map[string]any{
+			"id": conversation + "-browser-event", "type": "item/completed",
+			"turn_id": turnID, "sequence_no": 1, "created_at": fixtureTime,
+			"payload": map[string]any{
+				"schema_version": 2, "source": "codex_app_server", "method": "item/completed",
+				"params": map[string]any{
+					"threadId": "thread-browser", "turnId": turnID,
+					"item": map[string]any{
+						"id": "item-browser", "type": "commandExecution", "status": "completed",
+						"commandActions": []any{}, "command": "linksense-browser open https://example.test/",
+					},
+				},
+			},
+		}},
 	}
 }
 

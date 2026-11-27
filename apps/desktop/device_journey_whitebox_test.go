@@ -126,10 +126,11 @@ type deviceJourneyFixture struct {
 	// it additionally negotiate the exact conversation-reference read operation
 	// offered by this Mac. reject and revoked model a lost socket and a
 	// server-side credential revocation.
-	execution atomic.Bool
-	tools     atomic.Bool
-	reject    atomic.Bool
-	revoked   atomic.Bool
+	execution   atomic.Bool
+	tools       atomic.Bool
+	reject      atomic.Bool
+	revoked     atomic.Bool
+	browserTask atomic.Bool
 
 	cloudEntryClosed atomic.Bool
 }
@@ -521,6 +522,26 @@ func (f *deviceJourneyFixture) serveConversationCreate(w http.ResponseWriter, r 
 		"selected_knowledge_base_ids": []any{}, "application": nil,
 		"created_at": deviceJourneyFixtureTime, "updated_at": deviceJourneyFixtureTime,
 		"execution_target": target, "desktop_device_id": desktopDeviceID,
+	}
+	// The browser-panel regression needs a completed turn that drove the
+	// managed browser command; other fixture journeys keep an empty timeline.
+	if f.browserTask.Load() {
+		turnID := "b1000000-0000-4000-8000-000000000001"
+		conversation["turns"] = []any{map[string]any{"id": turnID, "status": "completed"}}
+		conversation["events"] = []any{map[string]any{
+			"id": "b2000000-0000-4000-8000-000000000001", "type": "item/completed",
+			"turn_id": turnID, "sequence_no": 1, "created_at": deviceJourneyFixtureTime,
+			"payload": map[string]any{
+				"schema_version": 2, "source": "codex_app_server", "method": "item/completed",
+				"params": map[string]any{
+					"threadId": "thread-browser", "turnId": turnID,
+					"item": map[string]any{
+						"id": "item-browser", "type": "commandExecution", "status": "completed",
+						"commandActions": []any{}, "command": "linksense-browser open https://example.test/",
+					},
+				},
+			},
+		}}
 	}
 	f.creates = append(f.creates, deviceJourneyCreateCall{id: id, raw: string(raw), body: body})
 	f.conversa[id] = conversation

@@ -211,6 +211,7 @@ func TestNativeComposerToolbarStaysInsideTheComposerWhenPreviewNarrowsWorkspace(
 	desktop := nativeWhitebox.desktop
 	desktop.closeDevice()
 	fixture := newDeviceJourneyFixture()
+	fixture.browserTask.Store(true)
 	deviceJourneyWhitebox.Store(fixture)
 	t.Cleanup(func() {
 		desktop.closeDevice()
