@@ -27,7 +27,11 @@ const assignedSecretFieldPattern = new RegExp(`^${assignedSecretField}$`, "iu");
  * process.env.API_KEY` and `token = requestToken` out of the masker.
  */
 function looksLikeAssignedSecret(value: string, field: string): boolean {
-  const trimmed = value.replace(/[).;]+$/u, "");
+  let end = value.length;
+  while (end > 0 && (value[end - 1] === ")" || value[end - 1] === "." || value[end - 1] === ";")) {
+    end -= 1;
+  }
+  const trimmed = value.slice(0, end);
   if (trimmed.length < 4) return false;
   if (/^(?:\[REDACTED[^\]]*\]|\{\{[A-Za-z0-9_]+\}\})$/u.test(trimmed)) {
     return false;
@@ -56,7 +60,7 @@ function looksLikeHeaderValue(value: string): boolean {
     return true;
   }
   // Cookie jars carry `name=value` pairs.
-  if (/\S+=\S+/u.test(trimmed) && /[;]/u.test(trimmed)) return true;
+  if (/[^\s=]+=[^\s;]+/u.test(trimmed) && /[;]/u.test(trimmed)) return true;
   // Opaque session values are long and have no spaces.
   return trimmed.length >= 16 && !/\s/u.test(trimmed);
 }

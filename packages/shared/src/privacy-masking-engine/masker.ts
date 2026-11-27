@@ -59,7 +59,7 @@ const CACHE_MAX_ENTRIES = 512;
 const CACHE_MAX_CHARS = 8_000_000;
 
 const placeholderPattern = /\{\{([A-Z][A-Z0-9_]*)_([0-9a-f]{16,32})\}\}/gu;
-const jsonTokenPattern = /("(?:[^"\\]|\\[\s\S])*")([ \t\r\n]*:[ \t\r\n]*)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu;
+const jsonTokenPattern = /("(?:[^"\\]*(?:\\.[^"\\]*)*)")([ \t\r\n]*:[ \t\r\n]*)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu;
 const wordRunePattern = /(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[\p{L}\p{N}_])/u;
 const digitRunePattern = /\p{Nd}/u;
 
