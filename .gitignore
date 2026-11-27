@@ -47,3 +47,6 @@ apps/docs/.public-docs/
 
 # Local Claude Code session config (launch.json etc.)
 .claude/
+
+# Local desktop build artifacts; the app lives on feat-desktop-app
+apps/desktop/
