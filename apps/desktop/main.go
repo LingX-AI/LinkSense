@@ -47,7 +47,7 @@ func main() {
 			log.Fatal("DESKTOP_DATA_DIRECTORY_UNAVAILABLE")
 		}
 		if parsed, err := configuredServerURL(mygo.IsDev()); err == nil {
-			desktop.configure(parsed, mygo.Secrets, root)
+			desktop.configure(parsed, newFileCredentialStore(root), root)
 			desktop.openMainWindow()
 			if runtime.GOOS == "darwin" {
 				desktop.installShell(root)
