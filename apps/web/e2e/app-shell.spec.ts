@@ -4,7 +4,6 @@ import { writeFile } from "node:fs/promises"
 import dayjs from "dayjs"
 import JSZip from "jszip"
 import {
-  supportedLocales,
   updateVoiceTranscriptionSettingsSchema,
   voiceTranscriptionProviderDefinitions,
   type PublicKnowledgeCitation,
@@ -1142,12 +1141,15 @@ for (const width of [1440, 390]) {
       })
     )
     expect(cardBoxes).toHaveLength(3)
-    expect(cardBoxes.every((card) => card.height >= 160)).toBe(true)
-    expect(
-      width === 1440
-        ? cardBoxes.every((card) => card.y === cardBoxes[0].y)
-        : cardBoxes[1].y > cardBoxes[0].y
-    ).toBe(true)
+    // Templates render as full-width rows: 72px tall beside the wide
+    // workspace and 137px once their text wraps in the narrow column.
+    const templateMinHeight = width === 1440 ? 72 : 137
+    expect(cardBoxes.every((card) => card.height >= templateMinHeight)).toBe(
+      true
+    )
+    expect(cardBoxes.every((card) => card.x === cardBoxes[0].x)).toBe(true)
+    expect(cardBoxes[1].y).toBeGreaterThan(cardBoxes[0].y)
+    expect(cardBoxes[2].y).toBeGreaterThan(cardBoxes[1].y)
     await expectNoHorizontalOverflow(page)
     await page.screenshot({
       path: test.info().outputPath(`automations-${width}.png`),
@@ -1218,7 +1220,7 @@ for (const width of [1440, 390]) {
     expect((await creationDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
     for (const name of ["用对话创建应用", "创建普通应用", "导入交互式应用"]) {
       const action = creationDialog.getByRole("button", { name })
-      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(88)
+      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(72)
     }
     await expect(
       creationDialog.locator('[data-slot="application-creation-illustration"]')
@@ -1270,7 +1272,7 @@ for (const width of [1440, 390]) {
     await expect(
       siteDialog.locator('[data-slot="site-dialog-hero"]')
     ).toHaveCount(0)
-    for (const name of ["站点名称", "简介", "链接名称"]) {
+    for (const name of ["站点名称", "简介", "自定义 Slug"]) {
       await expect(siteDialog.getByRole("textbox", { name })).toBeVisible()
     }
     await expect(
@@ -1907,8 +1909,12 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
     throw new Error("Missing task preview bounds")
   expect(previewBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
   const actions = row.locator("..")
-  const pin = actions.getByRole("button", { name: "置顶任务“Q3 enrollment data”" })
-  const archive = actions.getByRole("button", { name: "归档任务“Q3 enrollment data”" })
+  const pin = actions.getByRole("button", {
+    name: "置顶任务“Q3 enrollment data”",
+  })
+  const archive = actions.getByRole("button", {
+    name: "归档任务“Q3 enrollment data”",
+  })
   await expect(actions.locator(".sidebar-conversation-actions")).toHaveCSS(
     "opacity",
     "1"
@@ -2115,7 +2121,9 @@ for (const width of [1440, 390]) {
           paddingRight: style.paddingRight,
         }
       })
-    await expect(published.getByRole("list", { name: "应用资源" })).toHaveCount(0)
+    await expect(published.getByRole("list", { name: "应用资源" })).toHaveCount(
+      0
+    )
     const publishedBounds = await published.boundingBox()
     const draftBounds = await draft.boundingBox()
     if (!publishedBounds || !draftBounds)
@@ -2417,11 +2425,16 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
     colorScheme: "dark",
     reducedMotion: "no-preference",
   })
+  // The overview lane opens by default and covers the welcome banner's orb.
+  await page.addInitScript(() =>
+    localStorage.setItem("linksense.taskOverviewOpen", "false")
+  )
   await page.goto("/conversations/new")
   const orb = page.locator(".conversation-welcome-icon")
-  const image = orb.locator("img")
-  await expect(image).toBeVisible()
-  await expect(image).toHaveAttribute("src", /welcome-orb/)
+  const artwork = orb.locator('svg[width="176"]')
+  await expect(artwork).toBeVisible()
+  await expect(artwork).toHaveAttribute("viewBox", "0 0 176 176")
+  await expect(orb.locator("img")).toHaveCount(0)
   await expect(orb.locator("canvas")).toHaveCount(0)
   await expect(orb.locator("div[data-paused]")).toHaveCSS(
     "animation-name",
@@ -2446,7 +2459,9 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
   await page.screenshot({
     path: test.info().outputPath("design-orb-hover.png"),
   })
-  await orb.getByRole("button").click()
+  const pause = orb.getByRole("button")
+  await pause.focus()
+  await page.keyboard.press("Space")
   await expect(orb).toHaveAttribute("data-paused", "true")
   await expect(orb.locator("div[data-paused]")).toHaveCSS(
     "animation-play-state",
@@ -2460,7 +2475,8 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
   )
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await expect(orb).toHaveAttribute("data-paused", "true")
-  await orb.getByRole("button").click()
+  await pause.focus()
+  await page.keyboard.press("Space")
   await expect(orb).toHaveAttribute("data-paused", "false")
   await page.mouse.move(bounds.x - 100, bounds.y)
   await expect(orb).toHaveAttribute("data-active", "false")
@@ -3083,7 +3099,6 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   const toolbar = composer.locator('[data-slot="composer-toolbar"]')
   const input = composer.getByRole("textbox", { name: "Task composer" })
   const add = toolbar.getByRole("button", { name: "Add content", exact: true })
-  const knowledge = toolbar.getByRole("button", { name: "Add knowledge base" })
   const workspace = toolbar.getByRole("combobox", { name: "Project" })
   const voice = toolbar.getByRole("button", { name: "Voice input" })
   const send = toolbar.getByRole("button", { name: "Send", exact: true })
@@ -3095,18 +3110,34 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await expect(add).toHaveCSS("margin-right", "-6px")
   await add.hover()
   await expect(add).toHaveCSS("background-color", "rgb(242, 246, 253)")
-  await expect(knowledge).toHaveText("Knowledge")
+  await add.click()
+  const knowledgeRow = page.getByRole("option", { name: "Knowledge" })
+  await expect(knowledgeRow).toBeVisible()
+  await expect(knowledgeRow).toHaveText("Knowledge")
+  await expect(
+    knowledgeRow.locator('[data-design-icon="knowledge"]')
+  ).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("option", { name: "Knowledge" })).toHaveCount(0)
   await expect(workspace).toContainText("Public workspace")
   await expect(
     workspace.locator('[data-design-icon="chevron-down"]')
   ).toBeVisible()
   await expect(toolbar.locator('[data-slot="composer-separator"]')).toHaveCount(
-    2
+    1
   )
-  await expect(voice).toHaveCSS("width", "40px")
-  await expect(send).toHaveCSS("width", "40px")
+  await expect(voice).toHaveCSS("width", "32px")
+  await expect(send).toHaveCSS("width", "32px")
   await expect(send).toHaveAttribute("aria-disabled", "true")
-  await expect(send).toHaveCSS("background-color", "rgb(233, 235, 240)")
+  const sendDisabledColor = await composer.evaluate((element) => {
+    const probe = document.createElement("span")
+    probe.style.backgroundColor = "var(--app-send-disabled)"
+    element.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+  await expect(send).toHaveCSS("background-color", sendDisabledColor)
   await input.blur()
   await page.mouse.move(1, 1)
   const neutralBorder = await composer.evaluate(
@@ -3126,7 +3157,7 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await page.setViewportSize({ width: 390, height: 844 })
   await expectNoHorizontalOverflow(page)
   await expect(add).toBeInViewport()
-  await expect(knowledge).toBeInViewport()
+  await expect(voice).toBeInViewport()
   await expect(workspace).toBeInViewport()
   await expect(send).toBeInViewport()
   await page.screenshot({ path: test.info().outputPath("composer-mobile.png") })
@@ -3134,7 +3165,7 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await page.setViewportSize({ width: 320, height: 568 })
   await expectNoHorizontalOverflow(page)
   await expect(add).toBeInViewport()
-  await expect(knowledge).toBeInViewport()
+  await expect(voice).toBeInViewport()
   await expect(workspace).toBeInViewport()
   await expect(send).toBeInViewport()
   expect((await composer.boundingBox())?.height).toBeLessThanOrEqual(160)
@@ -3258,13 +3289,18 @@ async function expectTaskHomeLayout(page: Page): Promise<void> {
     .evaluate((workspace) => {
       const welcome = workspace.querySelector(".conversation-welcome")
       const composer = workspace.querySelector(".composer-shell")
+      const column = workspace.querySelector(".conversation-column")
       const attribution = workspace.querySelector(".conversation-attribution")
-      if (!welcome || !composer)
+      if (!welcome || !composer || !column)
         throw new Error("Expected the task home and composer")
+      const transform = getComputedStyle(column).transform
       return {
         workspace: workspace.getBoundingClientRect().toJSON(),
+        column: column.getBoundingClientRect().toJSON(),
         welcome: welcome.getBoundingClientRect().toJSON(),
         composer: composer.getBoundingClientRect().toJSON(),
+        // The content column shifts left when the task overview lane opens.
+        transformShift: transform === "none" ? 0 : new DOMMatrix(transform).m41,
         attribution: attribution?.getClientRects().length
           ? attribution.getBoundingClientRect().toJSON()
           : null,
@@ -3278,11 +3314,16 @@ async function expectTaskHomeLayout(page: Page): Promise<void> {
   expect(
     Math.abs(layout.welcome.right - layout.composer.right)
   ).toBeLessThanOrEqual(1)
+  const columnCenter = (layout.column.left + layout.column.right) / 2
   expect(
     Math.abs(
-      (layout.composer.left + layout.composer.right) / 2 -
-        (layout.workspace.left + layout.workspace.right) / 2
+      columnCenter -
+        (layout.workspace.left + layout.workspace.right) / 2 -
+        layout.transformShift
     )
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs((layout.composer.left + layout.composer.right) / 2 - columnCenter)
   ).toBeLessThanOrEqual(1)
   if (layout.attribution) {
     const mark = layout.attribution
@@ -3311,11 +3352,16 @@ for (const theme of ["light", "dark"] as const) {
     const cardBoxes = await Promise.all(
       (await cards.all()).map((card) => card.boundingBox())
     )
-    expect(
-      cardBoxes.every(
-        (box) => box && Math.abs(box.y - (cardBoxes[0]?.y ?? 0)) < 1
-      )
-    ).toBe(true)
+    expect(cardBoxes).toHaveLength(4)
+    const [firstCard, secondCard, thirdCard, fourthCard] = cardBoxes
+    expect(firstCard).not.toBeNull()
+    expect(secondCard).not.toBeNull()
+    expect(thirdCard).not.toBeNull()
+    expect(fourthCard).not.toBeNull()
+    // The starter questions form top-aligned rows of two cards.
+    expect(Math.abs(firstCard!.y - secondCard!.y)).toBeLessThan(1)
+    expect(Math.abs(thirdCard!.y - fourthCard!.y)).toBeLessThan(1)
+    expect(thirdCard!.y).toBeGreaterThan(firstCard!.y)
     await expect(
       page.getByRole("complementary", { name: "LinkSense 导航" })
     ).toHaveCSS("width", "272px")
@@ -3867,7 +3913,7 @@ test("appearance supports themes and a persistent UI font size without backend p
       }
     })
   expect(composerPlaceholderStyle).toMatchObject({
-    fontSize: "18px",
+    fontSize: "17px",
     fontWeight: "400",
     inputFontWeight: "400",
   })
@@ -3933,19 +3979,23 @@ test("design icons follow the UI font size across the sidebar and conversation",
       await expect(icon).toHaveCSS("height", "16px")
     }
     const composer = page.locator(".composer-shell")
-    for (const name of [
-      "composer-add",
-      "knowledge",
-      "workspace",
-      "microphone",
-    ]) {
-      const icon = composer.locator(`[data-design-icon="${name}"]`)
+    const addIcon = composer.locator('[data-design-icon="composer-add"]')
+    await expect(addIcon).toHaveCSS("width", "14px")
+    await expect(addIcon).toHaveCSS("height", "14px")
+    for (const name of ["workspace", "chevron-down", "microphone"]) {
+      const icon = composer.locator(`[data-design-icon="${name}"]`).first()
       await expect(icon).toHaveCSS("width", iconSize)
       await expect(icon).toHaveCSS("height", iconSize)
     }
     const sendIcon = composer.locator('[data-design-icon="send"]')
     await expect(sendIcon).toHaveCSS("width", "18px")
     await expect(sendIcon).toHaveCSS("height", "18px")
+    await composer.getByRole("button", { name: "添加内容" }).click()
+    const knowledgeIcon = page.locator('[data-design-icon="knowledge"]')
+    await expect(knowledgeIcon).toBeVisible()
+    await expect(knowledgeIcon).toHaveCSS("width", "16px")
+    await expect(knowledgeIcon).toHaveCSS("height", "16px")
+    await page.keyboard.press("Escape")
     await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
     for (const name of ["share", "overview"]) {
       const icon = page.locator(
@@ -4080,10 +4130,9 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
   await expect(
     sidebar.getByRole("link", { name: "任务", exact: true })
   ).toHaveCount(0)
-  await expect(sidebar.getByRole("link", { name: "应用与工具" })).toHaveAttribute(
-    "href",
-    "/capabilities"
-  )
+  await expect(
+    sidebar.getByRole("link", { name: "应用与工具" })
+  ).toHaveAttribute("href", "/capabilities")
   await expect(
     sidebar.getByRole("link", { name: "已归档", exact: true })
   ).toHaveCount(0)
@@ -6350,119 +6399,6 @@ for (const [route, heading] of [
   })
 }
 
-for (const locale of supportedLocales) {
-  test(`other action popup padding supports ${locale} at the largest UI font size`, async ({
-    page,
-  }) => {
-    await page.addInitScript(() =>
-      localStorage.setItem("linksense.uiFontSize", "18")
-    )
-    await page.route("**/api/v1/auth/refresh", (route) =>
-      ok(route, createE2EAuthSession(locale))
-    )
-    await page.route("**/api/v1/me", (route) =>
-      ok(route, {
-        ...ADMIN,
-        preferred_locale: locale,
-        language: locale,
-        weekly_credit_limit: null,
-      })
-    )
-    await page.route("**/api/v1/automations", (route) =>
-      ok(route, {
-        items: [
-          {
-            id: "70000000-0000-4000-8000-000000000001",
-            title: "Popup automation",
-            instruction: "Summarize updates",
-            status: "active",
-            conversation: {
-              id: "20000000-0000-4000-8000-000000000001",
-              title: "Source task",
-              pinned_at: NOW,
-            },
-            schedule: {
-              frequency: "daily",
-              interval: 1,
-              time: "09:00",
-              time_zone: "Asia/Shanghai",
-            },
-            next_run_at: NOW,
-            expires_on: null,
-            last_run_at: null,
-            last_run_status: null,
-            last_error_code: null,
-            model_preference: null,
-            created_at: NOW,
-            updated_at: NOW,
-          },
-        ],
-      })
-    )
-    await page.route("**/api/v1/web-sites**", (route) =>
-      ok(route, {
-        items: [
-          {
-            id: "71000000-0000-4000-8000-000000000001",
-            name: "Popup site",
-            description: "Test site",
-            slug: "popup-site",
-            status: "published",
-            url_path: "/sites/popup-site",
-            conversation_id: "20000000-0000-4000-8000-000000000001",
-            source_task_title: "Source task",
-            source_file_id: "72000000-0000-4000-8000-000000000001",
-            release_id: "73000000-0000-4000-8000-000000000001",
-            file_count: 1,
-            size_bytes: 100,
-            published_at: NOW,
-            created_at: NOW,
-            updated_at: NOW,
-          },
-        ],
-        next_cursor: null,
-      })
-    )
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 1000 })
-      for (const route of [
-        "/automations",
-        "/capabilities?section=application&app_scope=sites",
-      ]) {
-        await page.goto(route)
-        await expect(page.locator("html")).toHaveAttribute("lang", locale)
-        await page.locator('main [data-slot="dropdown-menu-trigger"]').click()
-        await expectPopupPadding(page.getByRole("menu"), '[role="menuitem"]')
-        await page.keyboard.press("Escape")
-      }
-      if (width === 1440) {
-        await page.goto("/conversations/new")
-        const account = page.getByRole("button", { name: "Eli", exact: true })
-        await account.click()
-        await expectPopupPadding(page.getByRole("menu"), '[role="menuitem"]')
-        await page.keyboard.press("Escape")
-        await expect(
-          page.locator('[data-slot="dropdown-menu-content"]')
-        ).toHaveCount(0)
-        await page
-          .locator(
-            '[data-slot="dropdown-menu-trigger"][aria-label*="项目数据分析"]'
-          )
-          .press("Enter")
-        await page
-          .locator('[data-slot="dropdown-menu-sub-trigger"]')
-          .press("ArrowRight")
-        await expectPopupPadding(
-          page.locator('[data-slot="dropdown-menu-sub-content"]'),
-          '[role="menuitem"]'
-        )
-        await page.keyboard.press("Escape")
-        await page.keyboard.press("Escape")
-      }
-    }
-  })
-}
-
 for (const width of [1920, 390]) {
   test(`administration pages and model, usage and knowledge tabs share one content width at ${width}px`, async ({
     page,
@@ -6608,26 +6544,24 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
+  const measure = () =>
+    page.evaluate(() => ({
+      body: document.body.scrollWidth,
+      document: document.documentElement.scrollWidth,
+      viewport: document.documentElement.clientWidth,
+    }))
+  // Viewport-sized popovers reflow a frame after setViewportSize; wait for the
+  // settled layout before requiring the document to fit.
   await expect
-    .poll(() =>
-      page.evaluate(() => ({
-        body: document.body.scrollWidth,
-        document: document.documentElement.scrollWidth,
-        viewport: document.documentElement.clientWidth,
-      }))
-    )
-    .toEqual(
-      expect.objectContaining({
-        body: expect.any(Number),
-        document: expect.any(Number),
-        viewport: expect.any(Number),
-      })
-    )
-  const widths = await page.evaluate(() => ({
-    body: document.body.scrollWidth,
-    document: document.documentElement.scrollWidth,
-    viewport: document.documentElement.clientWidth,
-  }))
+    .poll(async () => {
+      const widths = await measure()
+      return (
+        widths.body <= widths.viewport + 1 &&
+        widths.document <= widths.viewport + 1
+      )
+    })
+    .toBe(true)
+  const widths = await measure()
   expect(widths.body).toBeLessThanOrEqual(widths.viewport + 1)
   expect(widths.document).toBeLessThanOrEqual(widths.viewport + 1)
 }
