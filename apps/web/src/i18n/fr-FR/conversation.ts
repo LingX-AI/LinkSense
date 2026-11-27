@@ -375,6 +375,11 @@ export const conversation = {
     readWrite: "Choisir un dossier local (lecture et écriture)",
     homeReadOnly: "Dossier actuel : lecture seule",
     homeReadWrite: "Dossier actuel : lecture et écriture",
+    chooseFolder: "Choisir un dossier local",
+    permissions: "Autorisations du dossier",
+    permissionRead: "Lecture seule",
+    permissionWrite: "Lecture et écriture",
+    defaultFolder: "Le dossier personnel est utilisé par défaut",
   },
   proposedPlan: { title: "Plan" },
   planDecision: {

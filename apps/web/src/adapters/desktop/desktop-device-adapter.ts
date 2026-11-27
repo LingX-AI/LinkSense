@@ -128,6 +128,53 @@ export async function setDesktopFileRootMode(
   return parseLocalFileRoot(await Desktop.setFileRootMode(conversationId, mode))
 }
 
+/** Reads the conversation's folder grant, creating the default Home grant. */
+export async function getDesktopFileRoot(
+  conversationId: string
+): Promise<{ id: string; name: string; mode: "read" | "write" }> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  if (!z.uuid().safeParse(conversationId).success) throw new Error("VALIDATION_ERROR")
+  return parseLocalFileRoot(await Desktop.fileRoot(conversationId))
+}
+
+export type DesktopFileRootListing = {
+  rootName: string
+  mode: "read" | "write"
+  path: string
+  entries: { name: string; path: string; kind: "file" | "directory" }[]
+  truncated: boolean
+}
+
+/** Lists one directory of the conversation's folder for the composer @ menu. */
+export async function listDesktopFileRoot(
+  conversationId: string,
+  path: string
+): Promise<DesktopFileRootListing> {
+  if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  if (!z.uuid().safeParse(conversationId).success) throw new Error("VALIDATION_ERROR")
+  const value = await Desktop.listFileRoot(conversationId, path)
+  return {
+    rootName: z.string().trim().min(1).max(120).parse(value.root_name),
+    mode: z.enum(["read", "write"]).parse(value.mode),
+    path: z.string().max(4_096).parse(value.path),
+    entries: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(255),
+          path: z.string().min(1).max(4_096),
+          kind: z.enum(["file", "directory"]),
+        })
+      )
+      .max(200)
+      .parse(
+        value.entries.filter(
+          (entry) => entry.kind === "file" || entry.kind === "directory"
+        )
+      ),
+    truncated: value.truncated === true,
+  }
+}
+
 function parseLocalFileRoot(value: {
   id: string
   name: string

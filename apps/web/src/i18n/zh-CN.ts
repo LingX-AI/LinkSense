@@ -2206,6 +2206,11 @@ export const zhCN = {
       readWrite: "选择本机文件夹（读写）",
       homeReadOnly: "当前文件夹：只读",
       homeReadWrite: "当前文件夹：读写",
+      chooseFolder: "选择本地文件夹",
+      permissions: "文件夹权限",
+      permissionRead: "只读",
+      permissionWrite: "读写",
+      defaultFolder: "默认使用主目录",
     },
     proposedPlan: {
       title: "方案",

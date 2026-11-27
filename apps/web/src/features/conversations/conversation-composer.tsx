@@ -17,17 +17,19 @@ import {
   type SyntheticEvent,
 } from "react"
 import {
+  CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
   FileInputIcon,
-  FolderIcon,
+  FolderOpenIcon,
   GoalIcon,
   Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
   PaperclipIcon,
+  ShieldCheckIcon,
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
@@ -74,6 +76,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import type { DesktopFileRootListing } from "@/adapters/desktop/desktop-device-adapter"
 import { ConversationComposerInput } from "@/features/conversations/conversation-composer-input"
 import {
   HoverCard,
@@ -500,6 +503,7 @@ type ConversationComposerProps = Readonly<{
   localFolderPending?: boolean
   onChooseLocalFolder?: (mode: "read" | "write") => void
   onSetLocalFolderMode?: (mode: "read" | "write") => void
+  onListLocalFiles?: (path: string) => Promise<DesktopFileRootListing>
   unavailableMessage?: string
   interactionBlocked?: boolean
   localModelControl?: ReactNode
@@ -599,6 +603,7 @@ export const ConversationComposer = forwardRef<
     localFolderPending = false,
     onChooseLocalFolder,
     onSetLocalFolderMode,
+    onListLocalFiles,
     interactionBlocked = false,
     unavailableMessage,
     localModelControl,
@@ -644,6 +649,7 @@ export const ConversationComposer = forwardRef<
   const [capabilityPanelOpen, setCapabilityPanelOpen] = useState(false)
   const [referenceFileOpen, setReferenceFileOpen] = useState(false)
   const [taskReferenceOpen, setTaskReferenceOpen] = useState(false)
+  const [folderPermissionsOpen, setFolderPermissionsOpen] = useState(false)
   const [taskReferenceCaret, setTaskReferenceCaret] = useState<number | null>(
     null
   )
@@ -1175,6 +1181,27 @@ export const ConversationComposer = forwardRef<
     setDismissedTaskReferenceValue(nextValue)
   }
 
+  // `@` also browses the conversation's granted local folder. Choosing a file
+  // completes the mention; choosing a folder keeps the menu open one level
+  // deeper.
+  const selectLocalFileMention = (path: string, kind: "file" | "directory") => {
+    const currentValue = latestValueRef.current
+    const trigger = findConversationTaskReferenceTrigger(
+      currentValue,
+      textareaRef.current?.selectionStart ?? currentValue.length
+    )
+    if (!trigger) return
+    const mention =
+      kind === "file" ? `@${path} ` : path ? `@${path}/` : "@"
+    const nextValue = `${currentValue.slice(0, trigger.start)}${mention}${currentValue.slice(trigger.end)}`
+    const caret = trigger.start + mention.length
+    latestValueRef.current = nextValue
+    onValueChange(nextValue)
+    setTaskReferenceCaret(caret)
+    pendingTaskReferenceSelectionRef.current = { value: nextValue, caret }
+    setDismissedTaskReferenceValue(kind === "file" ? nextValue : null)
+  }
+
   const openSlashPanel = (panel: ConversationSlashCommandPanel) => {
     const expanding = slashPanel !== panel
     setDismissedSlashValue(null)
@@ -1536,19 +1563,6 @@ export const ConversationComposer = forwardRef<
     )
   }
 
-  const chooseLocalFolder = (mode: "read" | "write") => {
-    if (attachmentActionDisabled || localFolderPending) return
-    onChooseLocalFolder?.(mode)
-    setMenuOpen(false)
-    window.setTimeout(
-      () =>
-        textareaRef.current?.focus({
-          preventScroll: true,
-        }),
-      0
-    )
-  }
-
   const knowledgeSearchUnavailable =
     knowledgeSearchCapability?.status === "unavailable"
 
@@ -1669,6 +1683,11 @@ export const ConversationComposer = forwardRef<
           currentConversationId={currentConversationId}
           selected={taskReferences}
           onSelect={selectTaskReference}
+          localFiles={
+            onListLocalFiles
+              ? { list: onListLocalFiles, onChoose: selectLocalFileMention }
+              : undefined
+          }
         />
       )}
       {slashMenuOpen && !skillMenuOpen && (
@@ -2157,18 +2176,20 @@ export const ConversationComposer = forwardRef<
                           </kbd>
                         </CommandItem>
                       )}
-                      <CommandItem
-                        value={t("conversation.attachFolderMenuSearchValue")}
-                        disabled={attachmentActionDisabled}
-                        onSelect={openAttachmentFolderPicker}
-                      >
-                        <span className="grid size-4 shrink-0 place-items-center">
-                          <DesignIcon name="folder" className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-13)]">
-                          {t("conversation.attachFolderMenuLabel")}
-                        </span>
-                      </CommandItem>
+                      {!onChooseLocalFolder && (
+                        <CommandItem
+                          value={t("conversation.attachFolderMenuSearchValue")}
+                          disabled={attachmentActionDisabled}
+                          onSelect={openAttachmentFolderPicker}
+                        >
+                          <span className="grid size-4 shrink-0 place-items-center">
+                            <DesignIcon name="folder" className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-13)]">
+                            {t("conversation.attachFolderMenuLabel")}
+                          </span>
+                        </CommandItem>
+                      )}
                       {!managedApplicationName && goalModeAvailable && (
                         <CommandItem
                           value={t("conversation.goal.menuSearchValue")}
@@ -2214,74 +2235,6 @@ export const ConversationComposer = forwardRef<
                             </span>
                           </span>
                         </CommandItem>
-                      )}
-                      {onChooseLocalFolder && (
-                        <>
-                          <CommandItem
-                            value={t("conversation.localFolder.menuSearchValue")}
-                            title={t("conversation.localFolder.menuDescription")}
-                            data-checked={localFolderName ? true : undefined}
-                            disabled={attachmentActionDisabled || localFolderPending}
-                            onSelect={() => chooseLocalFolder("read")}
-                          >
-                            <span className="grid size-4 shrink-0 place-items-center">
-                              <FolderIcon aria-hidden="true" className="size-4" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[length:var(--app-font-13)]">
-                                {localFolderName
-                                  ? t("conversation.localFolder.current", { name: localFolderName })
-                                  : t("conversation.localFolder.readOnly")}
-                              </span>
-                              <span className="sr-only">
-                                {t("conversation.localFolder.menuDescription")}
-                              </span>
-                            </span>
-                          </CommandItem>
-                          <CommandItem
-                            value={`${t("conversation.localFolder.menuSearchValue")} write`}
-                            title={t("conversation.localFolder.menuDescription")}
-                            disabled={attachmentActionDisabled || localFolderPending}
-                            onSelect={() => chooseLocalFolder("write")}
-                          >
-                            <span className="grid size-4 shrink-0 place-items-center">
-                              <FolderIcon aria-hidden="true" className="size-4" />
-                            </span>
-                            <span className="block truncate text-[length:var(--app-font-13)]">
-                              {t("conversation.localFolder.readWrite")}
-                            </span>
-                          </CommandItem>
-                          {onSetLocalFolderMode && (
-                            <>
-                              <CommandItem
-                                value={`${t("conversation.localFolder.menuSearchValue")} home read`}
-                                data-checked={localFolderMode === "read" || undefined}
-                                disabled={attachmentActionDisabled || localFolderPending}
-                                onSelect={() => {
-                                  onSetLocalFolderMode("read")
-                                  setMenuOpen(false)
-                                }}
-                              >
-                                <span className="block truncate text-[length:var(--app-font-13)]">
-                                  {t("conversation.localFolder.homeReadOnly")}
-                                </span>
-                              </CommandItem>
-                              <CommandItem
-                                value={`${t("conversation.localFolder.menuSearchValue")} home write`}
-                                data-checked={localFolderMode === "write" || undefined}
-                                disabled={attachmentActionDisabled || localFolderPending}
-                                onSelect={() => {
-                                  onSetLocalFolderMode("write")
-                                  setMenuOpen(false)
-                                }}
-                              >
-                                <span className="block truncate text-[length:var(--app-font-13)]">
-                                  {t("conversation.localFolder.homeReadWrite")}
-                                </span>
-                              </CommandItem>
-                            </>
-                          )}
-                        </>
                       )}
                     </CommandGroup>
                     {!managedApplicationName && (
@@ -2763,6 +2716,102 @@ export const ConversationComposer = forwardRef<
               onWaveformTrackResize={voice.setWaveformTrackWidth}
               onStop={voice.stopRecording}
             />
+          )}
+
+          {onChooseLocalFolder && (
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="composer-control size-8"
+                      aria-label={t("conversation.localFolder.chooseFolder")}
+                      disabled={attachmentActionDisabled || localFolderPending}
+                      onClick={() =>
+                        onChooseLocalFolder(localFolderMode ?? "write")
+                      }
+                    >
+                      <FolderOpenIcon className="size-4" aria-hidden="true" />
+                    </Button>
+                  }
+                />
+                <ActionTooltipContent>
+                  {t("conversation.localFolder.chooseFolder")}
+                </ActionTooltipContent>
+              </Tooltip>
+              <Popover
+                open={folderPermissionsOpen}
+                onOpenChange={setFolderPermissionsOpen}
+              >
+                <PopoverTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="composer-control size-8"
+                      aria-label={t("conversation.localFolder.permissions")}
+                      aria-haspopup="dialog"
+                      disabled={localFolderPending}
+                    >
+                      <ShieldCheckIcon className="size-4" aria-hidden="true" />
+                    </Button>
+                  }
+                />
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  className="w-60 gap-1 p-1.5"
+                >
+                  <PopoverHeader className="px-2 py-1.5">
+                    <PopoverTitle className="text-xs font-medium">
+                      {t("conversation.localFolder.permissions")}
+                    </PopoverTitle>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {localFolderName
+                        ? t("conversation.localFolder.current", {
+                            name: localFolderName,
+                          })
+                        : t("conversation.localFolder.defaultFolder")}
+                    </p>
+                  </PopoverHeader>
+                  {(["read", "write"] as const).map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-full justify-start gap-2 px-2 font-normal"
+                      aria-pressed={localFolderMode === mode}
+                      disabled={
+                        attachmentActionDisabled ||
+                        localFolderPending ||
+                        !onSetLocalFolderMode
+                      }
+                      onClick={() => {
+                        onSetLocalFolderMode?.(mode)
+                        setFolderPermissionsOpen(false)
+                      }}
+                    >
+                      {localFolderMode === mode ? (
+                        <CheckIcon className="size-4" aria-hidden="true" />
+                      ) : (
+                        <span className="size-4" aria-hidden="true" />
+                      )}
+                      {t(
+                        mode === "read"
+                          ? "conversation.localFolder.permissionRead"
+                          : "conversation.localFolder.permissionWrite"
+                      )}
+                    </Button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </>
           )}
 
           {localModelControl ?? (

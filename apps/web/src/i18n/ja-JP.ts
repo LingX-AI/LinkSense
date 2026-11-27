@@ -2655,6 +2655,11 @@ export const jaJP = {
       readWrite: "ローカルフォルダーを選択（読み書き）",
       homeReadOnly: "現在のフォルダー: 読み取り専用",
       homeReadWrite: "現在のフォルダー: 読み書き",
+      chooseFolder: "ローカルフォルダーを選択",
+      permissions: "フォルダーの権限",
+      permissionRead: "読み取り専用",
+      permissionWrite: "読み書き",
+      defaultFolder: "既定ではホームフォルダーを使用します",
     },
     proposedPlan: {
       title: "計画",

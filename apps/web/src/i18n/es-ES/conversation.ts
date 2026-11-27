@@ -384,6 +384,11 @@ export const conversationMessages = {
       readWrite: "Elegir carpeta local (lectura y escritura)",
       homeReadOnly: "Carpeta actual: solo lectura",
       homeReadWrite: "Carpeta actual: lectura y escritura",
+      chooseFolder: "Elegir carpeta local",
+      permissions: "Permisos de la carpeta",
+      permissionRead: "Solo lectura",
+      permissionWrite: "Lectura y escritura",
+      defaultFolder: "Se usa la carpeta personal por defecto",
     },
     proposedPlan: {
       title: "Plan",

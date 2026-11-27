@@ -2378,6 +2378,11 @@ export const enUS = {
       readWrite: "Choose local folder (read and write)",
       homeReadOnly: "Current folder: read only",
       homeReadWrite: "Current folder: read and write",
+      chooseFolder: "Choose local folder",
+      permissions: "Folder permissions",
+      permissionRead: "Read only",
+      permissionWrite: "Read and write",
+      defaultFolder: "The home folder is used by default",
     },
     proposedPlan: {
       title: "Plan",

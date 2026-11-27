@@ -2698,6 +2698,11 @@ export const ptBR = {
       readWrite: "Escolher pasta local (leitura e escrita)",
       homeReadOnly: "Pasta atual: somente leitura",
       homeReadWrite: "Pasta atual: leitura e escrita",
+      chooseFolder: "Escolher pasta local",
+      permissions: "Permissões da pasta",
+      permissionRead: "Somente leitura",
+      permissionWrite: "Leitura e escrita",
+      defaultFolder: "A pasta pessoal é usada por padrão",
     },
     proposedPlan: {
       title: "Plano",

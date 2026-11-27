@@ -168,6 +168,27 @@ export interface HostInfo {
   macSignOut?: boolean;
 }
 
+export interface LocalFileEntry {
+  name: string;
+  path: string;
+  kind: string;
+  size: number;
+  modified_at: string;
+}
+
+/**
+ * localFileListing is one directory of the conversation's granted folder for
+ * the composer's @ menu. Paths are relative to the grant; no absolute path
+ * leaves the Mac.
+ */
+export interface LocalFileListing {
+  root_name: string;
+  mode: string;
+  path: string;
+  entries: LocalFileEntry[];
+  truncated: boolean;
+}
+
 export interface LocalFileRootView {
   id: string;
   device_id: string;
@@ -282,6 +303,11 @@ export const Desktop = {
    * pairing code is involved.
    */
   ensureDevice: bind<[string, boolean], DeviceConnectionStatus>("Desktop.EnsureDevice", (ownerID: string, reenable: boolean) => [ownerID, reenable]),
+  /**
+   * FileRoot returns the conversation's granted folder for the local UI. It
+   * grants the default Home folder on first use, exactly like the cloud tools.
+   */
+  fileRoot: bind<[string], LocalFileRootView>("Desktop.FileRoot", (conversationID: string) => [conversationID]),
   getUpdateState: bind<[], DesktopUpdateResult>("Desktop.GetUpdateState", () => []),
   /**
    * GuideComputerPermission uses MyGo's permissionflow.Guide: it opens the
@@ -292,6 +318,11 @@ export const Desktop = {
   guideComputerPermission: bind<[ComputerPermissionKind], ComputerPermissionResult>("Desktop.GuideComputerPermission", (kind: ComputerPermissionKind) => [kind]),
   info: bind<[], HostInfo>("Desktop.Info", () => []),
   installUpdate: bind<[number], DesktopUpdateResult>("Desktop.InstallUpdate", (revision: number) => [revision]),
+  /**
+   * ListFileRoot lists one directory of that folder for the composer's @ menu.
+   * It uses the same containment and symlink rules as the cloud file tools.
+   */
+  listFileRoot: bind<[string, string], LocalFileListing>("Desktop.ListFileRoot", (conversationID: string, relativePath: string) => [conversationID, relativePath]),
   /**
    * NotificationsSupported reports whether this build can show notifications,
    * as MyGo reports it for packaged apps.

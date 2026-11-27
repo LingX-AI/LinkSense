@@ -73,13 +73,16 @@ The installation id survives sign-out and credential deletion, so a server
 revocation cannot be bypassed by signing in again. There is no local-tools
 settings page: the app stays connected while signed in.
 
-Every conversation gets a local folder grant, chosen in the composer's
-add-content menu. Without a choice it defaults to the home folder (`~`) in
-read-and-write mode. The menu can pick another folder in read-only or
-read-and-write mode, or switch the current grant's mode; the choice is
-per-conversation and persists on this Mac. Re-selecting a previously authorized
-folder reuses its stored grant, so macOS does not ask twice. Absolute paths
-stay in this Mac's application data and never reach the API or the cloud task.
+Every conversation gets a local folder grant. The composer toolbar carries a
+folder button that opens the native picker, and a shield button beside it that
+switches the current grant between read-only and read-and-write. Without a
+choice it defaults to the home folder (`~`) in read-and-write mode; the choice
+is per-conversation and persists on this Mac. Re-selecting a previously
+authorized folder reuses its stored grant, so macOS does not ask twice. The
+composer's `@` menu lists the grant's directory entries and inserts the chosen
+relative path into the message; the add-content menu keeps only the
+attachment options. Absolute paths stay in this Mac's application data and
+never reach the API or the cloud task.
 
 A cloud task on a conversation with an online Mac gets the separate
 `local_tools_ping` tool. The cloud runner calls the API device gateway, the API

@@ -13,6 +13,9 @@ export const taskReferenceMessages = {
     source: "引用任务",
     limit: "已选择 {{count}} / 3 个任务",
     more: "加载更多",
+    localFolderGroup: "本机文件夹",
+    parentFolder: "返回上一级",
+    noLocalFiles: "没有匹配的文件",
   },
   "en-US": {
     active: "Show active tasks",
@@ -26,6 +29,9 @@ export const taskReferenceMessages = {
     source: "Referenced tasks",
     limit: "{{count}} / 3 tasks selected",
     more: "Load more",
+    localFolderGroup: "Local folder",
+    parentFolder: "Parent folder",
+    noLocalFiles: "No matching files",
   },
   "es-ES": {
     active: "Mostrar tareas activas",
@@ -39,6 +45,9 @@ export const taskReferenceMessages = {
     source: "Tareas referenciadas",
     limit: "{{count}} / 3 tareas seleccionadas",
     more: "Cargar más",
+    localFolderGroup: "Carpeta local",
+    parentFolder: "Carpeta superior",
+    noLocalFiles: "No hay archivos coincidentes",
   },
   "pt-BR": {
     active: "Mostrar tarefas ativas",
@@ -52,6 +61,9 @@ export const taskReferenceMessages = {
     source: "Tarefas referenciadas",
     limit: "{{count}} / 3 tarefas selecionadas",
     more: "Carregar mais",
+    localFolderGroup: "Pasta local",
+    parentFolder: "Pasta superior",
+    noLocalFiles: "Nenhum arquivo correspondente",
   },
   "fr-FR": {
     active: "Afficher les tâches actives",
@@ -65,6 +77,9 @@ export const taskReferenceMessages = {
     source: "Tâches référencées",
     limit: "{{count}} / 3 tâches sélectionnées",
     more: "Charger la suite",
+    localFolderGroup: "Dossier local",
+    parentFolder: "Dossier parent",
+    noLocalFiles: "Aucun fichier correspondant",
   },
   "ja-JP": {
     active: "アーカイブされていないタスクを表示",
@@ -78,5 +93,8 @@ export const taskReferenceMessages = {
     source: "参照タスク",
     limit: "{{count}} / 3 件を選択",
     more: "さらに読み込む",
+    localFolderGroup: "ローカルフォルダー",
+    parentFolder: "親フォルダー",
+    noLocalFiles: "一致するファイルがありません",
   },
 } satisfies Record<Locale, Record<string, string>>

@@ -82,7 +82,12 @@ import {
   type LoginSessionBoundary,
 } from "@/api/session"
 import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
-import { addDesktopFileRoot, setDesktopFileRootMode } from "@/adapters/desktop/desktop-device-adapter"
+import {
+  addDesktopFileRoot,
+  getDesktopFileRoot,
+  listDesktopFileRoot,
+  setDesktopFileRootMode,
+} from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -1432,9 +1437,27 @@ export function ConversationPage({
     name: string
     mode: "read" | "write"
   } | null>(null)
-  const localFolder =
-    localFolderChoice?.key === localFolderKey ? localFolderChoice : null
   const localFolderConversationId = isNew ? prewarmedConversationId : conversationId
+  // The Mac owns the grant; read it once per conversation so the composer
+  // shows the real folder and mode even before this session changes either.
+  const localFolderRootQuery = useQuery({
+    queryKey: ["conversation", localFolderConversationId ?? "none", "file-root"],
+    queryFn: () => getDesktopFileRoot(localFolderConversationId ?? ""),
+    enabled: Boolean(isMacDesktopHost() && localFolderConversationId),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+  const localFolder =
+    localFolderChoice?.key === localFolderKey
+      ? localFolderChoice
+      : localFolderRootQuery.data
+        ? {
+            key: localFolderKey,
+            id: localFolderRootQuery.data.id,
+            name: localFolderRootQuery.data.name,
+            mode: localFolderRootQuery.data.mode,
+          }
+        : null
   const chooseLocalFolder = useCallback(async (mode: "read" | "write") => {
     if (!localFolderConversationId) return
     try {
@@ -1454,6 +1477,13 @@ export function ConversationPage({
       key: localFolderKey, id: root.id, name: root.name, mode: root.mode,
     })
   }, [localFolderConversationId, localFolderKey])
+  const listLocalFolderFiles = useCallback(
+    (path: string) =>
+      localFolderConversationId
+        ? listDesktopFileRoot(localFolderConversationId, path)
+        : Promise.reject(new Error("DESKTOP_FILE_UNAVAILABLE")),
+    [localFolderConversationId]
+  )
   const desktopNoTargetAvailable =
     desktopExecutionTargetGated && !desktopExecutionPolicy.cloudTarget
   // A poll can close the cloud entry after this render, so the background
@@ -7976,6 +8006,11 @@ export function ConversationPage({
             localFolderPending={!localFolderConversationId}
             onChooseLocalFolder={isMacDesktopHost() ? chooseLocalFolder : undefined}
             onSetLocalFolderMode={isMacDesktopHost() ? setLocalFolderMode : undefined}
+            onListLocalFiles={
+              isMacDesktopHost() && localFolderConversationId
+                ? listLocalFolderFiles
+                : undefined
+            }
             submitting={
               applicationSubmissionSending ||
               waitingForDesktopAttachmentStart ||
