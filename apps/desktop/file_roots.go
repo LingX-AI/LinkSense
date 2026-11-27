@@ -28,9 +28,10 @@ type localRootMeta struct {
 type fileRootsState struct {
 	// Owners keeps the original root ID to path mapping for files written by
 	// earlier builds. Metadata is the current source of truth.
-	Owners        map[string]map[string]string      `json:"owners,omitempty"`
-	Metadata      map[string]map[string]localRootMeta `json:"metadata,omitempty"`
-	Conversations map[string]map[string]string      `json:"conversations,omitempty"`
+	Owners            map[string]map[string]string        `json:"owners,omitempty"`
+	Metadata          map[string]map[string]localRootMeta `json:"metadata,omitempty"`
+	Conversations     map[string]map[string]string        `json:"conversations,omitempty"`
+	ConversationModes map[string]map[string]string        `json:"conversation_modes,omitempty"`
 }
 
 // localFileRoots maps conversation-scoped folder grants to absolute folders.
@@ -70,9 +71,10 @@ func (f *localFileRoots) load() error {
 	}
 	f.loaded = true
 	f.state = fileRootsState{
-		Owners:        map[string]map[string]string{},
-		Metadata:      map[string]map[string]localRootMeta{},
-		Conversations: map[string]map[string]string{},
+		Owners:            map[string]map[string]string{},
+		Metadata:          map[string]map[string]localRootMeta{},
+		Conversations:     map[string]map[string]string{},
+		ConversationModes: map[string]map[string]string{},
 	}
 	if f.path == "" {
 		return nil
@@ -96,6 +98,9 @@ func (f *localFileRoots) load() error {
 	}
 	if stored.Conversations == nil {
 		stored.Conversations = map[string]map[string]string{}
+	}
+	if stored.ConversationModes == nil {
+		stored.ConversationModes = map[string]map[string]string{}
 	}
 	f.state = stored
 	return nil
@@ -146,6 +151,23 @@ func (f *localFileRoots) ownerConversations(ownerID string) map[string]string {
 	return f.state.Conversations[ownerID]
 }
 
+func (f *localFileRoots) ownerConversationModes(ownerID string) map[string]string {
+	if f.state.ConversationModes == nil {
+		f.state.ConversationModes = map[string]map[string]string{}
+	}
+	if f.state.ConversationModes[ownerID] == nil {
+		f.state.ConversationModes[ownerID] = map[string]string{}
+	}
+	return f.state.ConversationModes[ownerID]
+}
+
+func (f *localFileRoots) conversationMode(ownerID, conversationID string) string {
+	if f.state.ConversationModes[ownerID][conversationID] == "read" {
+		return "read"
+	}
+	return "write"
+}
+
 func (f *localFileRoots) normalizeOwner(ownerID string) map[string]localRootMeta {
 	metadata := f.ownerMetadata(ownerID)
 	if f.state.Owners[ownerID] == nil {
@@ -182,13 +204,13 @@ func (f *localFileRoots) setRoot(ownerID, rootID string, meta localRootMeta) {
 	f.ownerMetadata(ownerID)[rootID] = meta
 }
 
-func (f *localFileRoots) view(ownerID, rootID, deviceID string) (localFileRootView, bool) {
+func (f *localFileRoots) view(ownerID, conversationID, rootID, deviceID string) (localFileRootView, bool) {
 	meta, ok := f.normalizeOwner(ownerID)[rootID]
 	if !ok {
 		return localFileRootView{}, false
 	}
 	return localFileRootView{
-		ID: rootID, DeviceID: deviceID, Name: meta.Name, Mode: meta.Mode,
+		ID: rootID, DeviceID: deviceID, Name: meta.Name, Mode: f.conversationMode(ownerID, conversationID),
 		CreatedAt: meta.CreatedAt, UpdatedAt: meta.UpdatedAt,
 	}, true
 }
@@ -212,10 +234,13 @@ func (f *localFileRoots) defaultRoot(ownerID, conversationID, deviceID string) (
 	meta.UpdatedAt = now
 	f.setRoot(ownerID, rootID, meta)
 	f.ownerConversations(ownerID)[conversationID] = rootID
+	if _, explicit := f.ownerConversationModes(ownerID)[conversationID]; !explicit {
+		f.ownerConversationModes(ownerID)[conversationID] = "write"
+	}
 	if err := f.persist(); err != nil {
 		return localFileRootView{}, err
 	}
-	view, ok := f.view(ownerID, rootID, deviceID)
+	view, ok := f.view(ownerID, conversationID, rootID, deviceID)
 	if !ok {
 		return localFileRootView{}, errors.New("DESKTOP_FILE_UNAVAILABLE")
 	}
@@ -230,7 +255,7 @@ func (f *localFileRoots) rootsForConversation(ownerID, conversationID, deviceID 
 	}
 	rootID := f.ownerConversations(ownerID)[conversationID]
 	if rootID != "" {
-		if view, ok := f.view(ownerID, rootID, deviceID); ok {
+		if view, ok := f.view(ownerID, conversationID, rootID, deviceID); ok {
 			return []localFileRootView{view}, nil
 		}
 	}
@@ -262,6 +287,7 @@ func (f *localFileRoots) rootForConversation(ownerID, conversationID, deviceID, 
 	if !ok {
 		return localRootMeta{}, errors.New("DESKTOP_FILE_ACCESS_DENIED")
 	}
+	meta.Mode = f.conversationMode(ownerID, conversationID)
 	return meta, nil
 }
 
@@ -295,17 +321,14 @@ func (d *Desktop) SetFileRootMode(ctx context.Context, conversationID, mode stri
 		}
 		rootID = view.ID
 	}
-	meta, ok := d.fileRoots.normalizeOwner(ownerID)[rootID]
-	if !ok {
+	if _, ok := d.fileRoots.normalizeOwner(ownerID)[rootID]; !ok {
 		return localFileRootView{}, errors.New("DESKTOP_FILE_UNAVAILABLE")
 	}
-	meta.Mode = mode
-	meta.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	d.fileRoots.setRoot(ownerID, rootID, meta)
+	d.fileRoots.ownerConversationModes(ownerID)[conversationID] = mode
 	if err := d.fileRoots.persist(); err != nil {
 		return localFileRootView{}, err
 	}
-	view, ok := d.fileRoots.view(ownerID, rootID, deviceID)
+	view, ok := d.fileRoots.view(ownerID, conversationID, rootID, deviceID)
 	if !ok {
 		return localFileRootView{}, errors.New("DESKTOP_FILE_UNAVAILABLE")
 	}
@@ -379,10 +402,11 @@ func (d *Desktop) AddFileRoot(ctx context.Context, conversationID, mode string) 
 	}
 	d.fileRoots.setRoot(ownerID, rootID, meta)
 	d.fileRoots.ownerConversations(ownerID)[conversationID] = rootID
+	d.fileRoots.ownerConversationModes(ownerID)[conversationID] = mode
 	if err := d.fileRoots.persist(); err != nil {
 		return localFileRootView{}, err
 	}
-	view, ok := d.fileRoots.view(ownerID, rootID, deviceID)
+	view, ok := d.fileRoots.view(ownerID, conversationID, rootID, deviceID)
 	if !ok {
 		return localFileRootView{}, errors.New("DESKTOP_FILE_UNAVAILABLE")
 	}

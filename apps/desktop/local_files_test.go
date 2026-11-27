@@ -22,8 +22,8 @@ func fileTestStore(t *testing.T, root string) *localFileRoots {
 	now := "2026-01-01T00:00:00Z"
 	store.loaded = true
 	store.state = fileRootsState{
-		Owners:   map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
-		Metadata: map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
+		Owners:        map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
+		Metadata:      map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
 		Conversations: map[string]map[string]string{fileTestOwner: {fileTestConversation: fileTestRoot}},
 	}
 	return store
@@ -282,8 +282,8 @@ func TestLocalFileRootStorePersistsOnlyTheOwnerMapping(t *testing.T) {
 	now := "2026-01-01T00:00:00Z"
 	store.loaded = true
 	store.state = fileRootsState{
-		Owners:   map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
-		Metadata: map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
+		Owners:        map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
+		Metadata:      map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
 		Conversations: map[string]map[string]string{fileTestOwner: {fileTestConversation: fileTestRoot}},
 	}
 	if err := store.persist(); err != nil {
@@ -328,6 +328,34 @@ func TestConversationUsesHomeUntilAnotherFolderIsGranted(t *testing.T) {
 	otherRoots, err := store.rootsForConversation(fileTestOwner, otherConversation, "")
 	if err != nil || len(otherRoots) != 1 || otherRoots[0].ID != roots[0].ID {
 		t.Fatalf("home grant was not reused: %v, %v", otherRoots, err)
+	}
+}
+
+func TestFolderModeIsScopedToEachConversation(t *testing.T) {
+	store := newLocalFileRoots(t.TempDir())
+	first, err := store.rootsForConversation(fileTestOwner, fileTestConversation, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherConversation := "60000000-0000-4000-8000-000000000003"
+	if _, err := store.rootsForConversation(fileTestOwner, otherConversation, ""); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.ownerConversationModes(fileTestOwner)[fileTestConversation] = "read"
+	store.mu.Unlock()
+
+	firstRoots, err := store.rootsForConversation(fileTestOwner, fileTestConversation, "")
+	if err != nil || len(firstRoots) != 1 || firstRoots[0].Mode != "read" {
+		t.Fatalf("first conversation mode = %+v, %v", firstRoots, err)
+	}
+	otherRoots, err := store.rootsForConversation(fileTestOwner, otherConversation, "")
+	if err != nil || len(otherRoots) != 1 || otherRoots[0].Mode != "write" {
+		t.Fatalf("other conversation mode = %+v, %v", otherRoots, err)
+	}
+	meta, err := store.rootForConversation(fileTestOwner, otherConversation, "", otherRoots[0].ID)
+	if err != nil || meta.Mode != "write" || first[0].ID != otherRoots[0].ID {
+		t.Fatalf("other conversation root = %+v, %v", meta, err)
 	}
 }
 
