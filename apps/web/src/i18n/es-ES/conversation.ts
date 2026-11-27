@@ -382,8 +382,8 @@ export const conversationMessages = {
       current: "Carpeta local: {{name}}",
       readOnly: "Elegir carpeta local (solo lectura)",
       readWrite: "Elegir carpeta local (lectura y escritura)",
-      homeReadOnly: "Este equipo: solo lectura",
-      homeReadWrite: "Este equipo: lectura y escritura",
+      homeReadOnly: "Carpeta actual: solo lectura",
+      homeReadWrite: "Carpeta actual: lectura y escritura",
     },
     proposedPlan: {
       title: "Plan",

@@ -2204,8 +2204,8 @@ export const zhCN = {
       current: "本机文件夹：{{name}}",
       readOnly: "选择本机文件夹（只读）",
       readWrite: "选择本机文件夹（读写）",
-      homeReadOnly: "这台电脑：只读",
-      homeReadWrite: "这台电脑：读写",
+      homeReadOnly: "当前文件夹：只读",
+      homeReadWrite: "当前文件夹：读写",
     },
     proposedPlan: {
       title: "方案",

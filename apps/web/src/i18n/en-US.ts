@@ -2376,8 +2376,8 @@ export const enUS = {
       current: "Local folder: {{name}}",
       readOnly: "Choose local folder (read only)",
       readWrite: "Choose local folder (read and write)",
-      homeReadOnly: "This Mac: read only",
-      homeReadWrite: "This Mac: read and write",
+      homeReadOnly: "Current folder: read only",
+      homeReadWrite: "Current folder: read and write",
     },
     proposedPlan: {
       title: "Plan",

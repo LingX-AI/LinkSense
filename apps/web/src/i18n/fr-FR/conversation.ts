@@ -373,8 +373,8 @@ export const conversation = {
     current: "Dossier local : {{name}}",
     readOnly: "Choisir un dossier local (lecture seule)",
     readWrite: "Choisir un dossier local (lecture et écriture)",
-    homeReadOnly: "Cet ordinateur : lecture seule",
-    homeReadWrite: "Cet ordinateur : lecture et écriture",
+    homeReadOnly: "Dossier actuel : lecture seule",
+    homeReadWrite: "Dossier actuel : lecture et écriture",
   },
   proposedPlan: { title: "Plan" },
   planDecision: {

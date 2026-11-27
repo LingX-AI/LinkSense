@@ -2696,8 +2696,8 @@ export const ptBR = {
       current: "Pasta local: {{name}}",
       readOnly: "Escolher pasta local (somente leitura)",
       readWrite: "Escolher pasta local (leitura e escrita)",
-      homeReadOnly: "Este computador: somente leitura",
-      homeReadWrite: "Este computador: leitura e escrita",
+      homeReadOnly: "Pasta atual: somente leitura",
+      homeReadWrite: "Pasta atual: leitura e escrita",
     },
     proposedPlan: {
       title: "Plano",

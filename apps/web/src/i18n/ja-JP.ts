@@ -2653,8 +2653,8 @@ export const jaJP = {
       current: "ローカルフォルダー: {{name}}",
       readOnly: "ローカルフォルダーを選択（読み取り専用）",
       readWrite: "ローカルフォルダーを選択（読み書き）",
-      homeReadOnly: "このコンピューター: 読み取り専用",
-      homeReadWrite: "このコンピューター: 読み書き",
+      homeReadOnly: "現在のフォルダー: 読み取り専用",
+      homeReadWrite: "現在のフォルダー: 読み書き",
     },
     proposedPlan: {
       title: "計画",
