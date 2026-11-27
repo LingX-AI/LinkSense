@@ -375,10 +375,15 @@ export const conversationMessages = {
       placeholder:
         "Describe la tarea que quieres analizar y planificar. LinkSense hará preguntas y redactará un plan primero.",
     },
-    localTools: {
-      menuLabel: "Permitir archivos locales",
-      menuSearchValue: "archivos locales carpetas acceso",
-      menuDescription: "Permite que esta tarea en la nube use las carpetas locales compartidas en Ajustes.",
+    localFolder: {
+      menuLabel: "Usar carpeta local",
+      menuSearchValue: "carpeta local equipo archivos",
+      menuDescription: "Elige una carpeta para esta tarea. Si no eliges ninguna, se usa este equipo (tu carpeta personal).",
+      current: "Carpeta local: {{name}}",
+      readOnly: "Elegir carpeta local (solo lectura)",
+      readWrite: "Elegir carpeta local (lectura y escritura)",
+      homeReadOnly: "Este equipo: solo lectura",
+      homeReadWrite: "Este equipo: lectura y escritura",
     },
     proposedPlan: {
       title: "Plan",

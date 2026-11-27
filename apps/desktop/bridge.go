@@ -697,11 +697,12 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 }
 
 type cloudToolFrame struct {
-	Type      string
-	ID        string
-	Operation string
-	Input     json.RawMessage
-	ExpiresAt time.Time
+	Type           string
+	ID             string
+	ConversationID string
+	Operation      string
+	Input          json.RawMessage
+	ExpiresAt      time.Time
 }
 
 var errCloudToolProtocol = errors.New("cloud tool protocol")
@@ -750,19 +751,24 @@ func parseCloudToolFrame(data []byte) (cloudToolFrame, bool, error) {
 		return cloudToolFrame{}, false, nil
 	}
 	var request struct {
-		Type      string          `json:"type"`
-		ID        string          `json:"id"`
-		Operation string          `json:"operation"`
-		Input     json.RawMessage `json:"input"`
-		ExpiresAt string          `json:"expires_at"`
+		Type           string          `json:"type"`
+		ID             string          `json:"id"`
+		ConversationID string          `json:"conversation_id"`
+		Operation      string          `json:"operation"`
+		Input          json.RawMessage `json:"input"`
+		ExpiresAt      string          `json:"expires_at"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || !validUUID(request.ID) ||
+		(request.Type != "cloud_tool.cancel" && !validUUID(request.ConversationID)) ||
 		!cloudToolOperationKnown(request.Operation) {
 		return cloudToolFrame{}, true, errCloudToolProtocol
 	}
-	frame := cloudToolFrame{Type: request.Type, ID: request.ID, Operation: request.Operation, Input: request.Input}
+	frame := cloudToolFrame{
+		Type: request.Type, ID: request.ID, ConversationID: request.ConversationID,
+		Operation: request.Operation, Input: request.Input,
+	}
 	if request.Type == "cloud_tool.cancel" {
 		return frame, true, nil
 	}
@@ -926,7 +932,10 @@ func (connection *deviceConnection) handleCloudToolFrame(socket *websocket.Conn,
 	connection.cloudCancels[frame.ID] = cancel
 	connection.cloudMu.Unlock()
 	go func() {
-		data, err := executeLocalFileTool(ctx, connection.files, connection.credential.OwnerID, frame.Operation, frame.Input)
+		data, err := executeLocalFileTool(
+			ctx, connection.files, connection.credential.OwnerID,
+			frame.ConversationID, connection.credential.DeviceID, frame.Operation, frame.Input,
+		)
 		code := ""
 		if err != nil {
 			data = nil

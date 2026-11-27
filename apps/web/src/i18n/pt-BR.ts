@@ -2689,10 +2689,15 @@ export const ptBR = {
       placeholder:
         "Descreva a tarefa a analisar e planejar. O LinkSense fará perguntas e elaborará um plano primeiro.",
     },
-    localTools: {
-      menuLabel: "Permitir arquivos locais",
-      menuSearchValue: "arquivos locais pastas acesso",
-      menuDescription: "Permite que esta tarefa na nuvem use as pastas locais compartilhadas nas configurações.",
+    localFolder: {
+      menuLabel: "Usar pasta local",
+      menuSearchValue: "pasta local computador arquivos",
+      menuDescription: "Escolha uma pasta para esta tarefa. Sem escolha, este computador (sua pasta pessoal) é usado.",
+      current: "Pasta local: {{name}}",
+      readOnly: "Escolher pasta local (somente leitura)",
+      readWrite: "Escolher pasta local (leitura e escrita)",
+      homeReadOnly: "Este computador: somente leitura",
+      homeReadWrite: "Este computador: leitura e escrita",
     },
     proposedPlan: {
       title: "Plano",

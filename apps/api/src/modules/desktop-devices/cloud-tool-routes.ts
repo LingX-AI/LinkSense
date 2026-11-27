@@ -6,7 +6,6 @@ import {
   browserUseResultSchema,
   desktopCloudToolInvocationSchema,
   localBrowserExecuteOperation,
-  localFilesRootsOperation,
 } from "@linksense/shared";
 
 import type { PrismaClient } from "../../generated/prisma/client.js";
@@ -18,13 +17,6 @@ import {
   type DesktopCloudToolGateway,
 } from "./cloud-tools.js";
 import type { BrowserUseService } from "../browser-use/service.js";
-import type { DesktopFileRootService } from "./file-roots.js";
-
-const writeFileOperations = new Set([
-  "local_files.write",
-  "local_files.create",
-  "local_files.delete",
-]);
 
 /**
  * Internal entry point for the cloud runner. Authentication is the shared
@@ -35,7 +27,6 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
   prisma: PrismaClient;
   sharedSecret: string;
   cloudTools: DesktopCloudToolGateway;
-  fileRoots: Pick<DesktopFileRootService, "list" | "resolve">;
   browser: Pick<BrowserUseService, "execute">;
   audit: Pick<AuditService, "write">;
 }> = async (app, options) => {
@@ -60,7 +51,7 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
     const conversation = await options.prisma.conversation.findFirst({
       where: {
         id: body.conversationId, ownerId, archiveStatus: "active",
-        executionTarget: "cloud", desktopToolsEnabled: true,
+        executionTarget: "cloud",
       },
       select: { id: true },
     });
@@ -71,25 +62,6 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
         })
       : null;
     if (!conversation || !turn) throw new AppError("FORBIDDEN");
-
-    if (invocation.operation === localFilesRootsOperation) {
-      const startedAt = Date.now();
-      const roots = await options.fileRoots.list(ownerId);
-      await options.audit.write({
-        actorId: ownerId,
-        action: "desktop_tool_requested",
-        targetType: "desktop_device",
-        targetId: null,
-        result: "success",
-        metadata: {
-          operation: invocation.operation,
-          conversation_id: body.conversationId,
-          turn_id: body.turnId,
-          duration_ms: Date.now() - startedAt,
-        },
-      }).catch(() => undefined);
-      return { roots };
-    }
 
     const startedAt = Date.now();
     if (invocation.operation === localBrowserExecuteOperation) {
@@ -125,42 +97,7 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
       }
     }
 
-    const rootId = "root_id" in invocation.input ? invocation.input.root_id : null;
     const relativePath = "path" in invocation.input ? invocation.input.path ?? null : null;
-    const auditDenied = async (reasonCode: string, rootAlias?: string) => {
-      await options.audit.write({
-        actorId: ownerId,
-        action: "desktop_tool_requested",
-        targetType: "desktop_device",
-        targetId: null,
-        result: "failed",
-        metadata: {
-          operation: invocation.operation,
-          conversation_id: body.conversationId,
-          turn_id: body.turnId,
-          ...(rootAlias ? { root_alias: rootAlias } : {}),
-          ...(relativePath ? { path: relativePath } : {}),
-          duration_ms: Date.now() - startedAt,
-          reason_code: reasonCode,
-        },
-      }).catch(() => undefined);
-    };
-    let root: Awaited<ReturnType<DesktopFileRootService["resolve"]>> | null = null;
-    if (rootId !== null) {
-      try {
-        root = await options.fileRoots.resolve(ownerId, rootId);
-      } catch (error) {
-        if (error instanceof AppError && error.code === "DESKTOP_FILE_ROOT_NOT_FOUND") {
-          await auditDenied("DESKTOP_FILE_ACCESS_DENIED");
-          return reply.code(409).send({ error_code: "DESKTOP_FILE_ACCESS_DENIED" });
-        }
-        throw error;
-      }
-    }
-    if (root && writeFileOperations.has(invocation.operation) && root.mode !== "write") {
-      await auditDenied("DESKTOP_FILE_ACCESS_DENIED", root.name);
-      throw new AppError("FORBIDDEN");
-    }
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
@@ -169,15 +106,14 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
       operation: invocation.operation,
       conversation_id: body.conversationId,
       turn_id: body.turnId,
-      ...(root ? { root_alias: root.name } : {}),
       ...(relativePath ? { path: relativePath } : {}),
     };
     try {
       const { deviceId, data } = await options.cloudTools.execute(
         ownerId,
+        body.conversationId,
         invocation,
         controller.signal,
-        root ? { deviceId: root.deviceId } : {},
       );
       await options.audit.write({
         actorId: ownerId,
@@ -198,11 +134,10 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
           actorId: ownerId,
           action: "desktop_tool_requested",
           targetType: "desktop_device",
-          targetId: root?.deviceId ?? null,
+          targetId: null,
           result: "failed",
           metadata: {
             ...auditMetadata,
-            ...(root ? { device_id: root.deviceId } : {}),
             duration_ms: Date.now() - startedAt,
             reason_code: error.code,
           },

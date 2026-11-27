@@ -11,15 +11,20 @@ import (
 )
 
 const (
-	fileTestOwner = "10000000-0000-4000-8000-000000000001"
-	fileTestRoot  = "50000000-0000-4000-8000-000000000001"
+	fileTestOwner        = "10000000-0000-4000-8000-000000000001"
+	fileTestRoot         = "50000000-0000-4000-8000-000000000001"
+	fileTestConversation = "60000000-0000-4000-8000-000000000001"
 )
 
 func fileTestStore(t *testing.T, root string) *localFileRoots {
 	t.Helper()
 	store := newLocalFileRoots(t.TempDir())
-	if err := store.set(fileTestOwner, fileTestRoot, root); err != nil {
-		t.Fatal(err)
+	now := "2026-01-01T00:00:00Z"
+	store.loaded = true
+	store.state = fileRootsState{
+		Owners:   map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
+		Metadata: map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
+		Conversations: map[string]map[string]string{fileTestOwner: {fileTestConversation: fileTestRoot}},
 	}
 	return store
 }
@@ -57,7 +62,7 @@ func TestLocalFileToolsStayInsideTheGrantedRoot(t *testing.T) {
 	store := fileTestStore(t, root)
 	ctx := context.Background()
 
-	list, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.list",
+	list, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.list",
 		fileTestInput(t, map[string]any{"path": "", "limit": 10}))
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +90,7 @@ func TestLocalFileToolsStayInsideTheGrantedRoot(t *testing.T) {
 		{"path": "folder//notes.txt"},
 		{"path": "escape/secret.txt"},
 	} {
-		_, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.read",
+		_, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.read",
 			fileTestInput(t, input))
 		if err == nil {
 			t.Fatalf("read accepted %v", input)
@@ -105,13 +110,13 @@ func TestLocalFileToolsStayInsideTheGrantedRoot(t *testing.T) {
 		if operation == "local_files.create" {
 			input["kind"] = "file"
 		}
-		_, err := executeLocalFileTool(ctx, store, fileTestOwner, operation, fileTestInput(t, input))
+		_, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", operation, fileTestInput(t, input))
 		fileTestFailure(t, err, "DESKTOP_FILE_ACCESS_DENIED")
 	}
 	if err := os.WriteFile(filepath.Join(root, "binary.bin"), []byte{0, 1, 2}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	binary, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.read",
+	binary, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.read",
 		fileTestInput(t, map[string]any{"path": "binary.bin"}))
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +126,7 @@ func TestLocalFileToolsStayInsideTheGrantedRoot(t *testing.T) {
 		t.Fatalf("binary read = %+v", binaryRead)
 	}
 
-	read, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.read",
+	read, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.read",
 		fileTestInput(t, map[string]any{"path": "notes.txt"}))
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +136,7 @@ func TestLocalFileToolsStayInsideTheGrantedRoot(t *testing.T) {
 		text.Digest == nil || len(*text.Digest) != 64 || text.Truncated {
 		t.Fatalf("read = %+v", text)
 	}
-	partial, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.read",
+	partial, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.read",
 		fileTestInput(t, map[string]any{"path": "notes.txt", "max_bytes": 4}))
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +153,7 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 	store := fileTestStore(t, root)
 	ctx := context.Background()
 
-	created, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.create",
+	created, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.create",
 		fileTestInput(t, map[string]any{"path": "docs", "kind": "directory"}))
 	if err != nil {
 		t.Fatal(err)
@@ -156,14 +161,14 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 	if created.(localFilesCreateResult).Kind != "directory" {
 		t.Fatalf("create = %+v", created)
 	}
-	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.create",
+	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.create",
 		fileTestInput(t, map[string]any{"path": "docs", "kind": "directory"})); err == nil {
 		t.Fatal("duplicate create was accepted")
 	} else {
 		fileTestFailure(t, err, "DESKTOP_FILE_CONFLICT")
 	}
 
-	written, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.write",
+	written, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.write",
 		fileTestInput(t, map[string]any{"path": "docs/plan.md", "content": "one"}))
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +177,7 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 	if !write.Created || write.Digest == "" {
 		t.Fatalf("write = %+v", write)
 	}
-	_, err = executeLocalFileTool(ctx, store, fileTestOwner, "local_files.write",
+	_, err = executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.write",
 		fileTestInput(t, map[string]any{
 			"path": "docs/plan.md", "content": "two", "expected_digest": strings.Repeat("0", 64),
 		}))
@@ -181,7 +186,7 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 	if err != nil || string(onDisk) != "one" {
 		t.Fatalf("conflict overwrote content: %q %v", onDisk, err)
 	}
-	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.write",
+	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.write",
 		fileTestInput(t, map[string]any{
 			"path": "docs/plan.md", "content": "two", "expected_digest": write.Digest,
 		})); err != nil {
@@ -192,11 +197,11 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 		t.Fatalf("write content = %q", onDisk)
 	}
 
-	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.write",
+	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.write",
 		fileTestInput(t, map[string]any{"path": "nested/deep/file.txt", "content": "x"})); err == nil {
 		t.Fatal("write created missing parents without permission")
 	}
-	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.write",
+	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.write",
 		fileTestInput(t, map[string]any{
 			"path": "nested/deep/file.txt", "content": "x", "create_parents": true,
 		})); err != nil {
@@ -210,12 +215,12 @@ func TestLocalFileWritesDetectConflictsAndCreateAndTrash(t *testing.T) {
 		return os.RemoveAll(path)
 	}
 	t.Cleanup(func() { localFileTrashItem = originalTrash })
-	_, err = executeLocalFileTool(ctx, store, fileTestOwner, "local_files.delete",
+	_, err = executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.delete",
 		fileTestInput(t, map[string]any{
 			"path": "docs/plan.md", "expected_digest": strings.Repeat("0", 64),
 		}))
 	fileTestFailure(t, err, "DESKTOP_FILE_CONFLICT")
-	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, "local_files.delete",
+	if _, err := executeLocalFileTool(ctx, store, fileTestOwner, fileTestConversation, "", "local_files.delete",
 		fileTestInput(t, map[string]any{"path": "docs/plan.md"})); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +251,7 @@ func TestLocalFileSearchSkipsDependenciesAndReportsLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := fileTestStore(t, root)
-	result, err := executeLocalFileTool(context.Background(), store, fileTestOwner, "local_files.search",
+	result, err := executeLocalFileTool(context.Background(), store, fileTestOwner, fileTestConversation, "", "local_files.search",
 		fileTestInput(t, map[string]any{"path": "", "query": "ANSWER", "max_results": 10}))
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +264,7 @@ func TestLocalFileSearchSkipsDependenciesAndReportsLines(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "src", "b.ts"), []byte("answer 42\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	limited, err := executeLocalFileTool(context.Background(), store, fileTestOwner, "local_files.search",
+	limited, err := executeLocalFileTool(context.Background(), store, fileTestOwner, fileTestConversation, "", "local_files.search",
 		fileTestInput(t, map[string]any{"path": "", "query": "answer", "max_results": 1}))
 	if err != nil {
 		t.Fatal(err)
@@ -274,36 +279,55 @@ func TestLocalFileRootStorePersistsOnlyTheOwnerMapping(t *testing.T) {
 	dataRoot := t.TempDir()
 	root := t.TempDir()
 	store := newLocalFileRoots(dataRoot)
-	if err := store.set(fileTestOwner, fileTestRoot, root); err != nil {
-		t.Fatal(err)
+	now := "2026-01-01T00:00:00Z"
+	store.loaded = true
+	store.state = fileRootsState{
+		Owners:   map[string]map[string]string{fileTestOwner: {fileTestRoot: root}},
+		Metadata: map[string]map[string]localRootMeta{fileTestOwner: {fileTestRoot: {Path: root, Name: "root", Mode: "write", CreatedAt: now, UpdatedAt: now}}},
+		Conversations: map[string]map[string]string{fileTestOwner: {fileTestConversation: fileTestRoot}},
 	}
-	otherOwner := "10000000-0000-4000-8000-000000000002"
-	otherRoot := t.TempDir()
-	if err := store.set(otherOwner, "50000000-0000-4000-8000-000000000002", otherRoot); err != nil {
+	if err := store.persist(); err != nil {
 		t.Fatal(err)
 	}
 	reloaded := newLocalFileRoots(dataRoot)
-	stored, ok := reloaded.rootPath(fileTestOwner, fileTestRoot)
-	if !ok || stored != root {
-		t.Fatalf("reloaded root = %q %v", stored, ok)
+	meta, err := reloaded.rootForConversation(fileTestOwner, fileTestConversation, "", fileTestRoot)
+	if err != nil || meta.Path != root {
+		t.Fatalf("reloaded root = %q %v", meta.Path, err)
 	}
-	if stored, ok := reloaded.rootPath(otherOwner, "50000000-0000-4000-8000-000000000002"); !ok || stored != otherRoot {
-		t.Fatalf("second owner root was lost: %q %v", stored, ok)
-	}
-	if _, ok := reloaded.rootPath(otherOwner, fileTestRoot); ok {
+	otherOwner := "10000000-0000-4000-8000-000000000002"
+	if _, err := reloaded.rootForConversation(otherOwner, fileTestConversation, "", fileTestRoot); err == nil {
 		t.Fatal("another owner read the first mapping")
-	}
-	if err := reloaded.remove(fileTestOwner, fileTestRoot); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := reloaded.rootPath(fileTestOwner, fileTestRoot); ok {
-		t.Fatal("removed root remained")
 	}
 	if err := os.WriteFile(filepath.Join(dataRoot, fileRootsPreferenceFile), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := newLocalFileRoots(dataRoot).rootPath(fileTestOwner, fileTestRoot); ok {
+	if _, err := newLocalFileRoots(dataRoot).rootForConversation(fileTestOwner, fileTestConversation, "", fileTestRoot); err == nil {
 		t.Fatal("corrupt store returned a root")
+	}
+}
+
+func TestConversationUsesHomeUntilAnotherFolderIsGranted(t *testing.T) {
+	dataRoot := t.TempDir()
+	store := newLocalFileRoots(dataRoot)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := store.rootsForConversation(fileTestOwner, fileTestConversation, "20000000-0000-4000-8000-000000000001")
+	if err != nil || len(roots) != 1 {
+		t.Fatalf("roots = %v, %v", roots, err)
+	}
+	if roots[0].Name != "Home" || roots[0].Mode != "write" {
+		t.Fatalf("default root = %+v", roots[0])
+	}
+	meta, err := store.rootForConversation(fileTestOwner, fileTestConversation, "", roots[0].ID)
+	if err != nil || meta.Path != home {
+		t.Fatalf("default path = %q, %v", meta.Path, err)
+	}
+	otherConversation := "60000000-0000-4000-8000-000000000002"
+	otherRoots, err := store.rootsForConversation(fileTestOwner, otherConversation, "")
+	if err != nil || len(otherRoots) != 1 || otherRoots[0].ID != roots[0].ID {
+		t.Fatalf("home grant was not reused: %v, %v", otherRoots, err)
 	}
 }
 
@@ -311,10 +335,10 @@ func TestLocalFileRootsStayScopedToTheSignedInOwner(t *testing.T) {
 	root := t.TempDir()
 	store := fileTestStore(t, root)
 	other := "10000000-0000-4000-8000-000000000002"
-	if _, ok := store.rootPath(other, fileTestRoot); ok {
+	if _, err := store.rootForConversation(other, fileTestConversation, "", fileTestRoot); err == nil {
 		t.Fatal("another owner resolved this root")
 	}
-	_, err := executeLocalFileTool(context.Background(), store, other, "local_files.list",
+	_, err := executeLocalFileTool(context.Background(), store, other, fileTestConversation, "", "local_files.list",
 		fileTestInput(t, map[string]any{"path": ""}))
 	fileTestFailure(t, err, "DESKTOP_FILE_ACCESS_DENIED")
 }

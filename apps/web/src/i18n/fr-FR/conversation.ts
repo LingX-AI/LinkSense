@@ -366,10 +366,15 @@ export const conversation = {
     placeholder:
       "Décrivez la tâche à analyser et à planifier. LinkSense posera d’abord des questions et rédigera un plan.",
   },
-  localTools: {
-    menuLabel: "Autoriser les fichiers locaux",
-    menuSearchValue: "fichiers locaux dossiers accès",
-    menuDescription: "Autorise cette tâche cloud à utiliser les dossiers locaux partagés dans les réglages.",
+  localFolder: {
+    menuLabel: "Utiliser un dossier local",
+    menuSearchValue: "dossier local ordinateur fichiers",
+    menuDescription: "Choisissez un dossier pour cette tâche. Sans choix, cet ordinateur (votre dossier personnel) est utilisé.",
+    current: "Dossier local : {{name}}",
+    readOnly: "Choisir un dossier local (lecture seule)",
+    readWrite: "Choisir un dossier local (lecture et écriture)",
+    homeReadOnly: "Cet ordinateur : lecture seule",
+    homeReadWrite: "Cet ordinateur : lecture et écriture",
   },
   proposedPlan: { title: "Plan" },
   planDecision: {

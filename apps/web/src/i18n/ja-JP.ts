@@ -2646,10 +2646,15 @@ export const jaJP = {
       placeholder:
         "分析・計画したいタスクを記述してください。LinkSense がまず質問し、計画を作成します。",
     },
-    localTools: {
-      menuLabel: "ローカルファイルを許可",
-      menuSearchValue: "ローカルファイル フォルダー アクセス",
-      menuDescription: "このクラウドタスクが設定で共有したローカルフォルダーを使用できるようにします。",
+    localFolder: {
+      menuLabel: "ローカルフォルダーを使用",
+      menuSearchValue: "ローカル フォルダー コンピューター ファイル",
+      menuDescription: "このタスクで使うフォルダーを選択します。選択しない場合はこのコンピューター（ホームフォルダー）を使います。",
+      current: "ローカルフォルダー: {{name}}",
+      readOnly: "ローカルフォルダーを選択（読み取り専用）",
+      readWrite: "ローカルフォルダーを選択（読み書き）",
+      homeReadOnly: "このコンピューター: 読み取り専用",
+      homeReadWrite: "このコンピューター: 読み書き",
     },
     proposedPlan: {
       title: "計画",

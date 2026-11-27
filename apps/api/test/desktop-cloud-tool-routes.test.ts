@@ -2,7 +2,6 @@ import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { DesktopCloudToolGateway } from "../src/modules/desktop-devices/cloud-tools.js";
 import { internalDesktopCloudToolRoutes } from "../src/modules/desktop-devices/cloud-tool-routes.js";
@@ -22,7 +21,7 @@ afterEach(async () => {
 
 async function fixture(options: {
   flag?: boolean; running?: boolean; online?: boolean;
-  operations?: readonly string[]; rootMode?: "read" | "write";
+  operations?: readonly string[];
 } = {}) {
   const prisma = {
     user: { findFirst: vi.fn(async () => ({ id: owner })) },
@@ -48,16 +47,6 @@ async function fixture(options: {
   const browser = { execute: vi.fn(async () => ({
     ok: true as const, browser: "local" as const, data: { connected: true },
   })) };
-  const fileRoots = {
-    list: vi.fn(async () => [{
-      id: root, device_id: device, name: "Fixture root",
-      mode: options.rootMode ?? "write",
-      created_at: "2026-11-26T10:00:00.000Z", updated_at: "2026-11-26T10:00:00.000Z",
-    }]),
-    resolve: vi.fn(async (_ownerId: string, id: string) => ({
-      id, deviceId: device, name: "Fixture root", mode: options.rootMode ?? "write",
-    })),
-  };
   const app = Fastify();
   apps.push(app);
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
@@ -66,12 +55,11 @@ async function fixture(options: {
     prisma: prisma as never,
     sharedSecret: secret,
     cloudTools,
-    fileRoots,
     browser,
     audit,
   });
   await app.ready();
-  return { app, cloudTools, sent, connectionId, prisma, audit, fileRoots, browser };
+  return { app, cloudTools, sent, connectionId, prisma, audit, browser };
 }
 
 function request(app: ReturnType<typeof Fastify>, payload: Record<string, unknown>) {
@@ -111,7 +99,7 @@ describe("internal desktop cloud tool route", () => {
     expect(prisma.conversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         id: conversation, ownerId: owner, executionTarget: "cloud",
-        desktopToolsEnabled: true, archiveStatus: "active",
+        archiveStatus: "active",
       }),
     }));
     expect(prisma.conversationTurn.findFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -166,67 +154,34 @@ describe("internal desktop cloud tool route", () => {
       action: "desktop_tool_requested",
       result: "success",
       metadata: expect.objectContaining({
-        operation: "local_files.list", root_alias: "Fixture root", path: "docs",
+        operation: "local_files.list", path: "docs",
       }),
     }));
     expect(JSON.stringify((audit.write as unknown as { mock: { calls: unknown[][] } }).mock.calls))
       .not.toContain("/Users/");
   });
 
-  it("lists the shared root aliases without dispatching to the Mac", async () => {
-    const { app, sent, fileRoots, audit } = await fixture();
-    const response = await request(app, {
+  it("forwards the conversation-scoped root list to the Mac", async () => {
+    const { app, cloudTools, sent, connectionId, audit } = await fixture({
+      operations: ["local_files.roots"],
+    });
+    const pending = request(app, { operation: "local_files.roots", input: {} });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const frame = sent[0]!;
+    expect(frame).toMatchObject({
+      type: "cloud_tool.request", conversation_id: conversation,
       operation: "local_files.roots", input: {},
     });
-    expect(response.statusCode, response.body).toBe(200);
-    expect(response.json()).toEqual({
-      roots: [expect.objectContaining({
-        id: root, device_id: device, name: "Fixture root", mode: "write",
-      })],
+    cloudTools.receive(connectionId, {
+      type: "cloud_tool.result", id: frame.id, operation: "local_files.roots",
+      ok: true, data: { roots: [] },
     });
-    expect(fileRoots.list).toHaveBeenCalledWith(owner);
-    expect(sent).toHaveLength(0);
+    const response = await pending;
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ roots: [] });
     expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
       action: "desktop_tool_requested",
-      metadata: expect.objectContaining({ operation: "local_files.roots" }),
-    }));
-  });
-
-  it("rejects and audits a write or delete on a read-only root before dispatch", async () => {
-    for (const operation of ["local_files.write", "local_files.delete"]) {
-      const { app, sent, audit } = await fixture({
-        operations: [operation], rootMode: "read",
-      });
-      const response = await request(app, {
-        operation,
-        input: operation === "local_files.write"
-          ? { root_id: root, path: "notes.txt", content: "x" }
-          : { root_id: root, path: "notes.txt" },
-      });
-      expect(response.statusCode, response.body).toBe(403);
-      expect(sent).toHaveLength(0);
-      expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
-        result: "failed",
-        metadata: expect.objectContaining({
-          operation, path: "notes.txt", reason_code: "DESKTOP_FILE_ACCESS_DENIED",
-        }),
-      }));
-    }
-  });
-
-  it("audits a revoked root and never dispatches it", async () => {
-    const { app, sent, fileRoots, audit } = await fixture({ operations: ["local_files.read"] });
-    fileRoots.resolve.mockRejectedValueOnce(new AppError("DESKTOP_FILE_ROOT_NOT_FOUND"));
-    const response = await request(app, {
-      operation: "local_files.read",
-      input: { root_id: root, path: "notes.txt" },
-    });
-    expect(response.statusCode, response.body).toBe(409);
-    expect(response.json()).toEqual({ error_code: "DESKTOP_FILE_ACCESS_DENIED" });
-    expect(sent).toHaveLength(0);
-    expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
-      result: "failed",
-      metadata: expect.objectContaining({ reason_code: "DESKTOP_FILE_ACCESS_DENIED" }),
+      metadata: expect.objectContaining({ operation: "local_files.roots", conversation_id: conversation }),
     }));
   });
 
@@ -253,7 +208,7 @@ describe("internal desktop cloud tool route", () => {
     expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({
       result: "failed",
       metadata: expect.objectContaining({
-        operation: "local_files.write", root_alias: "Fixture root",
+        operation: "local_files.write",
         path: "notes.txt", reason_code: "DESKTOP_FILE_CONFLICT",
       }),
     }));

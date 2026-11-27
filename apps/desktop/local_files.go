@@ -162,20 +162,36 @@ func executeLocalFileTool(
 	ctx context.Context,
 	roots *localFileRoots,
 	ownerID string,
+	conversationID string,
+	deviceID string,
 	operation string,
 	raw json.RawMessage,
 ) (any, error) {
 	if roots == nil {
 		return nil, localFileFailure("DESKTOP_FILE_UNAVAILABLE")
 	}
+	if operation == "local_files.roots" {
+		list, err := roots.rootsForConversation(ownerID, conversationID, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		return localFilesRootsResult{Roots: list}, nil
+	}
 	var rootInput localFileRootInput
 	if err := json.Unmarshal(raw, &rootInput); err != nil {
 		return nil, localFileFailure("DESKTOP_FILE_UNSUPPORTED")
 	}
-	root, ok := roots.rootPath(ownerID, rootInput.RootID)
-	if !ok {
+	meta, err := roots.rootForConversation(ownerID, conversationID, deviceID, rootInput.RootID)
+	if err != nil {
 		return nil, localFileFailure("DESKTOP_FILE_ACCESS_DENIED")
 	}
+	if operation == "local_files.write" || operation == "local_files.create" ||
+		operation == "local_files.delete" {
+		if meta.Mode != "write" {
+			return nil, localFileFailure("DESKTOP_FILE_ACCESS_DENIED")
+		}
+	}
+	root := meta.Path
 	canonicalRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, localFileFailure("DESKTOP_FILE_NOT_FOUND")

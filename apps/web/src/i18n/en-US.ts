@@ -2369,10 +2369,15 @@ export const enUS = {
       placeholder:
         "Describe the task to analyze and plan. LinkSense will ask questions and draft a plan first.",
     },
-    localTools: {
-      menuLabel: "Allow local files",
-      menuSearchValue: "local files folders access",
-      menuDescription: "Let this cloud task use the local folders shared in Settings.",
+    localFolder: {
+      menuLabel: "Use local folder",
+      menuSearchValue: "local folder computer files",
+      menuDescription: "Choose a folder for this task. Without a choice, This Mac (your home folder) is used.",
+      current: "Local folder: {{name}}",
+      readOnly: "Choose local folder (read only)",
+      readWrite: "Choose local folder (read and write)",
+      homeReadOnly: "This Mac: read only",
+      homeReadWrite: "This Mac: read and write",
     },
     proposedPlan: {
       title: "Plan",

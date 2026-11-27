@@ -49,9 +49,10 @@ func TestDeviceBridgeServesGrantedFileToolsOffTheReadLoop(t *testing.T) {
 			return
 		}
 		request, _ := json.Marshal(map[string]any{
-			"type":       "cloud_tool.request",
-			"id":         "50000000-0000-4000-8000-000000000010",
-			"operation":  desktopCloudToolListOperation,
+			"type":            "cloud_tool.request",
+			"id":              "50000000-0000-4000-8000-000000000010",
+			"conversation_id": fileTestConversation,
+			"operation":       desktopCloudToolListOperation,
 			"input":      map[string]any{"root_id": fileTestRoot, "path": "", "limit": 10},
 			"expires_at": time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano),
 		})
@@ -72,9 +73,10 @@ func TestDeviceBridgeServesGrantedFileToolsOffTheReadLoop(t *testing.T) {
 			}
 			result <- frame
 			writeRequest, _ := json.Marshal(map[string]any{
-				"type":      "cloud_tool.request",
-				"id":        "50000000-0000-4000-8000-000000000011",
-				"operation": desktopCloudToolWriteOperation,
+				"type":            "cloud_tool.request",
+				"id":              "50000000-0000-4000-8000-000000000011",
+				"conversation_id": fileTestConversation,
+				"operation":       desktopCloudToolWriteOperation,
 				"input": map[string]any{
 					"root_id": fileTestRoot, "path": "written.txt",
 					"content": strings.Repeat("x", 20_000),

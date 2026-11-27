@@ -82,6 +82,7 @@ import {
   type LoginSessionBoundary,
 } from "@/api/session"
 import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import { addDesktopFileRoot, setDesktopFileRootMode } from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -272,7 +273,6 @@ import {
   upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
 import { ProjectComposerPicker } from "@/features/projects/project-composer-picker"
-import { useDesktopDeviceStatus } from "@/features/desktop-devices/use-desktop-device-status"
 import { useNewProject } from "@/features/projects/use-new-project"
 import { newProjectNavigationState } from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
@@ -1424,22 +1424,36 @@ export function ConversationPage({
     !isApplicationConversation
   const desktopCloudTargetEnabled =
     !desktopExecutionTargetGated || desktopExecutionPolicy.cloudTarget
-  const desktopDeviceStatus = useDesktopDeviceStatus(user?.id, {
-    enabled: desktopExecutionTargetGated,
-    poll: false,
-  })
-  const [desktopToolsChoice, setDesktopToolsChoice] = useState<{
+  const [prewarmedConversationId, setPrewarmedConversationId] = useState<string | null>(null)
+  const localFolderKey = `${isNew ? "new" : conversationId ?? "none"}:${newTaskResetVersion}`
+  const [localFolderChoice, setLocalFolderChoice] = useState<{
     key: string
-    enabled: boolean
+    id: string
+    name: string
+    mode: "read" | "write"
   } | null>(null)
-  const desktopToolsKey = `${isNew ? "new" : conversationId ?? "none"}:${newTaskResetVersion}`
-  const desktopToolsEnabled =
-    desktopToolsChoice?.key === desktopToolsKey && desktopToolsChoice.enabled
-  const setDesktopToolsEnabled = (enabled: boolean) => {
-    setDesktopToolsChoice({ key: desktopToolsKey, enabled })
-  }
-  const desktopLocalToolsAvailable =
-    desktopExecutionTargetGated && desktopDeviceStatus.data?.state === "online"
+  const localFolder =
+    localFolderChoice?.key === localFolderKey ? localFolderChoice : null
+  const localFolderConversationId = isNew ? prewarmedConversationId : conversationId
+  const chooseLocalFolder = useCallback(async (mode: "read" | "write") => {
+    if (!localFolderConversationId) return
+    try {
+      const root = await addDesktopFileRoot(localFolderConversationId, mode)
+      setLocalFolderChoice({
+        key: localFolderKey, id: root.id, name: root.name, mode: root.mode,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === "DESKTOP_FILE_PICKER_CANCELLED") return
+      throw error
+    }
+  }, [localFolderConversationId, localFolderKey])
+  const setLocalFolderMode = useCallback(async (mode: "read" | "write") => {
+    if (!localFolderConversationId) return
+    const root = await setDesktopFileRootMode(localFolderConversationId, mode)
+    setLocalFolderChoice({
+      key: localFolderKey, id: root.id, name: root.name, mode: root.mode,
+    })
+  }, [localFolderConversationId, localFolderKey])
   const desktopNoTargetAvailable =
     desktopExecutionTargetGated && !desktopExecutionPolicy.cloudTarget
   // A poll can close the cloud entry after this render, so the background
@@ -1764,9 +1778,9 @@ export function ConversationPage({
     collaborationMode,
     projectId: isNew ? newProjectId : undefined,
     configurationKey: modelPreferenceQuery.data?.selected_model ?? undefined,
+    onReservation: isNew ? setPrewarmedConversationId : undefined,
     enabled:
       !readOnly &&
-      !desktopToolsEnabled &&
       !turnExecutionActive &&
       !modelPreferenceMutation.isPending &&
       !modelPreferenceQuery.isPending &&
@@ -3359,7 +3373,6 @@ export function ConversationPage({
         body: {
           collaboration_mode: initialCollaborationMode,
           project_id: newProjectId,
-          ...(desktopToolsEnabled ? { desktop_tools_enabled: true } : {}),
           ...(prewarmedConversationId
             ? { prewarmed_conversation_id: prewarmedConversationId }
             : {}),
@@ -7958,9 +7971,11 @@ export function ConversationPage({
               Boolean(displayGoal && displayGoal.status !== "complete")
             }
             onPlanModeChange={handlePlanModeChange}
-            localToolsAvailable={desktopLocalToolsAvailable}
-            localToolsEnabled={desktopToolsEnabled}
-            onLocalToolsChange={setDesktopToolsEnabled}
+            localFolderName={localFolder?.name}
+            localFolderMode={localFolder?.mode}
+            localFolderPending={!localFolderConversationId}
+            onChooseLocalFolder={isMacDesktopHost() ? chooseLocalFolder : undefined}
+            onSetLocalFolderMode={isMacDesktopHost() ? setLocalFolderMode : undefined}
             submitting={
               applicationSubmissionSending ||
               waitingForDesktopAttachmentStart ||

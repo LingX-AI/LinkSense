@@ -168,6 +168,15 @@ export interface HostInfo {
   macSignOut?: boolean;
 }
 
+export interface LocalFileRootView {
+  id: string;
+  device_id: string;
+  name: string;
+  mode: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /** MacSignOutOptions preserves the pairing unless the UI confirmed a revoke. */
 export interface MacSignOutOptions {
   revokedDevice?: RevokedMacDevice;
@@ -219,10 +228,10 @@ export interface WorkspaceUsage {
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
   /**
-   * AddFileRoot opens the native folder picker, registers the alias and mode
-   * with the API, then stores the absolute path locally under the returned ID.
+   * AddFileRoot opens the native folder picker and grants that folder to one
+   * conversation. A folder authorized before is reused without another grant.
    */
-  addFileRoot: bind<[string, string], string>("Desktop.AddFileRoot", (deviceID: string, mode: string) => [deviceID, mode]),
+  addFileRoot: bind<[string, string], LocalFileRootView>("Desktop.AddFileRoot", (conversationID: string, mode: string) => [conversationID, mode]),
   /**
    * ArmArtifactDownload binds the ticket to the exact blob URL created for the
    * authenticated bytes. It is still not a download target.
@@ -299,8 +308,6 @@ export const Desktop = {
   openExternal: bind<[string], void>("Desktop.OpenExternal", (raw: string) => [raw]),
   openUpdateInstaller: bind<[], void>("Desktop.OpenUpdateInstaller", () => []),
   pairDevice: bind<[string, string], DeviceConnectionStatus>("Desktop.PairDevice", (code: string, name: string) => [code, name]),
-  /** RemoveFileRoot revokes the server grant first, then forgets the local path. */
-  removeFileRoot: bind<[string], void>("Desktop.RemoveFileRoot", (rootID: string) => [rootID]),
   restartAfterUpdate: bind<[], void>("Desktop.RestartAfterUpdate", () => []),
   resumeDevice: bind<[string], DeviceConnectionStatus>("Desktop.ResumeDevice", (ownerID: string) => [ownerID]),
   /**
@@ -312,6 +319,11 @@ export const Desktop = {
    */
   revealArtifactDownload: bind<[string], void>("Desktop.RevealArtifactDownload", (handle: string) => [handle]),
   runtimeStatus: bind<[], RuntimeStatus>("Desktop.RuntimeStatus", () => []),
+  /**
+   * SetFileRootMode changes the access mode of the conversation's current
+   * folder, including the default Home grant, without reopening the picker.
+   */
+  setFileRootMode: bind<[string, string], LocalFileRootView>("Desktop.SetFileRootMode", (conversationID: string, mode: string) => [conversationID, mode]),
   setLocalToolsEnabled: bind<[boolean], DeviceConnectionStatus>("Desktop.SetLocalToolsEnabled", (enabled: boolean) => [enabled]),
   /**
    * SetLocale makes the macOS app language follow an explicit language choice

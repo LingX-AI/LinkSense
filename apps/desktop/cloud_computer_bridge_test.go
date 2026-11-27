@@ -60,9 +60,10 @@ func TestDeviceBridgeServesCloudComputerTools(t *testing.T) {
 			return
 		}
 		request, _ := json.Marshal(map[string]any{
-			"type":       "cloud_tool.request",
-			"id":         "50000000-0000-4000-8000-000000000020",
-			"operation":  cloudComputerStatusOperation,
+			"type":            "cloud_tool.request",
+			"id":              "50000000-0000-4000-8000-000000000020",
+			"conversation_id": cloudToolTestConversation,
+			"operation":       cloudComputerStatusOperation,
 			"input":      map[string]any{},
 			"expires_at": time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano),
 		})

@@ -795,7 +795,6 @@ export async function buildApi(
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
     cloudTools: desktopCloudTools,
-    fileRoots: desktopFileRoots,
     browser,
     audit: services.audit,
   });

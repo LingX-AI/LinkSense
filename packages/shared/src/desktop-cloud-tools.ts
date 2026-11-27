@@ -203,6 +203,7 @@ export type DesktopCloudToolInvocation = z.infer<typeof desktopCloudToolInvocati
 const requestFor = <O extends DesktopCloudToolOperation>(operation: O) => z.strictObject({
   type: z.literal("cloud_tool.request"),
   id: uuidSchema,
+  conversation_id: uuidSchema,
   operation: z.literal(operation),
   input: desktopCloudToolInputSchemaFor[operation],
   expires_at: timestampSchema,

@@ -34,7 +34,8 @@ type PrewarmScope = {
 
 async function prewarm(
   scope: PrewarmScope,
-  guard?: () => void
+  guard?: () => void,
+  onReservation?: (conversationId: string) => void
 ): Promise<void> {
   if (
     !scope.active ||
@@ -83,7 +84,10 @@ async function prewarm(
       ...(beforeAttempt ? { beforeAttempt } : {}),
     })
     if (!scope.active || scope.claimed) return
-    if (!scope.conversationId) scope.reservationId = receipt.conversation_id
+    if (!scope.conversationId) {
+      scope.reservationId = receipt.conversation_id
+      onReservation?.(receipt.conversation_id)
+    }
     scope.enqueued = { mode, at: now }
   } catch (error) {
     if (!scope.active || scope.claimed) return
@@ -108,7 +112,7 @@ async function prewarm(
       !scope.claimed &&
       (scope.mode !== mode || reservationExpired)
     ) {
-      await prewarm(scope, guard)
+      await prewarm(scope, guard, onReservation)
     }
   }
 }
@@ -127,6 +131,8 @@ export function useConversationPrewarm(input: {
    * attempt before any HTTP request is issued.
    */
   guard?: () => void
+  /** Reports the reservation conversation ID so task-scoped actions can bind to it. */
+  onReservation?: (conversationId: string) => void
 }): { claim: () => string | null; reset: () => void } {
   const {
     ownerId,
@@ -137,12 +143,15 @@ export function useConversationPrewarm(input: {
     configurationKey,
     enabled = true,
     guard,
+    onReservation,
   } = input
   const scopeRef = useRef<PrewarmScope | null>(null)
   const guardRef = useRef(guard)
+  const onReservationRef = useRef(onReservation)
   // Keep the latest caller guard without re-running the prewarm scope effect.
   useLayoutEffect(() => {
     guardRef.current = guard
+    onReservationRef.current = onReservation
   })
   const [resetVersion, increaseResetVersion] = useReducer(
     (value: number) => value + 1,
@@ -186,18 +195,18 @@ export function useConversationPrewarm(input: {
   useEffect(() => {
     const scope = scopeRef.current
     if (!scope?.active || !scope.enabled) return
-    void prewarm(scope, guardRef.current)
+    void prewarm(scope, guardRef.current, onReservationRef.current)
     const recordActivity = () => {
       scope.lastActivityAt = Date.now()
     }
     const refreshVisible = () => {
       if (document.visibilityState === "hidden") return
       recordActivity()
-      void prewarm(scope, guardRef.current)
+      void prewarm(scope, guardRef.current, onReservationRef.current)
     }
     const timer = window.setInterval(() => {
       if (Date.now() - scope.lastActivityAt < activityWindowMs)
-        void prewarm(scope, guardRef.current)
+        void prewarm(scope, guardRef.current, onReservationRef.current)
     }, renewalIntervalMs)
     document.addEventListener("visibilitychange", refreshVisible)
     document.addEventListener("keydown", recordActivity)

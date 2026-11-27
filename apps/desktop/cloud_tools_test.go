@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
+const cloudToolTestConversation = "60000000-0000-4000-8000-000000000001"
+
 func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 	id := "50000000-0000-4000-8000-000000000001"
 	frame, err := json.Marshal(map[string]any{
-		"type": "cloud_tool.request", "id": id, "operation": "local_tools.ping",
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_tools.ping",
 		"input": map[string]any{"message": "hello"}, "expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
@@ -38,7 +40,7 @@ func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 	}
 
 	expired, _ := json.Marshal(map[string]any{
-		"type": "cloud_tool.request", "id": id, "operation": "local_tools.ping",
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_tools.ping",
 		"input": map[string]any{"message": "hello"}, "expires_at": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano),
 	})
 	request, handled, err = parseCloudToolFrame(expired)
@@ -60,7 +62,7 @@ func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 	}
 
 	invalid, _ := json.Marshal(map[string]any{
-		"type": "cloud_tool.request", "id": id, "operation": "local_tools.ping",
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_tools.ping",
 		"input": map[string]any{"message": "hello"}, "expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
 		"extra": true,
 	})
@@ -69,7 +71,7 @@ func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 	}
 
 	fileFrame, _ := json.Marshal(map[string]any{
-		"type": "cloud_tool.request", "id": id, "operation": "local_files.list",
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_files.list",
 		"input": map[string]any{"root_id": "50000000-0000-4000-8000-000000000002", "limit": 10},
 		"expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
 	})
@@ -79,7 +81,7 @@ func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 	}
 
 	unknown, _ := json.Marshal(map[string]any{
-		"type": "cloud_tool.request", "id": id, "operation": "local_files.nope",
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_files.nope",
 		"input": map[string]any{}, "expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
 	})
 	if _, accepted, parseErr := parseCloudToolFrame(unknown); !accepted || parseErr == nil {

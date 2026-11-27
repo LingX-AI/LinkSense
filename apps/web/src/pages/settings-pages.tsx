@@ -31,9 +31,6 @@ import {
   isMacDesktopHost,
 } from "@/adapters/desktop/desktop-adapter"
 import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
-import { DesktopDevicesSettings } from "@/features/desktop-devices/desktop-devices-settings"
-import { DesktopActivityDisclosure } from "@/features/desktop-activity/desktop-activity-disclosure"
-import { desktopDeviceSettingsHeadingId } from "@/features/desktop-execution/desktop-execution-target"
 import {
   personalizationSettingsSchema,
   personalUsageProfileSchema,
@@ -126,18 +123,13 @@ export function SettingsGeneralPage() {
   const { t } = useTranslation()
   const location = useLocation()
   const { user, refreshUser } = useAuth()
-  const showThisMac = isMacDesktopHost() && user !== null
   useEffect(() => {
     const anchor = location.hash.slice(1)
-    if (
-      anchor !== "browser-extension" &&
-      !(showThisMac && anchor === desktopDeviceSettingsHeadingId)
-    )
-      return
+    if (anchor !== "browser-extension") return
     const target = document.getElementById(anchor)
     target?.scrollIntoView({ block: "start", behavior: "instant" })
     target?.focus({ preventScroll: true })
-  }, [location.key, location.hash, showThisMac])
+  }, [location.key, location.hash])
   const {
     language,
     pending: languagePending,
@@ -285,24 +277,6 @@ export function SettingsGeneralPage() {
             }
           >
             <DesktopUpdateControl />
-          </SettingsCard>
-        )}
-        {showThisMac && (
-          <SettingsCard
-            header={
-              <SettingsSectionHeader
-                id={desktopDeviceSettingsHeadingId}
-                focusable
-                title={t("desktopDevices.title")}
-                description={t("desktopDevices.description")}
-              />
-            }
-          >
-            <DesktopDevicesSettings key={user.id} ownerId={user.id} />
-            <DesktopActivityDisclosure
-              key={`desktop-activity-${user.id}`}
-              ownerId={user.id}
-            />
           </SettingsCard>
         )}
       </div>

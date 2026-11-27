@@ -33,6 +33,7 @@ export const cloudToolRemoteRequestSchema = z.discriminatedUnion("type", [
     request_id: z.uuid(),
     connection_id: z.uuid(),
     owner_id: z.uuid(),
+    conversation_id: z.uuid(),
     invocation: desktopCloudToolInvocationSchema,
   }),
   z.strictObject({

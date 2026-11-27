@@ -495,10 +495,11 @@ type ConversationComposerProps = Readonly<{
   planModeAvailable?: boolean
   goalModeAvailable?: boolean
   planModeDisabled?: boolean
-  localToolsAvailable?: boolean
-  localToolsEnabled?: boolean
-  localToolsPending?: boolean
-  onLocalToolsChange?: (enabled: boolean) => void
+  localFolderName?: string
+  localFolderMode?: "read" | "write"
+  localFolderPending?: boolean
+  onChooseLocalFolder?: (mode: "read" | "write") => void
+  onSetLocalFolderMode?: (mode: "read" | "write") => void
   unavailableMessage?: string
   interactionBlocked?: boolean
   localModelControl?: ReactNode
@@ -593,10 +594,11 @@ export const ConversationComposer = forwardRef<
     planModeAvailable = true,
     goalModeAvailable = true,
     planModeDisabled = false,
-    localToolsAvailable = false,
-    localToolsEnabled = false,
-    localToolsPending = false,
-    onLocalToolsChange,
+    localFolderName,
+    localFolderMode,
+    localFolderPending = false,
+    onChooseLocalFolder,
+    onSetLocalFolderMode,
     interactionBlocked = false,
     unavailableMessage,
     localModelControl,
@@ -1534,9 +1536,9 @@ export const ConversationComposer = forwardRef<
     )
   }
 
-  const toggleLocalTools = () => {
-    if (attachmentActionDisabled || localToolsPending) return
-    onLocalToolsChange?.(!localToolsEnabled)
+  const chooseLocalFolder = (mode: "read" | "write") => {
+    if (attachmentActionDisabled || localFolderPending) return
+    onChooseLocalFolder?.(mode)
     setMenuOpen(false)
     window.setTimeout(
       () =>
@@ -2213,26 +2215,73 @@ export const ConversationComposer = forwardRef<
                           </span>
                         </CommandItem>
                       )}
-                      {localToolsAvailable && onLocalToolsChange && (
-                        <CommandItem
-                          value={t("conversation.localTools.menuSearchValue")}
-                          title={t("conversation.localTools.menuDescription")}
-                          data-checked={localToolsEnabled || undefined}
-                          disabled={attachmentActionDisabled || localToolsPending}
-                          onSelect={toggleLocalTools}
-                        >
-                          <span className="grid size-4 shrink-0 place-items-center">
-                            <FolderIcon aria-hidden="true" className="size-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
+                      {onChooseLocalFolder && (
+                        <>
+                          <CommandItem
+                            value={t("conversation.localFolder.menuSearchValue")}
+                            title={t("conversation.localFolder.menuDescription")}
+                            data-checked={localFolderName ? true : undefined}
+                            disabled={attachmentActionDisabled || localFolderPending}
+                            onSelect={() => chooseLocalFolder("read")}
+                          >
+                            <span className="grid size-4 shrink-0 place-items-center">
+                              <FolderIcon aria-hidden="true" className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[length:var(--app-font-13)]">
+                                {localFolderName
+                                  ? t("conversation.localFolder.current", { name: localFolderName })
+                                  : t("conversation.localFolder.readOnly")}
+                              </span>
+                              <span className="sr-only">
+                                {t("conversation.localFolder.menuDescription")}
+                              </span>
+                            </span>
+                          </CommandItem>
+                          <CommandItem
+                            value={`${t("conversation.localFolder.menuSearchValue")} write`}
+                            title={t("conversation.localFolder.menuDescription")}
+                            disabled={attachmentActionDisabled || localFolderPending}
+                            onSelect={() => chooseLocalFolder("write")}
+                          >
+                            <span className="grid size-4 shrink-0 place-items-center">
+                              <FolderIcon aria-hidden="true" className="size-4" />
+                            </span>
                             <span className="block truncate text-[length:var(--app-font-13)]">
-                              {t("conversation.localTools.menuLabel")}
+                              {t("conversation.localFolder.readWrite")}
                             </span>
-                            <span className="sr-only">
-                              {t("conversation.localTools.menuDescription")}
-                            </span>
-                          </span>
-                        </CommandItem>
+                          </CommandItem>
+                          {onSetLocalFolderMode && (
+                            <>
+                              <CommandItem
+                                value={`${t("conversation.localFolder.menuSearchValue")} home read`}
+                                data-checked={localFolderMode === "read" || undefined}
+                                disabled={attachmentActionDisabled || localFolderPending}
+                                onSelect={() => {
+                                  onSetLocalFolderMode("read")
+                                  setMenuOpen(false)
+                                }}
+                              >
+                                <span className="block truncate text-[length:var(--app-font-13)]">
+                                  {t("conversation.localFolder.homeReadOnly")}
+                                </span>
+                              </CommandItem>
+                              <CommandItem
+                                value={`${t("conversation.localFolder.menuSearchValue")} home write`}
+                                data-checked={localFolderMode === "write" || undefined}
+                                disabled={attachmentActionDisabled || localFolderPending}
+                                onSelect={() => {
+                                  onSetLocalFolderMode("write")
+                                  setMenuOpen(false)
+                                }}
+                              >
+                                <span className="block truncate text-[length:var(--app-font-13)]">
+                                  {t("conversation.localFolder.homeReadWrite")}
+                                </span>
+                              </CommandItem>
+                            </>
+                          )}
+                        </>
                       )}
                     </CommandGroup>
                     {!managedApplicationName && (

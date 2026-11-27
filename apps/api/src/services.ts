@@ -1060,7 +1060,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
                 input.capabilityScope,
               )
             : this.mcpServers.resolveRuntime(input.userId),
-          this.#desktopToolsEnvironment(input.userId, input.conversationId),
+          this.#desktopToolsEnvironment(input.userId),
         ]);
         let materialized: ReconciledUserHomeCapabilities;
         try {
@@ -1426,34 +1426,23 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
   }
 
   /**
-   * The per-task local-tool switch is part of the worker environment but not
-   * of the capability catalog. Presence is only exposed while a Mac is
-   * actually reachable; the tool call itself still fails closed when the
-   * device drops later.
+   * Local tools are part of the worker environment but not of the capability
+   * catalog. They are only advertised while a Mac is actually reachable; the
+   * folder grant is chosen on the Mac and the tool call itself fails closed
+   * when the device drops.
    */
-  async #desktopToolsEnvironment(
-    userId: string,
-    conversationId: string,
-  ): Promise<Record<string, string>> {
-    const [conversation, onlineDevice] = await Promise.all([
-      this.prisma.conversation.findFirst({
-        where: { id: conversationId, ownerId: userId },
-        select: { desktopToolsEnabled: true },
-      }),
-      this.prisma.desktopDevice.findFirst({
-        where: {
-          ownerId: userId,
-          revokedAt: null,
-          lastSeenAt: {
-            gte: new Date(Date.now() - desktopDevicePresenceLeaseMilliseconds),
-          },
+  async #desktopToolsEnvironment(userId: string): Promise<Record<string, string>> {
+    const onlineDevice = await this.prisma.desktopDevice.findFirst({
+      where: {
+        ownerId: userId,
+        revokedAt: null,
+        lastSeenAt: {
+          gte: new Date(Date.now() - desktopDevicePresenceLeaseMilliseconds),
         },
-        select: { id: true },
-      }),
-    ]);
-    return conversation?.desktopToolsEnabled && onlineDevice
-      ? { LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" }
-      : {};
+      },
+      select: { id: true },
+    });
+    return onlineDevice ? { LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" } : {};
   }
 
   async resolveStartIntentRecovery(input: {
@@ -1763,7 +1752,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       );
     }
     const desktopToolsEnvironment = input.conversationId
-      ? await this.#desktopToolsEnvironment(input.userId, input.conversationId)
+      ? await this.#desktopToolsEnvironment(input.userId)
       : {};
     return {
       environment: {

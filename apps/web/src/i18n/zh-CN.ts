@@ -2197,10 +2197,15 @@ export const zhCN = {
       placeholder:
         "描述需要分析和规划的任务，LinkSense 会先提出问题并形成计划。",
     },
-    localTools: {
-      menuLabel: "允许访问本机文件",
-      menuSearchValue: "本机文件 文件夹 授权",
-      menuDescription: "让这个云端任务读写设置中共享的本机文件夹。",
+    localFolder: {
+      menuLabel: "使用本机文件夹",
+      menuSearchValue: "本机 文件夹 电脑 文件",
+      menuDescription: "为这个任务选择一个文件夹；不选时默认使用这台电脑的主目录。",
+      current: "本机文件夹：{{name}}",
+      readOnly: "选择本机文件夹（只读）",
+      readWrite: "选择本机文件夹（读写）",
+      homeReadOnly: "这台电脑：只读",
+      homeReadWrite: "这台电脑：读写",
     },
     proposedPlan: {
       title: "方案",

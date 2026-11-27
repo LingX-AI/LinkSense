@@ -105,23 +105,37 @@ export async function setDesktopLocalToolsEnabled(
 }
 
 /**
- * Opens the native folder picker, registers the alias and mode with the API,
- * and stores the absolute path locally. The path never enters this page or the
- * server.
+ * Opens the native folder picker and grants that folder to one conversation.
+ * The absolute path stays on this Mac.
  */
 export async function addDesktopFileRoot(
-  deviceId: string,
+  conversationId: string,
   mode: "read" | "write"
-): Promise<string> {
+): Promise<{ id: string; name: string; mode: "read" | "write" }> {
   if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  if (!z.uuid().safeParse(deviceId).success) throw new Error("VALIDATION_ERROR")
-  const value: unknown = await Desktop.addFileRoot(deviceId, mode)
-  return z.uuid().parse(value)
+  if (!z.uuid().safeParse(conversationId).success) throw new Error("VALIDATION_ERROR")
+  const value = await Desktop.addFileRoot(conversationId, mode)
+  return parseLocalFileRoot(value)
 }
 
-/** Revokes the server grant first, then forgets the local path. */
-export async function removeDesktopFileRoot(rootId: string): Promise<void> {
+/** Changes the current folder's access mode without reopening the picker. */
+export async function setDesktopFileRootMode(
+  conversationId: string,
+  mode: "read" | "write"
+): Promise<{ id: string; name: string; mode: "read" | "write" }> {
   if (!isMacDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
-  if (!z.uuid().safeParse(rootId).success) throw new Error("VALIDATION_ERROR")
-  await Desktop.removeFileRoot(rootId)
+  if (!z.uuid().safeParse(conversationId).success) throw new Error("VALIDATION_ERROR")
+  return parseLocalFileRoot(await Desktop.setFileRootMode(conversationId, mode))
+}
+
+function parseLocalFileRoot(value: {
+  id: string
+  name: string
+  mode: string
+}): { id: string; name: string; mode: "read" | "write" } {
+  return {
+    id: z.uuid().parse(value.id),
+    name: z.string().trim().min(1).max(120).parse(value.name),
+    mode: z.enum(["read", "write"]).parse(value.mode),
+  }
 }

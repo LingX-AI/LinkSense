@@ -23,6 +23,7 @@ import { MemoryDesktopDeviceRepository } from "./desktop-devices.fixture.js";
 import { createRedisFixture } from "./fixtures/redis.js";
 
 const owner = "10000000-0000-4000-8000-000000000001";
+const conversation = "60000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";
 const headers = { authorization: "Bearer user" };
 const registration = { name: "Work laptop", platform: "darwin", arch: "arm64", app_version: "0.1.0" };
@@ -773,7 +774,7 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
       cloud_tool_operations: ["local_tools.ping"],
     });
     const pending = cloudTools.execute(
-      owner, { operation: "local_tools.ping", input: { message: "hello" } }, new AbortController().signal,
+      owner, conversation, { operation: "local_tools.ping", input: { message: "hello" } }, new AbortController().signal,
     );
     const request = await readFrame(socket) as { id: string; type: string; operation: string };
     expect(request).toMatchObject({

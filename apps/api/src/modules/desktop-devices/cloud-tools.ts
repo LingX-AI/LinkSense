@@ -224,6 +224,7 @@ export class DesktopCloudToolGateway {
 
   async execute(
     ownerId: string,
+    conversationId: string,
     invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
     options: { deviceId?: string } = {},
@@ -238,10 +239,10 @@ export class DesktopCloudToolGateway {
     for (const connection of candidates) {
       if (!await connection.verifyCredential().catch(() => false)) continue;
       if (this.closing || this.connections.get(connection.connectionId) !== connection) continue;
-      return await this.executeOnConnection(connection, parsed, signal);
+      return await this.executeOnConnection(connection, conversationId, parsed, signal);
     }
     const remote = await this.remoteCandidate(ownerId, operation, options.deviceId);
-    if (remote) return await this.executeRemote(remote, parsed, signal);
+    if (remote) return await this.executeRemote(remote, conversationId, parsed, signal);
     throw new DesktopCloudToolError("DESKTOP_TOOL_UNAVAILABLE");
   }
 
@@ -265,6 +266,7 @@ export class DesktopCloudToolGateway {
 
   private async executeOnConnection(
     connection: CloudToolConnection,
+    conversationId: string,
     invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
   ): Promise<{ deviceId: string; data: DesktopCloudToolData }> {
@@ -278,6 +280,7 @@ export class DesktopCloudToolGateway {
     const frame = desktopCloudToolRequestSchema.parse({
       type: "cloud_tool.request",
       id,
+      conversation_id: conversationId,
       operation: invocation.operation,
       input: invocation.input,
       expires_at: expiresAt,
@@ -328,6 +331,7 @@ export class DesktopCloudToolGateway {
 
   private async executeRemote(
     candidate: CloudToolRemoteCandidate,
+    conversationId: string,
     invocation: DesktopCloudToolInvocation,
     signal: AbortSignal,
   ): Promise<{ deviceId: string; data: DesktopCloudToolData }> {
@@ -366,6 +370,7 @@ export class DesktopCloudToolGateway {
       relay.publishRequest(candidate.instanceId, {
         type: "execute", request_id: requestId,
         connection_id: candidate.connectionId, owner_id: candidate.ownerId,
+        conversation_id: conversationId,
         invocation,
       }).then(
         delivered => {
@@ -448,7 +453,9 @@ export class DesktopCloudToolGateway {
     const controller = new AbortController();
     this.remoteExecutions.set(request.request_id, controller);
     try {
-      const { data } = await this.executeOnConnection(connection, invocation, controller.signal);
+      const { data } = await this.executeOnConnection(
+        connection, request.conversation_id, invocation, controller.signal,
+      );
       await this.publishRemoteReply(relay, {
         type: "result",
         request_id: request.request_id,
