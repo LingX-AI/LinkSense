@@ -34,6 +34,7 @@ RUN --mount=type=bind,target=/source \
 FROM dependencies AS build
 COPY --from=build-identity /linksense-build-id /linksense-build-id
 COPY scripts/application-build.mjs scripts/source-fingerprint.mjs scripts/
+COPY --chmod=0755 deploy/docker/prune-production-deploy.sh /usr/local/bin/prune-production-deploy
 COPY LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE ./
 ARG PRISMA_ENGINES_MIRROR
 ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
@@ -51,9 +52,14 @@ RUN DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm db:generate 
   && pnpm --filter @linksense/shared build \
   && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/api build
 # Legacy deploy also installs packages; keep access to the same download store.
+# The workspace-root Prisma CLI and its peers are build-time only; the deploy
+# keeps the generated client and runtime adapter.
 RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
   --mount=type=cache,id=linksense-pnpm-metadata-root,target=/pnpm/metadata,sharing=locked \
-  pnpm --filter @linksense/api deploy --prod --legacy --prefer-offline --cache-dir=/pnpm/metadata /opt/linksense-api
+  pnpm --filter @linksense/api deploy --prod --legacy --prefer-offline --cache-dir=/pnpm/metadata /opt/linksense-api \
+  && /usr/local/bin/prune-production-deploy /opt/linksense-api \
+  && cd /opt/linksense-api \
+  && node -e "require('./dist/generated/prisma/client.js'); require('@prisma/adapter-pg')"
 
 FROM toolchain AS migration-dependencies
 WORKDIR /migration-runtime
