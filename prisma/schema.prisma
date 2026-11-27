@@ -910,9 +910,6 @@ model Conversation {
   codexThreadId                   String?   @unique(map: "conversations_codex_thread_id_key") @map("codex_thread_id") @db.Text
   agentsTemplateVersion           String?   @map("agents_template_version") @db.VarChar(80)
   collaborationMode               String    @default("default") @map("collaboration_mode") @db.VarChar(24)
-  executionTarget                 String    @default("cloud") @map("execution_target") @db.VarChar(16)
-  desktopToolsEnabled             Boolean   @default(false) @map("desktop_tools_enabled")
-  desktopDeviceId                 String?   @map("desktop_device_id") @db.Uuid
   runtimeGeneration               String    @map("runtime_generation") @db.Uuid
   preferredModel                  String?   @map("preferred_model") @db.VarChar(240)
   lastTurnStatus                  String?   @map("last_turn_status") @db.VarChar(32)
@@ -946,98 +943,6 @@ model Conversation {
   @@index([interactiveApplicationPackageId, ownerId, updatedAt(sort: Desc)], map: "conversations_interactive_package_owner_updated_idx")
   @@index([forkSourceConversationId, forkSourceMessageId], map: "conversations_fork_source_message_idx")
   @@map("conversations")
-}
-
-model DesktopDevice {
-  id               String    @id @default(uuid()) @db.Uuid
-  ownerId          String    @map("owner_id") @db.Uuid
-  installationId   String?   @map("installation_id") @db.Uuid
-  name             String    @db.VarChar(120)
-  platform         String    @db.VarChar(32)
-  arch             String    @db.VarChar(32)
-  appVersion       String    @map("app_version") @db.VarChar(40)
-  capabilitiesJson Json      @default("{}") @map("capabilities_json") @db.JsonB
-  tokenHash        String    @unique(map: "desktop_devices_token_hash_key") @map("token_hash") @db.VarChar(64)
-  authValidAfter   DateTime  @map("auth_valid_after") @db.Timestamptz(6)
-  lastSeenAt       DateTime? @map("last_seen_at") @db.Timestamptz(6)
-  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@unique([ownerId, installationId], map: "desktop_devices_owner_installation_key")
-  @@index([ownerId, revokedAt], map: "desktop_devices_owner_revoked_idx")
-  @@map("desktop_devices")
-}
-
-model DesktopFileRoot {
-  id        String    @id @default(uuid()) @db.Uuid
-  ownerId   String    @map("owner_id") @db.Uuid
-  deviceId  String    @map("device_id") @db.Uuid
-  name      String    @db.VarChar(120)
-  mode      String    @db.VarChar(16)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
-
-  @@index([ownerId, deviceId, revokedAt], map: "desktop_file_roots_owner_device_idx")
-  @@map("desktop_file_roots")
-}
-
-model DesktopDevicePairing {
-  id         String    @id @default(uuid()) @db.Uuid
-  ownerId    String    @map("owner_id") @db.Uuid
-  codeHash   String    @unique(map: "desktop_pairings_code_hash_key") @map("code_hash") @db.VarChar(64)
-  authValidAfter DateTime @map("auth_valid_after") @db.Timestamptz(6)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
-  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([ownerId, expiresAt], map: "desktop_pairings_owner_expiry_idx")
-  @@map("desktop_device_pairings")
-}
-
-model DesktopTurnSlotRelease {
-  turnId         String   @id @map("turn_id") @db.Uuid
-  conversationId String   @map("conversation_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([createdAt, turnId], map: "desktop_turn_slot_releases_created_idx")
-  @@map("desktop_turn_slot_releases")
-}
-
-model LocalComputerSession {
-  id             String    @id @default(uuid()) @db.Uuid
-  ownerId        String    @map("owner_id") @db.Uuid
-  conversationId String    @map("conversation_id") @db.Uuid
-  deviceId       String    @map("device_id") @db.Uuid
-  runtimeGeneration String? @map("runtime_generation") @db.Uuid
-  status         String    @db.VarChar(24)
-  grantScope     String    @map("grant_scope") @db.VarChar(24)
-  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
-  endedAt        DateTime? @map("ended_at") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([conversationId, status], map: "local_computer_sessions_conversation_status_idx")
-  @@map("local_computer_sessions")
-}
-
-model ComputerPermissionGrant {
-  id             String    @id @default(uuid()) @db.Uuid
-  ownerId        String    @map("owner_id") @db.Uuid
-  conversationId String?   @map("conversation_id") @db.Uuid
-  deviceId       String?   @map("device_id") @db.Uuid
-  sessionId      String?   @map("session_id") @db.Uuid
-  capability     String    @db.VarChar(48)
-  scope          String    @db.VarChar(24)
-  targetJson     Json?     @map("target_json") @db.JsonB
-  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
-  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([ownerId, conversationId, revokedAt], map: "computer_grants_owner_conversation_idx")
-  @@index([ownerId, deviceId, revokedAt], map: "computer_grants_owner_device_idx")
-  @@index([sessionId, revokedAt], map: "computer_grants_session_revoked_idx")
-  @@map("computer_permission_grants")
 }
 
 model ConversationForkCounter {
@@ -1195,7 +1100,6 @@ model ConversationTurnStartIntent {
   auditIpAddress                 String?   @map("audit_ip_address") @db.Inet
   auditUserAgent                 String?   @map("audit_user_agent") @db.Text
   runnerStatus                   String    @default("slot_pending") @map("runner_status") @db.VarChar(32)
-  desktopTransitionSourceThreadId String?  @map("desktop_transition_source_thread_id") @db.Uuid
   codexThreadId                  String?   @map("codex_thread_id") @db.Text
   codexTurnId                    String?   @map("codex_turn_id") @db.Text
   createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1239,28 +1143,6 @@ model ConversationUserInputRequest {
   @@index([turnId, status], map: "conversation_user_input_requests_turn_status_idx")
   @@index([requestKind, status, autoResolveAt], map: "conversation_user_input_requests_deadline_idx")
   @@map("conversation_user_input_requests")
-}
-
-model ConversationDesktopApproval {
-  id              String    @id @default(uuid()) @db.Uuid
-  conversationId  String    @map("conversation_id") @db.Uuid
-  turnId          String    @map("turn_id") @db.Uuid
-  ownerId         String    @map("owner_id") @db.Uuid
-  codexThreadId   String    @map("codex_thread_id") @db.Text
-  codexTurnId     String    @map("codex_turn_id") @db.Text
-  codexItemId     String    @map("codex_item_id") @db.Text
-  nativeRequestId BigInt    @map("native_request_id") @db.BigInt
-  approvalJson    Json      @map("approval_json") @db.JsonB
-  status          String    @db.VarChar(24)
-  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
-  resolvedAction  String?   @map("resolved_action") @db.VarChar(24)
-  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@unique([turnId, nativeRequestId], map: "conversation_desktop_approvals_native_request_key")
-  @@index([conversationId, turnId, createdAt, id], map: "conversation_desktop_approvals_conversation_turn_idx")
-  @@map("conversation_desktop_approvals")
 }
 
 model ConversationPlanReview {
@@ -1545,8 +1427,6 @@ model ConversationFile {
   mimeType              String?  @map("mime_type") @db.VarChar(160)
   sizeBytes             BigInt   @map("size_bytes") @db.BigInt
   checksumSha256        String?  @map("checksum_sha256") @db.VarChar(64)
-  /// SHA-256 binding to the verified native file activity; never returned or logged.
-  desktopSourcePathDigest String? @map("desktop_source_path_digest") @db.VarChar(64)
   storageBackend        String   @map("storage_backend") @db.VarChar(32)
   workspaceRelativePath String?  @map("workspace_relative_path") @db.Text
   workspaceRootRelPath  String?  @map("workspace_root_rel_path") @db.Text
