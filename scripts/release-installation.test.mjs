@@ -268,6 +268,7 @@ activate_management_cli
         LINKSENSE_RELEASE_BASE_URL:
           "https://downloads.example/linksense-v0.3.0",
         LINKSENSE_IMAGE_MIRRORS: "ghcr.io=mirror.example",
+        LINKSENSE_HUGGINGFACE_MIRRORS: "huggingface.co=mirror.example",
         LINKSENSE_TEST_TRACE: trace,
         PATH: `${bin}:/usr/bin:/bin`,
       },
@@ -278,6 +279,7 @@ activate_management_cli
     assert.match(userTrace, /LINKSENSE_CLI_LANGUAGE=zh-CN/u)
     assert.match(userTrace, /LINKSENSE_RELEASE_BASE_URL=https:\/\/downloads\.example\/linksense-v0\.3\.0/u)
     assert.match(userTrace, /LINKSENSE_IMAGE_MIRRORS=ghcr\.io=mirror\.example/u)
+    assert.match(userTrace, /LINKSENSE_HUGGINGFACE_MIRRORS=huggingface\.co=mirror\.example/u)
     assert.match(userTrace, /linksense-cli\.sh upgrade v0\.3\.0/u)
 
     await writeFile(trace, "")

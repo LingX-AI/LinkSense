@@ -250,8 +250,30 @@ Replace the example mappings with real ones. The same setting works with
 `--check-network`; supply it again for an upgrade that needs your custom routes.
 Docker Hub, Quay, and other registries have no built-in fallback. If all sources
 fail, the installer reports `[LS_HOST_pull]` and asks for a working Engine proxy
-or trusted mirror. Registry mirrors do not mirror GitHub release files or Full
-tokenizer assets. Older immutable installers do not support this option.
+or trusted mirror. Registry mirrors do not mirror GitHub release files; Full
+tokenizer assets use the separate setting below. Older immutable installers do
+not support this option.
+
+### Tokenizer asset mirrors for Full
+
+Full downloads the pinned tokenizer files listed in the verified release
+manifest. For each file the installer tries the manifest URL first, then
+mirrors configured for its host, and accepts a download only when it matches
+the manifest SHA-256.
+When `LINKSENSE_HUGGINGFACE_MIRRORS` is unset, `huggingface.co` falls back to
+`hf-mirror.com`. Use the same semicolon-separated `origin=mirror-host[:port][/prefix]`
+syntax as `LINKSENSE_IMAGE_MIRRORS`, or `off` to disable fallback. The mirror
+must serve the original file path after its optional prefix, over HTTPS.
+
+```sh
+# Linux: supply the setting through the same elevation used for the installer
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy \
+  env LINKSENSE_HUGGINGFACE_MIRRORS='huggingface.co=hf-mirror.com' sh install-full.sh
+```
+
+The first file that downloads successfully selects the source used for the
+remaining tokenizer files. `--check-network` applies the same order and reports
+the source it would use. `LINKSENSE_IMAGE_MIRRORS` does not apply to these files.
 
 ### Run the network check
 
@@ -271,6 +293,10 @@ sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_
 # With installed management tools:
 linksense doctor --network
 ```
+
+For Full, the check also probes the tokenizer sources named in the release
+manifest and its mirror mappings, because registry mirrors do not cover those
+files.
 
 Use `install-full.sh` for Full. Linux installers require root; macOS installers
 must run under the Desktop user without sudo. When a selected release such as
