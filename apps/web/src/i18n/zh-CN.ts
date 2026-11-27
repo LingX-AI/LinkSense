@@ -2211,6 +2211,18 @@ export const zhCN = {
       permissionRead: "只读",
       permissionWrite: "读写",
       defaultFolder: "默认使用主目录",
+      permissionModeTitle: "权限模式",
+      permissionModeAuto: "自动",
+      permissionModeAutoDescription:
+        "自动允许文件夹内编辑和只读命令，其它命令仍先询问。",
+      permissionModeManual: "手动",
+      permissionModeManualDescription: "运行命令和修改文件前先在本机确认。",
+      permissionModeAcceptEdits: "自动接受编辑",
+      permissionModeAcceptEditsDescription:
+        "自动允许文件夹内编辑，运行命令前先确认。",
+      permissionModeBypass: "绕过权限",
+      permissionModeBypassDescription:
+        "不再询问，命令以你的 Mac 账户权限直接运行。",
     },
     proposedPlan: {
       title: "方案",

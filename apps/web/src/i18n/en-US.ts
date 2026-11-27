@@ -2383,6 +2383,19 @@ export const enUS = {
       permissionRead: "Read only",
       permissionWrite: "Read and write",
       defaultFolder: "The home folder is used by default",
+      permissionModeTitle: "Permission mode",
+      permissionModeAuto: "Auto",
+      permissionModeAutoDescription:
+        "Auto-approve folder edits and plain read-only commands; ask for other commands.",
+      permissionModeManual: "Manual",
+      permissionModeManualDescription:
+        "Ask on this Mac before commands and file changes.",
+      permissionModeAcceptEdits: "Accept edits",
+      permissionModeAcceptEditsDescription:
+        "Auto-approve folder edits; ask before commands.",
+      permissionModeBypass: "Bypass permissions",
+      permissionModeBypassDescription:
+        "Never ask. Commands run with your Mac account's full access.",
     },
     proposedPlan: {
       title: "Plan",

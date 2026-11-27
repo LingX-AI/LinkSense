@@ -85,8 +85,11 @@ import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import {
   addDesktopFileRoot,
   getDesktopFileRoot,
+  getDesktopPermissionMode,
   listDesktopFileRoot,
   setDesktopFileRootMode,
+  setDesktopPermissionMode,
+  type DesktopPermissionMode,
 } from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
@@ -319,7 +322,9 @@ import {
 } from "@/features/conversations/conversation-plan-decision-card"
 import { ConversationGoalBar } from "@/features/conversations/conversation-goal-bar"
 import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
+import { CloudApprovalCard } from "@/features/conversations/cloud-approval-card"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
+import { useCloudApproval } from "@/features/conversations/use-cloud-approval"
 import {
   useKnowledgeBaseList,
   useKnowledgeSearchCapability,
@@ -1484,6 +1489,52 @@ export function ConversationPage({
         ? listDesktopFileRoot(localFolderConversationId, path)
         : Promise.reject(new Error("DESKTOP_FILE_UNAVAILABLE")),
     [localFolderConversationId]
+  )
+  // The Mac keeps the permission mode; the composer reads and changes it
+  // through the bridge. Default Manual until a conversation chooses another.
+  const permissionModeQuery = useQuery({
+    queryKey: [
+      "conversation",
+      localFolderConversationId ?? "none",
+      "permission-mode",
+    ],
+    queryFn: () => getDesktopPermissionMode(localFolderConversationId ?? ""),
+    enabled: Boolean(isMacDesktopHost() && localFolderConversationId),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+  const [permissionModeSaving, setPermissionModeSaving] = useState(false)
+  const localPermissionMode: DesktopPermissionMode =
+    permissionModeQuery.data ?? "manual"
+  const setLocalPermissionMode = useCallback(
+    async (mode: DesktopPermissionMode) => {
+      if (!localFolderConversationId) return
+      setPermissionModeSaving(true)
+      try {
+        const saved = await setDesktopPermissionMode(
+          localFolderConversationId,
+          mode
+        )
+        queryClient.setQueryData(
+          [
+            "conversation",
+            localFolderConversationId,
+            "permission-mode",
+          ],
+          saved
+        )
+      } catch (nextError) {
+        // The Mac refused to save (for example, the session ended). Keep the
+        // previous mode and tell the person instead of an unhandled rejection.
+        setError(getErrorMessage(nextError, t))
+      } finally {
+        setPermissionModeSaving(false)
+      }
+    },
+    [localFolderConversationId, queryClient, t]
+  )
+  const cloudApproval = useCloudApproval(
+    isMacDesktopHost() ? localFolderConversationId : null
   )
   const desktopNoTargetAvailable =
     desktopExecutionTargetGated && !desktopExecutionPolicy.cloudTarget
@@ -7937,6 +7988,14 @@ export function ConversationPage({
               messages={visibleMessages}
             />
           )}
+        {showConversationComposer && cloudApproval.approval ? (
+          <CloudApprovalCard
+            approval={cloudApproval.approval}
+            answering={cloudApproval.answering}
+            failed={cloudApproval.failed}
+            onAnswer={(decision) => void cloudApproval.answer(decision)}
+          />
+        ) : null}
         {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}
@@ -8025,8 +8084,13 @@ export function ConversationPage({
             localFolderName={localFolder?.name}
             localFolderMode={localFolder?.mode}
             localFolderPending={!localFolderConversationId}
+            localPermissionMode={localPermissionMode}
+            localPermissionModePending={permissionModeSaving}
             onChooseLocalFolder={isMacDesktopHost() ? chooseLocalFolder : undefined}
             onSetLocalFolderMode={isMacDesktopHost() ? setLocalFolderMode : undefined}
+            onSetLocalPermissionMode={
+              isMacDesktopHost() ? setLocalPermissionMode : undefined
+            }
             onListLocalFiles={
               isMacDesktopHost() && localFolderConversationId
                 ? listLocalFolderFiles

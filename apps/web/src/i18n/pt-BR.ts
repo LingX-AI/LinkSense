@@ -2703,6 +2703,19 @@ export const ptBR = {
       permissionRead: "Somente leitura",
       permissionWrite: "Leitura e escrita",
       defaultFolder: "A pasta pessoal é usada por padrão",
+      permissionModeTitle: "Modo de permissões",
+      permissionModeAuto: "Automático",
+      permissionModeAutoDescription:
+        "Aprova automaticamente edições na pasta e comandos simples somente de leitura; pergunta para os demais comandos.",
+      permissionModeManual: "Manual",
+      permissionModeManualDescription:
+        "Pede confirmação neste Mac antes de comandos e alterações de arquivos.",
+      permissionModeAcceptEdits: "Aceitar edições",
+      permissionModeAcceptEditsDescription:
+        "Aprova automaticamente edições na pasta; pergunta antes dos comandos.",
+      permissionModeBypass: "Ignorar permissões",
+      permissionModeBypassDescription:
+        "Nunca pergunta. Os comandos são executados com o acesso total da sua conta do Mac.",
     },
     proposedPlan: {
       title: "Plano",

@@ -389,6 +389,19 @@ export const conversationMessages = {
       permissionRead: "Solo lectura",
       permissionWrite: "Lectura y escritura",
       defaultFolder: "Se usa la carpeta personal por defecto",
+      permissionModeTitle: "Modo de permisos",
+      permissionModeAuto: "Automático",
+      permissionModeAutoDescription:
+        "Aprueba automáticamente las ediciones de la carpeta y los comandos de solo lectura simples; pregunta por los demás comandos.",
+      permissionModeManual: "Manual",
+      permissionModeManualDescription:
+        "Pide confirmación en este Mac antes de ejecutar comandos y modificar archivos.",
+      permissionModeAcceptEdits: "Aceptar ediciones",
+      permissionModeAcceptEditsDescription:
+        "Aprueba automáticamente las ediciones de la carpeta; pregunta antes de los comandos.",
+      permissionModeBypass: "Omitir permisos",
+      permissionModeBypassDescription:
+        "No pregunta nunca. Los comandos se ejecutan con el acceso completo de tu cuenta del Mac.",
     },
     proposedPlan: {
       title: "Plan",

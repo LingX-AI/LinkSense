@@ -380,6 +380,19 @@ export const conversation = {
     permissionRead: "Lecture seule",
     permissionWrite: "Lecture et écriture",
     defaultFolder: "Le dossier personnel est utilisé par défaut",
+    permissionModeTitle: "Mode d’autorisation",
+    permissionModeAuto: "Auto",
+    permissionModeAutoDescription:
+      "Autorise automatiquement les modifications du dossier et les commandes de lecture simples ; demande pour les autres commandes.",
+    permissionModeManual: "Manuel",
+    permissionModeManualDescription:
+      "Demande une confirmation sur ce Mac avant les commandes et les modifications de fichiers.",
+    permissionModeAcceptEdits: "Accepter les modifications",
+    permissionModeAcceptEditsDescription:
+      "Autorise automatiquement les modifications du dossier ; demande avant les commandes.",
+    permissionModeBypass: "Ignorer les autorisations",
+    permissionModeBypassDescription:
+      "Ne demande jamais. Les commandes s’exécutent avec l’accès complet de votre compte Mac.",
   },
   proposedPlan: { title: "Plan" },
   planDecision: {

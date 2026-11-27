@@ -891,6 +891,32 @@ describe("conversation voice input", () => {
     expect(screen.queryByRole("option", { name: "文件夹" })).toBeNull()
   })
 
+  it("selects the local permission mode from the shield menu", async () => {
+    const interaction = userEvent.setup()
+    const onSetLocalPermissionMode = vi.fn()
+    renderStatefulComposer({
+      onChooseLocalFolder: vi.fn(),
+      onSetLocalPermissionMode,
+      localPermissionMode: "manual",
+    })
+
+    await interaction.click(
+      screen.getByRole("button", { name: "文件夹权限" })
+    )
+    expect(screen.getByText("权限模式")).toBeVisible()
+    expect(screen.getByText("手动").closest("button")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    expect(screen.getByText("绕过权限").closest("button")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    )
+
+    await interaction.click(screen.getByText("自动"))
+    expect(onSetLocalPermissionMode).toHaveBeenCalledWith("auto")
+  })
+
   it("can remove Plan mode from the add menu for restricted surfaces", async () => {
     const interaction = userEvent.setup()
     renderStatefulComposer({ planModeAvailable: false })

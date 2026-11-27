@@ -76,7 +76,11 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import type { DesktopFileRootListing } from "@/adapters/desktop/desktop-device-adapter"
+import {
+  desktopPermissionModes,
+  type DesktopFileRootListing,
+  type DesktopPermissionMode,
+} from "@/adapters/desktop/desktop-device-adapter"
 import { ConversationComposerInput } from "@/features/conversations/conversation-composer-input"
 import {
   HoverCard,
@@ -456,6 +460,29 @@ export type KnowledgeBaseSelectionStatus =
 
 const noRequiredCapabilityIds: readonly string[] = []
 
+const permissionModeLabels: Record<
+  DesktopPermissionMode,
+  { label: string; description: string }
+> = {
+  auto: {
+    label: "conversation.localFolder.permissionModeAuto",
+    description: "conversation.localFolder.permissionModeAutoDescription",
+  },
+  manual: {
+    label: "conversation.localFolder.permissionModeManual",
+    description: "conversation.localFolder.permissionModeManualDescription",
+  },
+  accept_edits: {
+    label: "conversation.localFolder.permissionModeAcceptEdits",
+    description:
+      "conversation.localFolder.permissionModeAcceptEditsDescription",
+  },
+  bypass: {
+    label: "conversation.localFolder.permissionModeBypass",
+    description: "conversation.localFolder.permissionModeBypassDescription",
+  },
+}
+
 type ConversationComposerProps = Readonly<{
   textOnly?: boolean
   maxLength?: number
@@ -501,8 +528,11 @@ type ConversationComposerProps = Readonly<{
   localFolderName?: string
   localFolderMode?: "read" | "write"
   localFolderPending?: boolean
+  localPermissionMode?: DesktopPermissionMode
+  localPermissionModePending?: boolean
   onChooseLocalFolder?: (mode: "read" | "write") => void
   onSetLocalFolderMode?: (mode: "read" | "write") => void
+  onSetLocalPermissionMode?: (mode: DesktopPermissionMode) => void
   onListLocalFiles?: (path: string) => Promise<DesktopFileRootListing>
   unavailableMessage?: string
   interactionBlocked?: boolean
@@ -601,8 +631,11 @@ export const ConversationComposer = forwardRef<
     localFolderName,
     localFolderMode,
     localFolderPending = false,
+    localPermissionMode = "manual",
+    localPermissionModePending = false,
     onChooseLocalFolder,
     onSetLocalFolderMode,
+    onSetLocalPermissionMode,
     onListLocalFiles,
     interactionBlocked = false,
     unavailableMessage,
@@ -2765,7 +2798,7 @@ export const ConversationComposer = forwardRef<
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="w-60 gap-1 p-1.5"
+                  className="w-72 gap-1 p-1.5"
                 >
                   <PopoverHeader className="px-2 py-1.5">
                     <PopoverTitle className="text-xs font-medium">
@@ -2807,6 +2840,45 @@ export const ConversationComposer = forwardRef<
                           ? "conversation.localFolder.permissionRead"
                           : "conversation.localFolder.permissionWrite"
                       )}
+                    </Button>
+                  ))}
+                  <div className="my-1 h-px bg-border" role="separator" />
+                  <p className="px-2 pb-0.5 pt-1 text-xs font-medium">
+                    {t("conversation.localFolder.permissionModeTitle")}
+                  </p>
+                  {desktopPermissionModes.map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-permission-mode={mode}
+                      className="h-auto w-full items-start justify-start gap-2 px-2 py-1.5 text-left font-normal"
+                      aria-pressed={localPermissionMode === mode}
+                      disabled={
+                        attachmentActionDisabled ||
+                        localFolderPending ||
+                        localPermissionModePending ||
+                        !onSetLocalPermissionMode
+                      }
+                      onClick={() => {
+                        onSetLocalPermissionMode?.(mode)
+                        setFolderPermissionsOpen(false)
+                      }}
+                    >
+                      {localPermissionMode === mode ? (
+                        <CheckIcon className="mt-0.5 size-4" aria-hidden="true" />
+                      ) : (
+                        <span className="mt-0.5 size-4" aria-hidden="true" />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[length:var(--app-font-13)]">
+                          {t(permissionModeLabels[mode].label)}
+                        </span>
+                        <span className="block text-[11px] leading-snug text-muted-foreground">
+                          {t(permissionModeLabels[mode].description)}
+                        </span>
+                      </span>
                     </Button>
                   ))}
                 </PopoverContent>

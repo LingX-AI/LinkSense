@@ -2660,6 +2660,19 @@ export const jaJP = {
       permissionRead: "読み取り専用",
       permissionWrite: "読み書き",
       defaultFolder: "既定ではホームフォルダーを使用します",
+      permissionModeTitle: "権限モード",
+      permissionModeAuto: "自動",
+      permissionModeAutoDescription:
+        "フォルダー内の編集と単純な読み取り専用コマンドを自動で許可し、それ以外のコマンドは確認します。",
+      permissionModeManual: "手動",
+      permissionModeManualDescription:
+        "コマンドの実行とファイルの変更の前に、この Mac で確認します。",
+      permissionModeAcceptEdits: "編集を自動承認",
+      permissionModeAcceptEditsDescription:
+        "フォルダー内の編集を自動で許可し、コマンドの実行前に確認します。",
+      permissionModeBypass: "権限をバイパス",
+      permissionModeBypassDescription:
+        "確認しません。コマンドは Mac アカウントの完全な権限で実行されます。",
     },
     proposedPlan: {
       title: "計画",
