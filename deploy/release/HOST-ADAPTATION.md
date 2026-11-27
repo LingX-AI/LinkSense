@@ -293,6 +293,18 @@ sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_
 linksense doctor --network
 ```
 
+The default check is lightweight: it verifies the manifest and pulls two small
+representative images through the Docker Engine, BusyBox from Docker Hub and
+Gateway from GHCR (about 32 MB with configured mirrors). Add `--pull` to also
+pull the API image and verify the application image layers end to end:
+
+```sh
+sh install-core.sh --check-network --pull
+```
+
+`linksense doctor --network` keeps the full pull behavior. `--pull` requires a
+release installer that supports it; older releases reject the flag.
+
 For Full, the check also probes the tokenizer sources named in the release
 manifest and its mirror mappings, because registry mirrors do not cover those
 files.

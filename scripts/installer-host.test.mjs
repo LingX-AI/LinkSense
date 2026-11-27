@@ -238,6 +238,32 @@ test("tokenizer sources keep the manifest URL first and map only the matching or
   assert.match(invalid.stderr, /LS_HOST_invalid_config/u)
 })
 
+test("stage timing records every stage and reports elapsed minutes", () => {
+  const result = run(`
+${fn("format_duration")}
+${fn("log_stage")}
+log() { printf '%s\\n' "$*"; }
+INSTALL_STARTED_EPOCH=100
+STAGE_TIMING_NAME=
+STAGE_TIMING_EPOCH=100
+STAGE_TIMINGS=
+date() { printf '%s\\n' "$CLOCK"; }
+CLOCK=100
+log_stage "Stage A"
+CLOCK=160
+log_stage "Stage B"
+printf '%s' "$STAGE_TIMINGS"
+printf '\\n'
+format_duration 59
+printf '\\n'
+format_duration 75`)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /Stage A \(elapsed 0s\)/u)
+  assert.match(result.stdout, /Stage B \(elapsed 1m 00s\)/u)
+  assert.match(result.stdout, /Stage A\|60/u)
+  assert.match(result.stdout, /\n59s\n1m 15s\n?$/u)
+})
+
 for (const [mode, quota, memory, pids, status] of [
   ["strict", "true", "true", "true", 0],
   ["strict", "false", "true", "true", 1],
