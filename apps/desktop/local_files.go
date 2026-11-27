@@ -161,6 +161,7 @@ func decodeLocalFileInput(raw json.RawMessage, value any) error {
 func executeLocalFileTool(
 	ctx context.Context,
 	roots *localFileRoots,
+	approvals *cloudApprovalCenter,
 	ownerID string,
 	conversationID string,
 	deviceID string,
@@ -224,10 +225,18 @@ func executeLocalFileTool(
 		if err := decodeLocalFileInput(raw, &input); err != nil {
 			return nil, err
 		}
+		if err := approveLocalFileChange(ctx, approvals, roots, ownerID, conversationID,
+			meta.Name, operation, input.Path); err != nil {
+			return nil, err
+		}
 		return writeLocalFile(ctx, canonicalRoot, input)
 	case "local_files.create":
 		var input localFilesCreateInput
 		if err := decodeLocalFileInput(raw, &input); err != nil {
+			return nil, err
+		}
+		if err := approveLocalFileChange(ctx, approvals, roots, ownerID, conversationID,
+			meta.Name, operation, input.Path); err != nil {
 			return nil, err
 		}
 		return createLocalEntry(ctx, canonicalRoot, input)
@@ -236,10 +245,34 @@ func executeLocalFileTool(
 		if err := decodeLocalFileInput(raw, &input); err != nil {
 			return nil, err
 		}
+		if err := approveLocalFileChange(ctx, approvals, roots, ownerID, conversationID,
+			meta.Name, operation, input.Path); err != nil {
+			return nil, err
+		}
 		return deleteLocalEntry(ctx, canonicalRoot, input)
 	default:
 		return nil, localFileFailure("DESKTOP_FILE_UNSUPPORTED")
 	}
+}
+
+// approveLocalFileChange applies the conversation's permission mode to a
+// mutating file tool. Manual asks this Mac first; every other mode runs it.
+func approveLocalFileChange(
+	ctx context.Context,
+	approvals *cloudApprovalCenter,
+	roots *localFileRoots,
+	ownerID, conversationID, rootName, operation, path string,
+) error {
+	if !writeApprovalRequired(roots.permissionModeForOwner(ownerID, conversationID)) {
+		return nil
+	}
+	return requestApproval(ctx, approvals, cloudApprovalRequest{
+		ConversationID: conversationID,
+		Kind:           cloudApprovalKindFileChange,
+		Operation:      operation,
+		Path:           path,
+		RootName:       rootName,
+	})
 }
 
 func validLocalRelativePath(relative string, allowRoot bool) bool {
@@ -453,7 +486,7 @@ func readLocalFile(ctx context.Context, root string, input localFilesReadInput) 
 	result := localFilesReadResult{
 		Path: logical, Size: info.Size(),
 		ModifiedAt: localFileTimestamp(info.ModTime()),
-		Truncated: truncated,
+		Truncated:  truncated,
 	}
 	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
 		result.Kind = "binary"

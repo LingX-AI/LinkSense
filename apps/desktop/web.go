@@ -63,11 +63,12 @@ type Desktop struct {
 	// downloads is bounded page-local state for the explicit Mac Finder action.
 	downloads artifactDownloadTracker
 	// diagnostics guards the single native export and provides local test seams.
-	diagnostics   desktopDiagnostics
-	dataRoot      string
-	fileRoots     *localFileRoots
-	cloudComputer cloudComputerHost
-	shutdownOnce  sync.Once
+	diagnostics    desktopDiagnostics
+	dataRoot       string
+	fileRoots      *localFileRoots
+	cloudApprovals *cloudApprovalCenter
+	cloudComputer  cloudComputerHost
+	shutdownOnce   sync.Once
 	// closeToTray and preferencesWritable are used only on the main thread.
 	closeToTray bool
 	// quitting is set by OnBeforeQuit and cleared by OnQuitCanceled. The
@@ -86,6 +87,23 @@ func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot str
 	// same private runtime root the supervisor uses, without starting it.
 	d.workspaceRoot = filepath.Join(dataRoot, "local-runtime")
 	d.fileRoots = newLocalFileRoots(dataRoot)
+	d.cloudApprovals = newCloudApprovalCenter()
+	d.cloudApprovals.setEmitter(
+		func(view cloudApprovalRequest) error {
+			win := d.mainWindow()
+			if win == nil || win.IsDestroyed() {
+				return errors.New("DESKTOP_WINDOW_UNAVAILABLE")
+			}
+			return desktopCloudApproval.Emit(win, view)
+		},
+		func(id string) error {
+			win := d.mainWindow()
+			if win == nil || win.IsDestroyed() {
+				return nil
+			}
+			return desktopCloudApprovalSettled.Emit(win, id)
+		},
+	)
 	d.cloudComputer = newCloudComputer(d)
 	client := newDesktopHTTPClient(server, store)
 	d.session = client.Transport.(*sessionTransport)

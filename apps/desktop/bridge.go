@@ -101,7 +101,10 @@ type deviceConnection struct {
 	// files maps server root IDs to local folders; nil when this host has no
 	// file-root store (fixtures and non-product builds). cloudCancels stops
 	// in-flight local file work when a newer socket or the API cancels it.
-	files         *localFileRoots
+	files *localFileRoots
+	// approvals is the conversation's native consent gate for shell commands
+	// and mutating file tools.
+	approvals     *cloudApprovalCenter
 	cloudComputer cloudComputerHost
 	cloudMu       sync.Mutex
 	cloudCancels  map[string]context.CancelFunc
@@ -145,7 +148,10 @@ const (
 	desktopCloudToolWriteOperation            = "local_files.write"
 	desktopCloudToolCreateOperation           = "local_files.create"
 	desktopCloudToolDeleteOperation           = "local_files.delete"
+	desktopCloudToolShellOperation            = localShellOperationConstant
 	desktopCloudToolLifetime                  = 30 * time.Second
+	desktopCloudToolApprovalLifetime          = localShellApprovalTimeout + 15*time.Second
+	desktopCloudToolShellLifetime             = localShellApprovalTimeout + localShellMaxTimeout + 15*time.Second
 	desktopCloudToolSelectLifetime            = 120 * time.Second
 	desktopCloudToolMaxFrameBytes             = 8 << 20
 )
@@ -384,6 +390,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			desktopCloudToolWriteOperation,
 			desktopCloudToolCreateOperation,
 			desktopCloudToolDeleteOperation,
+			desktopCloudToolShellOperation,
 			cloudComputerStatusOperation,
 			cloudComputerSelectOperation,
 			cloudComputerObserveOperation,
@@ -718,6 +725,7 @@ var desktopCloudToolOperations = []string{
 	desktopCloudToolWriteOperation,
 	desktopCloudToolCreateOperation,
 	desktopCloudToolDeleteOperation,
+	desktopCloudToolShellOperation,
 	cloudComputerStatusOperation,
 	cloudComputerSelectOperation,
 	cloudComputerObserveOperation,
@@ -730,8 +738,13 @@ var desktopCloudToolOperations = []string{
 }
 
 func cloudToolLifetimeFor(operation string) time.Duration {
-	if operation == "local_computer.select" {
+	switch operation {
+	case "local_computer.select":
 		return desktopCloudToolSelectLifetime
+	case desktopCloudToolShellOperation:
+		return desktopCloudToolShellLifetime
+	case desktopCloudToolWriteOperation, desktopCloudToolCreateOperation, desktopCloudToolDeleteOperation:
+		return desktopCloudToolApprovalLifetime
 	}
 	return desktopCloudToolLifetime
 }
@@ -844,6 +857,10 @@ func localFileErrorCode(err error) string {
 	if errors.As(err, &failure) {
 		return failure.code
 	}
+	if errors.Is(err, errApprovalDenied) || errors.Is(err, errApprovalTimedOut) ||
+		errors.Is(err, errApprovalUnavailable) || errors.Is(err, errApprovalInvalid) {
+		return approvalErrorCode(err)
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "DESKTOP_TOOL_UNAVAILABLE"
 	}
@@ -896,6 +913,35 @@ func (connection *deviceConnection) startCloudComputerTool(socket *websocket.Con
 	}()
 }
 
+// startCloudShellTool runs one local command off the read loop so pings,
+// cancels and other tools stay responsive while a person reads an approval.
+func (connection *deviceConnection) startCloudShellTool(socket *websocket.Conn, frame cloudToolFrame) {
+	ctx, cancel := context.WithDeadline(connection.ctx, frame.ExpiresAt)
+	connection.cloudMu.Lock()
+	if previous := connection.cloudCancels[frame.ID]; previous != nil {
+		previous()
+	}
+	connection.cloudCancels[frame.ID] = cancel
+	connection.cloudMu.Unlock()
+	go func() {
+		data, err := executeLocalShellTool(
+			ctx, connection.files, connection.approvals, connection.credential.OwnerID,
+			frame.ConversationID, connection.credential.DeviceID, frame.Input,
+		)
+		code := ""
+		if err != nil {
+			data = nil
+			code = localShellErrorCode(err)
+		}
+		response := cloudToolResult(frame.ID, frame.Operation, data, code)
+		connection.cloudMu.Lock()
+		delete(connection.cloudCancels, frame.ID)
+		connection.cloudMu.Unlock()
+		cancel()
+		_ = writeCloudToolResponse(socket, response)
+	}()
+}
+
 // handleCloudToolFrame consumes the independent cloud-tool lane. Ping is
 // answered immediately; file work runs off the read loop so pings, cancels and
 // a second bounded call stay responsive.
@@ -927,6 +973,10 @@ func (connection *deviceConnection) handleCloudToolFrame(socket *websocket.Conn,
 		return true, writeCloudToolResponse(socket,
 			cloudToolFailure(frame.ID, frame.Operation, "DESKTOP_FILE_UNAVAILABLE"))
 	}
+	if frame.Operation == desktopCloudToolShellOperation {
+		connection.startCloudShellTool(socket, frame)
+		return true, nil
+	}
 	ctx, cancel := context.WithDeadline(connection.ctx, frame.ExpiresAt)
 	connection.cloudMu.Lock()
 	if previous := connection.cloudCancels[frame.ID]; previous != nil {
@@ -936,7 +986,7 @@ func (connection *deviceConnection) handleCloudToolFrame(socket *websocket.Conn,
 	connection.cloudMu.Unlock()
 	go func() {
 		data, err := executeLocalFileTool(
-			ctx, connection.files, connection.credential.OwnerID,
+			ctx, connection.files, connection.approvals, connection.credential.OwnerID,
 			frame.ConversationID, connection.credential.DeviceID, frame.Operation, frame.Input,
 		)
 		code := ""

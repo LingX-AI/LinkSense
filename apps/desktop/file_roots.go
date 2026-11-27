@@ -32,6 +32,9 @@ type fileRootsState struct {
 	Metadata          map[string]map[string]localRootMeta `json:"metadata,omitempty"`
 	Conversations     map[string]map[string]string        `json:"conversations,omitempty"`
 	ConversationModes map[string]map[string]string        `json:"conversation_modes,omitempty"`
+	// PermissionModes stores the per-conversation Claude-style permission
+	// mode. A conversation without an entry is Manual.
+	PermissionModes map[string]map[string]string `json:"permission_modes,omitempty"`
 }
 
 // localFileRoots maps conversation-scoped folder grants to absolute folders.
@@ -75,6 +78,7 @@ func (f *localFileRoots) load() error {
 		Metadata:          map[string]map[string]localRootMeta{},
 		Conversations:     map[string]map[string]string{},
 		ConversationModes: map[string]map[string]string{},
+		PermissionModes:   map[string]map[string]string{},
 	}
 	if f.path == "" {
 		return nil
@@ -101,6 +105,9 @@ func (f *localFileRoots) load() error {
 	}
 	if stored.ConversationModes == nil {
 		stored.ConversationModes = map[string]map[string]string{}
+	}
+	if stored.PermissionModes == nil {
+		stored.PermissionModes = map[string]map[string]string{}
 	}
 	f.state = stored
 	return nil
@@ -166,6 +173,40 @@ func (f *localFileRoots) conversationMode(ownerID, conversationID string) string
 		return "read"
 	}
 	return "write"
+}
+
+func (f *localFileRoots) permissionMode(ownerID, conversationID string) string {
+	mode := f.state.PermissionModes[ownerID][conversationID]
+	if !validPermissionMode(mode) {
+		return permissionModeDefault
+	}
+	return mode
+}
+
+func (f *localFileRoots) permissionModeForOwner(ownerID, conversationID string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_ = f.load()
+	return f.permissionMode(ownerID, conversationID)
+}
+
+func (f *localFileRoots) setPermissionModeForConversation(ownerID, conversationID, mode string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.load(); err != nil {
+		return "", err
+	}
+	if f.state.PermissionModes == nil {
+		f.state.PermissionModes = map[string]map[string]string{}
+	}
+	if f.state.PermissionModes[ownerID] == nil {
+		f.state.PermissionModes[ownerID] = map[string]string{}
+	}
+	f.state.PermissionModes[ownerID][conversationID] = mode
+	if err := f.persist(); err != nil {
+		return "", err
+	}
+	return mode, nil
 }
 
 func (f *localFileRoots) normalizeOwner(ownerID string) map[string]localRootMeta {

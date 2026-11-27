@@ -652,6 +652,7 @@ func (d *Desktop) connectDevice(credential deviceCredential, lease accountLease)
 	d.closeDevice()
 	connection := newDeviceConnection(d.server, credential, &d.account, lease)
 	connection.files = d.fileRoots
+	connection.approvals = d.cloudApprovals
 	connection.cloudComputer = d.cloudComputer
 	if d.session != nil {
 		connection.signOut = &d.session.signOutPending
