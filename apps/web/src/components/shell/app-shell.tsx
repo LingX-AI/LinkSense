@@ -476,6 +476,9 @@ function AppSidebarContent({
 
   const conversationsQuery = useInfiniteQuery({
     queryKey: ["conversations", "sidebar"],
+    // Another client (the Mac app) can create a task while this window is in
+    // the background; always revalidate the list when focus returns.
+    refetchOnWindowFocus: "always",
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       apiRequest("/conversations", {

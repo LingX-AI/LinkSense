@@ -2096,4 +2096,39 @@ describe("LinkSense application", () => {
       await screen.findByRole("heading", { level: 1, name: "额度使用" })
     ).toBeVisible()
   })
+
+  it("revalidates the sidebar when the window regains focus", async () => {
+    let createdElsewhere = false
+    installApiMock({
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: createdElsewhere
+              ? [
+                  {
+                    ...conversations[1],
+                    id: "c-focus-new",
+                    title: "客户端新建的任务",
+                    updated_at: new Date().toISOString(),
+                  },
+                  ...conversations,
+                ]
+              : conversations,
+            next_cursor: null,
+            total_count:
+              conversations.length + (createdElsewhere ? 1 : 0),
+          },
+        }),
+    })
+    renderApp("/conversations/new")
+    await screen.findByRole("link", { name: conversations[0]!.title })
+
+    createdElsewhere = true
+    fireEvent(window, new Event("focus"))
+
+    expect(
+      await screen.findByRole("link", { name: "客户端新建的任务" })
+    ).toBeVisible()
+  })
 })

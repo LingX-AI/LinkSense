@@ -1,5 +1,7 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
+import { installQueryFocusTracking } from "@/app/query-focus"
 
 import { AuthProvider } from "@/app/auth-context"
 import { BootstrapProvider } from "@/app/bootstrap-context"
@@ -20,7 +22,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 15_000,
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
             retry: (count, error) =>
               count < 1 &&
               !(
@@ -32,6 +34,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         },
       })
   )
+  useEffect(() => installQueryFocusTracking(), [])
 
   return (
     <ThemeProvider>
