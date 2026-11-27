@@ -248,6 +248,7 @@ import { ConversationOfficeLayout } from "@/features/conversations/conversation-
 import { BrowserUsePreview } from "@/features/browser-use/browser-use-preview"
 import { BrowserUsePrompt } from "@/features/browser-use/browser-use-prompt"
 import { BrowserPanel } from "@/features/browser-panel/browser-panel"
+import { isManagedBrowserCommandItem } from "@/features/browser-panel/tool-activity"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -6929,6 +6930,26 @@ export function ConversationPage({
     optimisticPendingTurn ??
     optimisticCompactionTurn ??
     displayConversation.running_turn
+  // The remote browser panel mirrors the cloud browser session, which only
+  // exists for turns that drive the managed `linksense-browser` command.
+  // Offering the entry on other tasks opens an empty session.
+  const browserTaskTurnId =
+    visibleRunningTurn?.id ?? displayConversation.turns?.at(-1)?.id
+  const browserTaskActive = Boolean(
+    browserTaskTurnId &&
+      visibleEvents.some((event) => {
+        if (event.turn_id !== browserTaskTurnId) return false
+        const native = getNativeCodexPayload(event)
+        if (
+          native?.method !== "item/started" &&
+          native?.method !== "item/completed"
+        )
+          return false
+        return isManagedBrowserCommandItem(native.params.item)
+      })
+  )
+  const showBrowserPanelToggle =
+    browserPanelAvailable && (browserTaskActive || browserPanelOpen)
   const activePlanReview = executionBlocked
     ? undefined
     : [...(displayConversation.plan_reviews ?? [])]
@@ -7487,7 +7508,7 @@ export function ConversationPage({
               <HeaderIcon name="share" className="size-4" />
             </ConversationHeaderButton>
           )}
-          {browserPanelAvailable && (
+          {showBrowserPanelToggle && (
             <ConversationHeaderButton
               ref={browserPanelToggleRef}
               label={t("browserPanel.open")}

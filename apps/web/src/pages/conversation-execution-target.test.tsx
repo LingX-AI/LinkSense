@@ -2691,9 +2691,49 @@ describe("conversation execution target", () => {
       )
     }
 
+    // The panel entry only appears once a turn has driven the managed cloud
+    // browser command, so browser tests start from this detail.
+    const browserTurnId = "30000000-0000-4000-8000-0000000000b1"
+    function browserTaskDetail(
+      id: string,
+      overrides: Record<string, unknown> = {}
+    ) {
+      return conversationDetail(id, "cloud", {
+        execution_status: "idle",
+        turns: [{ id: browserTurnId, status: "completed" }],
+        running_turn: null,
+        events: [
+          {
+            id: "event-browser-task",
+            type: "item/completed",
+            turn_id: browserTurnId,
+            sequence_no: 1,
+            created_at: "2026-11-21T00:00:01.000Z",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "item/completed",
+              params: {
+                threadId: "thread-browser",
+                turnId: browserTurnId,
+                item: {
+                  id: "item-browser",
+                  type: "commandExecution",
+                  status: "completed",
+                  commandActions: [],
+                  command: "linksense-browser open https://example.test/",
+                },
+              },
+            },
+          },
+        ],
+        ...overrides,
+      })
+    }
+
     it("opens on demand, requests frames only while open, and restores header focus", async () => {
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/task-1")
@@ -2723,11 +2763,37 @@ describe("conversation execution target", () => {
     })
 
     it("treats an old cloud response without execution_target as cloud", async () => {
-      installApi({
-        conversations: { "task-1": conversationDetail("task-1") },
-      })
+      const legacyDetail: Record<string, unknown> = {
+        ...browserTaskDetail("task-1"),
+      }
+      delete legacyDetail.execution_target
+      installApi({ conversations: { "task-1": legacyDetail } })
       renderConversationPage("/conversations/task-1")
 
+      expect(
+        await screen.findByRole("button", { name: openLabel })
+      ).toBeVisible()
+    })
+
+    it("offers no browser entry until a turn drives the cloud browser", async () => {
+      installApi({
+        conversations: {
+          "task-1": conversationDetail("task-1", "cloud", {
+            execution_status: "running",
+            turns: [{ id: browserTurnId, status: "running" }],
+            running_turn: { id: browserTurnId, status: "running" },
+          }),
+        },
+      })
+      renderConversationPage("/conversations/task-1")
+      await screen.findByRole("banner")
+      expect(screen.queryByRole("button", { name: openLabel })).toBeNull()
+
+      cleanup()
+      installApi({
+        conversations: { "task-1": browserTaskDetail("task-1") },
+      })
+      renderConversationPage("/conversations/task-1")
       expect(
         await screen.findByRole("button", { name: openLabel })
       ).toBeVisible()
@@ -2744,28 +2810,28 @@ describe("conversation execution target", () => {
       {
         name: "a non-Mac host",
         host: false,
-        detail: conversationDetail("task-1", "cloud"),
+        detail: browserTaskDetail("task-1"),
         props: undefined,
         ready: "composer" as const,
       },
       {
         name: "an embedded view",
         host: true,
-        detail: conversationDetail("task-1", "cloud"),
+        detail: browserTaskDetail("task-1"),
         props: { embedded: true, conversationId: "task-1" },
         ready: "composer" as const,
       },
       {
         name: "a hidden header",
         host: true,
-        detail: conversationDetail("task-1", "cloud"),
+        detail: browserTaskDetail("task-1"),
         props: { showHeader: false },
         ready: "composer" as const,
       },
       {
         name: "an explicitly read-only view",
         host: true,
-        detail: conversationDetail("task-1", "cloud"),
+        detail: browserTaskDetail("task-1"),
         props: { readOnly: true },
         ready: "banner" as const,
       },
@@ -2790,7 +2856,7 @@ describe("conversation execution target", () => {
     ])("keeps %s frame-only", async (_, overrides) => {
       const fixture = installApi({
         conversations: {
-          "task-1": conversationDetail("task-1", "cloud", overrides),
+          "task-1": browserTaskDetail("task-1", overrides),
         },
       })
       const interaction = userEvent.setup()
@@ -2817,7 +2883,7 @@ describe("conversation execution target", () => {
     it("releases its own control on task switch and does not reopen on return", async () => {
       const fixture = installApi({
         conversations: {
-          "task-1": conversationDetail("task-1", "cloud"),
+          "task-1": browserTaskDetail("task-1"),
           other: conversationDetail("other", "cloud"),
         },
       })
@@ -2868,7 +2934,7 @@ describe("conversation execution target", () => {
 
     it("gives the shared preview slot to the task overview without reopening the browser later", async () => {
       installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/task-1")
@@ -2897,7 +2963,7 @@ describe("conversation execution target", () => {
 
     it("continues an idle empty task through the ordinary composer after release", async () => {
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/task-1")
@@ -2930,7 +2996,7 @@ describe("conversation execution target", () => {
 
     it("prefills the continuation instead of replacing an existing draft", async () => {
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/task-1")
@@ -2962,7 +3028,7 @@ describe("conversation execution target", () => {
     it("prefills instead of starting a turn while a goal is active", async () => {
       const fixture = installApi({
         conversations: {
-          "task-1": conversationDetail("task-1", "cloud", {
+          "task-1": browserTaskDetail("task-1", {
             goal: {
               thread_id: "thread-1",
               objective: "完成目标",
@@ -3003,7 +3069,7 @@ describe("conversation execution target", () => {
     it("does not continue another task when the release resolves after navigation", async () => {
       const fixture = installApi({
         conversations: {
-          "task-1": conversationDetail("task-1", "cloud"),
+          "task-1": browserTaskDetail("task-1"),
           other: conversationDetail("other", "cloud"),
         },
         browser: { deferRelease: true },
@@ -3068,7 +3134,7 @@ describe("conversation execution target", () => {
     it("keeps text typed after continue is dispatched, never submits it and keeps its focus", async () => {
       window.innerWidth = 1400
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
         browser: { deferRelease: true },
       })
       const interaction = userEvent.setup()
@@ -3127,7 +3193,7 @@ describe("conversation execution target", () => {
         },
       } as typeof authMock.user
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       renderConversationPage("/conversations/task-1")
@@ -3155,7 +3221,7 @@ describe("conversation execution target", () => {
 
     it("closes a controlled panel even when the release is rejected", async () => {
       const fixture = installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
         browser: { rejectRelease: true },
       })
       const interaction = userEvent.setup()
@@ -3192,7 +3258,7 @@ describe("conversation execution target", () => {
 
     it("inerts the covered workspace and restores header focus in the narrow layout", async () => {
       installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       const view = renderConversationPage("/conversations/task-1")
@@ -3213,7 +3279,7 @@ describe("conversation execution target", () => {
     it("restores header focus after closing in the wide layout", async () => {
       window.innerWidth = 1400
       installApi({
-        conversations: { "task-1": conversationDetail("task-1", "cloud") },
+        conversations: { "task-1": browserTaskDetail("task-1") },
       })
       const interaction = userEvent.setup()
       const view = renderConversationPage("/conversations/task-1")

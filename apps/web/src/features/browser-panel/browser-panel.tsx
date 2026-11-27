@@ -219,7 +219,7 @@ export function BrowserPanel({
       className="office-preview-pane"
       aria-label={t("browserPanel.title")}
     >
-      <header className="flex flex-wrap items-center gap-2 border-b p-3">
+      <header className="flex h-(--conversation-top-bar-height) shrink-0 items-center gap-2 border-b px-3">
         <AppWindowIcon
           className="size-4 text-muted-foreground"
           aria-hidden="true"
@@ -248,13 +248,13 @@ export function BrowserPanel({
         >
           <XIcon aria-hidden="true" />
         </Button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         {!readOnly && (
-          <p className="basis-full text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {t("browserPanel.hint")}
           </p>
         )}
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         {error && (
           <StatusBanner variant="error">
             {getErrorMessage(error, t)}
