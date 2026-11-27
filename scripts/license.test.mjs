@@ -86,3 +86,16 @@ test("the third-party notice matches every pinned release image and is linked by
   assert.match(notice, /Elasticsearch[\s\S]*?default distribution remains under ELv2/u)
   assert.match(notice, /LinkSense does not relicense them under CPAL-1\.0/u)
 })
+
+test("the Docling baseline uses the CPU-only vendor image at the configured version", async () => {
+  const [baselineSources, config] = await Promise.all([
+    read("deploy/baselines/upstream-images.json"),
+    read("apps/api/src/modules/knowledge-processing/config.ts"),
+  ])
+  const serveVersion = /serve: "([0-9.]+)"/u.exec(config)?.[1]
+  assert.ok(serveVersion, "docling serve version is missing from the API config")
+  assert.equal(
+    JSON.parse(baselineSources).DOCLING,
+    `quay.io/docling-project/docling-serve-cpu:v${serveVersion}`,
+  )
+})
