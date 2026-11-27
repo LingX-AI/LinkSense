@@ -11,9 +11,8 @@ a bundled Codex, Node, or local agent runtime. The older
 [dual-mode plan](../../docs/research/linksense-desktop-dual-mode-plan-2026-11-16.md)
 and [task breakdown](../../docs/development/linksense-desktop-dual-mode-task-breakdown-2026-11-16.md)
 describe the superseded local execution environment and are historical.
-Sections below that still describe pairing, run locations, a bundled
-runtime, or local Codex are likewise historical; the v1 spec and the current
-code are authoritative.
+Sections below that still describe a bundled runtime or local Codex are
+historical; the v1 spec and the current code are authoritative.
 
 ## Development
 
@@ -68,39 +67,37 @@ client. Existing Web sessions and refresh-token records need no migration.
 Signing in registers this Mac automatically. There is no pairing code, device
 list, or separate enable action: after the native refresh proves the account,
 the client idempotently registers the installation by a stable local
-installation id, rotates its device credential into the Keychain, and opens the
-device socket. The installation id survives sign-out and credential deletion,
-so a server revocation cannot be bypassed by signing in again. **Settings →
-General → Local tools** shows the connection and the one explicit opt-out
-switch. Turning local tools off disconnects now and persists across launches;
-turning them back on is the only action that clears a server-side revocation.
+installation id, stores its device credential in the app's private
+`credentials.json` (`0600`, outside the Keychain), and opens the device socket.
+The installation id survives sign-out and credential deletion, so a server
+revocation cannot be bypassed by signing in again. There is no local-tools
+settings page: the app stays connected while signed in.
 
-Local tools are authorized per task and per resource: the user chooses folders,
-a window, or a browser tab in the task that needs it. The app never prompts for
-a pairing code and never opens a browser for enrollment.
+Every conversation gets a local folder grant, chosen in the composer's
+add-content menu. Without a choice it defaults to the home folder (`~`) in
+read-and-write mode. The menu can pick another folder in read-only or
+read-and-write mode, or switch the current grant's mode; the choice is
+per-conversation and persists on this Mac. Re-selecting a previously authorized
+folder reuses its stored grant, so macOS does not ask twice. Absolute paths
+stay in this Mac's application data and never reach the API or the cloud task.
 
-A cloud task created with `desktop_tools_enabled` gets the separate
+A cloud task on a conversation with an online Mac gets the separate
 `local_tools_ping` tool. The cloud runner calls the API device gateway, the API
-rechecks the account, cloud task, running turn, per-task grant and online Mac,
-and only then sends a `cloud_tool.request` over the same device WebSocket. The
-Mac answers locally without a bundled runtime. Offline, unauthorized, expired
-and cancelled calls fail closed; the API records bounded audit metadata.
+rechecks the account, cloud task, running turn and online Mac, and only then
+sends a `cloud_tool.request` carrying the conversation id over the same device
+WebSocket. The Mac answers locally without a bundled runtime. Offline,
+unauthorized, expired and cancelled calls fail closed; the API records bounded
+audit metadata.
 
-**Settings → General → Local tools → Shared folders** adds folders through the
-native picker and stores their absolute paths only in this Mac's application
-data. The API stores only the alias, mode and device; absolute paths never
-leave the Mac. File contents are returned only to the authorized cloud task
-that requested them. Each task still needs its own local-tools switch. With it on,
-Codex first lists the shared roots and then uses `local_files_list`,
-`local_files_read`, `local_files_search`, `local_files_write`,
-`local_files_create` and `local_files_delete`. Reads are byte-bounded and
-binary files return metadata only; search skips dependency directories; writes
-use a digest conflict check; deletes go to the macOS Trash. Every path is
-resolved under its root, and absolute paths, `..`, backslashes, cross-root
-access and symlink escapes are rejected. Read-only roots reject write, create
-and delete before dispatch. Revoking a folder or its device invalidates the
-next call, and file audit rows contain only the root alias, relative path,
-operation, result and duration.
+With the grant in place, Codex first lists the conversation's root and then uses
+`local_files_list`, `local_files_read`, `local_files_search`,
+`local_files_write`, `local_files_create` and `local_files_delete`. Reads are
+byte-bounded and binary files return metadata only; search skips dependency
+directories; writes use a digest conflict check; deletes go to the macOS Trash.
+Every path is resolved under its root, and absolute paths, `..`, backslashes,
+cross-root access and symlink escapes are rejected. A read-only grant rejects
+write, create and delete before dispatch. File audit rows contain only the
+relative path, operation, result and duration.
 
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
@@ -482,12 +479,12 @@ notarization and installed-upgrade acceptance:
    installation location still shows the fixed
    `LINKSENSE_DESKTOP_UPDATE_INSTALLER_URL` page, with no version claim and
    no attempted in-place install.
-6. With a local turn running, choose Install: the app must return the
+6. With a cloud turn running, choose Install: the app must return the
    retryable busy state and must not queue, wait for, or replay the install.
    Finish the turn or stop it explicitly, then choose Install again manually.
    Once admitted, the update stages, replaces the app on quit, and relaunch
-   does not resume the old turn. Verify sign-in, Keychain, deep links and a
-   new local turn after the update.
+   does not resume the old turn. Verify sign-in, the stored device credential,
+   deep links and a new cloud task after the update.
 7. Repeat with the previous DMG as a manual rollback. Run Developer ID
    signing/notarization/staple acceptance and a clean-Mac installed upgrade
    as separate gates; an ad hoc fixture build does not satisfy them.
@@ -610,73 +607,17 @@ LINKSENSE_TEST_DESKTOP_BROWSER_EXTENSION=1 pnpm test:desktop:postgres
 
 It uses disposable PostgreSQL and Redis, a fresh Chromium profile, and simulated authentication and inference. Verify the flow in the signed, installed app separately.
 
-On macOS, **Settings → General → Local tools** shows this Mac's connection and
-one switch. There is no pairing form or device list. After the system-browser
-sign-in and a verified native refresh, the app idempotently registers this
-installation, rotates the device credential in the Keychain, and connects.
-Registration is bound to the account proven by the native refresh; a stored
-credential alone is not reused for another signed-in account, and losing the
-account hides the live state without deleting the Keychain credential.
-Ordinary sign-out clears the session and disconnects while keeping the stored
-credential. To remove it, select **Also revoke access for this Mac** when
-signing out; the app removes the matching local credential after the server
-confirms the revoke. Turning the local-tools switch off persists an opt-out
-that auto-enrollment will not override; turning it back on is the explicit
-re-enable that can clear a server revocation.
-
-**Recent desktop activity** in **Settings → General → Local tools** expands on
-request and lists, when available, the account's latest 20 redacted device,
-approval, local-permission, computer-attempt and target-change entries. A
-recorded attempt does not prove delivery or effect. Entries never disclose
-typed text, commands, media or paths. The view is read-only and adds no new
-data collection. Besides the desktop protocol, it needs an API that exposes
-the endpoint. If the endpoint is missing, a 404 makes the section show as
-unavailable; that handling is covered by a mocked response, not by running an
-older release. The existing admin audit is unchanged. The verified development
-`.app` and DMG are from `eb0178ff`, so they do not contain this view; a package
-built from `5ee1eeee` or newer, paired with an API that exposes the endpoint,
-is needed.
-
 Every new task runs in the cloud. There is no run-location picker, default
 target, cross-target continuation, or target badge. Historical local tasks
 remain readable but do not accept new turns.
-The new task's **Run location** control overrides the default for that draft
-only. It offers local as an override when the native host reports an online
-device with `executionReady`, not for a presence-only connection. If the saved
-default is local and the Mac is unavailable, the task retains that selection;
-you can wait or explicitly switch to cloud.
-Before a local task is created, the app re-reads the native status and requires
-the same device and account. A failed, stale or changed check keeps the draft
-and the selected target, reports the error, and does not create the task on the
-cloud. A host that omits `executionReady` fails closed. Existing tasks keep the
-target assigned by the backend and show it as a read-only badge. In the main
-macOS window, a normal task also offers **Continue on the cloud computer** for
-a local task and **Continue on this Mac** for a cloud task. The confirmation
-says that a separate task is created on the other run location and that the
-original task, its files and its artifacts stay as they are. Confirming does
-not send a message, move the native thread, or copy files or attachments. The
-app opens the empty destination with one removable source-task reference in
-its local draft; send a message when you want the new task to read the
-original text through the existing reference tool.
 
-A cloud-to-Mac continuation needs this exact current Mac connection to report
-`executionReady` and the separately negotiated `conversation_reference.read`
-capability. An older desktop client can still run ordinary local tasks. To receive a
-continuation it needs an update that adds this capability. A Mac-to-cloud continuation
-can be created and run while this Mac is offline. An older API has no
-continuation endpoint and the app reports that LinkSense must be updated; there
-is no fallback to the current target. Before rollout, upgrade every API and
-device gateway replica and use the Mac app with its matching bundled runner;
-the existing cloud worker start body stays compatible. The bounded 15-second
-reference read is not a side-chat quote. Existing route, authorization and
-rollout rules apply, ordinary Web and default cloud behavior is unchanged, and
-these additions include no database migration or dependency.
-
-To check this path, run `pnpm test:desktop:postgres` with the prepared runtime
-for the packaged Mac leg, `pnpm desktop:whitebox` for the native WKWebView
-continuation and device-journey regressions, and
-`pnpm --filter @linksense/shared build && pnpm --filter @linksense/api exec tsx test/integration/conversation-continuation-postgres.ts`
-for the API and database semantics in disposable PostgreSQL and Redis.
+On macOS, signing in and a verified native refresh register this installation
+and connect it; there is no pairing form, device list, local-tools switch or
+activity page. Registration is bound to the account proven by the native
+refresh; a stored credential alone is not reused for another signed-in account.
+Ordinary sign-out clears the session and disconnects while keeping the stored
+credential. Selecting **Also revoke access for this Mac** when signing out
+removes the matching local credential after the server confirms the revoke.
 
 On Mac, users can submit structured quotes directly in their own local side
 chats in default mode using native Responses or Responses tool compatibility,
@@ -805,14 +746,14 @@ packaged Mac did not use the API fallback.
 `desktop:whitebox` uses an in-memory credential store. On macOS,
 `desktop:whitebox:os` additionally opens the real system browser twice, verifies
 reuse of an isolated fixture session, delivers callbacks through Launch Services
-to the exact running test bundle, and checks real Keychain storage, refresh
-after a WebView reload, and sign-out deletion. It also forces a child-process
+to the exact running test bundle, and checks real file credential storage,
+refresh after a WebView reload, and sign-out deletion. It also forces a child-process
 exit after storage and verifies parent-owned cleanup of that unique fixture
 service. Temporary Go data and window state belong to the fixture directory;
 the test does not claim to remove WebKit's system-managed caches.
 
 A fresh process of the same signed test executable also starts a separate
-WebView and authenticates from the stored Keychain session without opening
+WebView and authenticates from the stored credential file without opening
 the browser. The parent fixture server stays running to validate the refresh
 cookie; access tokens are not passed to the new process.
 
