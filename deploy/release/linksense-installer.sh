@@ -13,6 +13,11 @@ REQUIRED_COMPOSE_VERSION=2.24.4
 DEFAULT_RELEASE_ORIGIN=https://github.com/LingX-AI/linksense/releases
 RELEASE_SELECTOR=${LINKSENSE_VERSION:-latest}
 LAST_STAGE=bootstrap
+# Stage timing starts at the first stage so preflight tool failures stay clean.
+INSTALL_STARTED_EPOCH=
+STAGE_TIMING_NAME=
+STAGE_TIMING_EPOCH=
+STAGE_TIMINGS=
 DIAGNOSTICS_READY=false
 UPGRADE_RUNTIME_STOPPED=false
 UPGRADE_CONFIG_CHANGED=false
@@ -260,6 +265,10 @@ on_exit() {
   if [ "$status" -ne 0 ]; then
     restore_pre_migration_upgrade
     printf 'FAILED: %s stopped during stage: %s\n' "$PROGRAM" "$LAST_STAGE" >&2
+    if [ -n "$INSTALL_STARTED_EPOCH" ]; then
+      exit_epoch=$(date +%s 2>/dev/null || printf '%s' "$INSTALL_STARTED_EPOCH")
+      printf 'Elapsed: %ss\n' "$((exit_epoch - INSTALL_STARTED_EPOCH))" >&2
+    fi
     if [ "$ACTION" = upgrade ] && [ "$UPGRADE_MIGRATION_STARTED" = true ]; then
       printf '%s\n' \
         "Database migration may have started, so LinkSense did not automatically roll back images or the database." \
@@ -340,9 +349,37 @@ log() {
   printf '%s\n' "[$PROGRAM] $*"
 }
 
+format_duration() {
+  format_seconds=$1
+  if [ "$format_seconds" -ge 60 ]; then
+    printf '%dm %02ds' $((format_seconds / 60)) $((format_seconds % 60))
+  else
+    printf '%ds' "$format_seconds"
+  fi
+}
+
 log_stage() {
   LAST_STAGE=$1
-  log "$LAST_STAGE"
+  NOW_EPOCH=$(date +%s 2>/dev/null) || NOW_EPOCH=${STAGE_TIMING_EPOCH:-0}
+  [ -n "$INSTALL_STARTED_EPOCH" ] || INSTALL_STARTED_EPOCH=$NOW_EPOCH
+  if [ -n "$STAGE_TIMING_NAME" ]; then
+    STAGE_TIMINGS="${STAGE_TIMINGS}${STAGE_TIMING_NAME}|$((NOW_EPOCH - STAGE_TIMING_EPOCH))
+"
+  fi
+  STAGE_TIMING_NAME=$1
+  STAGE_TIMING_EPOCH=$NOW_EPOCH
+  log "$1 (elapsed $(format_duration $((NOW_EPOCH - INSTALL_STARTED_EPOCH))))"
+}
+
+print_stage_timings() {
+  [ -n "$STAGE_TIMINGS" ] || return 0
+  log "Stage timings:"
+  printf '%s' "$STAGE_TIMINGS" | while IFS='|' read -r timing_stage timing_seconds; do
+    [ -n "$timing_stage" ] || continue
+    printf '  %s: %s\n' "$timing_stage" "$(format_duration "$timing_seconds")"
+  done
+  total_epoch=$(date +%s 2>/dev/null) || total_epoch=$INSTALL_STARTED_EPOCH
+  log "Total elapsed: $(format_duration $((total_epoch - INSTALL_STARTED_EPOCH)))"
 }
 
 print_initialization_credential() {
@@ -1303,7 +1340,13 @@ pull_image() {
 pull_release_images() {
   pull_deadline=$(($(date +%s) + 2700))
   check_release_storage
-  for release_key in $(release_image_keys); do pull_image "$release_key"; done
+  pull_total=$(release_image_keys | wc -l | tr -d ' ')
+  pull_index=0
+  for release_key in $(release_image_keys); do
+    pull_index=$((pull_index + 1))
+    host_text pull_image_index "$pull_index" "$pull_total" >&2
+    pull_image "$release_key"
+  done
 }
 
 tokenizer_value() {
@@ -1812,12 +1855,16 @@ install_action() {
   log_stage "Stage 6/7: start services and run readiness checks."
   start_stack
   wait_for_health
+  if [ "$EDITION" = full ]; then
+    log "Services are ready. Running the Full capability probe (this can take a few minutes)..."
+  fi
   run_full_release_probe
   log_stage "Stage 7/7: record the verified installation state."
   activate_management_cli
   host_save_tools
   write_success_state "$installed_at"
   log "Installed LinkSense $EDITION $RELEASE_VERSION successfully."
+  print_stage_timings
   host_text baseline
   log "Install directory: $INSTALL_DIR"
   log "Diagnostics: cd $INSTALL_DIR && docker compose --env-file .env -f compose.common.yml -f compose.$EDITION.yml ps"
@@ -1996,7 +2043,11 @@ upgrade_action() {
 
 case "${1:-}" in
   --check-network)
-    [ "$#" -eq 1 ] || host_fail invalid_config installer_arguments
+    case "$#" in
+      1) LINKSENSE_NETWORK_LIGHT=1; export LINKSENSE_NETWORK_LIGHT ;;
+      2) [ "${2:-}" = --pull ] || host_fail invalid_config installer_arguments ;;
+      *) host_fail invalid_config installer_arguments ;;
+    esac
     host_network_diagnostics "$(release_base)"
     exit $? ;;
   '') ;;

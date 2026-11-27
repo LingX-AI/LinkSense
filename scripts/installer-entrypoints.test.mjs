@@ -147,7 +147,7 @@ test("bootstrap and bundled network diagnostics work before installation without
     )
     const bin = path.join(directory, "bin")
     await mkdir(bin)
-    const manifest = `IMAGE_BUSYBOX=docker.io/library/busybox@sha256:${"a".repeat(64)}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@sha256:${"b".repeat(64)}\n`
+    const manifest = `IMAGE_BUSYBOX=docker.io/library/busybox@sha256:${"a".repeat(64)}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@sha256:${"b".repeat(64)}\nIMAGE_GATEWAY=ghcr.io/lingx-ai/linksense-gateway@sha256:${"c".repeat(64)}\n`
     await writeFile(path.join(directory, "manifest"), manifest)
     const legacyInstaller = path.join(directory, "legacy-installer.sh")
     const installerExecuted = path.join(directory, "installer-executed")
@@ -195,6 +195,8 @@ esac
       { os: "Darwin", curl: 0, docker: 1 },
       { os: "Darwin", curl: 0, docker: 0, ghcr: 1 },
       { os: "Darwin", curl: 0, docker: 0, ghcr: 1, mirror: true },
+      { os: "Darwin", curl: 0, docker: 0, pull: true },
+      { os: "Darwin", curl: 0, docker: 0, ghcr: 1, mirror: true, pull: true },
       { os: "Darwin", curl: 0, docker: 0, invalid: "checksum" },
       { os: "Darwin", curl: 0, docker: 0, invalid: "image" },
       { os: "Darwin", curl: 0, docker: 0, invalid: "duplicate" },
@@ -215,7 +217,9 @@ esac
       const trace = path.join(directory, "trace")
       const installDirectory = path.join(directory, "installation")
       const entry = scenario.bootstrap ? path.join(root, scenario.bootstrap) : path.join(directory, scenario.entry ?? "install-core.sh")
-      const args = scenario.invalid === "arguments" ? ["--check-network", "--unexpected"] : ["--check-network"]
+      const args = scenario.invalid === "arguments"
+        ? ["--check-network", "--unexpected"]
+        : scenario.pull ? ["--check-network", "--pull"] : ["--check-network"]
       const result = spawnSync("/bin/sh", [entry, ...args], {
         encoding: "utf8",
         timeout: 10000,
@@ -257,10 +261,16 @@ esac
       assert.doesNotMatch(calls, /docker (?:run|create|start|stop|compose|volume)/u)
       if (scenario.bootstrap) assert.match(calls, /https:\/\/raw\.githubusercontent\.com\/LingX-AI\/linksense\/[0-9a-f]{40}\/deploy\/release\/linksense-host\.sh/u)
       else assert.doesNotMatch(calls, /raw\.githubusercontent\.com/u)
+      const legacyFallback = Boolean(scenario.bootstrap)
       if (scenario.docker === 0 && scenario.curl === 0 && !scenario.invalid) {
-        assert.match(calls, /docker pull docker.io\/library\/busybox@sha256:/u)
-        assert.match(calls, /docker pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)
-        if (scenario.mirror) assert.match(calls, /docker pull ghcr\.nju\.edu\.cn\/lingx-ai\/linksense-api@sha256:/u)
+        assert.match(calls, /docker pull docker\.io\/library\/busybox@sha256:/u)
+        if (legacyFallback || scenario.pull) {
+          assert.match(calls, /docker pull ghcr\.io\/lingx-ai\/linksense-api@sha256:/u)
+          if (scenario.mirror) assert.match(calls, /docker pull ghcr\.nju\.edu\.cn\/lingx-ai\/linksense-api@sha256:/u)
+        } else {
+          assert.match(calls, /docker pull ghcr\.io\/lingx-ai\/linksense-gateway@sha256:/u)
+          assert.doesNotMatch(calls, /docker pull ghcr\.io\/lingx-ai\/linksense-api@sha256:/u)
+        }
       } else if (scenario.docker === 0) assert.match(calls, /docker pull hello-world:latest/u)
       else assert.doesNotMatch(calls, /docker pull/u)
       assert.doesNotMatch(calls, /docker pull --all-tags|docker pull ghcr.io\/untrusted/u)

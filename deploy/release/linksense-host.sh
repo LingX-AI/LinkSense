@@ -64,6 +64,18 @@ host_text() {
     image_retry:pt-BR) host_message='A origem falhou ou excedeu o tempo; tentando a próxima e preservando imagens verificadas.' ;;
     image_retry:fr-FR) host_message='Échec ou délai dépassé ; essai de la source suivante en conservant les images vérifiées.' ;;
     image_retry:ja-JP) host_message='取得元で失敗またはタイムアウトしました。検証済みイメージを保持して次の取得元を試します。' ;;
+    pull_image_index:zh-CN) host_message='镜像 %s/%s' ;;
+    pull_image_index:en-US) host_message='Image %s/%s' ;;
+    pull_image_index:es-ES) host_message='Imagen %s/%s' ;;
+    pull_image_index:pt-BR) host_message='Imagem %s/%s' ;;
+    pull_image_index:fr-FR) host_message='Image %s/%s' ;;
+    pull_image_index:ja-JP) host_message='イメージ %s/%s' ;;
+    pull_progress:zh-CN) host_message='下载进度（%s 秒）：%s' ;;
+    pull_progress:en-US) host_message='Progress after %ss: %s' ;;
+    pull_progress:es-ES) host_message='Progreso tras %ss: %s' ;;
+    pull_progress:pt-BR) host_message='Progresso após %ss: %s' ;;
+    pull_progress:fr-FR) host_message='Progression après %ss : %s' ;;
+    pull_progress:ja-JP) host_message='進捗（%s 秒）：%s' ;;
     image_mirror_help:zh-CN) host_message='无法下载所需 Docker 镜像。请提供可访问且可信的镜像源，通过 LINKSENSE_IMAGE_MIRRORS="ghcr.io=镜像域名;docker.io=镜像域名;quay.io=镜像域名" 指定，或为 Docker Engine 配置可用代理。不会降低 digest 校验、关闭 TLS 或重启 Docker。' ;;
     image_mirror_help:en-US) host_message='Unable to download the required Docker image. Provide an accessible, trusted mirror using LINKSENSE_IMAGE_MIRRORS="ghcr.io=mirror-host;docker.io=mirror-host;quay.io=mirror-host", or configure a working Docker Engine proxy. Digest verification and TLS remain enabled; Docker is not restarted.' ;;
     image_mirror_help:es-ES) host_message='No se pudo descargar la imagen Docker requerida. Proporcione un espejo accesible y de confianza mediante LINKSENSE_IMAGE_MIRRORS="ghcr.io=servidor;docker.io=servidor;quay.io=servidor", o configure el proxy de Docker Engine. Se mantienen digest y TLS; Docker no se reinicia.' ;;
@@ -294,11 +306,19 @@ host_network_diagnostics() (
       host_network_expected=$(awk 'NF { print $1; exit }' "$host_network_tmp/checksum")
       host_network_busybox=$(read_key "$host_network_tmp/manifest" IMAGE_BUSYBOX 2>/dev/null || true)
       host_network_api=$(read_key "$host_network_tmp/manifest" IMAGE_LINKSENSE_API 2>/dev/null || true)
+      host_network_gateway=$(read_key "$host_network_tmp/manifest" IMAGE_GATEWAY 2>/dev/null || true)
       if printf '%s' "$host_network_expected" | grep -Eq '^[0-9a-f]{64}$' &&
         [ "$(host_sha256 "$host_network_tmp/manifest")" = "$host_network_expected" ] &&
         printf '%s' "$host_network_busybox" | grep -Eq '^[a-z0-9./-]+@sha256:[0-9a-f]{64}$' &&
         printf '%s' "$host_network_api" | grep -Eq '^[a-z0-9./-]+@sha256:[0-9a-f]{64}$'; then
-        set -- "$host_network_busybox" "$host_network_api"
+        if [ "${LINKSENSE_NETWORK_LIGHT:-}" = 1 ] &&
+          printf '%s' "$host_network_gateway" | grep -Eq '^[a-z0-9./-]+@sha256:[0-9a-f]{64}$'; then
+          # Light check: representative small images from Docker Hub and GHCR,
+          # pulled through the Docker Engine like a real installation.
+          set -- "$host_network_busybox" "$host_network_gateway"
+        else
+          set -- "$host_network_busybox" "$host_network_api"
+        fi
         host_network_images_valid=true
         host_text network_pass release-images
       fi
@@ -516,13 +536,24 @@ host_pull_attempt() (
   (
     host_start=$(date +%s)
     host_started=false
+    host_progress_last=0
     while kill -0 "$host_script_pid" 2>/dev/null; do
       /bin/sleep 1
       kill -0 "$host_script_pid" 2>/dev/null || break
       host_elapsed=$(($(date +%s) - host_start))
       # Pull complete can be emitted for a snapshot that was already committed.
-      if [ "$host_started" = false ] && grep -Eq ': (Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Extracting[[:space:]])' "$host_log"; then
+      if [ "$host_started" = false ] && grep -Eq ': (Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Extracting[[:space:]])' "$host_log" 2>/dev/null; then
         host_started=true
+      fi
+      # Mirror the latest Docker progress line so a long pull is visible.
+      if [ "$host_elapsed" -le 2 ] || [ $((host_elapsed - host_progress_last)) -ge 5 ]; then
+        host_progress_line=$(tr '\r' '\n' < "$host_log" 2>/dev/null |
+          grep -E '(Downloading|Extracting|Verifying Checksum|Download complete|Pull complete)' 2>/dev/null |
+          tail -n 1 | tr -d '\000-\011\013-\037' | cut -c1-160)
+        if [ -n "$host_progress_line" ]; then
+          host_text pull_progress "$host_elapsed" "$host_progress_line" >&2
+          host_progress_last=$host_elapsed
+        fi
       fi
       if [ "$host_elapsed" -ge "$host_seconds" ] || { [ "$host_started" = false ] && [ "$host_elapsed" -ge "$host_start_seconds" ]; }; then
         touch "$host_work/timeout"
@@ -530,7 +561,7 @@ host_pull_attempt() (
         exit 0
       fi
     done
-  ) >/dev/null 2>&1 &
+  ) >/dev/null &
   host_watch_pid=$!
   host_status=0
   wait "$host_script_pid" || host_status=$?

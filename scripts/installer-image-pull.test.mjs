@@ -252,6 +252,9 @@ host_pull_attempt "$IMAGE" ${scenario === "transfer-limit" ? 1 : 5} "$DIR/pull.l
       DIR: dir, SCENARIO: scenario, IMAGE: image,
     })
     assert.equal(result.status, expected, result.stderr)
+    if (scenario === "progress" || scenario === "extracting") {
+      assert.match(result.stderr, /Progress after \d+s: .*(Downloading|Extracting)/u)
+    }
     const pid = Number(readFileSync(path.join(dir, "client-pid"), "utf8").trim())
     assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
   })

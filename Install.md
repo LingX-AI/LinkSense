@@ -83,7 +83,15 @@ executing its installer. If a previously downloaded bootstrap rejects the flag w
 remain unchanged; use the current bootstrap for this check. See the
 [network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) for manual checks.
 Linux diagnostics can run without root when the account can access Docker.
-Checks verify the release manifest checksum and pull its BusyBox and API images.
+By default the check verifies the release manifest checksum and pulls two small
+representative images through Docker: BusyBox from Docker Hub and Gateway from
+GHCR (about 32 MB total, with digest verification). Add `--pull` to also pull
+the API image and validate the application image layers end to end:
+
+```sh
+sh "$setup_dir/install-core.sh" --check-network --pull
+```
+
 These are representative checks, not a test of every Core or Full dependency.
 If metadata validation fails, only a Docker Hub probe continues and the overall
 check still fails. The checks do not
@@ -129,6 +137,10 @@ sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_
 # macOS: run this instead, without sudo
 sh "$setup_dir/install-core.sh"
 ```
+
+The installer prints each stage with its elapsed time and mirrors Docker's
+download progress until an image completes. A new Core installation downloads
+about 2.5 GB of images; Full adds Elasticsearch and Docling for about 9 GB total.
 
 Run only the command for the current OS. For a custom install directory or port,
 pass the documented `LINKSENSE_INSTALL_DIR` / `LINKSENSE_HTTP_PORT` explicitly
