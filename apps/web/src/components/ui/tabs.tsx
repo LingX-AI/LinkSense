@@ -67,6 +67,7 @@ function TabsList({
       data-variant={variant}
       className={cn(
         "group/tabs-list relative isolate inline-flex w-fit max-w-full items-center justify-start gap-2 overflow-x-auto overflow-y-hidden bg-transparent text-muted-foreground [scrollbar-width:none] group-data-horizontal/tabs:min-h-9 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col [&::-webkit-scrollbar]:hidden",
+        !navigation && "rounded-xl p-1",
         navigation &&
           "w-full gap-4 border-b border-border group-data-horizontal/tabs:min-h-11",
         className
@@ -94,7 +95,7 @@ function TabsList({
                   aria-hidden="true"
                   className={cn(
                     "pointer-events-none absolute top-0 left-0 z-0",
-                    navigation ? "bg-primary" : "rounded-lg bg-accent"
+                    navigation ? "bg-primary" : "rounded-md bg-card"
                   )}
                   initial={initialBackground}
                   animate={{

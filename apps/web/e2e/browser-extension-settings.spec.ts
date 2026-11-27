@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright"
+import { createAxeBuilder } from "./support/axe"
 import { chromium, expect, test, type Page } from "@playwright/test"
 import { createServer } from "node:http"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -161,7 +161,7 @@ test("browser extension settings explain cloud/local and remain usable on narrow
     })
   }
   expect(
-    (await new AxeBuilder({ page }).include("#browser-extension").analyze())
+    (await createAxeBuilder(page).include("#browser-extension").analyze())
       .violations
   ).toEqual([])
 })
@@ -255,7 +255,7 @@ test("a browser request offers Browser Use and links to the focused settings sec
   }
   expect(
     (
-      await new AxeBuilder({ page })
+      await createAxeBuilder(page)
         .include('[data-slot="popover-content"][role="dialog"]')
         .analyze()
     ).violations
@@ -344,7 +344,7 @@ test("unsupported browsers skip intent detection and guide the user to Chrome or
       )
     ).toBe(false)
     expect(
-      (await new AxeBuilder({ page }).include("#browser-extension").analyze())
+      (await createAxeBuilder(page).include("#browser-extension").analyze())
         .violations
     ).toEqual([])
   } finally {
@@ -510,7 +510,7 @@ test("local browser snapshots drag to all four corners, stay reachable and activ
   await expect(panel).toHaveAttribute("data-corner", "bottom-right")
   expect(
     (
-      await new AxeBuilder({ page })
+      await createAxeBuilder(page)
         .include("[data-browser-use-preview-boundary]")
         .analyze()
     ).violations

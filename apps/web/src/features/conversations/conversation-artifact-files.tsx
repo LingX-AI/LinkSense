@@ -311,6 +311,10 @@ export function ConversationArtifactFiles({
           previewKind !== "image"
         ) {
           const downloading = downloadingFileId === file.id
+          const labelId = `artifact-preview-label-${file.id}`
+          const nameId = `artifact-preview-name-${file.id}`
+          const sizeId = `artifact-preview-size-${file.id}`
+          const actionId = `artifact-preview-action-${file.id}`
           return (
             <div
               key={file.id}
@@ -320,11 +324,14 @@ export function ConversationArtifactFiles({
                 type="button"
                 variant="ghost"
                 className="artifact-office-document-open-button artifact-presentation-open-button"
-                aria-label={t(getConversationFilePreviewLabelKey(file), {
-                  name: file.name,
-                })}
+                aria-labelledby={`${labelId} ${nameId} ${sizeId} ${actionId}`}
                 onClick={() => openOfficeDocument(file)}
               >
+                <span id={labelId} className="sr-only">
+                  {t(getConversationFilePreviewLabelKey(file), {
+                    name: file.name,
+                  })}
+                </span>
                 <span className="file-icon">
                   <FileTypeIcon
                     filename={file.name}
@@ -332,14 +339,21 @@ export function ConversationArtifactFiles({
                   />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
-                  <span className="file-tile-name block truncate font-medium">
+                  <span
+                    id={nameId}
+                    className="file-tile-name block truncate font-medium"
+                  >
                     {file.name}
-                  </span>
+                  </span>{" "}
                   <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
-                    <span className="artifact-office-document-size artifact-presentation-size">
+                    <span
+                      id={sizeId}
+                      className="artifact-office-document-size artifact-presentation-size"
+                    >
                       {formatFileSize(file.size, language)}
                     </span>
                     <span
+                      id={actionId}
                       className="artifact-office-document-preview-label artifact-presentation-preview-label"
                       aria-hidden="true"
                     >

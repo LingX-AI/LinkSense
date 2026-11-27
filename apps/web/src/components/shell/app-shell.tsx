@@ -990,7 +990,7 @@ function AppSidebarContent({
               />
               <HeaderIconButton
                 type="button"
-                className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                className="size-9! hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
                 aria-label={t("common.search")}
                 title={t("common.search")}
                 aria-keyshortcuts="Meta+K Control+K"
@@ -1390,13 +1390,17 @@ function AppSidebarContent({
                 />
               }
             >
-              <Avatar aria-hidden="true" className="sidebar-account-avatar size-7 border-0">
+              <Avatar
+                aria-hidden="true"
+                className="sidebar-account-avatar size-7 border-0"
+              >
                 {user?.avatar_url && (
                   <AvatarImage src={user.avatar_url} alt="" />
                 )}
-                <AvatarFallback className="bg-transparent text-[length:var(--app-font-10)] font-semibold">
-                  {initials}
-                </AvatarFallback>
+                <AvatarFallback
+                  data-initials={initials}
+                  className="sidebar-account-initials bg-transparent text-[length:var(--app-font-10)] font-semibold"
+                />
               </Avatar>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-normal">

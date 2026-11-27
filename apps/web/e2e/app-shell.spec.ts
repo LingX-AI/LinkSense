@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright"
+import { createAxeBuilder } from "./support/axe"
 import { expect, test, type Page, type Route } from "@playwright/test"
 import { writeFile } from "node:fs/promises"
 import dayjs from "dayjs"
@@ -99,7 +99,7 @@ test("goal-based application creation stays accessible on desktop and mobile", a
     })
     await expectNoHorizontalOverflow(page)
     expect(
-      (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
+      (await createAxeBuilder(page).include('[role="dialog"]').analyze())
         .violations
     ).toEqual([])
     await page.screenshot({
@@ -406,7 +406,7 @@ for (const [width, theme] of [
         (element) => element.scrollWidth <= element.clientWidth
       )
     ).toBe(true)
-    const { violations } = await new AxeBuilder({ page })
+    const { violations } = await createAxeBuilder(page)
       .include('[data-testid="assistant-rich-output"]')
       .analyze()
     expect(violations).toEqual([])
@@ -513,7 +513,7 @@ for (const [width, theme] of [
       .click()
     expect((await download).suggestedFilename()).toBe("analysis.txt")
     await result
-      .getByRole("button", { name: "预览文件 analysis.txt", exact: true })
+      .getByRole("button", { name: /预览文件 analysis\.txt/u })
       .click()
     const documentPreview = page.getByLabel("预览文档 analysis.txt", {
       exact: true,
@@ -529,7 +529,7 @@ for (const [width, theme] of [
         () => document.documentElement.scrollWidth <= window.innerWidth
       )
     ).toBe(true)
-    const { violations } = await new AxeBuilder({ page })
+    const { violations } = await createAxeBuilder(page)
       .include('[data-testid="assistant-rich-output"]')
       .analyze()
     expect(violations).toEqual([])
@@ -599,7 +599,7 @@ for (const [width, theme] of [
         () => document.documentElement.scrollWidth <= window.innerWidth
       )
     ).toBe(true)
-    const { violations } = await new AxeBuilder({ page })
+    const { violations } = await createAxeBuilder(page)
       .include('[data-testid="assistant-rich-output"]')
       .analyze()
     expect(violations).toEqual([])
@@ -738,7 +738,7 @@ for (const [width, theme] of [
         () => document.documentElement.scrollWidth <= window.innerWidth
       )
     ).toBe(true)
-    const { violations } = await new AxeBuilder({ page })
+    const { violations } = await createAxeBuilder(page)
       .include('[data-testid="assistant-rich-output"]')
       .analyze()
     expect(violations).toEqual([])
@@ -871,7 +871,7 @@ for (const [width, theme] of [
         () => document.documentElement.scrollWidth <= window.innerWidth
       )
     ).toBe(true)
-    const { violations } = await new AxeBuilder({ page })
+    const { violations } = await createAxeBuilder(page)
       .include('[data-testid="assistant-rich-output"]')
       .analyze()
     expect(violations).toEqual([])
@@ -1857,7 +1857,7 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   ).toHaveCSS("height", "34px")
   await expect(row.locator("..")).toHaveCSS(
     "background-color",
-    "color(srgb 0.0313726 0.454902 1 / 0.09)"
+    "color(srgb 0.0313726 0.454902 1 / 0.06)"
   )
   const navIcon = sidebar.locator('[data-design-icon="automations"]')
   await expect(navIcon).toHaveCSS("width", "15px")
@@ -2126,7 +2126,7 @@ for (const width of [1440, 390]) {
       publishedBounds.y + publishedBounds.height - 1
     )
     await expectNoHorizontalOverflow(page)
-    const contrast = await new AxeBuilder({ page })
+    const contrast = await createAxeBuilder(page)
       .withRules(["color-contrast"])
       .analyze()
     expect(contrast.violations).toEqual([])
@@ -2221,7 +2221,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(role).toHaveCSS("height", "20px")
     await expect(role).toHaveCSS("text-decoration-line", "none")
     await expect(role).toHaveCSS("font-size", "12px")
-    const contrast = await new AxeBuilder({ page })
+    const contrast = await createAxeBuilder(page)
       .include(".profile-hero")
       .withRules(["color-contrast"])
       .analyze()
@@ -2605,7 +2605,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("textbox")).toHaveCount(0)
     await expectNoHorizontalOverflow(page)
     expect(
-      (await new AxeBuilder({ page }).analyze()).violations.filter(
+      (await createAxeBuilder(page).analyze()).violations.filter(
         (v) => v.impact === "critical" || v.impact === "serious"
       )
     ).toEqual([])
@@ -3319,7 +3319,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(
       page.getByRole("complementary", { name: "LinkSense 导航" })
     ).toHaveCSS("width", "272px")
-    const results = await new AxeBuilder({ page })
+    const results = await createAxeBuilder(page)
       .include("#main-content")
       .withTags(["wcag2a", "wcag2aa"])
       .analyze()
@@ -3818,7 +3818,7 @@ test("appearance supports themes and a persistent UI font size without backend p
   ).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 
-  const results = await new AxeBuilder({ page }).analyze()
+  const results = await createAxeBuilder(page).analyze()
   expect(
     results.violations.filter(
       (violation) =>
@@ -4116,7 +4116,7 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
       (element) => element.scrollWidth > element.clientWidth
     )
   ).toBe(true)
-  await expect(recentTaskLink).toHaveCSS("min-height", "36px")
+  await expect(recentTaskLink).toHaveCSS("min-height", "34px")
   await expect(recentTask.locator("time")).toHaveCount(0)
   await expect(taskStatus).toBeVisible()
   await expect(taskStatus).toHaveCSS("opacity", "1")
@@ -6340,7 +6340,7 @@ for (const [route, heading] of [
     await expect(
       page.getByRole("heading", { name: heading, exact: true })
     ).toBeVisible()
-    const results = await new AxeBuilder({ page }).analyze()
+    const results = await createAxeBuilder(page).analyze()
     expect(
       results.violations.filter(
         (violation) =>

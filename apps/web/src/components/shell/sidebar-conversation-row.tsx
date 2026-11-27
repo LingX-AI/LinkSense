@@ -11,6 +11,7 @@ export function SidebarConversationRow({
 }: ComponentPropsWithRef<"div"> & { actions: ReactNode }) {
   const { alwaysShowActions } = useSidebarConversationOverlays()
   const [activated, setActivated] = useState(false)
+  const actionsVisible = activated || alwaysShowActions
   return (
     <div
       {...props}
@@ -24,8 +25,14 @@ export function SidebarConversationRow({
       }}
     >
       {children}
-      {/* Keep an activated control mounted for focus restoration and open menus. */}
-      {(activated || alwaysShowActions) && actions}
+      {/* Keep mouse-only controls in the DOM for layout stability, but hide them
+          from the accessibility tree until the row is hovered, focused or touch. */}
+      <div
+        aria-hidden={actionsVisible ? undefined : true}
+        inert={!actionsVisible}
+      >
+        {actions}
+      </div>
     </div>
   )
 }

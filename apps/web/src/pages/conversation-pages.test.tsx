@@ -826,7 +826,7 @@ describe("conversation file downloads", () => {
       let download: HTMLElement
       if (entry === "source preview") {
         await interaction.click(
-          within(reply).getByRole("button", { name: "预览文件 report.mp3" })
+          within(reply).getByRole("button", { name: /预览文件 report\.mp3/u })
         )
         download = await screen.findByRole("button", {
           name: "下载文档 report.mp3",

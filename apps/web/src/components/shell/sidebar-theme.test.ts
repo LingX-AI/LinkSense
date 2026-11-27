@@ -79,7 +79,7 @@ describe("sidebar theme", () => {
     )
     expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
     expect(lightTheme).toContain(
-      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);"
+      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);"
     )
     expect(lightTheme).toContain("--app-user-surface: #f2f7ff;")
     expect(lightTheme).toContain("--primary: #0874ff;")

@@ -306,7 +306,7 @@
     transparent
   );
   --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 4.5%, transparent);
-  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);
+  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-sidebar-primary-hover-bg: #f6f9ff;
@@ -321,7 +321,7 @@
     var(--muted-foreground)
   );
   --conversation-top-bar-height: 66px;
-  --app-text: #1c2238;
+  --app-text: #252b49;
   --app-muted: var(--muted-foreground);
   --app-scrollbar-size: 7px;
   --app-scrollbar-radius: 999px;
@@ -762,6 +762,11 @@
 
 .sidebar-account-avatar [data-slot="avatar-fallback"] {
   color: var(--app-sidebar-avatar-foreground);
+}
+
+/* Avatar initials are decorative; render them from data so they are not read as control text. */
+.sidebar-account-initials::before {
+  content: attr(data-initials);
 }
 
 .conversation-scroll {
@@ -7579,6 +7584,7 @@ button.annotation-hover-file:focus-visible {
 .process-commentary .assistant-markdown {
   max-width: 100%;
   color: var(--process-commentary-color);
+  font-weight: 500;
 }
 
 .process-commentary .assistant-markdown :is(h1, h2, h3, h4) {
@@ -9129,6 +9135,8 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-navigation-body {
+  --app-sidebar-row-height: 40px;
+
   display: flex;
   height: 100%;
   min-height: 0;
@@ -9152,6 +9160,22 @@ button.annotation-hover-file:focus-visible {
   gap: 12px;
   overflow-y: auto;
   padding: 8px 16px 16px;
+}
+
+/* Title-menu glyphs keep the compact 14px muted treatment from the Figma menu. */
+.conversation-title-menu-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--app-muted);
+  opacity: 0.7;
+}
+
+/* Segmented tracks keep the pre-compaction 32px tab height. */
+[data-slot="tabs-list"]:not([data-variant="navigation"])
+  [data-slot="tabs-trigger"] {
+  min-height: 32px;
+  padding-block: 4px;
+  font-weight: 500;
 }
 
 .settings-back-link {
@@ -9218,7 +9242,7 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-group nav {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -12600,4 +12624,11 @@ button.annotation-hover-file:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Toast exits are decorative; hide the node as soon as Sonner marks it removed so
+   its fading text never reaches accessibility scans as low-contrast content. */
+[data-sonner-toast][data-removed="true"] {
+  visibility: hidden;
+  pointer-events: none;
 }

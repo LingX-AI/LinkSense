@@ -1868,7 +1868,7 @@ function EvidenceCitationLink({
   return (
     <Link
       to={getKnowledgeCitationPreviewPath(citation)}
-      aria-labelledby={`${id}-document ${id}-source`}
+      aria-labelledby={`${id}-document ${id}-source ${id}-location`}
       aria-describedby={`${id}-location`}
       className="group/source flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 no-underline! hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
@@ -2734,14 +2734,14 @@ const Message = memo(function Message({
     >
       {copyState === "copied" ? (
         <CheckIcon
-          className="size-[var(--app-ui-font-size)]"
-          strokeWidth={2}
+          className="size-3"
+          strokeWidth={1.5}
           aria-hidden="true"
         />
       ) : (
         <CopyIcon
-          className="size-[var(--app-ui-font-size)]"
-          strokeWidth={2}
+          className="size-3"
+          strokeWidth={1.5}
           aria-hidden="true"
         />
       )}
@@ -2760,14 +2760,14 @@ const Message = memo(function Message({
       >
         {forkState === "forking" ? (
           <LoaderCircleIcon
-            className="size-[var(--app-ui-font-size)] animate-spin"
-            strokeWidth={2}
+            className="size-3 animate-spin"
+            strokeWidth={1.5}
             aria-hidden="true"
           />
         ) : (
           <GitForkIcon
-            className="size-[var(--app-ui-font-size)]"
-            strokeWidth={2}
+            className="size-3"
+            strokeWidth={1.5}
             aria-hidden="true"
           />
         )}
@@ -2819,14 +2819,14 @@ const Message = memo(function Message({
             >
               {messageReferenceAction.mode === "ask" ? (
                 <MessagesSquareIcon
-                  className="size-[var(--app-ui-font-size)]"
-                  strokeWidth={2}
+                  className="size-3"
+                  strokeWidth={1.5}
                   aria-hidden="true"
                 />
               ) : (
                 <CornerUpLeftIcon
-                  className="size-[var(--app-ui-font-size)]"
-                  strokeWidth={2}
+                  className="size-3"
+                  strokeWidth={1.5}
                   aria-hidden="true"
                 />
               )}
@@ -3225,8 +3225,8 @@ const Message = memo(function Message({
                       onClick={startEditing}
                     >
                       <PencilIcon
-                        className="size-[var(--app-ui-font-size)]"
-                        strokeWidth={2}
+                        className="size-3"
+                        strokeWidth={1.5}
                         aria-hidden="true"
                       />
                     </Button>

@@ -2112,7 +2112,7 @@ function PersonalMcpPanel({
             return (
               <article
                 key={server.id}
-                className="capability-library-row min-h-15! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
+                className="capability-library-row min-h-15! min-h-16! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
                 aria-label={server.name}
               >
                 <div className="capability-library-body">

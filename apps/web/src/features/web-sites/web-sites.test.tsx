@@ -75,7 +75,7 @@ afterEach(() => {
 })
 
 describe("website management", () => {
-  it("keeps the custom slug link in details when the stable application URL is different", async () => {
+  it("keeps the custom slug link in details while rows open the stable application URL", async () => {
     const user = userEvent.setup()
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
     const url = `https://public.example.test/app/s/${id}`
@@ -93,7 +93,7 @@ describe("website management", () => {
     const row = await screen.findByRole("article", { name: site.name })
     expect(
       within(row).getByRole("link", { name: i18n.t("webSites.visit") })
-    ).toHaveAttribute("href", aliasUrl)
+    ).toHaveAttribute("href", url)
     expect(within(row).queryByText("/web/drink-water")).not.toBeInTheDocument()
     expect(
       within(row).queryByRole("button", {

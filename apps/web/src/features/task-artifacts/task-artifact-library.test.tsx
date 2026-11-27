@@ -214,7 +214,7 @@ describe("task artifact library", () => {
     }
 
     await interaction.click(
-      screen.getByRole("button", { name: "预览文件 季度总结.pdf" })
+      screen.getByRole("button", { name: /预览文件 季度总结\.pdf/u })
     )
     expect(screen.getByLabelText("产物预览 季度总结.pdf")).toBeVisible()
 

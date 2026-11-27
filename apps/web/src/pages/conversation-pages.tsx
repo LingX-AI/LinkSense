@@ -37,6 +37,7 @@ import {
 } from "@tanstack/react-query"
 import {
   AppWindowIcon,
+  ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
@@ -6974,12 +6975,16 @@ export function ConversationPage({
                   >
                     {displayConversation.archived ? (
                       <ArchiveRestoreIcon
-                        className="size-4"
+                        className="conversation-title-menu-icon size-4"
                         data-icon="conversation-unarchive"
                         aria-hidden="true"
                       />
                     ) : (
-                      <DesignIcon name="archive" className="size-4" />
+                      <ArchiveIcon
+                        className="conversation-title-menu-icon size-4"
+                        data-design-icon="archive"
+                        aria-hidden="true"
+                      />
                     )}{" "}
                     {t(
                       displayConversation.archived
@@ -7010,7 +7015,11 @@ export function ConversationPage({
                     variant="destructive"
                     onClick={() => setDeleteOpen(true)}
                   >
-                    <DesignIcon name="delete" className="size-4" />{" "}
+                    <Trash2Icon
+                      className="conversation-title-menu-icon size-4"
+                      data-design-icon="delete"
+                      aria-hidden="true"
+                    />{" "}
                     {t("conversation.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>

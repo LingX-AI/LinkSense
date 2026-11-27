@@ -8,7 +8,7 @@ export function siteCustomAliasUrl(site: WebSite): string | undefined {
     : undefined
 }
 
-/** Where a site's visit action should open: the custom slug when there is one. */
+/** Where a site's visit action should open: the stable application URL. */
 export function siteVisitUrl(site: WebSite): string {
-  return siteCustomAliasUrl(site) ?? site.url ?? site.url_path
+  return site.url ?? site.url_path
 }
