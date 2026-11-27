@@ -75,14 +75,14 @@ settings page: the app stays connected while signed in.
 
 Every conversation gets a local folder grant. The composer toolbar carries a
 folder button that opens the native picker, and a shield button beside it that
-switches the current grant between read-only and read-and-write. Without a
-choice it defaults to the home folder (`~`) in read-and-write mode; the choice
-is per-conversation and persists on this Mac. Re-selecting a previously
-authorized folder reuses its stored grant, so macOS does not ask twice. The
-composer's `@` menu lists the grant's directory entries and inserts the chosen
-relative path into the message; the add-content menu keeps only the
-attachment options. Absolute paths stay in this Mac's application data and
-never reach the API or the cloud task.
+opens the permission menu: the folder's read-only / read-and-write access and
+the conversation's local permission mode. Without a choice it defaults to the
+home folder (`~`) in read-and-write mode; both choices are per-conversation and
+persist on this Mac. Re-selecting a previously authorized folder reuses its
+stored grant, so macOS does not ask twice. The composer's `@` menu lists the
+grant's directory entries and inserts the chosen relative path into the
+message; the add-content menu keeps only the attachment options. Absolute paths
+stay in this Mac's application data and never reach the API or the cloud task.
 
 A cloud task on a conversation with an online Mac gets the separate
 `local_tools_ping` tool. The cloud runner calls the API device gateway, the API
@@ -101,6 +101,32 @@ Every path is resolved under its root, and absolute paths, `..`, backslashes,
 cross-root access and symlink escapes are rejected. A read-only grant rejects
 write, create and delete before dispatch. File audit rows contain only the
 relative path, operation, result and duration.
+
+Cloud tasks can also run terminal commands with `local_shell_exec`. One call is
+one non-interactive `zsh -c` process whose working directory is a relative path
+inside the conversation's grant; `open` and `open -a` cover opening files, URLs
+and apps, so there is no separate tool for them. Each output stream is capped at
+64 KiB and a command times out after 1–120 seconds (default 30); the whole
+process group is killed and the result reports `timed_out`. The conversation's
+permission mode decides when the Mac asks first:
+
+- **Manual** (default) asks before every command and every file write, create or
+  delete.
+- **Accept edits** asks before commands but auto-approves file changes inside
+  the grant.
+- **Auto** auto-approves file changes and only plain read-only commands: one
+  command, no shell composition or quoting, an allowlisted program (`ls`,
+  `cat`, `grep`, `rg`, `wc`, read-only `git`, …), and every path-like argument
+  resolving inside the grant. Everything else asks.
+- **Bypass permissions** never asks.
+
+The approval card appears in the shared Web UI with the command and its
+relative working directory, or the relative file path. Denying, not answering
+within 45 seconds, losing the socket, cancelling, or having no page available
+all fail closed: nothing runs. The command itself runs with the user's own Mac
+account privileges; the folder grant constrains the working directory and the
+file tools, not the process. Command text and output never enter API audit or
+conversation events.
 
 On macOS the LinkSense menu bar item can reopen the main window, open
 Settings or New Task, and quit. To keep tasks running when the window closes,
