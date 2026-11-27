@@ -5,6 +5,10 @@ FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf2583
 RUN apt-get update && apt-get install --yes --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=upstream /usr/share/elasticsearch /elasticsearch
 COPY scripts/patch-elasticsearch-jars.py /patch-elasticsearch-jars.py
+# Record the upstream tree before patching so the final image can carry only
+# the jars the patch actually rewrote instead of a second full distribution.
+RUN cd /elasticsearch \
+  && find . -type f -exec sha256sum {} + | LC_ALL=C sort > /upstream.sha256
 RUN mkdir /patches \
   && curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 120 -fsSL https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.21.7/jackson-core-2.21.7.jar -o /patches/jackson-core-2.21.7.jar \
   && curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 120 -fsSL https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.21.7/jackson-databind-2.21.7.jar -o /patches/jackson-databind-2.21.7.jar \
@@ -13,7 +17,19 @@ RUN mkdir /patches \
     'a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85  /patches/jackson-core-2.21.7.jar' \
     '3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3  /patches/jackson-databind-2.21.7.jar' \
     'b9d688df29faac621391d4f1a3391bbd756b74cdc3294ed15ae515eb9ae47eb81a8ec1ae3db4081c07a98129b03d3b24eba1dedce754328d8142c256a7ff0622  /patches/jsoup-1.23.2.jar' | sha512sum -c - \
-  && python /patch-elasticsearch-jars.py /elasticsearch /patches
+  && python /patch-elasticsearch-jars.py /elasticsearch /patches \
+  && cd /elasticsearch \
+  && find . -type f -exec sha256sum {} + | LC_ALL=C sort > /patched.sha256 \
+  && comm -13 /upstream.sha256 /patched.sha256 | awk '{ print $2 }' > /changed-files \
+  && test -s /changed-files \
+  && mkdir -p /patched-files \
+  && while IFS= read -r changed_file; do \
+      mkdir -p "/patched-files/$(dirname "$changed_file")"; \
+      cp -p "$changed_file" "/patched-files/$changed_file"; \
+    done < /changed-files \
+  && find /patched-files -name 'jackson-core-2.21.7.jar' -print -quit | grep -q . \
+  && find /patched-files -name 'jackson-databind-2.21.7.jar' -print -quit | grep -q . \
+  && find /patched-files -name 'jsoup-1.23.2.jar' -print -quit | grep -q .
 FROM ${UPSTREAM_IMAGE}
 # COPY merges directories; remove only the superseded jars from the upstream
 # layer so Java never discovers two versions of the same named module.
@@ -24,4 +40,5 @@ RUN find /usr/share/elasticsearch -type f \( \
     -name 'jsoup-1.21.2.jar' \
   \) -delete
 USER elasticsearch
-COPY --from=patch --chown=elasticsearch:root /elasticsearch/ /usr/share/elasticsearch/
+# Only the jars rewritten by the patch are copied over the upstream tree.
+COPY --from=patch --chown=elasticsearch:root /patched-files/ /usr/share/elasticsearch/

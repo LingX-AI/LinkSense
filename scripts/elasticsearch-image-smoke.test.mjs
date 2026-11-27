@@ -13,8 +13,11 @@ test("the final Elasticsearch image removes replaced upstream jars before copyin
   for (const name of ["jackson-core-2.21.6.jar", "jackson-databind-2.21.6.jar", "jsoup-1.21.2.jar"]) {
     assert.ok(runtime.includes(`-name '${name}'`));
   }
-  assert.match(runtime, /-delete\nUSER elasticsearch\nCOPY --from=patch/u);
+  assert.match(runtime, /-delete\nUSER elasticsearch\n# Only the jars rewritten by the patch are copied over the upstream tree\.\nCOPY --from=patch --chown=elasticsearch:root \/patched-files\//u);
+  assert.doesNotMatch(runtime, /COPY --from=patch --chown=elasticsearch:root \/elasticsearch\//u);
   assert.doesNotMatch(runtime, /rm -rf/u);
+  assert.match(dockerfile, /comm -13 \/upstream\.sha256 \/patched\.sha256/u);
+  assert.match(dockerfile, /find \/patched-files -name 'jackson-core-2\.21\.7\.jar'/u);
 });
 
 test("a failed Elasticsearch startup retains its crash logs until owned cleanup", (t) => {

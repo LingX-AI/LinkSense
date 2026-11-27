@@ -20,7 +20,7 @@ verified digests without rebuilding the third-party components.
 | BusyBox | `docker.io/library/busybox:1.37.0` | Core and Full, setup | [GPLv2](https://www.busybox.net/license.html) |
 | nginx | `docker.io/library/nginx:1.30-alpine` | Core and Full | [BSD 2-Clause](https://nginx.org/LICENSE) |
 | Elasticsearch official distribution | `docker.elastic.co/elasticsearch/elasticsearch-wolfi:8.19.22` | Full | [Elastic License 2.0](https://www.elastic.co/licensing/elastic-license) |
-| Docling Serve | `quay.io/docling-project/docling-serve:v1.36.0` | Full | [MIT](https://github.com/docling-project/docling-serve/blob/v1.36.0/LICENSE) |
+| Docling Serve (CPU) | `quay.io/docling-project/docling-serve-cpu:v1.36.0` | Full | [MIT](https://github.com/docling-project/docling-serve/blob/v1.36.0/LICENSE) |
 
 Redis 7.4 is source-available under RSALv2 or SSPLv1, rather than an
 OSI-approved open-source license. The AGPLv3 option added to some Elasticsearch

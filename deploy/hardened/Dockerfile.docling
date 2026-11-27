@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG UPSTREAM_IMAGE=quay.io/docling-project/docling-serve:v1.36.0
+ARG UPSTREAM_IMAGE=quay.io/docling-project/docling-serve-cpu:v1.36.0
 FROM ghcr.io/astral-sh/uv:0.9.13 AS uv
 FROM ${UPSTREAM_IMAGE}
 USER 0
