@@ -2118,7 +2118,7 @@ describe("administrator authentication settings", () => {
 
     await interaction.click(provider)
     const serviceProviderOptions = await screen.findAllByRole("option")
-    expect(serviceProviderOptions).toHaveLength(9)
+    expect(serviceProviderOptions).toHaveLength(10)
     expect(
       serviceProviderOptions.map((option) =>
         option
@@ -2134,6 +2134,7 @@ describe("administrator authentication settings", () => {
       "alibaba",
       "deepseek",
       "openrouter",
+      "llmtr",
       "openai_compatible",
     ])
     expect(
@@ -2150,6 +2151,7 @@ describe("administrator authentication settings", () => {
       "text-provider-alibaba",
       "text-provider-deepseek",
       "text-provider-openrouter",
+      "text-provider-llmtr",
       "text-provider-vllm",
     ])
     await interaction.keyboard("{Escape}")

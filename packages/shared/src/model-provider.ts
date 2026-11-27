@@ -57,6 +57,7 @@ export const modelServiceProviderValues = [
   "alibaba",
   "deepseek",
   "openrouter",
+  "llmtr",
   "openai_compatible",
 ] as const
 
@@ -201,6 +202,7 @@ export const modelProviderPresets = {
   alibaba: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
   deepseek: { base_url: "https://api.deepseek.com/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
   openrouter: { base_url: "https://openrouter.ai/api/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  llmtr: { base_url: "https://llmtr.com/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
   openai_compatible: { base_url: null, protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
 } as const satisfies Record<ModelServiceProvider, {
   base_url: string | null

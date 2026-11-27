@@ -5241,6 +5241,7 @@ export const jaJP = {
         alibaba: "Alibaba / Qwen",
         deepseek: "DeepSeek",
         openrouter: "OpenRouter",
+        llmtr: "LLMTR",
         openai_compatible: "OpenAI 互換 / vLLM",
       },
       model: "マルチモーダルモデル ID",

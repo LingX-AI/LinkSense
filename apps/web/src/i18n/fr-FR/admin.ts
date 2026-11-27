@@ -602,6 +602,7 @@ export const admin = {
       alibaba: "Alibaba / Qwen",
       deepseek: "DeepSeek",
       openrouter: "OpenRouter",
+      llmtr: "LLMTR",
       openai_compatible: "Compatible OpenAI / vLLM",
     },
     model: "Identifiant du modèle multimodal",

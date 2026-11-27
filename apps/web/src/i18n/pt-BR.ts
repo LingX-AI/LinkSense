@@ -5323,6 +5323,7 @@ export const ptBR = {
         alibaba: "Alibaba / Qwen",
         deepseek: "DeepSeek",
         openrouter: "OpenRouter",
+        llmtr: "LLMTR",
         openai_compatible: "Compatível com OpenAI / vLLM",
       },
       model: "ID do modelo multimodal",
