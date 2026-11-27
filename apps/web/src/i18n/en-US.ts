@@ -4997,6 +4997,7 @@ export const enUS = {
         alibaba: "Alibaba / Qwen",
         deepseek: "DeepSeek",
         openrouter: "OpenRouter",
+        llmtr: "LLMTR",
         openai_compatible: "OpenAI-compatible / vLLM",
       },
       model: "Multimodal model ID",

@@ -4640,6 +4640,7 @@ export const zhCN = {
         alibaba: "阿里云 / Qwen",
         deepseek: "DeepSeek",
         openrouter: "OpenRouter",
+        llmtr: "LLMTR",
         openai_compatible: "OpenAI 兼容 / vLLM",
       },
       model: "多模态模型 ID",

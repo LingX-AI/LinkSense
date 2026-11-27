@@ -160,6 +160,7 @@
   --color-provider-alibaba: var(--provider-logo-alibaba);
   --color-provider-deepseek: var(--provider-logo-deepseek);
   --color-provider-openrouter: var(--provider-logo-openrouter);
+  --color-provider-llmtr: var(--provider-logo-llmtr);
   --color-provider-vllm: var(--provider-logo-vllm);
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.75);
@@ -236,6 +237,7 @@
   --provider-logo-alibaba: #ff6a00;
   --provider-logo-deepseek: #4d6bfe;
   --provider-logo-openrouter: #6467f2;
+  --provider-logo-llmtr: #0f766e;
   --provider-logo-vllm: #7c3aed;
 
   --app-brand: var(--primary);

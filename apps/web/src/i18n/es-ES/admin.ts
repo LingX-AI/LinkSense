@@ -617,6 +617,7 @@ export const adminMessages = {
         alibaba: "Alibaba / Qwen",
         deepseek: "DeepSeek",
         openrouter: "OpenRouter",
+        llmtr: "LLMTR",
         openai_compatible: "Compatible con OpenAI / vLLM",
       },
       model: "ID del modelo multimodal",

@@ -93,6 +93,14 @@ export function createProviderLanguageModel(
         ...(runtime.baseUrl ? { baseURL: runtime.baseUrl } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })(runtime.model)
+    case "llmtr":
+      return createOpenAICompatible({
+        name: options.openAICompatibleName ?? "llmtr",
+        apiKey: runtime.apiKey,
+        baseURL: runtime.baseUrl ?? "https://llmtr.com/v1",
+        supportsStructuredOutputs: options.supportsStructuredOutputs ?? false,
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+      })(runtime.model)
     case "openai_compatible":
       return createOpenAICompatible({
         name: options.openAICompatibleName ?? "linksense-openai-compatible",

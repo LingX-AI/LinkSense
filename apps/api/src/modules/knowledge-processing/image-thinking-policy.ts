@@ -42,6 +42,8 @@ export function resolveImageThinkingStrategy(input: {
       )
         ? "openrouter_none"
         : null
+    case "llmtr":
+      return null
     case "openai_compatible":
       return /^qwen(?:$|[0-9_.-])/u.test(model)
         ? "vllm_qwen_disabled"

@@ -123,6 +123,7 @@ const legacyImageSettingsSchema = z.object({
       "alibaba",
       "deepseek",
       "openrouter",
+      "llmtr",
       "openai_compatible",
     ])
     .nullable(),
@@ -2058,6 +2059,8 @@ function defaultProviderBaseUrl(
       return "https://api.deepseek.com/v1"
     case "openrouter":
       return "https://openrouter.ai/api/v1"
+    case "llmtr":
+      return "https://llmtr.com/v1"
     case "azure_openai":
     case "openai_compatible":
       return null
