@@ -543,9 +543,9 @@ describe("LinkSense application", () => {
     await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "Password1!")
     await interaction.click(screen.getByRole("button", { name: "登录" }))
 
-    expect(
-      await screen.findByRole("region", { name: "Browser Use" })
-    ).toHaveFocus()
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Browser Use" })).toHaveFocus()
+    )
   })
 
   it.each(["oidc", "saml", "social"])(
@@ -560,9 +560,9 @@ describe("LinkSense application", () => {
       const callbackPath = `/auth/${protocol}/callback?result=success`
       window.history.replaceState({}, "", callbackPath)
       const callback = renderApp(callbackPath)
-      expect(
-        await screen.findByRole("region", { name: "Browser Use" })
-      ).toHaveFocus()
+      await waitFor(() =>
+        expect(screen.getByRole("region", { name: "Browser Use" })).toHaveFocus()
+      )
       expect(window.location.search).toBe("")
       callback.unmount()
 
