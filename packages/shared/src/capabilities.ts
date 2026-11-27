@@ -11,8 +11,6 @@ import {
 export const PUBLIC_SITE_SKILL_NAME = "linksense-public-site";
 
 export const builtInSkillNames = [
-  "linksense-browser",
-  "linksense-local-browser",
   "linksense-document-reader",
   "linksense-docs",
   "linksense-file-service",

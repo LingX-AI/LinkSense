@@ -26,7 +26,6 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RESPONSE_INVALID: "O serviço retornou resultados inválidos. Contate o administrador.",
   WEB_SEARCH_TIMEOUT: "A pesquisa excedeu o tempo limite. Tente novamente mais tarde.",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "As configurações de mascaramento de privacidade estão temporariamente indisponíveis. Para evitar o envio de conteúdo sem máscara, tente novamente mais tarde ou contate um administrador.",
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "O mascaramento de privacidade está ativado, então um novo turno não pode ser executado neste Mac. Se a nuvem estiver disponível, continue por lá.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
@@ -60,7 +59,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "WEB_SITE_RESOURCES_MISSING": "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "O pacote da página está incompleto ou contém arquivos não compatíveis. Atualize-o na tarefa de origem e tente novamente",
   "CLIENT_UPDATE_REQUIRED": "O sistema foi atualizado. Atualize esta página para continuar.",
-  "DESKTOP_UPDATE_REQUIRED": "O aplicativo e o servidor são incompatíveis. Atualize o aplicativo ou entre em contato com o administrador se ainda não conseguir conectar.",
+
   "SERVICE_TEMPORARILY_UNAVAILABLE": "O sistema está temporariamente indisponível. Tente novamente em breve.",
   "APPLICATION_VERSION_TOO_LOW": "A versão deve ser maior que a maior versão existente, v{{version}}. Escolha uma versão maior.",
   "APPLICATION_RUNTIME_BUSY": "Este aplicativo tem tarefas comuns em andamento e não pode ser salvo nem atualizado. Interrompa-as ou aguarde a conclusão e tente novamente.",
@@ -232,10 +231,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "TURN_START_CLOSED": "O envio anterior foi encerrado. Esta solicitação não foi executada. Envie-a novamente.",
   "RUNNER_UNAVAILABLE": "O serviço de execução está indisponível. Tente novamente mais tarde.",
   "RUNNER_OPERATION_UNCERTAIN": "Ainda não foi confirmado se o seu Mac executou esta operação. Aguarde a atualização do status antes de enviá-la novamente.",
-  "DESKTOP_DEVICE_REVOKED": "O acesso a este Mac foi revogado. O conteúdo existente foi mantido. Verifique no Mac até onde a tarefa avançou.",
-  "DESKTOP_LOCAL_TARGET_RETIRED": "A execução local foi descontinuada. As novas tarefas são executadas apenas na nuvem.",
-  "DESKTOP_LOCAL_TOOLS_DISABLED": "As ferramentas locais estão desativadas neste Mac. Reative-as nas configurações.",
-  "DESKTOP_FILE_ROOT_NOT_FOUND": "Esta pasta local não existe mais ou foi removida.",
+
   "DEPLOYMENT_STOPPED": "Esta tarefa foi interrompida para uma atualização do sistema. O conteúdo existente foi mantido. Revise o progresso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "As versões do serviço de execução são incompatíveis. Tente novamente mais tarde. Se o problema persistir, entre em contato com um administrador.",
   "AUTH_INVALID_CREDENTIALS": "E-mail ou senha inválidos.",

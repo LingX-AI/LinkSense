@@ -272,24 +272,7 @@ export const conversationUserInputResponseSchema = z.discriminatedUnion(
   ],
 );
 
-export const desktopApprovalMethodSchema = z.enum([
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-]);
-// Only one-time decisions are supported. Codex has no immediate revocation or TTL for saved rules.
-export const desktopApprovalDecisionSchema = z.enum(["accept", "decline", "cancel"]);
-export const desktopApprovalResponseSchema = z.strictObject({
-  method: desktopApprovalMethodSchema,
-  decision: desktopApprovalDecisionSchema,
-});
-export const desktopApprovalTimeoutMs = 3 * 60 * 1_000;
-export const nativeUserInputResponseSchema = z.union([
-  conversationUserInputResponseSchema,
-  desktopApprovalResponseSchema,
-]);
-export type DesktopApprovalResponse = z.infer<typeof desktopApprovalResponseSchema>;
-export type DesktopApprovalDecision = DesktopApprovalResponse["decision"];
-export type DesktopApprovalMethod = DesktopApprovalResponse["method"];
+export const nativeUserInputResponseSchema = conversationUserInputResponseSchema;
 export type NativeUserInputResponse = z.infer<typeof nativeUserInputResponseSchema>;
 
 function validateFieldBounds(

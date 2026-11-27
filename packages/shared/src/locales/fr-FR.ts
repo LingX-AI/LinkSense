@@ -26,7 +26,6 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RESPONSE_INVALID: "Le service a renvoyé des résultats inutilisables. Contactez un administrateur.",
   WEB_SEARCH_TIMEOUT: "La recherche a expiré. Réessayez plus tard.",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "Les paramètres de masquage de confidentialité sont temporairement indisponibles. Pour éviter d’envoyer du contenu non masqué, réessayez plus tard ou contactez un administrateur.",
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "Le masquage de confidentialité est activé, donc un nouveau tour ne peut pas s’exécuter sur ce Mac. Si le cloud est disponible, vous pouvez y continuer.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Saisissez le secret de l’application. Si vous changez son identifiant, saisissez aussi le secret de la nouvelle application.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Comptes autorisés : {{count}}. Changer l’identifiant de l’application impose à ces utilisateurs de se reconnecter. Confirmez cet effet avant d’enregistrer.",
@@ -60,7 +59,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  WEB_SITE_RESOURCES_MISSING: "Une ressource de la page manque ({{path}}). Demandez à l’assistant de la tâche source d’enregistrer la page avec ses ressources avant de publier",
  WEB_SITE_BUNDLE_INVALID: "Le paquet de la page est incomplet ou contient des fichiers non pris en charge. Corrigez-le dans la tâche source et réessayez",
  CLIENT_UPDATE_REQUIRED: "Le système a été mis à jour. Actualisez cette page pour continuer.",
- DESKTOP_UPDATE_REQUIRED: "L’application de bureau et le serveur sont incompatibles. Mettez l’application à jour ou contactez votre administrateur si la connexion reste impossible.",
+
  SERVICE_TEMPORARILY_UNAVAILABLE: "Le système est temporairement indisponible. Réessayez dans un instant.",
  APPLICATION_VERSION_TOO_LOW: "La version doit être supérieure à la dernière version existante v{{version}}. Choisissez une version supérieure.",
  APPLICATION_RUNTIME_BUSY: "Cette application a des tâches ordinaires en cours et ne peut pas être enregistrée ni mise à jour. Arrêtez-les ou attendez leur fin, puis réessayez.",
@@ -232,10 +231,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  TURN_START_CLOSED: "La soumission précédente est terminée. Cette demande n’a pas été exécutée. Envoyez-la à nouveau.",
  RUNNER_UNAVAILABLE: "Le service d’exécution est indisponible. Réessayez plus tard.",
  RUNNER_OPERATION_UNCERTAIN: "Il n’est pas encore confirmé que votre Mac a exécuté cette opération. Attendez la mise à jour de son état avant de la renvoyer.",
- DESKTOP_DEVICE_REVOKED: "L’accès à ce Mac a été révoqué. Le contenu existant a été conservé. Vérifiez sur le Mac où la tâche s’est arrêtée.",
- DESKTOP_LOCAL_TARGET_RETIRED: "L’exécution locale n’est plus disponible. Les nouvelles tâches s’exécutent uniquement dans le cloud.",
- DESKTOP_LOCAL_TOOLS_DISABLED: "Les outils locaux sont désactivés sur ce Mac. Réactivez-les dans les réglages.",
- DESKTOP_FILE_ROOT_NOT_FOUND: "Ce dossier local n’existe plus ou a été supprimé.",
+
  DEPLOYMENT_STOPPED: "Cette tâche a été arrêtée pour une mise à jour du système. Le contenu existant est conservé. Vérifiez la progression avant de continuer manuellement.",
  EXECUTION_SERVICE_INCOMPATIBLE: "Les versions du service d’exécution sont incompatibles. Réessayez plus tard. Si le problème persiste, contactez un administrateur.",
  AUTH_INVALID_CREDENTIALS: "E-mail ou mot de passe invalide.",

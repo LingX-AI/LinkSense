@@ -26,7 +26,6 @@ export const errorMessages = {
   WEB_SEARCH_RESPONSE_INVALID: "El servicio devolvió resultados no válidos. Contacta con el administrador.",
   WEB_SEARCH_TIMEOUT: "La búsqueda agotó el tiempo de espera. Inténtalo más tarde.",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "La configuración de enmascaramiento de privacidad no está disponible temporalmente. Para evitar enviar contenido sin enmascarar, inténtalo más tarde o contacta con un administrador.",
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "El enmascaramiento de privacidad está activado, así que un nuevo turno no puede ejecutarse en este Mac. Si la nube está disponible, continúa allí.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
@@ -60,7 +59,7 @@ export const errorMessages = {
   "WEB_SITE_RESOURCES_MISSING": "Falta un recurso de la página ({{path}}). Pide al asistente de la tarea original que guarde la página junto con sus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "El paquete de la página está incompleto o contiene archivos no compatibles. Actualízalo en la tarea original y vuelve a intentarlo",
   "CLIENT_UPDATE_REQUIRED": "El sistema se ha actualizado. Actualiza esta página para continuar.",
-  "DESKTOP_UPDATE_REQUIRED": "La aplicación de escritorio y el servidor no son compatibles. Actualiza la aplicación o contacta con tu administrador si sigues sin poder conectarte.",
+
   "SERVICE_TEMPORARILY_UNAVAILABLE": "El sistema no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
   "APPLICATION_VERSION_TOO_LOW": "La versión debe ser superior a la más alta existente, v{{version}}. Elige una versión superior.",
   "APPLICATION_RUNTIME_BUSY": "Esta aplicación tiene tareas normales en curso y no se puede guardar ni actualizar. Detén las tareas o espera a que terminen e inténtalo de nuevo.",
@@ -232,10 +231,7 @@ export const errorMessages = {
   "TURN_START_CLOSED": "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
   "RUNNER_UNAVAILABLE": "El servicio de ejecución no está disponible. Inténtalo más tarde.",
   "RUNNER_OPERATION_UNCERTAIN": "Aún no se ha confirmado si tu Mac ejecutó esta operación. Espera a que se actualice el estado antes de volver a enviarla.",
-  "DESKTOP_DEVICE_REVOKED": "Se revocó el acceso a este Mac. Se conservó el contenido existente. Comprueba en el Mac hasta dónde llegó la tarea.",
-  "DESKTOP_LOCAL_TARGET_RETIRED": "La ejecución local ya no está disponible. Las tareas nuevas se ejecutan solo en la nube.",
-  "DESKTOP_LOCAL_TOOLS_DISABLED": "Las herramientas locales están desactivadas en este Mac. Vuelve a activarlas en Ajustes.",
-  "DESKTOP_FILE_ROOT_NOT_FOUND": "Esta carpeta local ya no existe o se eliminó.",
+
   "DEPLOYMENT_STOPPED": "Esta tarea se detuvo por una actualización del sistema. Se conservó el contenido existente. Revisa su progreso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "Las versiones del servicio de ejecución son incompatibles. Inténtalo más tarde. Si el problema persiste, contacta con un administrador.",
   "AUTH_INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",

@@ -26,7 +26,6 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RESPONSE_INVALID: "検索結果を利用できません。管理者にお問い合わせください。",
   WEB_SEARCH_TIMEOUT: "検索がタイムアウトしました。しばらくしてから再試行してください。",
   PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "プライバシーマスキング設定を一時的に読み取れません。マスクされていない内容を送信しないため、しばらくしてから再試行するか管理者に連絡してください。",
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: "プライバシーマスキングが有効なため、このMacでは新しいターンを実行できません。クラウドが利用可能な場合は、クラウドで続行できます。",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",
@@ -60,7 +59,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SITE_RESOURCES_MISSING: "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",
   WEB_SITE_BUNDLE_INVALID: "ウェブページのパッケージが不完全か、未対応のファイルを含んでいます。作成元のタスクで更新して再試行してください",
   CLIENT_UPDATE_REQUIRED: "システムが更新されました。このページを更新して続行してください。",
-  DESKTOP_UPDATE_REQUIRED: "デスクトップアプリとサーバーのバージョンに互換性がありません。アプリを更新してください。接続できない場合は管理者にお問い合わせください。",
+
   SERVICE_TEMPORARILY_UNAVAILABLE: "システムを一時的に利用できません。少し待ってから再試行してください。",
   APPLICATION_VERSION_TOO_LOW: "既存の最新バージョン v{{version}} より高いバージョンを指定してください。",
   APPLICATION_RUNTIME_BUSY: "このアプリケーションには実行中の通常タスクがあるため、保存・更新できません。停止するか完了を待ってから再試行してください。",
@@ -232,10 +231,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   TURN_START_CLOSED: "前の送信は終了しています。このリクエストは実行されていません。再送信してください。",
   RUNNER_UNAVAILABLE: "実行サービスを利用できません。しばらくしてから再試行してください。",
   RUNNER_OPERATION_UNCERTAIN: "Macでこの操作が実行されたかはまだ確認できていません。再送信する前に、状態が更新されるまでお待ちください。",
-  DESKTOP_DEVICE_REVOKED: "このMacへのアクセス権が取り消されました。既存の内容は保持されています。タスクがどこまで進んだか、Macで確認してください。",
-  DESKTOP_LOCAL_TARGET_RETIRED: "ローカル実行は終了しました。新しいタスクはクラウドでのみ実行されます。",
-  DESKTOP_LOCAL_TOOLS_DISABLED: "このMacではローカルツールが無効になっています。設定で再度有効にしてください。",
-  DESKTOP_FILE_ROOT_NOT_FOUND: "このローカルフォルダーは存在しないか、削除されました。",
+
   DEPLOYMENT_STOPPED: "システム更新のため、このタスクを停止しました。既存の内容は保持されています。進行状況を確認してから手動で続行してください。",
   EXECUTION_SERVICE_INCOMPATIBLE: "実行サービスのバージョンに互換性がありません。しばらくしてから再試行し、問題が続く場合は管理者にお問い合わせください。",
   AUTH_INVALID_CREDENTIALS: "メールアドレスまたはパスワードが正しくありません。",

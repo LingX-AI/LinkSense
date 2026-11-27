@@ -8,7 +8,6 @@ import {
   auditTranslationKey,
   auditTranslationResource,
 } from "./audit-i18n.js"
-import { desktopActivityActionSchema } from "./desktop-activity.js"
 
 describe("audit i18n catalog", () => {
   it.each(["zh-CN", "en-US"] as const)("localizes all application distribution actions and their target in %s", (locale) => {
@@ -43,11 +42,6 @@ describe("audit i18n catalog", () => {
       expect(Object.values(resource.results).every(Boolean)).toBe(true)
     }
   )
-
-  it("registers Pause for audit translation without widening the strict desktop activity view", () => {
-    expect(auditActionCodes).toContain("computer_session_paused")
-    expect(desktopActivityActionSchema.options).not.toContain("computer_session_paused")
-  })
 
   it("keeps dotted action codes addressable in frontend and backend resources", () => {
     const key = auditTranslationKey(

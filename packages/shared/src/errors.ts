@@ -75,15 +75,6 @@ export const errorCatalog = {
       "en-US": "Privacy masking settings are temporarily unavailable. To avoid sending unmasked content, try again later or contact an administrator.",
     },
   },
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE: {
-    message_key: "errors.desktopPrivacyMaskingUnavailable",
-    http_status: 403,
-    messages: {
-      "zh-CN": "隐私脱敏已开启，无法在这台 Mac 上运行新的任务轮次。如云端可用，请在云端继续。",
-      "en-US": "Privacy masking is enabled, so a new turn cannot run on this Mac. If the cloud is available, continue there.",
-    },
-  },
-
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,
     messages: {
@@ -172,14 +163,6 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "系统已更新，请更新页面后继续。",
       "en-US": "The system has been updated. Update this page to continue.",
-    },
-  },
-  DESKTOP_UPDATE_REQUIRED: {
-    message_key: "errors.desktopUpdateRequired",
-    http_status: 409,
-    messages: {
-      "zh-CN": "桌面客户端与服务端版本不兼容，请更新桌面客户端；如仍无法连接，请联系管理员。",
-      "en-US": "The desktop app and server are incompatible. Update the desktop app, or contact your administrator if you still cannot connect.",
     },
   },
   SERVICE_TEMPORARILY_UNAVAILABLE: {
@@ -1625,30 +1608,6 @@ export const errorCatalog = {
       "en-US": "The previous submission has ended. This request was not run. Please submit it again.",
     },
   },
-  DESKTOP_LOCAL_TARGET_RETIRED: {
-    message_key: "errors.desktopTargetRetired",
-    http_status: 409,
-    messages: {
-      "zh-CN": "本机运行已停用，新任务只在云端执行。",
-      "en-US": "Local execution is retired. New tasks run in the cloud only.",
-    },
-  },
-  DESKTOP_LOCAL_TOOLS_DISABLED: {
-    message_key: "errors.desktopLocalToolsDisabled",
-    http_status: 403,
-    messages: {
-      "zh-CN": "本机工具已在这台 Mac 上停用。请在设置中重新启用。",
-      "en-US": "Local tools are disabled on this Mac. Re-enable them in Settings.",
-    },
-  },
-  DESKTOP_FILE_ROOT_NOT_FOUND: {
-    message_key: "errors.desktopFileRootNotFound",
-    http_status: 404,
-    messages: {
-      "zh-CN": "这个本机文件夹已不存在或已被移除。",
-      "en-US": "This local folder no longer exists or was removed.",
-    },
-  },
   RUNNER_UNAVAILABLE: {
     message_key: "errors.runner.unavailable",
     http_status: 503,
@@ -1663,14 +1622,6 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "尚未确认 Mac 是否已执行此操作。请等待状态更新，暂勿重新提交。",
       "en-US": "It’s not yet confirmed whether your Mac ran this operation. Wait for a status update before submitting again.",
-    },
-  },
-  DESKTOP_DEVICE_REVOKED: {
-    message_key: "errors.desktopDeviceRevoked",
-    http_status: 403,
-    messages: {
-      "zh-CN": "这台 Mac 的授权已撤销。已有内容已保留，请在 Mac 上确认任务实际执行到了哪一步。",
-      "en-US": "Access to this Mac was revoked. Existing content was kept. Check the Mac to see how far the task got.",
     },
   },
   DEPLOYMENT_STOPPED: {
