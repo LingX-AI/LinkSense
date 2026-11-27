@@ -20,8 +20,9 @@ import type { BrowserUseService } from "../browser-use/service.js";
 
 /**
  * Internal entry point for the cloud runner. Authentication is the shared
- * runner secret plus the owner header; the task, turn, per-task local-tool
- * flag, and file-root grant are rechecked here before anything reaches a Mac.
+ * runner secret plus the owner header; the account, conversation, running turn
+ * and online Mac are rechecked here before anything reaches a Mac. The Mac
+ * enforces the conversation's folder grant.
  */
 export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
   prisma: PrismaClient;
