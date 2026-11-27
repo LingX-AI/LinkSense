@@ -149,7 +149,8 @@ export function sitePasscodePage(locale: Locale, input: { action: string; next?:
   const incorrect = input.incorrect
     ? `<p class="error" role="alert">${escapeHtml(translateBackend("webSitePage.passcodeIncorrect", locale))}</p>`
     : "";
-  const script = `(function(){var L=${JSON.stringify({ show, hide })},i=document.getElementById("passcode"),t=document.getElementById("passcode-toggle");if(!i||!t)return;t.addEventListener("click",function(){var v=i.type==="password";i.type=v?"text":"password";t.setAttribute("aria-pressed",String(v));t.setAttribute("aria-label",v?L.hide:L.show);i.focus();});})();`;
+  // Labels stay in data attributes so the hashed inline script contains no localized/user data.
+  const script = `(function(){var i=document.getElementById("passcode"),t=document.getElementById("passcode-toggle");if(!i||!t)return;t.addEventListener("click",function(){var v=i.type==="password";i.type=v?"text":"password";t.setAttribute("aria-pressed",String(v));t.setAttribute("aria-label",v?t.dataset.hide:t.dataset.show);i.focus();});})();`;
   const html = `<!doctype html>
 <html lang="${locale}">
 <head>
@@ -168,7 +169,7 @@ export function sitePasscodePage(locale: Locale, input: { action: string; next?:
 ${input.next ? `<input type="hidden" name="next" value="${escapeHtml(input.next)}">` : ""}
 <div class="field">
 <input id="passcode" name="passcode" type="password" autocomplete="current-password" maxlength="128" required autofocus aria-label="${label}" placeholder="${label}">
-<button type="button" id="passcode-toggle" class="toggle" aria-label="${escapeHtml(show)}" aria-pressed="false">
+<button type="button" id="passcode-toggle" class="toggle" aria-label="${escapeHtml(show)}" data-show="${escapeHtml(show)}" data-hide="${escapeHtml(hide)}" aria-pressed="false">
 <svg class="on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 <svg class="off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 11s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m2 2 20 20"/></svg>
 </button>

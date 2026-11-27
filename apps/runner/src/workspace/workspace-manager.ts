@@ -256,6 +256,10 @@ export class WorkspaceManager {
     const owner = this.ownerPathsFor(ownerId)
     const workspace = path.join(owner.home, this.conversationWorkspaces.get(conversationId) ?? "workspace")
     const control = path.join(owner.control, "workspaces", conversationId)
+    const relative = path.relative(owner.control, control)
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new WorkspaceBoundaryError("task runtime escapes its owner root")
+    }
     return {
       home: owner.home,
       ownerControl: owner.control,
