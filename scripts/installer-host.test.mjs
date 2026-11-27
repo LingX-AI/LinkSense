@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -157,6 +158,84 @@ host_network_diagnostics https://downloads.example/release hello-world:latest`, 
   assert.match(readFileSync(path.join(dir, "calls"), "utf8"), /downloads.example\/release\/release-manifest.env/u)
   assert.doesNotMatch(readFileSync(path.join(dir, "calls"), "utf8"), /raw\.githubusercontent\.com/u)
   assert.match(readFileSync(path.join(dir, "docker-calls"), "utf8"), /pull hello-world:latest/u)
+})
+
+for (const scenario of [
+  { edition: "full", origin: true, status: 0 },
+  { edition: "full", origin: false, status: 1 },
+  { edition: "full", origin: false, mirror: true, status: 0 },
+  { edition: "core", origin: false, status: 0 },
+]) {
+  const { edition, origin, mirror, status } = scenario
+  const behavior = edition === "core" ? "skip" : status === 0 ? "accept" : "report"
+  test(`${edition} network diagnostics ${behavior} the tokenizer asset source`, t => {
+    const dir = directory(t)
+    const result = run(`
+curl() {
+  out= url=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -o) out=$2; shift 2 ;;
+      -*) shift ;;
+      *) url=$1; shift ;;
+    esac
+  done
+  printf '%s\\n' "$url" >> "$DIR/calls"
+  case "$url" in
+    */release-manifest.env)
+      printf '%s\\n' 'TOKENIZER_FILE_COUNT=5' 'TOKENIZER_FILE_1_URL=https://huggingface.co/Qwen/Qwen3-Embedding-4B/resolve/revision/config.json?download=true' > "$out" ;;
+    *hf-mirror.com*) [ "$MIRROR" = true ] ;;
+    *huggingface.co*) [ "$ORIGIN" = true ] ;;
+    *) return 1 ;;
+  esac
+}
+host_bounded() { shift; "$@"; }
+docker() { case "$1" in info|pull) return 0 ;; *) return 1 ;; esac; }
+host_check_docker_credentials() { :; }
+EDITION=$EDITION_FIXTURE
+DOCKER_CLI=docker
+host_network_diagnostics https://downloads.example/release hello-world:latest`,
+      { DIR: dir, ORIGIN: String(origin), MIRROR: String(mirror === true), EDITION_FIXTURE: edition, LINKSENSE_HUGGINGFACE_MIRRORS: "" })
+    assert.equal(result.status, status, result.stderr)
+    const calls = readFileSync(path.join(dir, "calls"), "utf8")
+    if (edition === "core") {
+      assert.doesNotMatch(result.stdout, /terminal-tokenizer/u)
+      assert.doesNotMatch(calls, /huggingface/u)
+    } else if (status === 0) {
+      assert.match(result.stdout, mirror ? /PASS.*terminal-tokenizer:hf-mirror\.com/u : /PASS.*terminal-tokenizer:huggingface\.co/u)
+      assert.match(calls, /huggingface\.co.*config\.json/u)
+      if (mirror) assert.match(calls, /hf-mirror\.com.*config\.json/u)
+    } else {
+      assert.match(result.stdout, /FAIL.*terminal-tokenizer/u)
+      assert.match(result.stdout, /Full tokenizer asset source is unreachable/u)
+      assert.match(calls, /huggingface\.co.*config\.json/u)
+    }
+  })
+}
+
+test("tokenizer sources keep the manifest URL first and map only the matching origin", () => {
+  const url = "https://huggingface.co/Qwen/Qwen3-Embedding-4B/resolve/revision/config.json?download=true"
+  const defaulted = run(`host_tokenizer_sources '${url}'`, { LINKSENSE_HUGGINGFACE_MIRRORS: "" })
+  assert.equal(defaulted.status, 0, defaulted.stderr)
+  assert.deepEqual(defaulted.stdout.trim().split("\n"), [url, url.replace("huggingface.co", "hf-mirror.com")])
+
+  const configured = run(`host_tokenizer_sources '${url}'`, {
+    LINKSENSE_HUGGINGFACE_MIRRORS: "huggingface.co=mirror.example/hf;example.test=other.example",
+  })
+  assert.equal(configured.status, 0, configured.stderr)
+  assert.deepEqual(configured.stdout.trim().split("\n"), [
+    url, "https://mirror.example/hf/Qwen/Qwen3-Embedding-4B/resolve/revision/config.json?download=true",
+  ])
+
+  const disabled = run(`host_tokenizer_sources '${url}'`, { LINKSENSE_HUGGINGFACE_MIRRORS: "off" })
+  assert.deepEqual(disabled.stdout.trim().split("\n"), [url])
+
+  const other = run("host_tokenizer_sources 'https://downloads.example/tokenizer/config.json'", { LINKSENSE_HUGGINGFACE_MIRRORS: "" })
+  assert.deepEqual(other.stdout.trim().split("\n"), ["https://downloads.example/tokenizer/config.json"])
+
+  const invalid = run(`host_tokenizer_sources '${url}'`, { LINKSENSE_HUGGINGFACE_MIRRORS: "HuggingFace=mirror.example" })
+  assert.equal(invalid.status, 1)
+  assert.match(invalid.stderr, /LS_HOST_invalid_config/u)
 })
 
 for (const [mode, quota, memory, pids, status] of [
@@ -376,6 +455,81 @@ cmp "$DIR/first" "$DIR/second"
 cmp "$DIR/second" "$DIR/third"`, { DIR: dir })
   assert.equal(result.status, 0, result.stderr)
   assert.equal(readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n").length, 2)
+})
+
+test("tokenizer downloads fall back to the next source and accept only the manifest checksum", t => {
+  const dir = directory(t)
+  const result = run(`
+${fn("sha256_file")}
+${fn("verify_file")}
+${fn("download_verified")}
+fail() { echo "fail:$*" >&2; exit 1; }
+host_text() { :; }
+host_fail() { echo "hostfail:$1" >&2; exit 1; }
+host_download() {
+  echo "$1" >> "$DIR/calls"
+  case "$1" in
+    *origin*) return 28 ;;
+    *corrupt*) printf corrupt > "$2" ;;
+    *) printf valid > "$2" ;;
+  esac
+}
+INSTALL_DIR=$DIR/install
+TMP_ROOT=$DIR/tmp
+mkdir "$INSTALL_DIR" "$TMP_ROOT"
+touch "$INSTALL_DIR/install.pending"
+printf valid > "$DIR/original"
+sha=$(sha256_file "$DIR/original")
+download_verified https://origin.test/file "$DIR/first" "$sha" https://corrupt.test/file https://good.test/file
+cmp "$DIR/first" "$DIR/original"`, { DIR: dir })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n"), [
+    "https://origin.test/file", "https://corrupt.test/file", "https://good.test/file",
+  ])
+})
+
+test("a tokenizer mirror serving unverified bytes fails closed", t => {
+  const dir = directory(t)
+  const result = run(`
+${fn("sha256_file")}
+${fn("verify_file")}
+${fn("download_verified")}
+fail() { echo "fail:$*" >&2; exit 1; }
+host_text() { :; }
+host_fail() { echo "hostfail:$1" >&2; exit 1; }
+host_download() { printf corrupt > "$2"; }
+INSTALL_DIR=$DIR/install
+TMP_ROOT=$DIR/tmp
+mkdir "$INSTALL_DIR" "$TMP_ROOT"
+touch "$INSTALL_DIR/install.pending"
+printf valid > "$DIR/original"
+sha=$(sha256_file "$DIR/original")
+download_verified https://origin.test/file "$DIR/first" "$sha" https://corrupt.test/file`, { DIR: dir })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Checksum mismatch/u)
+  assert.equal(existsSync(path.join(dir, "first")), false)
+})
+
+test("tokenizer downloads fail closed after every source is unreachable", t => {
+  const dir = directory(t)
+  const sha = createHash("sha256").update("valid").digest("hex")
+  const result = run(`
+${fn("sha256_file")}
+${fn("verify_file")}
+${fn("download_verified")}
+fail() { echo "fail:$*" >&2; exit 1; }
+host_text() { echo "help:$1" >&2; }
+host_fail() { echo "hostfail:$1" >&2; exit 1; }
+host_download() { return 28; }
+INSTALL_DIR=$DIR/install
+TMP_ROOT=$DIR/tmp
+mkdir "$INSTALL_DIR" "$TMP_ROOT"
+touch "$INSTALL_DIR/install.pending"
+download_verified https://origin.test/file "$DIR/first" "$SHA" https://mirror.test/file`, { DIR: dir, SHA: sha })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /help:tokenizer_help/u)
+  assert.match(result.stderr, /hostfail:download/u)
+  assert.equal(existsSync(path.join(dir, "first")), false)
 })
 
 test("only a fresh installation without an explicit port or origin selects another port", t => {

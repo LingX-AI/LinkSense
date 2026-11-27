@@ -82,6 +82,12 @@ host_text() {
     terminal_help:pt-BR) host_message='Verifique https_proxy / ALL_PROXY, a porta e o protocolo do proxy no terminal. socks5h:// resolve nomes pelo proxy. Instruções: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
     terminal_help:fr-FR) host_message='Vérifiez https_proxy / ALL_PROXY, le port et le protocole du proxy dans le terminal. socks5h:// résout les noms via le proxy. Instructions : https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
     terminal_help:ja-JP) host_message='ターミナルの https_proxy / ALL_PROXY、待受ポート、プロキシの方式を確認してください。socks5h:// はプロキシ側で名前を解決します。手順：https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:zh-CN) host_message='无法访问 Full tokenizer 资产源。可通过 LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=镜像域名" 指定可访问且可信的镜像（仍按清单 SHA-256 校验），或为终端设置 https_proxy / ALL_PROXY；说明：https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:en-US) host_message='The Full tokenizer asset source is unreachable. Provide an accessible, trusted mirror with LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=mirror-host" (files are still verified against the manifest SHA-256), or set the terminal https_proxy / ALL_PROXY: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:es-ES) host_message='No se puede acceder al origen de activos tokenizer de Full. Proporcione un espejo accesible y de confianza con LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=servidor" (los archivos se siguen verificando con el SHA-256 del manifiesto), o configure https_proxy / ALL_PROXY en la terminal: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:pt-BR) host_message='Não é possível acessar a origem dos ativos de tokenizer do Full. Forneça um espelho acessível e confiável com LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=servidor" (os arquivos continuam verificados pelo SHA-256 do manifesto), ou configure https_proxy / ALL_PROXY no terminal: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:fr-FR) host_message='La source des ressources tokenizer de Full est inaccessible. Fournissez un miroir accessible et fiable via LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=hôte" (les fichiers restent vérifiés par le SHA-256 du manifeste), ou configurez https_proxy / ALL_PROXY dans le terminal : https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    tokenizer_help:ja-JP) host_message='Full の tokenizer アセット取得元に接続できません。LINKSENSE_HUGGINGFACE_MIRRORS="huggingface.co=ミラーホスト" で利用可能な信頼できるミラーを指定するか（ファイルは引き続きマニフェストの SHA-256 で検証されます）、ターミナルに https_proxy / ALL_PROXY を設定してください：https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
     docker_network_help:zh-CN) host_message='macOS：Docker Desktop → Settings → Resources → Proxies 单独配置代理；SOCKS5 需要 Business 订阅，可改用代理软件的 HTTP 端口。Linux：检查 daemon 代理。保留已有 Engine 配置，仅使用可信 registry-mirrors；镜像仓库的认证或限流也会导致拉取失败。' ;;
     docker_network_help:en-US) host_message='macOS: configure Docker Desktop → Settings → Resources → Proxies separately. SOCKS5 requires Business; use an HTTP proxy port otherwise. Linux: check the daemon proxy. Preserve Engine settings and use trusted registry-mirrors only; registry authentication or rate limits can also block pulls.' ;;
     docker_network_help:es-ES) host_message='macOS: configure por separado Docker Desktop → Settings → Resources → Proxies. SOCKS5 requiere Business; puede usar un puerto de proxy HTTP. Linux: compruebe el proxy del daemon. Conserve la configuración del Engine y use solo registry-mirrors de confianza; la autenticación o los límites del registro también pueden impedir descargas.' ;;
@@ -256,6 +262,7 @@ host_network_request() (
 )
 
 host_network_diagnostics() (
+  set -f
   host_network_base=${1%/}
   shift
   host_network_failed=0
@@ -303,6 +310,29 @@ host_network_diagnostics() (
       set -- hello-world:latest
     fi
   fi
+  if [ "${EDITION:-}" = full ] && [ "$host_network_release_ok" = true ]; then
+    host_network_tokenizer_count=$(read_key "$host_network_tmp/manifest" TOKENIZER_FILE_COUNT 2>/dev/null) || host_network_tokenizer_count=
+    host_network_tokenizer_url=$(read_key "$host_network_tmp/manifest" TOKENIZER_FILE_1_URL 2>/dev/null) || host_network_tokenizer_url=
+    case "$host_network_tokenizer_count:$host_network_tokenizer_url" in
+      [1-9]*:https://*)
+        host_network_tokenizer_sources=$(host_tokenizer_sources "$host_network_tokenizer_url") || host_network_tokenizer_sources=
+        host_network_tokenizer_source=
+        for host_network_candidate in $host_network_tokenizer_sources; do
+          if host_network_request "$host_network_candidate" "$host_network_tmp/tokenizer"; then
+            host_network_tokenizer_source=${host_network_candidate#https://}
+            host_network_tokenizer_source=${host_network_tokenizer_source%%/*}
+            break
+          fi
+        done
+        if [ -n "$host_network_tokenizer_source" ]; then
+          host_text network_pass "terminal-tokenizer:$host_network_tokenizer_source"
+        else
+          host_text network_fail terminal-tokenizer
+          host_text tokenizer_help
+          host_network_failed=1
+        fi ;;
+    esac
+  fi
   if [ -z "$DOCKER_CLI" ] || ! docker info >/dev/null 2>&1; then
     host_text network_fail docker-engine
     host_text docker_engine_help
@@ -342,6 +372,30 @@ host_pinned_image() {
   printf '%s\n' "$1" | grep -Eq '^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
 }
 
+host_mirror_mappings() (
+  # Validate one origin=mirror configuration and print its entries, one per line.
+  host_mapping_config=$1
+  host_mapping_name=$2
+  [ "$host_mapping_config" != off ] || return 0
+  [ "${#host_mapping_config}" -le 1024 ] || host_fail invalid_config "$host_mapping_name"
+  case "$host_mapping_config" in
+    *[!a-z0-9._:/=\;-]*|\;*|*\;|*\;\;*) host_fail invalid_config "$host_mapping_name" ;;
+  esac
+  host_mapping_count=0
+  IFS=';'
+  set -f
+  for host_mapping in $host_mapping_config; do
+    host_mapping_mirror=${host_mapping#*=}
+    printf '%s\n' "$host_mapping" | grep -Eq '^[a-z0-9][a-z0-9.-]*=[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9][a-z0-9._-]*)*$' ||
+      host_fail invalid_config "$host_mapping_name"
+    case "$host_mapping_mirror" in *..*) host_fail invalid_config "$host_mapping_name" ;; esac
+    case "${host_mapping_mirror%%/*}" in *.*|*:*) ;; *) host_fail invalid_config "$host_mapping_name" ;; esac
+    host_mapping_count=$((host_mapping_count + 1))
+    [ "$host_mapping_count" -le 8 ] || host_fail invalid_config "$host_mapping_name"
+    printf '%s\n' "$host_mapping"
+  done
+)
+
 host_image_mirrors() (
   host_reference=${1:-}
   host_registry=${host_reference%%/*}
@@ -357,25 +411,39 @@ host_image_mirrors() (
       *) return 0 ;;
     esac
   fi
-  [ "$host_mirrors" != off ] || return 0
-  [ "${#host_mirrors}" -le 1024 ] || host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
-  case "$host_mirrors" in
-    *[!a-z0-9._:/=\;-]*|\;*|*\;|*\;\;*) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;;
-  esac
-  host_count=0
-  IFS=';'
-  set -f
-  for host_mapping in $host_mirrors; do
+  host_mappings=$(host_mirror_mappings "$host_mirrors" LINKSENSE_IMAGE_MIRRORS) || return 1
+  for host_mapping in $host_mappings; do
     host_origin=${host_mapping%%=*}
     host_mirror=${host_mapping#*=}
-    printf '%s\n' "$host_mapping" | grep -Eq '^[a-z0-9][a-z0-9.-]*=[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9][a-z0-9._-]*)*$' ||
-      host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
-    case "$host_mirror" in *..*) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;; esac
-    case "${host_mirror%%/*}" in *.*|*:*) ;; *) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;; esac
-    host_count=$((host_count + 1))
-    [ "$host_count" -le 8 ] || host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
     if [ "$host_origin" = "$host_registry" ] && [ "$host_mirror" != "$host_registry" ]; then
       printf '%s\n' "$host_mirror/$host_path"
+    fi
+  done
+)
+
+host_tokenizer_sources() (
+  # Print the verified-manifest tokenizer URL first, then mirrors for its host.
+  # Mirrors only change where a file is fetched from; its manifest SHA-256
+  # remains the trust anchor.
+  host_tokenizer_url=$1
+  case "$host_tokenizer_url" in https://*) ;; *) return 0 ;; esac
+  host_tokenizer_rest=${host_tokenizer_url#https://}
+  host_tokenizer_origin=${host_tokenizer_rest%%/*}
+  host_tokenizer_path=${host_tokenizer_rest#*/}
+  host_tokenizer_mirrors=${LINKSENSE_HUGGINGFACE_MIRRORS:-}
+  if [ -z "$host_tokenizer_mirrors" ]; then
+    case "$host_tokenizer_origin" in
+      huggingface.co) host_tokenizer_mirrors='huggingface.co=hf-mirror.com' ;;
+      *) host_tokenizer_mirrors=off ;;
+    esac
+  fi
+  host_tokenizer_mappings=$(host_mirror_mappings "$host_tokenizer_mirrors" LINKSENSE_HUGGINGFACE_MIRRORS) || return 1
+  printf '%s\n' "$host_tokenizer_url"
+  for host_tokenizer_mapping in $host_tokenizer_mappings; do
+    host_tokenizer_map_origin=${host_tokenizer_mapping%%=*}
+    host_tokenizer_map_mirror=${host_tokenizer_mapping#*=}
+    if [ "$host_tokenizer_map_origin" = "$host_tokenizer_origin" ] && [ "$host_tokenizer_map_mirror" != "$host_tokenizer_origin" ]; then
+      printf 'https://%s/%s\n' "$host_tokenizer_map_mirror" "$host_tokenizer_path"
     fi
   done
 )
@@ -583,12 +651,16 @@ host_bounded() (
 )
 
 host_download() (
+  # Optional arguments: attempt limit, and quiet to return the curl status
+  # instead of reporting a terminal download failure.
   host_url=$1
   host_target=$2
   host_resume=${3:-}
+  host_attempts=${4:-3}
+  host_quiet=${5:-}
   host_attempt=0
   host_protocol=
-  while [ "$host_attempt" -lt 3 ]; do
+  while [ "$host_attempt" -lt "$host_attempts" ]; do
     host_attempt=$((host_attempt + 1))
     host_result=0
     host_range=
@@ -603,15 +675,17 @@ host_download() (
     fi
     case "$host_result" in
       16|92) host_protocol=--http1.1 ;;
-      33|36) [ -n "$host_range" ] || break; rm -f "$host_target.part" ;;
+      33|36) [ -n "$host_range" ] || break; rm -f "$host_target.part"
+        [ ! -e "$host_target.part" ] || break; host_attempt=$((host_attempt - 1)) ;;
       5|6|7|18|28|35|52|55|56) ;;
       22) grep -Eq '(^|[^0-9])(408|429|500|502|503|504)([^0-9]|$)' "$host_target.error" || break ;;
       *) break ;;
     esac
-    [ "$host_attempt" -ge 3 ] || sleep "$host_attempt"
+    [ "$host_attempt" -ge "$host_attempts" ] || sleep "$host_attempt"
   done
   [ "$host_resume" = resume ] || rm -f "$host_target.part"
   rm -f "$host_target.error"
+  [ "$host_quiet" != quiet ] || return "$host_result"
   host_text terminal_help >&2
   host_fail download "curl_exit=$host_result attempts=$host_attempt"
 )

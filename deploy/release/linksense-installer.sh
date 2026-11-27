@@ -648,6 +648,7 @@ download_verified() {
   verified_url=$1
   verified_target=$2
   verified_sha=$3
+  shift 3
   verified_cache=$TMP_ROOT/cache
   if [ -f "$INSTALL_DIR/install.pending" ] || [ -f "$INSTALL_DIR/install-state.env" ]; then
     verified_cache=$INSTALL_DIR/cache
@@ -658,8 +659,38 @@ download_verified() {
   verified_entry=$verified_cache/$verified_sha
   [ ! -L "$verified_entry" ] && [ ! -L "$verified_entry.part" ] || host_fail invalid_config cache_entry_symlink
   if [ ! -f "$verified_entry" ] || [ "$(sha256_file "$verified_entry")" != "$verified_sha" ]; then
-    host_download "$verified_url" "$verified_entry" resume
-    verify_file "$verified_entry" "$verified_sha"
+    if [ "$#" -eq 0 ]; then
+      host_download "$verified_url" "$verified_entry" resume
+      verify_file "$verified_entry" "$verified_sha"
+    else
+      # Alternate tokenizer sources: each URL gets a bounded attempt (a rejected
+      # resume retries without ranges), and only the manifest SHA-256 decides
+      # which response is accepted.
+      verified_downloaded=false
+      verified_failure=
+      for verified_source in "$verified_url" "$@"; do
+        verified_status=0
+        host_download "$verified_source" "$verified_entry" resume 2 quiet || verified_status=$?
+        if [ "$verified_status" = 0 ]; then
+          verified_actual=$(sha256_file "$verified_entry")
+          if [ "$verified_actual" = "$verified_sha" ]; then
+            verified_downloaded=true
+            break
+          fi
+          verified_failure=checksum
+          rm -f "$verified_entry"
+        else
+          verified_failure=download
+        fi
+      done
+      if [ "$verified_downloaded" != true ]; then
+        if [ "$verified_failure" = checksum ]; then
+          fail "Checksum mismatch for $(basename "$verified_target"): expected $verified_sha, got $verified_actual."
+        fi
+        host_text tokenizer_help >&2
+        host_fail download "sources=$(( $# + 1 ))"
+      fi
+    fi
   fi
   cp "$verified_entry" "$verified_target"
 }
@@ -1153,9 +1184,9 @@ activate_management_cli() {
         '  exit 1' \
         '}' \
         'if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then' \
-        "  exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
+        "  exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" \"LINKSENSE_HUGGINGFACE_MIRRORS=\${LINKSENSE_HUGGINGFACE_MIRRORS:-}\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
         'fi' \
-        "exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
+        "exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" \"LINKSENSE_HUGGINGFACE_MIRRORS=\${LINKSENSE_HUGGINGFACE_MIRRORS:-}\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
       launcher_path=/usr/local/bin/linksense
       install -d -m 0755 /usr/local/bin
     else
@@ -1282,10 +1313,12 @@ tokenizer_value() {
   eval "printf '%s' \"\${$name:-}\""
 }
 
-download_tokenizer() {
+download_tokenizer() (
   [ "$EDITION" = full ] || return 0
+  set -f
   token_stage=$TMP_ROOT/tokenizer
   mkdir "$token_stage"
+  token_preferred=
   index=1
   while [ "$index" -le "$TOKENIZER_FILE_COUNT" ]; do
     path=$(tokenizer_value "$index" PATH)
@@ -1293,14 +1326,35 @@ download_tokenizer() {
     expected=$(tokenizer_value "$index" SHA256)
     expected_size=$(tokenizer_value "$index" SIZE)
     printf '%s' "$path" | grep -Eq '^[A-Za-z0-9._-]+$' || fail "Unsafe tokenizer filename in release manifest."
-    download_verified "$url" "$token_stage/$path" "$expected"
+    token_sources=$(host_tokenizer_sources "$url") || fail "Invalid tokenizer mirror configuration."
+    [ -n "$token_sources" ] || fail "Invalid tokenizer source in release manifest."
+    token_queue=
+    if [ -n "$token_preferred" ]; then
+      for token_source in $token_sources; do
+        token_source_host=${token_source#https://}
+        if [ "${token_source_host%%/*}" = "$token_preferred" ]; then
+          token_queue=$token_source
+          break
+        fi
+      done
+    fi
+    for token_source in $token_sources; do
+      [ "$token_source" != "$token_queue" ] || continue
+      token_queue="$token_queue $token_source"
+    done
+    set -- $token_queue
+    token_url=$1
+    shift
+    download_verified "$token_url" "$token_stage/$path" "$expected" "$@"
+    token_preferred=${token_url#https://}
+    token_preferred=${token_preferred%%/*}
     verify_file "$token_stage/$path" "$expected"
     printf '%s' "$expected_size" | grep -Eq '^[0-9]+$' || fail "Invalid tokenizer file size in release manifest."
     actual_size=$(wc -c < "$token_stage/$path" | tr -d ' ')
     [ "$actual_size" = "$expected_size" ] || fail "Size mismatch for tokenizer file $path."
     index=$((index + 1))
   done
-}
+)
 
 publish_tokenizer() {
   [ "$EDITION" = full ] || return 0
