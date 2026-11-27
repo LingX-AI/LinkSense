@@ -39,6 +39,8 @@ test("the release gateway preserves the public protocol reported by a reverse pr
   assert.deepEqual(
     proxyingLocations.map(([, declaration]) => declaration).sort(),
     [
+      "= /api/v1/local-browser/socket",
+      "= /api/v1/browser-use/socket",
       "^~ /html-preview/",
       "^~ /app/",
       "^~ /web/",
