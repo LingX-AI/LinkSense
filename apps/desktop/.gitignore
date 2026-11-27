@@ -1,0 +1,5 @@
+resources/
+mygo_frontend_gen.go
+mygo_frontend/
+*.exe
+*.test
