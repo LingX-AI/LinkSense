@@ -72,12 +72,21 @@ func TestCloudToolPingIsLocalAndBounded(t *testing.T) {
 
 	fileFrame, _ := json.Marshal(map[string]any{
 		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_files.list",
-		"input": map[string]any{"root_id": "50000000-0000-4000-8000-000000000002", "limit": 10},
+		"input":      map[string]any{"root_id": "50000000-0000-4000-8000-000000000002", "limit": 10},
 		"expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
 	})
 	request, handled, err = parseCloudToolFrame(fileFrame)
 	if err != nil || !handled || request.Operation != desktopCloudToolListOperation {
 		t.Fatalf("file request parsing: handled=%v request=%+v err=%v", handled, request, err)
+	}
+
+	rootsFrame, _ := json.Marshal(map[string]any{
+		"type": "cloud_tool.request", "id": id, "conversation_id": cloudToolTestConversation, "operation": "local_files.roots",
+		"input": map[string]any{}, "expires_at": time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano),
+	})
+	request, handled, err = parseCloudToolFrame(rootsFrame)
+	if err != nil || !handled || request.Operation != desktopCloudToolRootsOperation {
+		t.Fatalf("roots request parsing: handled=%v request=%+v err=%v", handled, request, err)
 	}
 
 	unknown, _ := json.Marshal(map[string]any{

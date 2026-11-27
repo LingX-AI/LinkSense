@@ -138,6 +138,7 @@ const (
 	desktopCloudToolOperationsHeader          = "X-LinkSense-Desktop-Cloud-Tool-Operations"
 	desktopCloudToolVersion                   = 1
 	desktopCloudToolPingOperation             = "local_tools.ping"
+	desktopCloudToolRootsOperation            = "local_files.roots"
 	desktopCloudToolListOperation             = "local_files.list"
 	desktopCloudToolReadOperation             = "local_files.read"
 	desktopCloudToolSearchOperation           = "local_files.search"
@@ -376,6 +377,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		headers.Set(desktopCloudToolHeader, strconv.Itoa(desktopCloudToolVersion))
 		headers.Set(desktopCloudToolOperationsHeader, strings.Join([]string{
 			desktopCloudToolPingOperation,
+			desktopCloudToolRootsOperation,
 			desktopCloudToolListOperation,
 			desktopCloudToolReadOperation,
 			desktopCloudToolSearchOperation,
@@ -709,6 +711,7 @@ var errCloudToolProtocol = errors.New("cloud tool protocol")
 
 var desktopCloudToolOperations = []string{
 	desktopCloudToolPingOperation,
+	desktopCloudToolRootsOperation,
 	desktopCloudToolListOperation,
 	desktopCloudToolReadOperation,
 	desktopCloudToolSearchOperation,
