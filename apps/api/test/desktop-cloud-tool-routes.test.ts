@@ -214,6 +214,37 @@ describe("internal desktop cloud tool route", () => {
     }));
   });
 
+  it("audits only the relative shell cwd and preserves a denied approval", async () => {
+    const { app, cloudTools, sent, connectionId, audit } = await fixture({
+      operations: ["local_shell.exec"],
+    });
+    const pending = request(app, {
+      operation: "local_shell.exec",
+      input: { root_id: root, cwd: "apps/web", command: "pnpm test", timeout_ms: 30_000 },
+    });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const frame = sent[0]!;
+    expect(frame).toMatchObject({
+      type: "cloud_tool.request", operation: "local_shell.exec",
+      input: { root_id: root, cwd: "apps/web", command: "pnpm test" },
+    });
+    cloudTools.receive(connectionId, {
+      type: "cloud_tool.result", id: frame.id, operation: "local_shell.exec",
+      ok: false, error_code: "DESKTOP_APPROVAL_DENIED",
+    });
+    const response = await pending;
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json()).toEqual({ error_code: "DESKTOP_APPROVAL_DENIED" });
+    const auditCall = (audit.write as unknown as {
+      mock: { calls: Array<[{ metadata: Record<string, unknown> }]> };
+    }).mock.calls[0]?.[0];
+    expect(auditCall?.metadata).toMatchObject({
+      operation: "local_shell.exec", cwd: "apps/web",
+      reason_code: "DESKTOP_APPROVAL_DENIED",
+    });
+    expect(JSON.stringify(auditCall?.metadata)).not.toContain("pnpm test");
+  });
+
   it("dispatches the cloud desktop status lane and audits it without a root", async () => {
     const { app, cloudTools, sent, connectionId, audit } = await fixture({
       operations: ["local_computer.status"],

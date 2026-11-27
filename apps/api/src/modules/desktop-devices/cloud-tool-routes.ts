@@ -6,6 +6,7 @@ import {
   browserUseResultSchema,
   desktopCloudToolInvocationSchema,
   localBrowserExecuteOperation,
+  localShellExecOperation,
 } from "@linksense/shared";
 
 import type { PrismaClient } from "../../generated/prisma/client.js";
@@ -99,6 +100,11 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
     }
 
     const relativePath = "path" in invocation.input ? invocation.input.path ?? null : null;
+    // The shell audit keeps only the grant-relative working directory; the
+    // command and its output stay on the Mac.
+    const relativeCwd = invocation.operation === localShellExecOperation
+      ? invocation.input.cwd ?? null
+      : null;
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
@@ -108,6 +114,7 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
       conversation_id: body.conversationId,
       turn_id: body.turnId,
       ...(relativePath ? { path: relativePath } : {}),
+      ...(relativeCwd ? { cwd: relativeCwd } : {}),
     };
     try {
       const { deviceId, data } = await options.cloudTools.execute(
@@ -145,7 +152,9 @@ export const internalDesktopCloudToolRoutes: FastifyPluginAsync<{
         }).catch(() => undefined);
         if (error.code === "FORBIDDEN") throw new AppError("FORBIDDEN");
         if (error.code === "CANCELLED") throw new AppError("RUNNER_OPERATION_UNCERTAIN");
-        if (error.code.startsWith("DESKTOP_FILE_")) {
+        if (error.code.startsWith("DESKTOP_FILE_") ||
+            error.code.startsWith("DESKTOP_SHELL_") ||
+            error.code.startsWith("DESKTOP_APPROVAL_")) {
           return reply.code(409).send({ error_code: error.code });
         }
         throw new AppError("RUNNER_UNAVAILABLE");

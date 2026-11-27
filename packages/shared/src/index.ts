@@ -103,6 +103,7 @@ export * from "./privacy-masking.js";
 export * from "./desktop-protocol.js";
 export * from "./desktop-device.js";
 export * from "./desktop-file-tools.js";
+export * from "./desktop-shell-tools.js";
 export * from "./desktop-cloud-computer.js";
 export * from "./desktop-cloud-browser.js";
 export * from "./desktop-cloud-tools.js";

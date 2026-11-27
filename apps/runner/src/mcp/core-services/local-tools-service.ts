@@ -20,6 +20,9 @@ import {
   localComputerToolNames,
   localComputerWaitOperation,
   localFilesWriteOperation,
+  desktopCloudToolLifetimeFor,
+  localShellExecOperation,
+  localShellExecToolName,
   localToolsPingOperation,
   localToolsPingToolName,
   type DesktopCloudToolOperation,
@@ -243,6 +246,33 @@ const localToolSpecs = [
     },
   },
   {
+    name: localShellExecToolName,
+    operation: localShellExecOperation,
+    tool: {
+      name: localShellExecToolName,
+      description:
+        "Run one non-interactive shell command on the signed-in Mac. The command starts in the task's granted local folder: root_id comes from local_files_roots, and cwd is relative to that folder (omit it for the folder itself). Every call is a new zsh process. The Mac's permission mode decides whether the person must approve the command first; a denied, unanswered or offline approval fails the call and nothing runs. Commands time out (default 30s, at most 120s) and each output stream is truncated at 64 KiB. A non-zero exit code is a successful observation and is returned as data, not as a tool error. Prefer the local_files tools for reading and editing files; use this for builds, tests, git and other terminal work. To open a file, URL or app, use the macOS `open` command.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          root_id: rootId,
+          cwd: { type: "string", minLength: 1, maxLength: 4096 },
+          command: { type: "string", minLength: 1, maxLength: 16_384 },
+          timeout_ms: { type: "integer", minimum: 1_000, maximum: 120_000, default: 30_000 },
+        },
+        required: ["root_id", "command"],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Run a command on the Mac",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+  },
+  {
     name: localComputerToolNames.status,
     operation: localComputerStatusOperation,
     tool: {
@@ -432,14 +462,16 @@ export function localToolsCoreMcpModules(input: {
                 "content-type": "application/json",
               },
               body: JSON.stringify({ operation: spec.operation, input }),
-              signal: withRequestTimeout(call.signal, spec.operation === localComputerSelectOperation ? 125_000 : 35_000),
+              signal: withRequestTimeout(call.signal, desktopCloudToolLifetimeFor(spec.operation) + 5_000),
             });
             const result: unknown = await response.json();
             if (!response.ok) {
               const remoteCode = result !== null && typeof result === "object" &&
                   "error_code" in result && typeof result.error_code === "string" &&
                   desktopCloudToolErrorCodeSchema.safeParse(result.error_code).success &&
-                  result.error_code.startsWith("DESKTOP_FILE_")
+                  (result.error_code.startsWith("DESKTOP_FILE_") ||
+                    result.error_code.startsWith("DESKTOP_SHELL_") ||
+                    result.error_code.startsWith("DESKTOP_APPROVAL_"))
                 ? result.error_code
                 : null;
               return failureToolResult({

@@ -51,6 +51,12 @@ import {
   localFilesWriteInputSchema,
   localFilesWriteResultSchema,
 } from "./desktop-file-tools.js";
+import {
+  localShellApprovalTimeoutMs,
+  localShellExecInputSchema,
+  localShellExecResultSchema,
+  localShellMaxTimeoutMs,
+} from "./desktop-shell-tools.js";
 
 /**
  * Cloud task -> API -> Mac tool lane. It is independent of the retired local
@@ -62,11 +68,14 @@ export const desktopCloudToolProtocolVersion = 1;
 export const desktopCloudToolLifetimeMs = 30_000;
 /** A native window picker waits for a person, so select gets a longer frame. */
 export const desktopCloudToolSelectLifetimeMs = 120_000;
-export function desktopCloudToolLifetimeFor(operation: DesktopCloudToolOperation): number {
-  return operation === "local_computer.select"
-    ? desktopCloudToolSelectLifetimeMs
-    : desktopCloudToolLifetimeMs;
-}
+/** A mutating file tool may wait for the native approval before it runs. */
+export const desktopCloudToolApprovalLifetimeMs = localShellApprovalTimeoutMs + 15_000;
+/**
+ * A shell call may wait for the native approval and then run to its own
+ * deadline, so its frame covers both bounds plus transport slack.
+ */
+export const desktopCloudToolShellLifetimeMs =
+  localShellApprovalTimeoutMs + localShellMaxTimeoutMs + 15_000;
 
 export const localToolsPingOperation = "local_tools.ping" as const;
 export const localFilesRootsOperation = "local_files.roots" as const;
@@ -76,6 +85,17 @@ export const localFilesSearchOperation = "local_files.search" as const;
 export const localFilesWriteOperation = "local_files.write" as const;
 export const localFilesCreateOperation = "local_files.create" as const;
 export const localFilesDeleteOperation = "local_files.delete" as const;
+export const localShellExecOperation = "local_shell.exec" as const;
+
+export function desktopCloudToolLifetimeFor(operation: DesktopCloudToolOperation): number {
+  if (operation === localComputerSelectOperation) return desktopCloudToolSelectLifetimeMs;
+  if (operation === localShellExecOperation) return desktopCloudToolShellLifetimeMs;
+  if (operation === localFilesWriteOperation || operation === localFilesCreateOperation ||
+      operation === localFilesDeleteOperation) {
+    return desktopCloudToolApprovalLifetimeMs;
+  }
+  return desktopCloudToolLifetimeMs;
+}
 
 export const desktopCloudToolOperationSchema = z.enum([
   localToolsPingOperation,
@@ -86,6 +106,7 @@ export const desktopCloudToolOperationSchema = z.enum([
   localFilesWriteOperation,
   localFilesCreateOperation,
   localFilesDeleteOperation,
+  localShellExecOperation,
   localComputerStatusOperation,
   localComputerSelectOperation,
   localComputerObserveOperation,
@@ -100,6 +121,7 @@ export const desktopCloudToolOperationSchema = z.enum([
 export type DesktopCloudToolOperation = z.infer<typeof desktopCloudToolOperationSchema>;
 
 export const localToolsPingToolName = "local_tools_ping" as const;
+export const localShellExecToolName = "local_shell_exec" as const;
 
 export const desktopCloudToolPingInputSchema = z.strictObject({
   message: z.string().trim().min(1).max(200),
@@ -125,6 +147,14 @@ export const desktopCloudToolErrorCodeSchema = z.enum([
   "DESKTOP_FILE_TOO_LARGE",
   "DESKTOP_FILE_UNSUPPORTED",
   "DESKTOP_FILE_UNAVAILABLE",
+  "DESKTOP_APPROVAL_DENIED",
+  "DESKTOP_APPROVAL_TIMEOUT",
+  "DESKTOP_APPROVAL_UNAVAILABLE",
+  "DESKTOP_SHELL_INVALID_PATH",
+  "DESKTOP_SHELL_ACCESS_DENIED",
+  "DESKTOP_SHELL_TIMEOUT",
+  "DESKTOP_SHELL_UNSUPPORTED",
+  "DESKTOP_SHELL_UNAVAILABLE",
   "COMPUTER_CANCELED",
   ...computerFailureCodes,
 ]);
@@ -139,6 +169,7 @@ export const desktopCloudToolInputSchemaFor = {
   [localFilesWriteOperation]: localFilesWriteInputSchema,
   [localFilesCreateOperation]: localFilesCreateInputSchema,
   [localFilesDeleteOperation]: localFilesDeleteInputSchema,
+  [localShellExecOperation]: localShellExecInputSchema,
   [localComputerStatusOperation]: localComputerStatusInputSchema,
   [localComputerSelectOperation]: localComputerSelectInputSchema,
   [localComputerObserveOperation]: localComputerObserveInputSchema,
@@ -160,6 +191,7 @@ export const desktopCloudToolDataSchemaFor = {
   [localFilesWriteOperation]: localFilesWriteResultSchema,
   [localFilesCreateOperation]: localFilesCreateResultSchema,
   [localFilesDeleteOperation]: localFilesDeleteResultSchema,
+  [localShellExecOperation]: localShellExecResultSchema,
   [localComputerStatusOperation]: localComputerStatusResultSchema,
   [localComputerSelectOperation]: localComputerSelectResultSchema,
   [localComputerObserveOperation]: localComputerObserveResultSchema,
@@ -187,6 +219,7 @@ export const desktopCloudToolInvocationSchema = z.discriminatedUnion("operation"
   z.strictObject({ operation: z.literal(localFilesWriteOperation), input: localFilesWriteInputSchema }),
   z.strictObject({ operation: z.literal(localFilesCreateOperation), input: localFilesCreateInputSchema }),
   z.strictObject({ operation: z.literal(localFilesDeleteOperation), input: localFilesDeleteInputSchema }),
+  z.strictObject({ operation: z.literal(localShellExecOperation), input: localShellExecInputSchema }),
   z.strictObject({ operation: z.literal(localComputerStatusOperation), input: localComputerStatusInputSchema }),
   z.strictObject({ operation: z.literal(localComputerSelectOperation), input: localComputerSelectInputSchema }),
   z.strictObject({ operation: z.literal(localComputerObserveOperation), input: localComputerObserveInputSchema }),
@@ -218,6 +251,7 @@ export const desktopCloudToolRequestSchema = z.discriminatedUnion("operation", [
   requestFor(localFilesWriteOperation),
   requestFor(localFilesCreateOperation),
   requestFor(localFilesDeleteOperation),
+  requestFor(localShellExecOperation),
   requestFor(localComputerStatusOperation),
   requestFor(localComputerSelectOperation),
   requestFor(localComputerObserveOperation),
@@ -248,6 +282,7 @@ export const desktopCloudToolResultSchema = z.union([
   successFor(localFilesWriteOperation),
   successFor(localFilesCreateOperation),
   successFor(localFilesDeleteOperation),
+  successFor(localShellExecOperation),
   successFor(localComputerStatusOperation),
   successFor(localComputerSelectOperation),
   successFor(localComputerObserveOperation),
