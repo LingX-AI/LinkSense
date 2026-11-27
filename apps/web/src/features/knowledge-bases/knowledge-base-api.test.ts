@@ -13,7 +13,6 @@ import {
   getAccessToken,
   setAccessToken,
 } from "@/api/session"
-import * as desktop from "@/adapters/desktop/desktop-adapter"
 import { getPendingClientBuild } from "@/app/client-build"
 
 const apiRequest = vi.hoisted(() => vi.fn())
@@ -646,53 +645,6 @@ describe("knowledge-base upload build responses across login changes", () => {
     expect(getAccessToken()).toBe(accountBToken)
   })
 
-  it("does not apply a previous login's delayed desktop upload response to the replacement login", async () => {
-    const accountAToken = "account-a-access-token".padEnd(48, "x")
-    const accountBToken = "account-b-access-token".padEnd(48, "x")
-    vi.stubGlobal("mygo", {})
-    const serverUrl = vi
-      .spyOn(desktop, "getDesktopServerUrl")
-      .mockReturnValue("https://desktop.example.test")
-    let deliverUpload!: (response: Response) => void
-    const request = vi.spyOn(desktop, "hostFetch").mockReturnValue(
-      new Promise<Response>((resolve) => {
-        deliverUpload = resolve
-      })
-    )
-    const onProgress = vi.fn()
-
-    try {
-      setAccessToken(accountAToken, Date.now() + 60_000)
-      const upload = uploadKnowledgeDocument({
-        knowledgeBaseId,
-        file: new File(["manual"], "manual.txt", { type: "text/plain" }),
-        onProgress,
-      }).then(
-        (value) => value,
-        (error: unknown) => error
-      )
-      await vi.waitFor(() => expect(request).toHaveBeenCalledOnce())
-
-      // Account A's native upload headers arrive only after B owns the session.
-      beginLoginSession()
-      setAccessToken(accountBToken, Date.now() + 60_000)
-      deliverUpload(
-        new Response(
-          JSON.stringify({ success: true, data: acceptedDocument() }),
-          { status: 202, headers: { "content-type": "application/json" } }
-        )
-      )
-
-      const result = await upload
-      expect(result).toMatchObject({ name: "AbortError" })
-      expect(onProgress).not.toHaveBeenCalled()
-      expect(desktop.getDesktopUpdateRequired()).toBe(false)
-      expect(getAccessToken()).toBe(accountBToken)
-    } finally {
-      request.mockRestore()
-      serverUrl.mockRestore()
-    }
-  })
 })
 
 describe("knowledge-base original file API", () => {

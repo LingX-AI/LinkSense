@@ -4,9 +4,6 @@ import {
   accessTokenClaimsSchema,
   authSessionSchema,
   authUserSchema,
-  desktopLoginAuthorizeInputSchema,
-  desktopLoginCodeSchema,
-  desktopLoginExchangeInputSchema,
   forgotPasswordInputSchema,
   initializeSystemResultSchema,
   localLoginInputSchema,
@@ -27,7 +24,6 @@ import { AppError, normalizeError } from "../../lib/errors.js"
 import { ok } from "../../lib/http.js"
 import { resolveLocale } from "../../lib/locale.js"
 import type { AuthService } from "./service.js"
-import type { DesktopLoginService } from "./desktop-login.js"
 import { LoginRateLimitedError } from "./service.js"
 import type {
   AuthPersistence,
@@ -60,7 +56,6 @@ export type AuthRoutesOptions = {
     request: FastifyRequest,
   ) => AuthenticatedUser | Promise<AuthenticatedUser>
   refreshCookieName?: string
-  desktopLogin?: DesktopLoginService
 }
 
 export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
@@ -68,27 +63,6 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   options,
 ) => {
   const cookieName = options.refreshCookieName ?? REFRESH_COOKIE
-
-  if (options.desktopLogin) {
-    const desktopLogin = options.desktopLogin
-    app.post("/desktop/authorize", {
-      preHandler: options.authenticate ?? missingAuthenticationHook,
-    }, async (request, reply) => {
-      assertCookieRequestOrigin(request)
-      const body = desktopLoginAuthorizeInputSchema.parse(request.body)
-      const user = await resolveAuthenticatedUser(request, options)
-      const result = desktopLoginCodeSchema.parse(await desktopLogin.authorize(body, user, requestMetadata(request)))
-      return reply.header("cache-control", "no-store").send(ok(result, request))
-    })
-    app.post("/desktop/exchange", async (request, reply) => {
-      assertCookieRequestOrigin(request)
-      const body = desktopLoginExchangeInputSchema.parse(request.body)
-      const session = await desktopLogin.exchange(body, requestMetadata(request))
-      setRefreshCookie(reply, cookieName, session.refreshToken,
-        requestUsesSecureCookies(request, options.secureCookies))
-      return reply.header("cache-control", "no-store").code(204).send()
-    })
-  }
 
   app.post("/login", async (request, reply) => {
     const body = localLoginInputSchema.parse(request.body)

@@ -2,36 +2,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserUseService } from "../src/modules/browser-use/service.js";
 import { MemoryBrowserStore } from "./browser-use-store.js";
 import { createHash } from "node:crypto";
-import { browserUseFailure, browserUseOpenSiteCapability, type BrowserUseResult } from "@linksense/shared";
+import { browserUseOpenSiteCapability } from "@linksense/shared";
 import { z } from "zod";
-import type { DesktopRunScope } from "../src/modules/desktop-credentials/run-leases.js";
 
 const owner = "10000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";
 const task = "20000000-0000-4000-8000-000000000001";
-const scope = {
-  ownerId: owner, conversationId: task, turnId: task, deviceId: other,
-  connectionId: task, runtimeGeneration: owner,
-} satisfies DesktopRunScope;
-const encryption = { credentialMasterKey: "test-only-browser-cache-key", credentialKeyId: "fixture" };
 afterEach(() => vi.useRealTimers());
-async function fixture(isActiveRun?: (scope: DesktopRunScope) => Promise<boolean>) {
+async function fixture() {
   const store = new MemoryBrowserStore();
   const service = new BrowserUseService(
     store,
     "https://linksense.example/api/v1/browser-use",
-    isActiveRun && { ...encryption, isActiveRun },
   );
   const pairing = await service.pairing(owner, "2026-01-01T00:00:00.000Z");
   const token = await service.pair(pairing.code);
   const connection = await service.connect(owner, token, "chrome");
   return { store, service, token, connection, pairing };
-}
-
-function deferred() {
-  let resolve = () => {};
-  const promise = new Promise<void>(accept => { resolve = accept; });
-  return { promise, resolve };
 }
 
 describe("local browser connection and delivery", () => {
@@ -195,154 +182,6 @@ describe("local browser connection and delivery", () => {
     expect(await service.store.get(`local-browser:${owner}:lock`)).toBeNull();
   });
 
-  it("does not queue a browser mutation when the desktop lease disappears during mailbox preparation", async () => {
-    const { store, service, connection } = await fixture(async () => true);
-    const put = vi.spyOn(store, "put");
-    const checkRun = vi.fn(async () => {
-      if (await store.get(`local-browser:${owner}:desktop:request`)) throw new Error("fixture lease revoked");
-    });
-    await expect(service.execute(owner, task, { action: "open", url: "https://example.test" },
-      AbortSignal.timeout(1_000), { connectionId: connection, checkRun, scope },
-    )).rejects.toThrow("fixture lease revoked");
-    expect(put.mock.calls.some(([key]) => key === `local-browser:${owner}:desktop:command`)).toBe(false);
-    expect(await store.get(`local-browser:${owner}:desktop:request`)).toBeNull();
-  });
-  it("does not dispatch when cancellation removes the job during run authorization", async () => {
-    const checking = deferred();
-    const resume = deferred();
-    const { service, store, connection } = await fixture(async () => {
-      checking.resolve();
-      await resume.promise;
-      return true;
-    });
-    const controller = new AbortController();
-    const running = service.execute(owner, task, { action: "click", tab_id: 1, ref: "fixture" },
-      controller.signal, { connectionId: connection, scope, checkRun: async () => {} });
-    try {
-      await vi.waitFor(async () =>
-        expect(await store.get(`local-browser:${owner}:desktop:command`)).not.toBeNull(),
-      );
-      const delivery = service.next(owner, connection);
-      await checking.promise;
-      controller.abort();
-      await expect(running).resolves.toMatchObject({ code: "BROWSER_USE_CANCELLED" });
-      resume.resolve();
-      await expect(delivery).resolves.toBeNull();
-    } finally {
-      controller.abort();
-      resume.resolve();
-      await running;
-    }
-  });
-  it.each([
-    { claimed: false, stop: "cancel", code: "BROWSER_USE_CANCELLED" },
-    { claimed: true, stop: "cancel", code: "RUNNER_OPERATION_UNCERTAIN" },
-    { claimed: false, stop: "timeout", code: "BROWSER_USE_TIMEOUT" },
-    { claimed: true, stop: "timeout", code: "RUNNER_OPERATION_UNCERTAIN" },
-    { claimed: true, stop: "disconnect", code: "RUNNER_OPERATION_UNCERTAIN" },
-  ])("returns $code on $stop of a Mac mutation (extension claimed: $claimed)", async ({ claimed, stop, code }) => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    const { store, service, connection } = await fixture(async () => true);
-    const controller = new AbortController();
-    const result = service.execute(owner, task, { action: "click", tab_id: 1, ref: "fixture" },
-      controller.signal, { connectionId: connection, scope, checkRun: async () => {} });
-    try {
-      await vi.waitFor(async () =>
-        expect(await store.get(`local-browser:${owner}:desktop:command`)).not.toBeNull(),
-      );
-      if (claimed) expect(await service.next(owner, connection)).toMatchObject({ request: { action: "click" } });
-      if (stop === "cancel") controller.abort();
-      else if (stop === "disconnect") await service.disconnect(owner, connection);
-      else vi.setSystemTime(Date.now() + 30_001);
-      await expect(result).resolves.toMatchObject({ ok: false, code, retryable: false });
-      expect(await service.next(owner, connection)).toBeNull();
-    } finally {
-      controller.abort();
-      await result;
-    }
-  });
-  it.each([
-    { action: "click", replyCode: "BROWSER_USE_COMMAND_FAILED", expected: "RUNNER_OPERATION_UNCERTAIN" },
-    { action: "click", replyCode: "BROWSER_USE_CANCELLED", expected: "RUNNER_OPERATION_UNCERTAIN" },
-    { action: "click", replyCode: "BROWSER_USE_ACCESS_DENIED", expected: "RUNNER_OPERATION_UNCERTAIN" },
-    { action: "click", replyCode: "BROWSER_USE_TAB_BUSY", expected: "BROWSER_USE_TAB_BUSY" },
-    { action: "snapshot", replyCode: "BROWSER_USE_COMMAND_FAILED", expected: "BROWSER_USE_COMMAND_FAILED" },
-  ] as const)("preserves the outcome of a claimed Mac $action with reply $replyCode", async ({ action, replyCode, expected }) => {
-    const { store, service, connection } = await fixture(async () => true);
-    const controller = new AbortController();
-    const running = service.execute(owner, task, action === "click" ? { action, tab_id: 1, ref: "fixture" } : { action, tab_id: 1 },
-      controller.signal, { connectionId: connection, scope, checkRun: async () => {} });
-    try {
-      await vi.waitFor(async () =>
-        expect(await store.get(`local-browser:${owner}:desktop:command`)).not.toBeNull(),
-      );
-      const command = await service.next(owner, connection);
-      if (!command) throw new Error("Missing fixture command");
-      await service.reply(owner, connection, { id: command.id, result: browserUseFailure(replyCode) });
-      await expect(running).resolves.toMatchObject({ ok: false, code: expected, retryable: false });
-      expect(await service.next(owner, connection)).toBeNull();
-    } finally {
-      controller.abort();
-      await running;
-    }
-  });
-  it("protects Mac commands and replies at rest and keeps the first reply", async () => {
-    const { service, store, connection } = await fixture(async () => true);
-    const extensionReplica = new BrowserUseService(store, service.endpoint, { ...encryption, isActiveRun: async () => true });
-    const commandText = "fixture text visible only to the paired extension";
-    const firstResult = { ok: true, browser: "local", data: { title: "fixture private document" } } satisfies BrowserUseResult;
-    const controller = new AbortController();
-    const running = service.execute(owner, task, { action: "type", tab_id: 1, text: commandText, clear: false },
-      controller.signal, { connectionId: connection, scope, checkRun: async () => {} });
-    try {
-      await vi.waitFor(async () =>
-        expect(await store.get(`local-browser:${owner}:desktop:command`)).not.toBeNull(),
-      );
-      expect(JSON.stringify([...store.values])).not.toContain(commandText);
-      const command = await extensionReplica.next(owner, connection);
-      expect(command?.request).toMatchObject({ text: commandText });
-      if (!command) throw new Error("Missing fixture command");
-      const replyKey = `local-browser:${owner}:desktop:reply:${command.id}`;
-      const putReply = vi.spyOn(store, "putIf");
-      await extensionReplica.reply(owner, connection, { id: command.id, result: firstResult });
-      await extensionReplica.reply(owner, connection, {
-        id: command.id, result: { ...firstResult, data: { title: "late duplicate" } },
-      });
-      const storedReply = putReply.mock.calls.find(([key]) => key === replyKey)?.[1];
-      expect(storedReply).toMatch(/^v1\./u);
-      expect(storedReply).not.toContain(firstResult.data.title);
-      expect(await store.get(`local-browser:${owner}:reply:${command.id}`)).toBeNull();
-      await expect(running).resolves.toEqual(firstResult);
-      expect(await store.get(replyKey)).toBeNull();
-    } finally {
-      controller.abort();
-      await running;
-    }
-  });
-  it("withholds a successful Mac mutation reply if the run is revoked before the reply is read", async () => {
-    const { service, store, connection } = await fixture(async () => true);
-    const controller = new AbortController();
-    let active = true;
-    const result = service.execute(owner, task, { action: "click", tab_id: 1, ref: "fixture" },
-      controller.signal, { connectionId: connection, scope, checkRun: async () => {
-        if (!active) throw new Error("fixture lease revoked");
-      } });
-    try {
-      await vi.waitFor(async () =>
-        expect(await store.get(`local-browser:${owner}:desktop:command`)).not.toBeNull(),
-      );
-      const command = await service.next(owner, connection);
-      if (!command) throw new Error("Missing fixture command");
-      active = false;
-      await service.reply(owner, connection, {
-        id: command.id, result: { ok: true, browser: "local", data: { title: "fixture private result" } },
-      });
-      await expect(result).resolves.toMatchObject({ ok: false, code: "RUNNER_OPERATION_UNCERTAIN", retryable: false });
-    } finally {
-      controller.abort();
-      await result.catch(() => undefined);
-    }
-  });
   it("rejects stale commands after reconnection and cannot revive the old connection", async () => {
     const { service, connection, token } = await fixture();
     const next = await service.connect(owner, token, "edge");

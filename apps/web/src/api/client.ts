@@ -1,13 +1,6 @@
 import { z } from "zod"
 import { createRandomUuid } from "@/lib/random-uuid"
 import {
-  getDesktopServerUrl,
-  hostFetch,
-  isDesktopHost,
-  isMacDesktopHost,
-  requireDesktopUpdate,
-} from "@/adapters/desktop/desktop-adapter"
-import {
   shouldBlockWorkspaceUiDemoWrite,
   shouldUseWorkspaceUiDemo,
 } from "@/features/ui-demo/workspace-ui-demo-mode"
@@ -15,9 +8,6 @@ import {
   CLIENT_BUILD_HEADER,
   SERVER_BUILD_HEADER,
   isLocale,
-  DESKTOP_PROTOCOL_HEADER,
-  desktopProtocolVersion,
-  DESKTOP_LEGACY_BUILD_SENTINEL,
 } from "@linksense/shared"
 import {
   getClientBuildId,
@@ -87,11 +77,6 @@ export function prepareClientBuildRequest(
   headers: Headers,
   path?: string
 ): void {
-  if (isDesktopHost()) {
-    headers.set(DESKTOP_PROTOCOL_HEADER, String(desktopProtocolVersion))
-    headers.set(CLIENT_BUILD_HEADER, DESKTOP_LEGACY_BUILD_SENTINEL)
-    return
-  }
   if (getPendingClientBuild() && path !== "/system/bootstrap") {
     throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
   }
@@ -100,15 +85,6 @@ export function prepareClientBuildRequest(
 }
 
 export function validateResponseBuild(headers: Headers): void {
-  if (isDesktopHost()) {
-    if (
-      headers.get(DESKTOP_PROTOCOL_HEADER) !== String(desktopProtocolVersion)
-    ) {
-      requireDesktopUpdate()
-      throw new ApiError({ status: 409, errorCode: "DESKTOP_UPDATE_REQUIRED" })
-    }
-    return
-  }
   if (observeServerBuild(headers.get(SERVER_BUILD_HEADER))) {
     throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
   }
@@ -125,7 +101,7 @@ export function validateUploadResponseBuild(request: XMLHttpRequest): void {
 export type QueryValue = string | number | boolean | null | undefined
 
 export function buildApiUrl(path: string, query?: Record<string, QueryValue>) {
-  const baseUrl = getDesktopServerUrl() ?? API_BASE_URL
+  const baseUrl = API_BASE_URL
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(
     `${baseUrl}/api/v1${normalizedPath}`,
@@ -410,7 +386,7 @@ async function rawRequest<TSchema extends z.ZodType>(
 
   let response: Response
   try {
-    response = await hostFetch(buildApiUrl(path, options.query), {
+    response = await fetch(buildApiUrl(path, options.query), {
       method: options.method ?? "GET",
       headers,
       body,
@@ -471,23 +447,6 @@ function rawUploadRequest<TSchema extends z.ZodType>(
   accessTokenOverride: string | null | undefined,
   loginSessionBoundary: LoginSessionBoundary
 ): Promise<z.infer<TSchema>> {
-  if (isDesktopHost()) {
-    // Native fetch has no byte-level upload progress; completion is observable.
-    return rawRequest(
-      path,
-      options,
-      accessTokenOverride,
-      loginSessionBoundary
-    ).then((data) => {
-      // Body consumption can outlive the header check; do not publish a result
-      // or completion progress that belongs to a replaced login.
-      if (!isLoginSessionCurrent(loginSessionBoundary)) {
-        throw createSupersededLoginError()
-      }
-      options.onUploadProgress?.(100)
-      return data
-    })
-  }
   const buildHeaders = new Headers()
   prepareClientBuildRequest(buildHeaders, path)
   return new Promise((resolve, reject) => {
@@ -702,7 +661,6 @@ async function refreshWithStorageLease(attempt: RefreshAttempt) {
 }
 
 async function refreshAcrossTabs(attempt: RefreshAttempt) {
-  if (isDesktopHost()) return refreshInsideLock(attempt)
   if (navigator.locks) {
     return navigator.locks.request(REFRESH_LOCK_NAME, () =>
       refreshInsideLock(attempt)
@@ -855,9 +813,6 @@ export async function apiRequest<TSchema extends z.ZodType>(
   // replacement credentials.
   const loginSessionBoundary =
     options.loginSessionBoundary ?? getLoginSessionBoundary()
-  const responseLoginSessionBoundary = isMacDesktopHost()
-    ? loginSessionBoundary
-    : undefined
   const isCurrentAccount = canRefresh
     ? captureAccessSessionGuard({ allowSameAccountRotation: true })
     : undefined
@@ -878,7 +833,7 @@ export async function apiRequest<TSchema extends z.ZodType>(
       path,
       options,
       accessTokenUsed,
-      responseLoginSessionBoundary
+      undefined
     )
     options.signal?.throwIfAborted()
     assertLoginSessionCurrent()
@@ -942,7 +897,7 @@ export async function apiRequest<TSchema extends z.ZodType>(
         path,
         { ...options, skipRefresh: true },
         getAccessToken(),
-        responseLoginSessionBoundary
+        undefined
       )
       options.signal?.throwIfAborted()
       assertCurrentSession(isCurrentRetryAccount)
@@ -1078,7 +1033,7 @@ async function rawStreamRequest(
 
   let response: Response
   try {
-    response = await hostFetch(buildApiUrl(path), {
+    response = await fetch(buildApiUrl(path), {
       method: options.method ?? "GET",
       headers,
       body,
@@ -1121,9 +1076,6 @@ export async function apiStreamRequest(
   options.signal?.throwIfAborted()
   const accessTokenUsed = getAccessToken()
   const loginSessionBoundary = getLoginSessionBoundary()
-  const responseLoginSessionBoundary = isMacDesktopHost()
-    ? loginSessionBoundary
-    : undefined
   const canRefresh =
     !options.skipRefresh && path !== "/auth/refresh" && path !== "/auth/login"
   const isCurrentAccount = canRefresh
@@ -1134,7 +1086,7 @@ export async function apiStreamRequest(
       path,
       options,
       accessTokenUsed,
-      responseLoginSessionBoundary
+      undefined
     )
     options.signal?.throwIfAborted()
     if (accessTokenUsed && isCurrentAccount) {
@@ -1184,7 +1136,7 @@ export async function apiStreamRequest(
         path,
         { ...options, skipRefresh: true },
         getAccessToken(),
-        responseLoginSessionBoundary
+        undefined
       )
       options.signal?.throwIfAborted()
       assertCurrentSession(isCurrentRetryAccount)
@@ -1222,7 +1174,7 @@ export function apiEventStreamRequest(
         headers.set("Last-Event-ID", options.lastEventId)
       }
 
-      const response = await hostFetch(
+      const response = await fetch(
         buildApiUrl(path, { last_event_id: options.lastEventId }),
         {
           headers,
@@ -1270,7 +1222,7 @@ export async function downloadApiFile(
   }
 
   const fetchFile = async () => {
-    const response = await hostFetch(buildApiUrl(path, query), {
+    const response = await fetch(buildApiUrl(path, query), {
       headers,
       credentials: "include",
       signal,

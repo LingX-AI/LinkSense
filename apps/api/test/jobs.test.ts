@@ -1,12 +1,7 @@
-import { createHash } from "node:crypto"
-import { mkdir, mkdtempDisposable, stat } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 
 import type { Job } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
-import { desktopArtifactMaxParts } from "@linksense/shared"
 import {
   BackgroundJobs,
   CleanupJobNotRetryableError,
@@ -16,11 +11,10 @@ import {
   type MaintenanceJob,
   type MaintenanceQueueControl,
 } from "../src/adapters/jobs.js"
-import { LocalFilesystemObjectStorage, type ObjectStorage } from "../src/adapters/object-storage.js"
+import type { ObjectStorage } from "../src/adapters/object-storage.js"
 import type { RunnerClient } from "../src/adapters/runner.js"
 import { RunnerRuntimeCleanupError } from "../src/adapters/runner.js"
 import type { AuditService } from "../src/modules/audit/service.js"
-import { desktopArtifactPartKey, desktopArtifactStagingKey } from "../src/modules/files/desktop-artifact-storage.js"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { testConfig } from "./test-config.js"
 
@@ -692,130 +686,6 @@ function createBackgroundJobs(
     prisma,
   )
 }
-
-describe("desktop artifact cleanup", () => {
-  const conversationId = "01900000-0000-7000-8000-000000000001"
-  const artifactId = "30000000-0000-4000-8000-000000000001"
-  const stageKey = `desktop-artifact-staging/${artifactId}`
-  const partPrefix = `desktop-artifact-parts/${artifactId}`
-  const finalKey = `conversations/${conversationId}/artifacts/${artifactId}/content`
-  const job = failedJob("desktop-artifact", { type: "desktop-artifact-cleanup", conversationId, artifactId }, "")
-  const auth = { cleanupInvalidTokens: vi.fn() }
-
-  it.each([false, true, undefined])("cleans expired uploads and preserves referenced bytes (reference result %s)", async referenced => {
-    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-artifact-job-"))
-    const directory = join(root.path, ".desktop-artifacts", artifactId)
-    await mkdir(directory, { recursive: true })
-    const { run, removeObject, removeIncompleteUpload } = fixture(root.path, referenced)
-    await expect(run()).resolves.toEqual({ deleted: referenced === false })
-    expect(removeIncompleteUpload.mock.calls).toEqual([
-      [stageKey, expect.any(AbortSignal)], [finalKey, expect.any(AbortSignal)],
-    ])
-    expect(removeObject.mock.calls).toEqual([
-      [stageKey, expect.any(AbortSignal)],
-      ...(referenced === false ? [[finalKey, expect.any(AbortSignal)]] : []),
-    ])
-    await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
-  })
-
-  it("fails closed when reference lookup fails and retries an interrupted deletion", async () => {
-    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-artifact-job-"))
-    const { run, transaction, removeObject, removeIncompleteUpload } = fixture(root.path, false)
-    transaction.mockRejectedValueOnce(new Error("retention lookup unavailable"))
-    await expect(run()).rejects.toThrow("retention lookup unavailable")
-    expect(removeObject).not.toHaveBeenCalled()
-    expect(removeIncompleteUpload).not.toHaveBeenCalled()
-    removeObject.mockRejectedValueOnce(new Error("object storage unavailable"))
-    await expect(run()).rejects.toThrow("object storage unavailable")
-    await expect(run()).resolves.toEqual({ deleted: true })
-    expect(removeObject.mock.calls.map(([key]) => key)).toEqual([stageKey, stageKey, finalKey])
-  })
-
-  it("keeps the single cleanup enqueue when no staging parts were uploaded", async () => {
-    const queue = queueControl({ failedJobs: [] })
-    await createBackgroundJobs(queue).enqueueDesktopArtifactCleanup(conversationId, artifactId, 60_000)
-
-    expect(queue.add).toHaveBeenCalledWith(
-      "desktop-artifact-cleanup",
-      { type: "desktop-artifact-cleanup", conversationId, artifactId },
-      { jobId: `desktop-artifact-${artifactId}`, delay: 60_000 },
-    )
-    expect(queue.addBulk).not.toHaveBeenCalled()
-  })
-
-  it("queues deletion of each exact staging part with the same delay as artifact cleanup", async () => {
-    const queue = queueControl({ failedJobs: [] })
-    await createBackgroundJobs(queue).enqueueDesktopArtifactCleanup(conversationId, artifactId, 30_000, 3)
-
-    expect(queue.add).not.toHaveBeenCalled()
-    expect(vi.mocked(queue.addBulk).mock.calls).toEqual([[
-      [
-        {
-          name: "desktop-artifact-cleanup",
-          data: { type: "desktop-artifact-cleanup", conversationId, artifactId },
-          opts: { jobId: `desktop-artifact-${artifactId}`, delay: 30_000 },
-        },
-        ...[0, 1, 2].map(index => {
-          const objectKey = `${partPrefix}/${index}`
-          return {
-            name: "object-delete",
-            data: { type: "object-delete", objectKey },
-            opts: { jobId: objectJobId(objectKey), delay: 30_000 },
-          }
-        }),
-      ],
-    ]])
-  })
-
-  it.each([false, true])("cleans only unpublished website resources (referenced: %s)", async referenced => {
-    await using root = await mkdtempDisposable(join(tmpdir(), "linksense-desktop-website-job-"))
-    const paths = ["index.html", "assets/style.css"]
-    const website = failedJob("desktop-website", { type: "desktop-website-cleanup", conversationId, artifactId, paths }, "")
-    const { run, removeObject } = fixture(root.path, referenced)
-    await expect(run(website)).resolves.toEqual({ deleted: !referenced })
-    expect(removeObject.mock.calls).toEqual(referenced ? [] : paths.map(path =>
-      [`web-artifact-bundles/${artifactId}/${path}`, expect.any(AbortSignal)]))
-  })
-
-  it("bounds part keys to zero-based indices below the shared maximum", async () => {
-    expect(desktopArtifactStagingKey(artifactId)).toBe(stageKey)
-    expect(desktopArtifactPartKey(artifactId, 0)).toBe(`${partPrefix}/0`)
-    expect(desktopArtifactPartKey(artifactId, desktopArtifactMaxParts - 1)).toBe(`${partPrefix}/${desktopArtifactMaxParts - 1}`)
-    expect(() => desktopArtifactPartKey(artifactId, -1)).toThrow()
-    expect(() => desktopArtifactPartKey(artifactId, desktopArtifactMaxParts)).toThrow()
-    expect(() => desktopArtifactPartKey(artifactId, 1.5)).toThrow()
-
-    const queue = queueControl({ failedJobs: [] })
-    const jobs = createBackgroundJobs(queue)
-    await expect(jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, 0, -1)).rejects.toThrow()
-    await expect(jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, 0, desktopArtifactMaxParts + 1)).rejects.toThrow()
-    expect(queue.add).not.toHaveBeenCalled()
-    expect(queue.addBulk).not.toHaveBeenCalled()
-  })
-
-  function objectJobId(objectKey: string): string {
-    return `object-${createHash("sha256").update(objectKey).digest("hex").slice(0, 32)}`
-  }
-
-  function fixture(capabilityRoot: string, referenced: boolean | undefined) {
-    const removeObject = vi.fn<ObjectStorage["removeObject"]>().mockResolvedValue(undefined)
-    const removeIncompleteUpload = vi.fn<NonNullable<ObjectStorage["removeIncompleteUpload"]>>().mockResolvedValue(undefined)
-    const $queryRaw = vi.fn().mockResolvedValueOnce([])
-      .mockResolvedValue(referenced === undefined ? [] : [{ referenced }])
-    const transaction = vi.fn(async (run: (tx: { $queryRaw: typeof $queryRaw }) => Promise<unknown>) =>
-      run({ $queryRaw }))
-    const config = testConfig()
-    const storage = new LocalFilesystemObjectStorage({
-      ...config, objectStorage: { ...config.objectStorage, provider: "local-filesystem", localRoot: capabilityRoot },
-    })
-    const jobs = new BackgroundJobs(
-      config, Object.assign(storage, { removeObject, removeIncompleteUpload }),
-      {} as RunnerClient, {} as AuditService, capabilityRoot, queueControl({ failedJobs: [] }),
-      { $transaction: transaction } as unknown as PrismaClient,
-    )
-    return { run: (selected = job) => jobs["process"](selected, auth), transaction, removeObject, removeIncompleteUpload }
-  }
-})
 
 function queueControl(input: {
   failedJobs: Job<MaintenanceJob>[]

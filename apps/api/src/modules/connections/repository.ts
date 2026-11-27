@@ -23,7 +23,7 @@ export interface ConnectionRepository {
     provider: ConnectionProvider,
     transform: (row: ConnectionRecord | null) => Promise<ConnectionWrite>,
   ): Promise<ConnectionRecord>;
-  assertTurn(ownerId: string, conversationId: string, turnId: string, write?: boolean, desktopRead?: boolean): Promise<void>;
+  assertTurn(ownerId: string, conversationId: string, turnId: string, write?: boolean): Promise<void>;
 }
 
 export class PrismaConnectionRepository implements ConnectionRepository {
@@ -93,11 +93,11 @@ export class PrismaConnectionRepository implements ConnectionRepository {
       { timeout: 30_000, maxWait: 10_000 },
     );
   }
-  async assertTurn(ownerId: string, conversationId: string, turnId: string, write = false, desktopRead = false): Promise<void> {
+  async assertTurn(ownerId: string, conversationId: string, turnId: string, write = false): Promise<void> {
     await this.authVersion(ownerId);
     const [conversation, turn, start, external] = await Promise.all([
       this.prisma.conversation.findFirst({
-        where: { id: conversationId, ownerId, archiveStatus: "active", ...(desktopRead && { executionTarget: "local" }) },
+        where: { id: conversationId, ownerId, archiveStatus: "active" },
         select: { id: true },
       }),
       this.prisma.conversationTurn.findUnique({
@@ -109,8 +109,7 @@ export class PrismaConnectionRepository implements ConnectionRepository {
           projectionTurnId: turnId,
           conversationId,
           ownerId,
-          // The device gateway checks the run lease before this read reaches us.
-          runnerStatus: desktopRead && !write ? { in: ["prepared", "runner_succeeded"] } : "runner_succeeded",
+          runnerStatus: "runner_succeeded",
         },
         select: { projectionTurnId: true, collaborationMode: true },
       }),

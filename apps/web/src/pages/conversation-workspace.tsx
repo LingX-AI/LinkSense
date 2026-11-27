@@ -9,7 +9,6 @@ import { ConversationPage } from "./conversation-pages"
 import { ApplicationDevelopmentLayout } from "@/features/applications/application-development-layout"
 import { ApplicationDevelopmentPanel } from "@/features/applications/application-development-panel"
 import { applicationDevelopmentKeys } from "@/features/applications/application-development-api"
-import { LocalWorkspaceClearedNotice } from "@/features/local-workspace/local-workspace-notice"
 import { projectKeys } from "@/features/projects/project-api"
 
 export function ConversationWorkspace() {
@@ -58,7 +57,6 @@ export function ConversationWorkspace() {
       }
     >
       <div className="flex h-full min-h-0 flex-col">
-        <LocalWorkspaceClearedNotice conversationId={conversationId} />
         <div className="min-h-0 flex-1">
           <ConversationPage
             development={Boolean(development.data)}

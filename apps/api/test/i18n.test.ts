@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { supportedLocales } from "@linksense/shared"
 
-import { errorDetails } from "../src/lib/errors.js"
 import { backendI18n, translateError } from "../src/lib/i18n.js"
 
 describe("backend error translations", () => {
@@ -42,32 +41,6 @@ describe("backend error translations", () => {
     expect(backendI18n.t(key, { lng: "zh-CN" })).toBe(chinese)
     expect(backendI18n.t(key, { lng: "en-US" })).toBe(english)
     expect(backendI18n.t(key, { lng: "de-DE" })).toBe(chinese)
-  })
-
-  it("explains Mac privacy-masking admission in every locale and falls back to Chinese", () => {
-    const messages = {
-      "zh-CN": "隐私脱敏已开启，无法在这台 Mac 上运行新的任务轮次。如云端可用，请在云端继续。",
-      "en-US": "Privacy masking is enabled, so a new turn cannot run on this Mac. If the cloud is available, continue there.",
-      "es-ES": "El enmascaramiento de privacidad está activado, así que un nuevo turno no puede ejecutarse en este Mac. Si la nube está disponible, continúa allí.",
-      "pt-BR": "O mascaramento de privacidade está ativado, então um novo turno não pode ser executado neste Mac. Se a nuvem estiver disponível, continue por lá.",
-      "fr-FR": "Le masquage de confidentialité est activé, donc un nouveau tour ne peut pas s’exécuter sur ce Mac. Si le cloud est disponible, vous pouvez y continuer.",
-      "ja-JP": "プライバシーマスキングが有効なため、このMacでは新しいターンを実行できません。クラウドが利用可能な場合は、クラウドで続行できます。",
-    } as const
-    for (const locale of supportedLocales) {
-      expect(
-        translateError("DESKTOP_PRIVACY_MASKING_UNAVAILABLE", locale),
-      ).toBe(messages[locale])
-    }
-    expect(errorDetails("DESKTOP_PRIVACY_MASKING_UNAVAILABLE", "zh-CN")).toEqual({
-      status: 403,
-      messageKey: "errors.desktopPrivacyMaskingUnavailable",
-      message: messages["zh-CN"],
-    })
-    expect(
-      backendI18n.t("errors.desktopPrivacyMaskingUnavailable", {
-        lng: "de-DE",
-      }),
-    ).toBe(messages["zh-CN"])
   })
 
   it("translates a closed submission in both languages and falls back to Chinese", () => {

@@ -21,7 +21,6 @@ import {
   clampUiFontSize,
   persistUiFontSize,
   readEffectiveUiFontSize,
-  supportsUiFontSizePreference,
 } from "@/app/ui-font-size"
 import { ThemeContext } from "@/app/theme-state"
 
@@ -73,7 +72,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setUiFontSize = useCallback((nextFontSize: number) => {
-    if (!supportsUiFontSizePreference()) return
     const fontSize = clampUiFontSize(nextFontSize)
     persistUiFontSize(fontSize)
     setUiFontSizeState(fontSize)

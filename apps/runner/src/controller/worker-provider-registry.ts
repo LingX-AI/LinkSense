@@ -22,7 +22,5 @@ export function createWorkerProvider(
       )
     case "local-process":
       return new LocalProcessWorkerProvider(config, logger)
-    case "desktop":
-      throw new Error("desktop workers require the supervised desktop entrypoint")
   }
 }

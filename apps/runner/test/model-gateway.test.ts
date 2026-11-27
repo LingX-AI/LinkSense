@@ -14,13 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 
 import {
-  DESKTOP_MODEL_PURPOSE_HEADER,
   modelImageOmittedPlaceholder,
-  type DesktopRunCredentials,
   type RunnerMemoryUsageCapture,
 } from "@linksense/shared";
 
-import { desktopModelProviders } from "../src/desktop/model-providers.js";
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
 import type { SensitiveDataRelay } from "../src/model-gateway/sensitive-data.js";
 import { parseSseStream } from "../src/model-gateway/sse.js";
@@ -42,132 +39,6 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
-  it.each(["native_responses", "chat_completions_bridge"] as const)(
-    "keeps desktop workspace paths off the %s wire without changing unrelated text",
-    async (protocolMode) => {
-      const origin = "https://linksense-fixture.example.test";
-      const turn = "10000000-0000-4000-8000-000000000001";
-      const dataRoot = "/var/folders/fixture/LinkSense Files";
-      const home = `${dataRoot}/home`;
-      const workspace = `${home}/workspace`;
-      const relative = "attachments/notes.txt";
-      const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 403 }));
-      const gateway = await startGateway({ fetch: upstream, desktopProxyOrigin: origin, desktopPaths: { dataRoot, home } });
-      const lease = gateway.issueLease({
-        ...leaseMetering, conversationId: "desktop-paths", revision: 1,
-        upstreamBaseUrl: `${origin}/api/v1/desktop/models/${turn}/primary`,
-        apiKey: `lsdm_${"a".repeat(43)}`, protocolMode, model: "model-a",
-      });
-      const prompt = "Keep ~/workspace/attachments/notes.txt and https://example.test/notes unchanged.";
-      await requestGateway(gateway, lease.token, {
-        model: "model-a", input: [
-          { role: "user", content: [{ type: "input_text", text: `<cwd>${workspace}</cwd>\n${prompt}` }] },
-          { type: "function_call", call_id: "read", name: "read_file", arguments: "{}" },
-          { type: "function_call_output", call_id: "read", output: `read /private${workspace}/${relative}` },
-        ],
-      });
-      expect(upstream).toHaveBeenCalledOnce();
-      const body = String(upstream.mock.calls[0]?.[1]?.body);
-      expect(body).toContain("<cwd>.</cwd>");
-      expect(body).toContain(`read ./${relative}`);
-      expect(body).toContain(prompt);
-      expect(body).not.toContain(dataRoot);
-    },
-  );
-
-  it("uses independent desktop grants only for their native purpose and never follows an unscoped provider URL", async () => {
-    const origin = "https://linksense-fixture.example.test";
-    const turn = "10000000-0000-4000-8000-000000000001";
-    const model = { model: "task-fixture", revision: 5, protocol_mode: "native_responses" } as const;
-    const credentials = {
-      turn_id: turn,
-      expires_at: "2026-11-18T00:10:00Z",
-      run_token: `lsdr_${"a".repeat(43)}`,
-      primary: { ...model, purpose: "primary", token: `lsdm_${"b".repeat(43)}` },
-      memory_extraction: {
-        ...model, purpose: "memory_extraction", model: "memory-fixture", reasoning_effort: "low", token: `lsdm_${"c".repeat(43)}`,
-      },
-      transition_source: {
-        ...model, purpose: "transition_source", revision: 4, model: "source-fixture", token: `lsdm_${"d".repeat(43)}`,
-      },
-    } satisfies DesktopRunCredentials;
-    const configured = desktopModelProviders(origin, credentials);
-    const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }));
-    const gateway = await startGateway({ fetch: upstream, desktopProxyOrigin: origin });
-    const memory = configured.modelProvider.memoryExtraction;
-    if (!memory) throw new Error("Expected a memory extraction grant");
-    const lease = gateway.issueLease({
-      ...leaseMetering, conversationId: "desktop-model-purpose", revision: configured.modelProvider.revision,
-      upstreamBaseUrl: configured.modelProvider.baseUrl, apiKey: configured.modelProvider.apiKey,
-      protocolMode: configured.modelProvider.protocolMode, model: configured.model,
-      memoryExtraction: memory,
-    });
-    const source = configured.modelTransitionSource;
-    if (!source) throw new Error("Expected a transition source");
-    lease.setModelTransition({
-      pricing: leaseMetering.pricing, model: source.model, revision: source.provider.revision,
-      upstreamBaseUrl: source.provider.baseUrl, apiKey: source.provider.apiKey, protocolMode: source.provider.protocolMode,
-    }, "fixture-transition-nonce");
-    lease.setManualModelTransitionCompaction(true);
-    const compaction = JSON.stringify({
-      request_kind: "compaction", compaction: {
-        implementation: "responses", strategy: "memento", trigger: "manual",
-        reason: "user_requested", phase: "standalone_turn",
-      },
-    });
-    for (const model of ["memory-fixture", "source-fixture"]) {
-      expect((await requestGateway(gateway, lease.token, { model, input: "ordinary" })).status).toBe(403);
-    }
-    expect(await rejectedWebSocketStatus(gateway, lease.token)).toBe(426);
-    expect(upstream).not.toHaveBeenCalled();
-    expect((await requestGateway(gateway, lease.token, { model: credentials.primary.model, input: "question" })).status).toBe(404);
-    expect((await requestGateway(gateway, lease.token, { model: credentials.memory_extraction.model, input: "history" }, {
-      "x-codex-turn-metadata": JSON.stringify({ request_kind: "memory" }),
-    })).status).toBe(404);
-    expect((await requestGateway(gateway, lease.token, {
-      model: credentials.transition_source.model, input: "history",
-      client_metadata: { "x-codex-turn-metadata": compaction },
-    })).status).toBe(404);
-    expect(upstream).toHaveBeenCalledTimes(3);
-    const outgoing = upstream.mock.calls.map(([url, init]) => ({
-      url: String(url),
-      purpose: new Headers(init?.headers).get(DESKTOP_MODEL_PURPOSE_HEADER),
-      token: new Headers(init?.headers).get("authorization"),
-    }));
-    expect(outgoing).toEqual([credentials.primary, credentials.memory_extraction, credentials.transition_source].map(grant => ({
-      url: `${origin}/api/v1/desktop/models/${turn}/${grant.purpose}/responses`,
-      purpose: grant.purpose,
-      token: `Bearer ${grant.token}`,
-    })));
-    const foreign = gateway.issueLease({
-      ...leaseMetering, conversationId: "foreign-model-provider", revision: 1,
-      upstreamBaseUrl: "https://upstream.example.test/v1", apiKey: credentials.primary.token,
-      protocolMode: "native_responses", model: credentials.primary.model,
-    });
-    expect((await requestGateway(gateway, foreign.token, { model: credentials.primary.model, input: "question" })).status).toBe(403);
-    expect(upstream).toHaveBeenCalledTimes(3);
-  });
-
-  it.each(["json", "sse"] as const)("preserves a desktop Chat provider's terminal error carried by HTTP 200 %s", async format => {
-    const origin = "https://linksense-fixture.example.test";
-    const turn = "10000000-0000-4000-8000-000000000001";
-    const error = { error: { code: "insufficient_quota" } };
-    const upstream = vi.fn<typeof fetch>().mockResolvedValue(format === "json"
-      ? Response.json(error)
-      : new Response(`data: ${JSON.stringify(error)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } }));
-    const gateway = await startGateway({ fetch: upstream, desktopProxyOrigin: origin });
-    const lease = gateway.issueLease({
-      ...leaseMetering, conversationId: "desktop-chat-failure", revision: 1,
-      upstreamBaseUrl: `${origin}/api/v1/desktop/models/${turn}/primary`, apiKey: `lsdm_${"a".repeat(43)}`,
-      protocolMode: "chat_completions_bridge", model: "model-a",
-    });
-    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "hello", stream: true });
-    const contents = await response.text();
-    expect(contents).toContain("response.failed");
-    expect(contents).toContain("insufficient_quota");
-    expect(contents).not.toContain("response.completed");
-  });
-
   it("holds a request with sensitive tool output until a local model is selected", async () => {
     const projection = "10000000-0000-4000-8000-000000000002";
     const toolResult = { type: "function_call_output", call_id: "call_test", output: "SENSITIVE_FIXTURE" };
@@ -3348,8 +3219,6 @@ describe("ModelGateway", () => {
 async function startGateway(
   options: {
     fetch?: typeof fetch;
-    desktopProxyOrigin?: string;
-    desktopPaths?: { dataRoot: string; home: string };
     logger?: Logger;
     requestBodyLimit?: number;
     incomingRequestBodyLimit?: number;

@@ -1,6 +1,5 @@
 import { Fragment, forwardRef, useMemo, useState, type ReactNode } from "react"
 import { maximumConversationReferences } from "@linksense/shared"
-import { useQuery } from "@tanstack/react-query"
 import {
   useTaskReferenceOptions,
   type TaskReference,
@@ -11,8 +10,6 @@ import {
   BookOpenIcon,
   BoxIcon,
   ChevronsDownIcon,
-  FileIcon,
-  FolderIcon,
   LoaderCircleIcon,
   MessageSquarePlusIcon,
   Minimize2Icon,
@@ -21,7 +18,6 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import type { DesktopFileRootListing } from "@/adapters/desktop/desktop-device-adapter"
 import type { Application, CapabilitySummary, McpServer } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useProductName } from "@/app/product-branding"
@@ -461,10 +457,6 @@ export const ConversationTaskReferenceCommandMenu = forwardRef<
     currentConversationId?: string
     selected: TaskReference[]
     onSelect: (task: TaskReference) => void
-    localFiles?: {
-      list: (path: string) => Promise<DesktopFileRootListing>
-      onChoose: (path: string, kind: "file" | "directory") => void
-    }
   }
 >(function ConversationTaskReferenceCommandMenu(
   {
@@ -473,7 +465,6 @@ export const ConversationTaskReferenceCommandMenu = forwardRef<
     currentConversationId,
     selected,
     onSelect,
-    localFiles,
   },
   ref
 ) {
@@ -483,53 +474,15 @@ export const ConversationTaskReferenceCommandMenu = forwardRef<
   const tasks = query.items.filter(
     (task) => !selected.some((item) => item.id === task.id)
   )
-  // A path after @ browses one level of the granted local folder: `src/` lists
-  // that directory while the trailing text filters its entries.
-  const slashIndex = search.lastIndexOf("/")
-  const directory = slashIndex >= 0 ? search.slice(0, slashIndex) : ""
-  const fileFilter = (
-    slashIndex >= 0 ? search.slice(slashIndex + 1) : search
-  )
-    .trim()
-    .toLowerCase()
-  const localFilesQuery = useQuery({
-    queryKey: [
-      "conversation",
-      currentConversationId ?? "none",
-      "local-file-mentions",
-      directory,
-    ],
-    queryFn: () => localFiles!.list(directory),
-    enabled: Boolean(localFiles),
-    retry: false,
-    staleTime: 5_000,
-    gcTime: 0,
-  })
-  const fileEntries = useMemo(() => {
-    const entries = localFilesQuery.data?.entries ?? []
-    return entries
-      .filter(
-        (entry) =>
-          !fileFilter ||
-          entry.name.toLowerCase().includes(fileFilter) ||
-          entry.path.toLowerCase().includes(fileFilter)
-      )
-      .slice(0, 40)
-  }, [localFilesQuery.data, fileFilter])
-  const parentDirectory =
-    directory.includes("/")
-      ? directory.slice(0, directory.lastIndexOf("/"))
-      : ""
   const scope = `${archived}:${search}`
   const [active, setActive] = useState({ scope: "", value: "" })
   // Async results must become the default choice ahead of footer actions.
   const activeValue =
     active.scope === scope &&
-    (fileEntries.some((entry) => `file:${entry.path}` === active.value) ||
-      tasks.some((task) => task.id === active.value) ||
-      ["file-up", "toggle-archive", "load-more"].includes(active.value))
+    (tasks.some((task) => task.id === active.value) ||
+      ["toggle-archive", "load-more"].includes(active.value))
       ? active.value
-      : (fileEntries[0] ? `file:${fileEntries[0].path}` : (tasks[0]?.id ?? "toggle-archive"))
+      : (tasks[0]?.id ?? "toggle-archive")
   return (
     <div
       ref={ref}
@@ -549,63 +502,6 @@ export const ConversationTaskReferenceCommandMenu = forwardRef<
         onMouseDown={(event) => event.preventDefault()}
       >
         <CommandList className="composer-slash-list">
-          {localFiles && (
-            <CommandGroup heading={t("taskReferences.localFolderGroup")}>
-              {localFilesQuery.isPending && <SlashLoadingState />}
-              {localFilesQuery.isError && (
-                <SlashErrorState
-                  message={getErrorMessage(localFilesQuery.error, t)}
-                  onRetry={() => void localFilesQuery.refetch()}
-                />
-              )}
-              {!localFilesQuery.isPending && !localFilesQuery.isError && (
-                <>
-                  {directory && (
-                    <CommandItem
-                      value="file-up"
-                      className="composer-slash-detail-item"
-                      onSelect={() =>
-                        localFiles.onChoose(parentDirectory, "directory")
-                      }
-                    >
-                      <FolderIcon className="size-4" aria-hidden="true" />
-                      <span className="composer-slash-item-copy">
-                        <span className="composer-slash-item-title">
-                          {t("taskReferences.parentFolder")}
-                        </span>
-                      </span>
-                    </CommandItem>
-                  )}
-                  {fileEntries.map((entry) => (
-                    <CommandItem
-                      key={`file:${entry.path}`}
-                      value={`file:${entry.path}`}
-                      className="composer-slash-detail-item"
-                      onSelect={() => localFiles.onChoose(entry.path, entry.kind)}
-                    >
-                      {entry.kind === "directory" ? (
-                        <FolderIcon className="size-4" aria-hidden="true" />
-                      ) : (
-                        <FileIcon className="size-4" aria-hidden="true" />
-                      )}
-                      <span className="composer-slash-item-copy">
-                        <span className="composer-slash-item-title">
-                          {entry.kind === "directory"
-                            ? `${entry.name}/`
-                            : entry.name}
-                        </span>
-                      </span>
-                    </CommandItem>
-                  ))}
-                  {fileEntries.length === 0 && (
-                    <p className="composer-slash-state" role="status">
-                      {t("taskReferences.noLocalFiles")}
-                    </p>
-                  )}
-                </>
-              )}
-            </CommandGroup>
-          )}
           <CommandGroup heading={t("taskReferences.title")}>
             {query.isPending && <SlashLoadingState />}
             {query.isError && (

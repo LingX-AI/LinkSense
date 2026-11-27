@@ -33,7 +33,6 @@ export interface ConversationAssetSnapshotWriter {
     turnId: string;
     sources: readonly ConversationAssetSource[];
     signal?: AbortSignal;
-    checkRun?: () => Promise<void>;
     checkPublication?: CheckKnowledgeAssetPublication;
   }): Promise<void>;
 }
@@ -179,7 +178,6 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
     const id = randomUUID();
     const filename = `${assetId}.${detected.ext}`;
     const objectKey = `conversations/${input.conversationId}/artifacts/${id}/${filename}`;
-    await input.checkRun?.();
     signal?.throwIfAborted();
     let retained = false;
     try {
@@ -195,8 +193,7 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
       });
       if (!scope.usable_ids.includes(source.knowledgeBaseId))
         throw new AppError("FORBIDDEN");
-      await input.checkRun?.();
-      signal?.throwIfAborted();
+        signal?.throwIfAborted();
       retained = await this.repository.publish({
         id,
         actorId: input.actor.id,

@@ -20,7 +20,6 @@ import WebSocket, {
 } from "ws";
 
 import type {
-  DesktopModelPurpose,
   MemoryGenerationOperation,
   MemoryExtractionRuntime,
   ReasoningEffort,
@@ -35,18 +34,13 @@ import type {
 import {
   CONTEXT_LENGTH_EXCEEDED,
   PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
-  DESKTOP_MODEL_PURPOSE_HEADER,
   createModelProviderFetch,
-  desktopModelProxyUrl,
-  desktopModelTokenSchema,
-  desktopServerOriginSchema,
   isContextLengthExceededError,
   isModelProviderEndpointMissing,
   modelProviderFallbackUrl,
   modelGatewayErrorMessages,
   modelGatewayFailureCode,
   modelTransitionCompactionFromTurnMetadata,
-  nativeProviderFailureCode,
   omitUnsupportedModelImages,
   type ModelTransitionCompactionAuthorization,
 } from "@linksense/shared";
@@ -56,7 +50,6 @@ import {
   chatCompletionStreamToResponses,
   chatCompletionToResponse,
 } from "./chat-completions-bridge.js";
-import { desktopModelPathProjection, type DesktopModelPaths } from "./desktop-paths.js";
 import {
   ModelRequestBodyTooLargeError,
   ModelRequestImageError,
@@ -239,7 +232,6 @@ type ModelGatewayRequestContext = {
   codexTurnId: string | null;
   leaseTurnCorrelation: StoredLease["turnCorrelation"] | null;
   memoryOperation: MemoryGenerationOperation | null;
-  desktopModelPurpose?: DesktopModelPurpose;
   abortSource: ModelGatewayAbortSource | null;
   /** Counts only: never a value, a word or an allowlisted entry. */
   masking?: {
@@ -265,9 +257,6 @@ type ModelGatewayOptions = {
   upstreamIdleTimeoutMs?: number;
   closeGraceMs?: number;
   fetch?: typeof fetch;
-  /** The packaged origin; in desktop mode inference can only leave via scoped HTTP. */
-  desktopProxyOrigin?: string;
-  desktopPaths?: DesktopModelPaths;
   onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
   /** Counts only; reported after a request had values replaced. */
   onPrivacyMasking?: (
@@ -317,16 +306,11 @@ export class ModelGateway implements ModelGatewayRuntime {
   private readonly localDispatcher = new Agent();
   private readonly webSocketProxyAgent: ProxyAgent;
   private readonly server: Server;
-  private readonly projectDesktopPaths: ReturnType<typeof desktopModelPathProjection> | undefined;
   private listeningBaseUrl: string | null = null;
   private closing = false;
   private closePromise: Promise<void> | null = null;
 
   constructor(private readonly options: ModelGatewayOptions) {
-    if (options.desktopProxyOrigin !== undefined) {
-      desktopServerOriginSchema.parse(options.desktopProxyOrigin);
-    }
-    this.projectDesktopPaths = options.desktopPaths ? desktopModelPathProjection(options.desktopPaths) : undefined;
     this.httpProxyDispatcher = new EnvHttpProxyAgent();
     this.webSocketProxyAgent = new ProxyAgent({
       getProxyForUrl: proxyUrlForWebSocket,
@@ -561,7 +545,6 @@ export class ModelGateway implements ModelGatewayRuntime {
     context.memoryOperation = memoryOperationFromHeaders(request.headers);
 
     if (
-      this.options.desktopProxyOrigin !== undefined ||
       !modelGatewaySupportsWebSockets(lease.protocolMode) ||
       lease.privacyMasking
     ) {
@@ -1407,11 +1390,6 @@ export class ModelGateway implements ModelGatewayRuntime {
       if (!authorizedLease) {
         throw new GatewayHttpError(403, "model_not_authorized");
       }
-      if (this.options.desktopProxyOrigin !== undefined) {
-        context.desktopModelPurpose = authorizedLease === lease ? "primary"
-          : authorizedLease.extractionOnly ? "memory_extraction" : "transition_source";
-      }
-      this.projectDesktopPaths?.(body);
       body = extractionRequestBody(body, authorizedLease, context.memoryOperation);
       if (authorizedLease.toolPolicy === "none") {
         body.tools = [];
@@ -1815,7 +1793,6 @@ export class ModelGateway implements ModelGatewayRuntime {
       this.options.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
       abort,
     );
-    if (requestContext.desktopModelPurpose && await forwardDesktopJsonFailure(response, payload, streamRequested)) return;
     const rewritten = rewriteResponsesPayload(payload, context);
     if (!isRecord(rewritten)) {
       throw new Error("model provider returned an invalid response");
@@ -1913,7 +1890,6 @@ export class ModelGateway implements ModelGatewayRuntime {
       for await (const event of chatCompletionStreamToResponses(
         timedResponse,
         lease.model,
-        requestContext.desktopModelPurpose !== undefined,
       )) {
         const rewritten = rewriteResponsesPayload(event.data, context);
         if (!isRecord(rewritten)) continue;
@@ -1933,7 +1909,6 @@ export class ModelGateway implements ModelGatewayRuntime {
       this.options.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
       abort,
     );
-    if (requestContext.desktopModelPurpose && await forwardDesktopJsonFailure(response, completion, streamRequested)) return;
     const bridged = chatCompletionToResponse(completion, lease.model);
     const rewritten = rewriteResponsesPayload(bridged, context);
     if (!isRecord(rewritten)) {
@@ -1967,12 +1942,6 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     context: ModelGatewayRequestContext,
   ): Promise<Response> {
-    const desktopPurpose = context.desktopModelPurpose;
-    if (this.options.desktopProxyOrigin !== undefined &&
-        (!desktopPurpose || !desktopModelTokenSchema.safeParse(apiKey).success ||
-          !desktopProxyDestination(this.options.desktopProxyOrigin, baseUrl, desktopPurpose))) {
-      throw new GatewayHttpError(403, "model_not_authorized");
-    }
     const streaming = body.stream === true;
     const latency = this.createUpstreamLatency(context, "http", streaming);
     context.latency = latency;
@@ -1991,7 +1960,6 @@ export class ModelGateway implements ModelGatewayRuntime {
           "content-type": "application/json",
           "x-linksense-request-id": context.requestId,
           "user-agent": "LinkSense-Model-Gateway/1.0",
-          ...(desktopPurpose === undefined ? {} : { [DESKTOP_MODEL_PURPOSE_HEADER]: desktopPurpose }),
         },
         redirect: "manual" as const,
         signal: abort.controller.signal,
@@ -2012,7 +1980,7 @@ export class ModelGateway implements ModelGatewayRuntime {
           dispatcher: context.localSensitiveDataRoute ? this.localDispatcher : this.httpProxyDispatcher,
         }) as unknown as Response;
       };
-      const transport = desktopPurpose === undefined ? createModelProviderFetch(baseUrl, fetcher) : fetcher;
+      const transport = createModelProviderFetch(baseUrl, fetcher);
       const upstream = await transport(endpointUrl(baseUrl, endpoint), requestInit);
       context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
       latency.mark("upstream_headers");
@@ -2145,12 +2113,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       }
       return true;
     }
-    const nativeCode = context.desktopModelPurpose && nativeProviderFailureCode(payload);
-    if (statusCode === 429 && (nativeCode === "usage_limit_reached" || nativeCode === "usage_not_included")) {
-      writeJson(response, statusCode, { error: { type: nativeCode, code: nativeCode } });
-      return true;
-    }
-    throw new GatewayHttpError(statusCode, nativeCode || modelGatewayFailureCode(statusCode));
+    throw new GatewayHttpError(statusCode, modelGatewayFailureCode(statusCode));
   }
 
   private async inspectMemoryStream(
@@ -2417,15 +2380,6 @@ function maskingLogFields(
 
 function endpointUrl(baseUrl: string, endpoint: string): URL {
   return new URL(`${baseUrl.replace(/\/+$/u, "")}/${endpoint}`);
-}
-
-function desktopProxyDestination(origin: string, baseUrl: string, purpose: DesktopModelPurpose): boolean {
-  try {
-    const turnId = new URL(baseUrl).pathname.split("/").at(-2);
-    return turnId !== undefined && desktopModelProxyUrl(origin, turnId, purpose) === baseUrl;
-  } catch {
-    return false;
-  }
 }
 
 function endpointWebSocketUrl(baseUrl: string, endpoint: string): URL {
@@ -2709,25 +2663,6 @@ function withIdleTimeout(
 
 function isEventStream(contentType: string | null): boolean {
   return contentType?.toLowerCase().startsWith("text/event-stream") ?? false;
-}
-
-async function forwardDesktopJsonFailure(
-  response: ServerResponse,
-  payload: JsonObject,
-  stream: boolean,
-): Promise<boolean> {
-  if (!isRecord(payload.error) && payload.type !== "response.failed") return false;
-  const code = nativeProviderFailureCode(payload) ?? "model_provider_error";
-  if (stream) {
-    beginSseResponse(response);
-    await writeSseEvent(response, "response.failed", {
-      type: "response.failed", sequence_number: 0, response: { status: "failed", error: { code } },
-    });
-    response.end();
-  } else {
-    writeJson(response, 502, { error: { code, message: publicErrorMessage(code) } });
-  }
-  return true;
 }
 
 async function writeCompletedResponseAsSse(

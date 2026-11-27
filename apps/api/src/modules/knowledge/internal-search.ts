@@ -30,7 +30,6 @@ type KnowledgeTurnInput = {
   conversationId: string;
   turnId: string;
   signal?: AbortSignal;
-  checkRun?: () => Promise<void>;
   checkPublication?: CheckKnowledgeAssetPublication;
 };
 
@@ -213,7 +212,6 @@ export class InternalKnowledgeSearchService {
       conversationId: input.conversationId,
       turnId: projectionTurnId,
       ...(input.signal ? { signal: input.signal } : {}),
-      ...(input.checkRun ? { checkRun: input.checkRun } : {}),
       ...(input.checkPublication ? { checkPublication: input.checkPublication } : {}),
       sources: safeParents.map(({ parent }) => ({
         knowledgeBaseId: parent.knowledgeBaseId,
@@ -222,7 +220,6 @@ export class InternalKnowledgeSearchService {
         assetReferenceIds: collectKnowledgeAssetReferenceIds(parent.parentText),
       })),
     });
-    await input.checkRun?.();
     input.signal?.throwIfAborted();
     const registered = await this.sourceStore.register(
       projectionTurnId,
@@ -236,7 +233,6 @@ export class InternalKnowledgeSearchService {
         pageNumbers: evidencePageNumbers(parent),
       })),
     );
-    await input.checkRun?.();
     input.signal?.throwIfAborted();
     const documentRefs = await Promise.all(
       safeParents.map(({ parent }) =>
@@ -315,7 +311,6 @@ export class InternalKnowledgeSearchService {
     if (!finalScope.usable_ids.includes(base.id)) {
       throw new AppError("FORBIDDEN");
     }
-    await input.checkRun?.();
     input.signal?.throwIfAborted();
     const documentRefs = await Promise.all(
       visible.map((document) =>
@@ -338,7 +333,6 @@ export class InternalKnowledgeSearchService {
               documentCursor: null,
             }
           : null;
-    await input.checkRun?.();
     input.signal?.throwIfAborted();
     const nextCursor =
       nextState === null
@@ -472,8 +466,7 @@ export class InternalKnowledgeSearchService {
         conversationId: input.conversationId,
         turnId: projectionTurnId,
         ...(input.signal ? { signal: input.signal } : {}),
-        ...(input.checkRun ? { checkRun: input.checkRun } : {}),
-        ...(input.checkPublication ? { checkPublication: input.checkPublication } : {}),
+          ...(input.checkPublication ? { checkPublication: input.checkPublication } : {}),
         sources: [{
           knowledgeBaseId: reference.knowledgeBaseId,
           documentId: reference.documentId,
@@ -482,7 +475,6 @@ export class InternalKnowledgeSearchService {
         }],
       });
     }
-    await input.checkRun?.();
     input.signal?.throwIfAborted();
     if (
       !reference.contentVerified &&
@@ -491,8 +483,7 @@ export class InternalKnowledgeSearchService {
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
     }
     if (!chunk.complete) {
-      await input.checkRun?.();
-      input.signal?.throwIfAborted();
+        input.signal?.throwIfAborted();
       result.next_cursor = await this.documentReferences.registerMarkdownCursor(projectionTurnId, {
         documentRef: input.documentRef,
         byteOffset: chunk.byteEnd,

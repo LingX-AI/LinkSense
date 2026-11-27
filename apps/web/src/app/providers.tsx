@@ -13,7 +13,6 @@ import { BrowserNotificationPrompt } from "@/features/browser-notifications/brow
 import { ApiError } from "@/api/client"
 import { CreditQuotaRefreshCenter } from "@/features/usage/credit-quota-refresh-center"
 import { BrowserExtensionConnection } from "@/features/browser-use/browser-extension-connection"
-import { DesktopUpdateNotice } from "@/components/shell/desktop-update-notice"
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -27,7 +26,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               count < 1 &&
               !(
                 error instanceof ApiError &&
-                ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
+                error.errorCode === "CLIENT_UPDATE_REQUIRED"
               ),
           },
           mutations: { retry: false },
@@ -45,7 +44,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
               <CreditQuotaRefreshCenter />
               <BrowserNotificationCenter />
               <BrowserExtensionConnection />
-              <DesktopUpdateNotice />
               {children}
               <BrowserNotificationPrompt />
             </TooltipProvider>

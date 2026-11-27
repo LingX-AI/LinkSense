@@ -2,13 +2,8 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
-  browserUseApprovalSchema,
-  browserUseRequestSchema,
-  browserUseToolName,
   coreMcpServerKey,
   codexMessagePhaseSchema,
-  desktopArtifactRelativePathSchema,
-  desktopApprovalDecisionSchema,
   imageGenerationMcpSuccessSchema,
   imageGenerationMcpFailureSchema,
   knowledgeNoAvailableBasesCodeSchema,
@@ -26,7 +21,6 @@ import {
   type RunnerCodexTurn,
   type RunnerConversationEvent,
   type RunnerLinkSenseEvent,
-  type DesktopApprovalFileChange,
   type ImageGenerationMcpFailure,
   type LocalModelUsage,
 } from "@linksense/shared";
@@ -60,8 +54,6 @@ export type CodexNotificationProjectionContext = {
   localModelUsage?: LocalModelUsage;
   supersededItemId?: string;
   subAgentLabelsByThreadId?: ReadonlyMap<string, string | null>;
-  desktopBrowserApproval?: boolean;
-  onDesktopFileCreated?: (path: string, preview: string, itemId: string, sha256: string) => void;
 };
 
 const turnStatuses = new Set([
@@ -394,10 +386,6 @@ export function mapCodexNotification(
     const turnId = nativeId(params.turnId);
     const item = sanitizeItem(params.item, previewContext, projectionContext);
     if (!threadId || !turnId || !item) return [];
-    if (notification.method === "item/completed" && item.type === "fileChange" &&
-        item.status === "completed" && projectionContext.onDesktopFileCreated && previewContext.workspace) {
-      collectDesktopFileCreations(params.item, item, previewContext, projectionContext.onDesktopFileCreated);
-    }
     const timestampKey =
       notification.method === "item/started" ? "startedAtMs" : "completedAtMs";
     const timestamp = nonnegativeNumber(params[timestampKey]);
@@ -419,156 +407,13 @@ export function mapCodexNotification(
   return [];
 }
 
-export type CodexServerRequestOptions = {
-  previewContext?: CodexEventPreviewContext;
-  /** Changes cached from the matching `item/started` fileChange item. */
-  fileChangeApprovalChanges?: readonly DesktopApprovalFileChange[] | null;
-};
-
-/**
- * Native fileChange approvals omit paths from their server-request params.
- * Read the preceding item for operation and path previews. Never copy diffs.
- */
-export function mapCodexFileChangeApprovalChanges(
-  value: unknown,
-  previewContext: CodexEventPreviewContext,
-): DesktopApprovalFileChange[] | null {
-  const item = asRecord(value);
-  const changes = item.changes;
-  if (
-    item.type !== "fileChange" ||
-    !Array.isArray(changes) ||
-    changes.length === 0 ||
-    changes.length > runnerCodexPreviewLimits.fileChanges
-  ) {
-    return null;
-  }
-  const previews: DesktopApprovalFileChange[] = [];
-  for (const candidate of changes) {
-    const change = asRecord(candidate);
-    const kind = asRecord(change.kind);
-    const path = desktopApprovalPath(change.path, previewContext);
-    if (!path || path === "$WORKSPACE") return null;
-    if (kind.type === "update") {
-      const move = desktopApprovalPath(kind.move_path, previewContext);
-      if (kind.move_path !== null && (!move || move === "$WORKSPACE")) return null;
-      previews.push({ path, kind: { type: kind.type, move_path: move } });
-    } else if ((kind.type === "add" || kind.type === "delete") && kind.move_path === undefined) {
-      previews.push({ path, kind: { type: kind.type } });
-    } else {
-      return null;
-    }
-  }
-  return previews;
-}
-
-function desktopApprovalPath(value: unknown, { workspace }: CodexEventPreviewContext): string | null {
-  if (typeof value !== "string" || !workspace || value.includes("$WORKSPACE") ||
-      (value !== workspace && !value.startsWith(`${workspace}/`))) return null;
-  const preview = `$WORKSPACE${value.slice(workspace.length)}`;
-  return (
-    preview.length <= runnerCodexPreviewLimits.pathCharacters &&
-    normalizeSafePathPreview(preview) === preview &&
-    sanitizeNormalizedTextPreview(preview, {}) === preview
-  ) ? preview : null;
-}
-
-function desktopApprovalCommand(
-  value: unknown,
-  { workspace }: CodexEventPreviewContext,
-): string | null {
-  if (!workspace || typeof value !== "string" || !value.trim() ||
-      value.length > runnerCodexPreviewLimits.commandCharacters ||
-      /\$(?:WORKSPACE|SYSTEM_BIN)/u.test(value)) return null;
-  // shortcut: reject lossy previews; support more forms when Codex exposes a safe full scope.
-  const preview = replaceKnownRoots(value, { workspace })
-    .replace(/^\/bin\/(zsh|bash|sh)(?= )/u, "$$SYSTEM_BIN/$1");
-  return sanitizeNormalizedTextPreview(preview, {}) === preview ? preview : null;
-}
-
 /**
  * Converts supported native server requests into the same sanitized event
  * contract used by app-server notifications.
  */
 export function mapCodexServerRequest(
   request: JsonRpcRequest,
-  options: CodexServerRequestOptions = {},
 ): LinkSenseCodexEvent[] {
-  const previewContext = options.previewContext ?? {};
-  if (request.method === "item/commandExecution/requestApproval") {
-    const params = asRecord(request.params);
-    if (params.kind !== "command" || params.networkApprovalContext != null ||
-        params.additionalPermissions != null || params.proposedNetworkPolicyAmendments != null) return [];
-    const threadId = nativeId(params.threadId);
-    const turnId = nativeId(params.turnId);
-    const itemId = nativeId(params.itemId);
-    const command = desktopApprovalCommand(params.command, previewContext);
-    const cwd = desktopApprovalPath(params.cwd, previewContext);
-    // Filter the native list; a proposed prefix rule does not prevent a one-time answer.
-    const decisions = Array.isArray(params.availableDecisions)
-      ? [...new Set(params.availableDecisions.flatMap(value => {
-          const parsed = desktopApprovalDecisionSchema.safeParse(value);
-          return parsed.success ? [parsed.data] : [];
-        }))]
-      : [];
-    if (
-      !threadId ||
-      !turnId ||
-      !itemId ||
-      !command ||
-      !cwd ||
-      decisions.length === 0
-    ) {
-      return [];
-    }
-    return event({
-      method: request.method,
-      visibility: "user_visible",
-      params: {
-        threadId,
-        turnId,
-        itemId,
-        requestId: request.id,
-        approval: {
-          method: request.method,
-          decisions,
-          command,
-          cwd,
-        },
-      },
-    });
-  }
-  if (request.method === "item/fileChange/requestApproval") {
-    const params = asRecord(request.params);
-    const threadId = nativeId(params.threadId);
-    const turnId = nativeId(params.turnId);
-    const itemId = nativeId(params.itemId);
-    const changes = options.fileChangeApprovalChanges;
-    if (
-      !threadId ||
-      !turnId ||
-      !itemId ||
-      !changes ||
-      params.grantRoot != null
-    ) {
-      return [];
-    }
-    return event({
-      method: request.method,
-      visibility: "user_visible",
-      params: {
-        threadId,
-        turnId,
-        itemId,
-        requestId: request.id,
-        approval: {
-          method: request.method,
-          decisions: ["accept", "decline", "cancel"],
-          changes,
-        },
-      },
-    });
-  }
   if (request.method !== "item/tool/requestUserInput") return [];
   const params = asRecord(request.params);
   const threadId = nativeId(params.threadId);
@@ -1214,18 +1059,6 @@ function sanitizeItem(
         tool,
         status,
       };
-      if (projectionContext.desktopBrowserApproval &&
-        server === coreMcpServerKey && tool === browserUseToolName && status === "inProgress") {
-        const { data: request } = browserUseRequestSchema.safeParse(item.arguments);
-        if (request) {
-          const approval = browserUseApprovalSchema.safeParse({
-            action: request.action,
-            ...("tab_id" in request && { tab_id: request.tab_id }),
-            ...("url" in request && { destination_host: new URL(request.url).host }),
-          });
-          if (approval.success) result.browserApproval = approval.data;
-        }
-      }
       if (item.pluginId === null) result.pluginId = null;
       else {
         const pluginId = sanitizeTextPreview(
@@ -1502,31 +1335,6 @@ function sanitizeCommandPreview(
     runnerCodexPreviewLimits.commandCharacters,
     previewContext,
   );
-}
-
-function collectDesktopFileCreations(
-  raw: unknown,
-  item: Extract<RunnerCodexItem, { type: "fileChange" }>,
-  context: CodexEventPreviewContext,
-  collect: NonNullable<CodexNotificationProjectionContext["onDesktopFileCreated"]>,
-): void {
-  const { changes } = asRecord(raw);
-  if (!context.workspace || !Array.isArray(changes)) return;
-  const prefix = `${context.workspace}/`;
-  const counts = new Map<string, number>();
-  for (const { path } of item.changes) {
-    if (path) counts.set(path, (counts.get(path) ?? 0) + 1);
-  }
-  for (const rawChange of changes.slice(0, runnerCodexPreviewLimits.fileChanges)) {
-    const { path, kind, diff } = asRecord(rawChange);
-    // shortcut: native additions carry full bytes; edits and reads stay unlinked unless Codex supplies a full snapshot.
-    if (asRecord(kind).type !== "add" || typeof path !== "string" || typeof diff !== "string") continue;
-    const relative = path.startsWith(prefix) ? path.slice(prefix.length) : path;
-    if (!desktopArtifactRelativePathSchema.safeParse(relative).success) continue;
-    const preview = sanitizePathPreview(path, context);
-    if (!preview || counts.get(preview) !== 1) continue;
-    collect(relative, preview, item.id, createHash("sha256").update(diff).digest("hex"));
-  }
 }
 
 function sanitizePathPreview(

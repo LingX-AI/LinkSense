@@ -6,8 +6,6 @@ import { z } from "zod";
 
 import {
   RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
-  desktopExecutionMaxFrameBytes,
-  isRunnerTextDeltaEvent,
   legacyRunnerConversationEventSchema,
   runnerCodexEventSchema,
   runnerLinkSenseEventSchema,
@@ -20,7 +18,6 @@ import {
 import { WorkspaceManager } from "./workspace-manager.js";
 
 const outboxFilePattern = /^(\d{16})-([0-9a-f-]{36})\.json$/iu;
-const desktopRecordBudget = desktopExecutionMaxFrameBytes - 1024;
 const persistedOutboxEntrySchema = z.discriminatedUnion("schema_version", [
   z.strictObject({
     schema_version: z.literal(1),
@@ -49,9 +46,6 @@ export type RunnerEventOutboxEntry = {
   sequence: number;
 };
 
-export const desktopOutboxScopeSchema = z.strictObject({ turnId: z.uuid(), generation: z.uuid() });
-export type DesktopOutboxScope = z.infer<typeof desktopOutboxScopeSchema>;
-
 /**
  * Stores only the sanitized Runner event contract. Legacy custom events remain
  * readable as v1 records, mapped app-server events use v2, and LinkSense-owned
@@ -63,10 +57,7 @@ export class RunnerEventOutboxStore {
   private readonly appendLocks = new Map<string, Promise<void>>();
   private readonly nextSequences = new Map<string, number>();
 
-  private readonly desktopScope: DesktopOutboxScope | undefined;
-
-  constructor(private readonly workspaceManager: WorkspaceManager, desktopScope?: DesktopOutboxScope) {
-    this.desktopScope = desktopOutboxScopeSchema.optional().parse(desktopScope);
+  constructor(private readonly workspaceManager: WorkspaceManager) {
   }
 
   async append(
@@ -94,12 +85,9 @@ export class RunnerEventOutboxStore {
     // Validate and snapshot the entire input before starting any filesystem I/O.
     const records = events.flatMap((event): PersistedOutboxEntry[] => {
       const codexEvent = runnerCodexEventSchema.safeParse(event);
-      const record: PersistedOutboxEntry = codexEvent.success
+      return [codexEvent.success
         ? { schema_version: 2, delivery_id: randomUUID(), event: codexEvent.data }
-        : { schema_version: 3, delivery_id: randomUUID(), event: runnerLinkSenseEventSchema.parse(event) };
-      // The batch target is soft for the first event. Reserve room for the
-      // callback envelope before making an event the durable head of the queue.
-      return this.desktopScope && recordBytes(record) > desktopRecordBudget ? boundDesktopOutput(record) : [record];
+        : { schema_version: 3, delivery_id: randomUUID(), event: runnerLinkSenseEventSchema.parse(event) }];
     });
     return this.withAppendLock(conversationId, async () => {
       const directory = this.directoryFor(conversationId);
@@ -267,10 +255,7 @@ export class RunnerEventOutboxStore {
 
   private directoryFor(conversationId: string): string {
     const root = this.workspaceManager.pathsFor(conversationId).taskControl;
-    // An expired connection's events never inherit a replacement turn's lease.
-    return this.desktopScope
-      ? join(root, "desktop-outbox", this.desktopScope.generation, this.desktopScope.turnId)
-      : join(root, "outbox");
+    return join(root, "outbox");
   }
 
   private async readEntry(
@@ -338,66 +323,6 @@ export class RunnerEventOutboxStore {
       }
     }
   }
-}
-
-function boundDesktopOutput(record: Exclude<PersistedOutboxEntry, { schema_version: 1 }>): PersistedOutboxEntry[] {
-  const { event } = record;
-  if (record.schema_version === 2 && isRunnerTextDeltaEvent(record.event)) {
-    const deltaEvent = record.event;
-    const { delta } = deltaEvent.params;
-    const withDelta = (text: string) => ({ ...deltaEvent, params: { ...deltaEvent.params, delta: text } });
-    const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...record, event: withDelta("") }));
-    // JSON escaping needs at most six bytes per UTF-16 code unit.
-    const chunkSize = Math.floor((desktopRecordBudget - envelopeBytes) / 6);
-    const chunks: PersistedOutboxEntry[] = [];
-    for (let start = 0; start < delta.length;) {
-      const end = textBoundary(delta, Math.min(start + chunkSize, delta.length));
-      chunks.push({ ...record, delivery_id: randomUUID(), event: runnerCodexEventSchema.parse(withDelta(delta.slice(start, end))) });
-      start = end;
-    }
-    return chunks;
-  }
-  const params = event.params;
-  const turnId = "turn" in params ? params.turn.id : "turnId" in params ? params.turnId : null;
-  if (!turnId) throw new RangeError("oversized desktop event has no scoped turn");
-  const notice: PersistedOutboxEntry = {
-    schema_version: 1, delivery_id: randomUUID(),
-    event: {
-      eventType: "conversation.error", visibility: "user_visible", threadId: params.threadId, turnId,
-      payload: { schema_version: 1, error_code: "DESKTOP_OUTPUT_LIMIT", message_key: "errors.desktopOutputLimit" },
-    },
-  };
-  if (event.method === "item/completed") {
-    const item = event.params.item;
-    if (item.type === "agentMessage" || item.type === "plan") {
-      const text = item.text;
-      const suffix = "…";
-      item.text = suffix;
-      if (recordBytes(record) <= desktopRecordBudget) {
-        let low = 0;
-        let high = text.length;
-        while (low < high) {
-          const middle = Math.ceil((low + high) / 2);
-          item.text = text.slice(0, middle) + suffix;
-          if (recordBytes(record) <= desktopRecordBudget) low = middle;
-          else high = middle - 1;
-        }
-        item.text = text.slice(0, textBoundary(text, low)) + suffix;
-        return [record, notice];
-      }
-    }
-  }
-  return [notice];
-}
-
-function textBoundary(text: string, end: number): number {
-  const previous = text.charCodeAt(end - 1);
-  const next = text.charCodeAt(end);
-  return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? end - 1 : end;
-}
-
-function recordBytes(record: PersistedOutboxEntry): number {
-  return Buffer.byteLength(JSON.stringify(record));
 }
 
 async function syncDirectory(directory: string): Promise<void> {

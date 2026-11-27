@@ -93,7 +93,6 @@ export const errorMessages = {
       "El servicio devolvió datos no válidos. Contacta con un administrador.",
     clientUpdateRequired:
       "El sistema se ha actualizado. Actualiza esta página para continuar.",
-    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "es-ES"),
     serviceTemporarilyUnavailable:
       "El sistema no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
     imageUnderstanding: {
@@ -352,19 +351,6 @@ export const errorMessages = {
       "El servicio de ejecución no está disponible. Inténtalo más tarde.",
     turnStartClosed:
       "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
-    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "es-ES"),
-    desktopTargetRetired: localizedErrorMessage(
-      "DESKTOP_LOCAL_TARGET_RETIRED",
-      "es-ES"
-    ),
-    desktopLocalToolsDisabled: localizedErrorMessage(
-      "DESKTOP_LOCAL_TOOLS_DISABLED",
-      "es-ES"
-    ),
-    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      "es-ES"
-    ),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "es-ES"
@@ -410,7 +396,6 @@ export const errorMessages = {
     codexTurnFailed:
       "Esta ejecución falló. Puedes ajustar la entrada e intentarlo de nuevo.",
     modelGateway: modelGatewayMessages["es-ES"],
-    desktopOutputLimit: "Parte de los resultados de la tarea en Mac superó el límite de transferencia y no pudo mostrarse por completo.",
     turnCompletedWithoutOutput:
       "Esta ejecución terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
     automation: {

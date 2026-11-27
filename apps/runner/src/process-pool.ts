@@ -32,10 +32,6 @@ import type {
   CodexModelReasoningCatalog,
   ConversationFormRequestedSchema,
   ConversationUserInputResponse,
-  DesktopApprovalDecision,
-  DesktopApprovalFileChange,
-  DesktopApprovalMethod,
-  DesktopApprovalResponse,
   ImageGenerationRequest,
   MemoryExtractionRuntime,
   NativeUserInputResponse,
@@ -49,14 +45,9 @@ import type {
   RuntimeMcpServer,
 } from "@linksense/shared";
 import {
-  browserUseToolName,
   builtInCapabilityId,
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
-  computerActInputSchema,
-  computerActToolName,
-  computerExecuteInputSchema,
-  computerExecuteResultSchema,
   conversationFormRecommendationDelayMs,
   conversationFormWaitingPolicySchema,
   conversationFormWaitingPolicyMatchesSchema,
@@ -66,9 +57,6 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
-  desktopApprovalMethodSchema,
-  desktopApprovalTimeoutMs,
-  desktopArtifactPathDigestInput,
   modelAutoCompactTokenLimitFor,
   modelIdentifierSchema,
   PUBLIC_SITE_SKILL_NAME,
@@ -82,9 +70,6 @@ import {
   skillCreatorArchivePathSchema,
   skillManagementRequestSchema,
   type SkillManagementRequest,
-  type ComputerExecuteInput,
-  type ComputerExecuteResult,
-  type ComputerFailureCode,
 } from "@linksense/shared";
 
 import {
@@ -113,9 +98,6 @@ import {
   linkSenseModelProviderConfigOverrides,
   linkSenseImageCapabilityConfigOverrides,
   linkSenseSkillConfigOverrides,
-  desktopPermissionConfigOverrides,
-  desktopPermissionProfiles,
-  desktopConnectionMcpConfigOverrides,
   linkSenseModelProviderId,
 } from "./codex/runtime-config-overrides.js";
 import {
@@ -132,7 +114,6 @@ import {
   deriveLogicalSubAgentPathLabel,
   deriveSubAgentThreadLabel,
   filterChildOwnedCodexTurns,
-  mapCodexFileChangeApprovalChanges,
   mapCodexNotification,
   mapCodexServerRequest,
   opaqueAgentKey,
@@ -165,7 +146,6 @@ import type {
   TurnInterruptParams,
   AskForApproval,
   ToolRequestUserInputQuestion,
-  ToolRequestUserInputParams,
   ToolRequestUserInputResponse,
 } from "./codex/protocol.js";
 import type { RunnerEventSink } from "./event-sink.js";
@@ -438,25 +418,6 @@ export type RespondUserInputRequestInput = {
   response: NativeUserInputResponse;
 };
 
-/**
- * Trusted scope for one desktop `computer_act` relay. Every field is supplied
- * by the admitted desktop run and the exact native MCP call, never by the model
- * or the tool request. The production computer_act relay calls
- * `claimComputerActRelay` before its first outbound request and aborts on
- * `false`.
- */
-export type ComputerActRelayScope = Readonly<{
-  ownerId: string;
-  conversationId: string;
-  runtimeGeneration: string;
-  codexThreadId: string;
-  nativeTurnId: string;
-  projectionTurnId: string;
-  nativeCallId: string;
-  toolName: string;
-  input: unknown;
-}>;
-
 export type InteractiveFormRequestInput = {
   message: string;
   requestedSchema: ConversationFormRequestedSchema;
@@ -506,8 +467,6 @@ const PROCESS_EXIT_RETRY_MAX_MS = 5_000;
 const DEFAULT_CODEX_HEALTH_PROBE_TTL_MS = 60_000;
 const NATIVE_TURN_REGISTRATION_TIMEOUT_MS = 5_000;
 const NATIVE_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
-const NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS = 5_000;
-const MAX_COMPUTER_ACT_APPROVALS = 64;
 const MODEL_TRANSITION_COMPACTION_TIMEOUT_MS = 180_000;
 const SUB_AGENT_THREAD_SOURCE_KINDS = [
   "subAgent",
@@ -805,30 +764,14 @@ type ManagedProcess = {
   skillManagementToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
-  localToolsToken: string;
-  computerToken: string;
   webSearchToken: string;
   automationToken: string;
   webSiteToken: string;
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
-  browserApprovalItems: Map<string, string>;
-  computerActItems: Map<string, ComputerActItem>;
-  computerActApprovals: Map<string, ComputerActApproval>;
-  /** Sanitized operations from the item/started fileChange item; diffs are never cached. */
-  fileChangeApprovalItems: Map<string, { turnId: string; changes: DesktopApprovalFileChange[] }>;
-  userInputConfirmations: Map<number, {
-    threadId: string;
-    turnId: string;
-    itemId: string;
-    browserDecision: "allow" | "cancel" | null;
-    approvalDecision: DesktopApprovalDecision | null;
-    settle: (confirmed: boolean) => void;
-  }>;
   assistantMessageProjections: Map<string, string>;
   imageViewProjections: Map<string, string | null>;
-  desktopFileCreations: Map<string, { itemId: string; preview: string; sha256: string }>;
   /** Raw child ids remain Runner-local and only index UI-safe labels. */
   subAgentLabelsByThreadId: Map<string, string>;
   /** Native child lifecycle observed on this app-server; never projected raw. */
@@ -877,59 +820,12 @@ type PendingUserInputRequest =
       kind: "questions";
       questions: ToolRequestUserInputQuestion[];
       resolve: (response: ToolRequestUserInputResponse) => void;
-      responseWritten: Promise<boolean>;
-      browserApproval: boolean;
-      /** Exact native mcp_tool_call approval for a computer_act item. */
-      computerActApproval: boolean;
     })
   | (PendingUserInputRequestBase & {
       kind: "form";
       requestedSchema: ConversationFormRequestedSchema;
       resolve: (response: ConversationUserInputResponse) => void;
-    })
-  | (PendingUserInputRequestBase & {
-      kind: "approval";
-      method: DesktopApprovalMethod;
-      /** Only decisions advertised on the published approval card are valid. */
-      decisions: readonly DesktopApprovalDecision[];
-      responseWritten: Promise<boolean>;
-      /** Native expects only `{decision}` as the server-request result. */
-      resolve: (response: { decision: DesktopApprovalDecision }) => void;
     });
-
-/** Exact native computer_act arguments, retained as a one-way fingerprint. */
-type ComputerActItem = {
-  turnId: string;
-  inputFingerprint: string;
-  /** Safe bounded summary for the native confirmation card; never raw text. */
-  action: "click" | "type";
-  /**
-   * One native approval per call. `requested` survives every answer, expiry,
-   * and claim until the item or turn ends, so a duplicate native request or
-   * start can never re-arm the call. `invalid` is a repeated start.
-   */
-  state: "open" | "requested" | "invalid";
-};
-
-/**
- * One native approval for a computer_act call. Memory-only: it is bounded,
- * cleared with the turn or process, and never projected into events or logs.
- */
-type ComputerActApproval = {
-  requestId: number;
-  ownerId: string;
-  conversationId: string;
-  runtimeGeneration: string;
-  codexThreadId: string;
-  nativeTurnId: string;
-  projectionTurnId: string;
-  nativeCallId: string;
-  inputFingerprint: string;
-  state: "armed" | "allowed" | "consumed";
-  responseWritten: Promise<boolean> | null;
-  expiresAt: number;
-  timer: NodeJS.Timeout | null;
-};
 
 type PendingStopHook = {
   turnId: string;
@@ -1016,7 +912,6 @@ export class AppServerProcessPool {
       mcpCommand: string;
       mcpArgs: string[];
       managedBrowserMcpArgs?: string[];
-      desktopConnectionMcpArgs?: string[];
       personalStdioLauncherCommand?: string;
       personalStdioLauncherArgs?: string[];
       mcpEndpointBase: string;
@@ -1037,14 +932,6 @@ export class AppServerProcessPool {
         ownerId: string,
       ) => Promise<Record<string, string>>;
       codexProcessIdentity?: { uid: number; gid: number };
-      desktopWorkspace?: boolean;
-      desktopBrowserEnabled?: boolean;
-      desktopComputerEnabled?: boolean;
-      /** Authored only from a device ready frame that offered computer.wait. */
-      desktopComputerWaitEnabled?: boolean;
-      desktopArtifactsEnabled?: boolean;
-      desktopArtifactsWebsiteEnabled?: boolean;
-      desktopNativeApprovalsEnabled?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -1344,7 +1231,7 @@ export class AppServerProcessPool {
         } else {
           assertStartOperationMatches(existing, input, requestFingerprint);
         }
-        if (!this.options.desktopWorkspace && isSafelyRetryableStartOperation(existing)) {
+        if (isSafelyRetryableStartOperation(existing)) {
           const activeStart = this.activeStartOperations.get(key);
           if (activeStart) await activeStart;
 
@@ -1833,12 +1720,10 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
-        const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const webSiteToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
-        const localToolsToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
         reservedProcessSlot = false;
         managed = await this.getOrCreate(
@@ -1875,17 +1760,6 @@ export class AppServerProcessPool {
               LINKSENSE_WEB_SITE_TOKEN: webSiteToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
-              ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
-                LINKSENSE_LOCAL_TOOLS_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-local-tools/${input.conversationId}/execute`,
-                LINKSENSE_LOCAL_TOOLS_TOKEN: localToolsToken,
-              } : {}),
-              ...(this.options.desktopComputerEnabled ? {
-                LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
-                LINKSENSE_COMPUTER_TOKEN: computerToken,
-                ...(this.options.desktopComputerWaitEnabled ? { LINKSENSE_COMPUTER_WAIT: "1" } : {}),
-                // Production stays text-only until the end-to-end raster and
-                // masking contract is proven; no environment flag enables it.
-              } : {}),
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE: input.collaborationMode,
               ...managedBrowserTurnEnvironment(
@@ -2122,25 +1996,6 @@ export class AppServerProcessPool {
           paths.workspace,
           { modelConfig: input.modelProvider },
         );
-        if (this.options.desktopWorkspace) {
-          const source = z.uuid().safeParse(forked.thread.forkedFromId);
-          if (!source.success || source.data !== input.codexThreadId) {
-            throw new CodexProtocolError("Codex model switch returned an unexpected fork source");
-          }
-          const forkedTurns = forked.thread.turns;
-          const forkedTurnIds = Array.isArray(forkedTurns)
-            ? forkedTurns.map((turn) => turn.id)
-            : null;
-          const expectedForkTurnIds = sourceTurns.map((turn) => turn.id);
-          if (
-            forkedTurnIds === null ||
-            !sameStringSequence(forkedTurnIds, expectedForkTurnIds)
-          ) {
-            throw new CodexProtocolError(
-              "Codex model switch returned an unexpected fork history",
-            );
-          }
-        }
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
           managed.codexThreadId!,
@@ -2161,8 +2016,7 @@ export class AppServerProcessPool {
         preparedAt: new Date().toISOString(),
         operationKind: input.goal ? "goal" : operationKind,
       });
-      const needsAttachmentCheck = this.options.desktopWorkspace && input.context.attachments.length > 0;
-      if (!needsAttachmentCheck) await prepareSubmission();
+      await prepareSubmission();
       await this.startOperationStore.assertNotInterrupted(
         input.conversationId,
         input.projectionTurnId,
@@ -2258,22 +2112,6 @@ export class AppServerProcessPool {
         input.reasoningEffort,
         input.collaborationMode,
       );
-      let attachmentDeadline: number | undefined;
-      if (needsAttachmentCheck) {
-        // Recheck after native preparation, before journaling or submitting this input.
-        try {
-          const sink = this.options.eventSink;
-          if (!sink.confirmDesktopAttachments) throw new Error("desktop attachment admission unavailable");
-          attachmentDeadline = await sink.confirmDesktopAttachments({
-            conversationId: input.conversationId,
-            projectionTurnId: input.projectionTurnId,
-            runtimeGeneration: input.expectedRuntimeGeneration,
-          });
-        } catch {
-          throw new StartOperationInterruptedError();
-        }
-        await prepareSubmission();
-      }
       nativeRequestIssued = true;
       const turnStartParams: TurnStartParams = {
         threadId: managed.codexThreadId,
@@ -2300,12 +2138,10 @@ export class AppServerProcessPool {
           this.options.workspaceManager.pathsFor(input.conversationId)
             .workspace,
         ],
-        approvalPolicy: this.options.desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
-        ...(this.options.desktopWorkspace
-          ? { permissions: desktopPermissionProfiles[input.collaborationMode] }
-          : input.collaborationMode === "plan"
-            ? { sandboxPolicy: { type: "readOnly", networkAccess: false } }
-            : { sandboxPolicy: { type: "dangerFullAccess" } }),
+        approvalPolicy: LINKSENSE_APPROVAL_POLICY,
+        ...(input.collaborationMode === "plan"
+          ? { sandboxPolicy: { type: "readOnly", networkAccess: false } }
+          : { sandboxPolicy: { type: "dangerFullAccess" } }),
       };
       if (input.goal) {
         // Active Goals auto-start a continuation, so establish the Goal paused
@@ -2336,9 +2172,6 @@ export class AppServerProcessPool {
         input.conversationId,
         input.projectionTurnId,
       );
-      if (needsAttachmentCheck && (attachmentDeadline === undefined || Date.now() >= attachmentDeadline)) {
-        throw new StartOperationInterruptedError();
-      }
       turnStartRequestIssued = true;
       const response = await managed.client.request<{ turn: CodexTurn }>(
         "turn/start",
@@ -2503,7 +2336,7 @@ export class AppServerProcessPool {
     const response = await managed.client.request<ThreadStartResponse>(
       "thread/start",
       {
-        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig, this.options.desktopWorkspace),
+        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig),
         ephemeral: false,
       },
     );
@@ -2543,7 +2376,6 @@ export class AppServerProcessPool {
           model,
           workspace,
           options.modelConfig,
-          this.options.desktopWorkspace,
         ),
       } satisfies ThreadForkParams,
     );
@@ -2788,10 +2620,6 @@ export class AppServerProcessPool {
       ? this.interruptNativeGoal(managed)
       : this.interruptRegisteredTurn(managed, turnId);
     managed.interruptRequest = { targetKey, result };
-    this.clearComputerActApprovals(managed);
-    for (const confirmation of managed.userInputConfirmations.values()) {
-      if (confirmation.turnId === managed.activeTurnId) confirmation.settle(false);
-    }
     try {
       return await result;
     } finally {
@@ -2911,84 +2739,19 @@ export class AppServerProcessPool {
       !pending ||
       pending.threadId !== input.codexThreadId ||
       pending.turnId !== input.codexTurnId ||
-      pending.itemId !== input.itemId ||
-      (this.options.desktopWorkspace && (managed.activeTurnId !== pending.turnId ||
-        managed.nativeTerminalTurnIds.has(pending.turnId) || managed.interruptRequest !== null))
+      pending.itemId !== input.itemId
     ) {
       throw new UserInputRequestUnavailableError();
     }
-    if (pending.kind === "approval") {
-      const response = input.response;
-      if (
-        !isDesktopApprovalResponse(response) ||
-        response.method !== pending.method ||
-        !pending.decisions.includes(response.decision) ||
-        [...managed.pendingUserInputRequests].some(([id, request]) =>
-          request.kind === "approval" && request.turnId === pending.turnId && id < input.requestId) ||
-        [...managed.userInputConfirmations.values()].some(confirmation =>
-          confirmation.approvalDecision !== null && confirmation.turnId === pending.turnId)
-      ) {
-        throw new UserInputRequestUnavailableError(
-          "approval response does not match request",
-        );
-      }
-      const confirmation = this.confirmNativeUserInputResponse(
-        managed,
-        input.requestId,
-        pending,
-        null,
-        response.decision,
-      );
-      pending.resolve({ decision: response.decision });
-      if (!await confirmation) {
-        throw new CodexProtocolError("app-server answer unconfirmed");
-      }
-      return { accepted: true as const };
-    }
     const response = input.response;
-    if (isDesktopApprovalResponse(response)) {
-      throw new UserInputRequestUnavailableError(
-        "user-input response type does not match request",
-      );
-    }
     if (pending.kind === "questions") {
-      let computerActAllowed = false;
-      if (pending.computerActApproval) {
-        const exactAllow = response.action === "accept" &&
-          isExactComputerActAllow(pending.questions, pending.itemId, response.content);
-        if (!exactAllow) {
-          // Any decline, cancel, or substituted answer revokes the one-shot gate.
-          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
-        } else if (!this.allowComputerActApproval(managed, pending)) {
-          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
-          cancelPendingUserInputRequest(pending);
-          throw new UserInputRequestUnavailableError(
-            "computer act approval is not available",
-          );
-        } else {
-          computerActAllowed = true;
-        }
-      }
       const answers = response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
         Object.entries(response.content).map(([fieldId, value]) => [
           fieldId,
           typeof value === "string" ? [value] : [],
         ]),
       )) : {};
-      const confirmation = this.options.desktopWorkspace
-        ? this.confirmNativeUserInputResponse(managed, input.requestId, pending,
-            pending.browserApproval
-              ? browserApprovalDecision(pending.questions, answers)
-              : null,
-            null)
-        : null;
       pending.resolve({ answers });
-      if (confirmation && !await confirmation) {
-        if (computerActAllowed) {
-          this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
-        }
-        throw new CodexProtocolError("app-server answer unconfirmed");
-      }
       return { accepted: true as const };
     }
     if (
@@ -3004,278 +2767,6 @@ export class AppServerProcessPool {
     }
     pending.resolve(response);
     return { accepted: true as const };
-  }
-
-  /**
-   * Consume the one native approval that exactly matches this desktop relay.
-   * The caller supplies the trusted run scope; any missing or changed field,
-   * any non-Allow reply, and every stale/duplicate claim fails closed.
-   *
-   * Call this before executing a desktop `computer_act` and abort the relay
-   * when it returns `false`. The claim is consumed synchronously, then the
-   * native Allow write is awaited and the process, turn, fence, and deadline
-   * are checked again: a turn that ends, an interrupt, a closing process, or
-   * an expired permission while that write is in flight never relays.
-   */
-  async claimComputerActRelay(scope: ComputerActRelayScope): Promise<boolean> {
-    if (this.shuttingDown || !this.options.desktopWorkspace ||
-        !this.options.desktopComputerEnabled) {
-      return false;
-    }
-    if (!isComputerActRelayScope(scope) || scope.toolName !== computerActToolName) {
-      return false;
-    }
-    const managed = this.processes.get(scope.conversationId);
-    if (
-      !managed ||
-      managed.closing ||
-      managed.ownerId !== scope.ownerId ||
-      managed.runtimeGeneration !== scope.runtimeGeneration ||
-      managed.codexThreadId !== scope.codexThreadId ||
-      managed.activeTurnId !== scope.nativeTurnId ||
-      managed.activeProjectionTurnId !== scope.projectionTurnId ||
-      managed.activeCollaborationMode === "plan" ||
-      managed.nativeTerminalTurnIds.has(scope.nativeTurnId) ||
-      managed.interruptRequest !== null
-    ) {
-      return false;
-    }
-    const approval = managed.computerActApprovals.get(scope.nativeCallId);
-    const item = managed.computerActItems.get(scope.nativeCallId);
-    if (
-      !approval ||
-      !item ||
-      item.state !== "requested" ||
-      approval.state !== "allowed" ||
-      approval.expiresAt <= Date.now() ||
-      approval.ownerId !== scope.ownerId ||
-      approval.conversationId !== scope.conversationId ||
-      approval.runtimeGeneration !== scope.runtimeGeneration ||
-      approval.codexThreadId !== scope.codexThreadId ||
-      approval.nativeTurnId !== scope.nativeTurnId ||
-      approval.projectionTurnId !== scope.projectionTurnId ||
-      approval.nativeCallId !== scope.nativeCallId ||
-      item.turnId !== scope.nativeTurnId
-    ) {
-      return false;
-    }
-    const inputFingerprint = computerActInputFingerprint(scope.input);
-    if (
-      !inputFingerprint ||
-      inputFingerprint !== approval.inputFingerprint ||
-      inputFingerprint !== item.inputFingerprint
-    ) {
-      return false;
-    }
-    // Consume synchronously before waiting on the native write so concurrent
-    // or repeated relays can never reuse this approval. The permit stays in
-    // the bounded map, consumed, until the item or turn ends.
-    approval.state = "consumed";
-    const responseWritten = approval.responseWritten;
-    const written = responseWritten !== null &&
-      await settleWithinTimeout(
-        responseWritten,
-        NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS,
-        false,
-      );
-    if (!written) return false;
-    return this.isComputerActRelayLive(managed, scope, approval, item);
-  }
-
-  /**
-   * Re-read every bound after the native write settles. The write only proves
-   * Codex received the Allow reply; permission to relay can still disappear
-   * while that write is pending.
-   */
-  private isComputerActRelayLive(
-    managed: ManagedProcess,
-    scope: ComputerActRelayScope,
-    approval: ComputerActApproval,
-    item: ComputerActItem,
-  ): boolean {
-    return !this.shuttingDown &&
-      this.processes.get(scope.conversationId) === managed &&
-      !managed.closing &&
-      managed.ownerId === scope.ownerId &&
-      managed.runtimeGeneration === scope.runtimeGeneration &&
-      managed.codexThreadId === scope.codexThreadId &&
-      managed.activeTurnId === scope.nativeTurnId &&
-      managed.activeProjectionTurnId === scope.projectionTurnId &&
-      managed.activeCollaborationMode !== "plan" &&
-      !managed.nativeTerminalTurnIds.has(scope.nativeTurnId) &&
-      managed.interruptRequest === null &&
-      managed.computerActApprovals.get(scope.nativeCallId) === approval &&
-      approval.state === "consumed" &&
-      approval.expiresAt > Date.now() &&
-      managed.computerActItems.get(scope.nativeCallId) === item &&
-      item.state === "requested";
-  }
-
-  private armComputerActApproval(
-    managed: ManagedProcess,
-    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
-    projectionTurnId: string | null,
-  ): boolean {
-    const item = managed.computerActItems.get(pending.itemId);
-    if (
-      !item ||
-      item.state !== "open" ||
-      item.turnId !== pending.turnId ||
-      managed.computerActApprovals.has(pending.itemId) ||
-      projectionTurnId === null ||
-      managed.activeTurnId !== pending.turnId ||
-      managed.activeProjectionTurnId !== projectionTurnId ||
-      managed.activeCollaborationMode === "plan" ||
-      managed.nativeTerminalTurnIds.has(pending.turnId) ||
-      managed.interruptRequest !== null
-    ) {
-      pending.computerActApproval = false;
-      return false;
-    }
-    if (managed.computerActApprovals.size >= MAX_COMPUTER_ACT_APPROVALS) {
-      pending.computerActApproval = false;
-      return false;
-    }
-    item.state = "requested";
-    const approval: ComputerActApproval = {
-      requestId: pending.requestId,
-      ownerId: managed.ownerId,
-      conversationId: managed.conversationId,
-      runtimeGeneration: managed.runtimeGeneration,
-      codexThreadId: pending.threadId,
-      nativeTurnId: pending.turnId,
-      projectionTurnId,
-      nativeCallId: pending.itemId,
-      inputFingerprint: item.inputFingerprint,
-      state: "armed",
-      responseWritten: null,
-      expiresAt: Date.now() + desktopApprovalTimeoutMs,
-      timer: null,
-    };
-    rememberBounded(
-      managed.computerActApprovals,
-      pending.itemId,
-      approval,
-      MAX_COMPUTER_ACT_APPROVALS,
-    );
-    approval.timer = setTimeout(() => {
-      if (approval.state !== "armed") return;
-      this.forgetComputerActApproval(managed, approval.nativeCallId, approval.requestId);
-      if (managed.pendingUserInputRequests.get(pending.requestId) === pending) {
-        cancelPendingUserInputRequest(pending);
-      }
-    }, desktopApprovalTimeoutMs);
-    approval.timer.unref();
-    return true;
-  }
-
-  private allowComputerActApproval(
-    managed: ManagedProcess,
-    pending: Extract<PendingUserInputRequest, { kind: "questions" }>,
-  ): boolean {
-    const approval = managed.computerActApprovals.get(pending.itemId);
-    const item = managed.computerActItems.get(pending.itemId);
-    if (
-      !approval ||
-      !item ||
-      item.state !== "requested" ||
-      approval.requestId !== pending.requestId ||
-      approval.state !== "armed" ||
-      approval.expiresAt <= Date.now() ||
-      approval.codexThreadId !== pending.threadId ||
-      approval.nativeTurnId !== pending.turnId ||
-      approval.projectionTurnId !== managed.activeProjectionTurnId ||
-      item.turnId !== pending.turnId ||
-      item.inputFingerprint !== approval.inputFingerprint ||
-      managed.activeTurnId !== pending.turnId ||
-      managed.activeCollaborationMode === "plan" ||
-      managed.nativeTerminalTurnIds.has(pending.turnId) ||
-      managed.interruptRequest !== null
-    ) {
-      this.forgetComputerActApproval(managed, pending.itemId, pending.requestId);
-      pending.computerActApproval = false;
-      return false;
-    }
-    approval.state = "allowed";
-    approval.responseWritten = pending.responseWritten;
-    approval.expiresAt = Date.now() + desktopApprovalTimeoutMs;
-    if (approval.timer) clearTimeout(approval.timer);
-    approval.timer = setTimeout(() => {
-      // Expiry also releases a consumed permit; a claim waiting on the native
-      // write re-reads the deadline and never relays.
-      this.forgetComputerActApproval(managed, approval.nativeCallId, approval.requestId);
-    }, desktopApprovalTimeoutMs);
-    approval.timer.unref();
-    return true;
-  }
-
-  private forgetComputerActApproval(
-    managed: ManagedProcess,
-    nativeCallId: string,
-    requestId?: number,
-  ): void {
-    const approval = managed.computerActApprovals.get(nativeCallId);
-    if (!approval || (requestId !== undefined && approval.requestId !== requestId)) {
-      return;
-    }
-    if (approval.timer) clearTimeout(approval.timer);
-    managed.computerActApprovals.delete(nativeCallId);
-  }
-
-  private clearComputerActApprovals(
-    managed: ManagedProcess,
-    turnId?: string,
-  ): void {
-    for (const [nativeCallId, approval] of managed.computerActApprovals) {
-      if (turnId === undefined || approval.nativeTurnId === turnId) {
-        this.forgetComputerActApproval(managed, nativeCallId);
-      }
-    }
-    if (turnId === undefined) {
-      managed.computerActItems.clear();
-      return;
-    }
-    for (const [nativeCallId, item] of managed.computerActItems) {
-      if (item.turnId === turnId) managed.computerActItems.delete(nativeCallId);
-    }
-  }
-
-  private confirmNativeUserInputResponse(
-    managed: ManagedProcess,
-    requestId: number,
-    pending: Extract<PendingUserInputRequest, { kind: "questions" | "approval" }>,
-    browserDecision: "allow" | "cancel" | null,
-    approvalDecision: DesktopApprovalDecision | null,
-  ): Promise<boolean> {
-    return new Promise(resolve => {
-      let observed = false;
-      let written = false;
-      const finish = (confirmed: boolean) => {
-        clearTimeout(timer);
-        managed.userInputConfirmations.delete(requestId);
-        resolve(confirmed);
-      };
-      const timer = setTimeout(() => finish(false), NATIVE_USER_INPUT_CONFIRMATION_TIMEOUT_MS);
-      timer.unref();
-      managed.userInputConfirmations.set(requestId, {
-        threadId: pending.threadId,
-        turnId: pending.turnId,
-        itemId: pending.itemId,
-        browserDecision,
-        approvalDecision,
-        settle: confirmed => {
-          if (!confirmed) finish(false);
-          else if (written) finish(true);
-          else observed = true;
-        },
-      });
-      void pending.responseWritten.then(success => {
-        if (!managed.userInputConfirmations.has(requestId)) return;
-        if (!success) finish(false);
-        else if (observed) finish(true);
-        else written = true;
-      });
-    });
   }
 
   async requestUserForm(
@@ -3567,7 +3058,7 @@ export class AppServerProcessPool {
             path: canonicalRollout,
             lastTurnId: input.throughCodexTurnId,
             deferGoalContinuation: true,
-            ...linkSenseThreadRuntimeOverrides(input.model, workspace, undefined, this.options.desktopWorkspace),
+            ...linkSenseThreadRuntimeOverrides(input.model, workspace, undefined),
           } satisfies ThreadForkParams);
           if (!forked.thread.id || forked.thread.id === source.id) {
             throw new CodexProtocolError("Codex returned an invalid fork thread");
@@ -3622,9 +3113,6 @@ export class AppServerProcessPool {
         runtimeEnvironment,
         configOverrides: [
           ...this.globalFeatureOverrides,
-          ...(this.options.desktopWorkspace ? desktopPermissionConfigOverrides({
-            control: paths.ownerControl, codex: this.options.command,
-          }) : []),
           ...(input.modelProvider ? linkSenseModelProviderConfigOverrides({ baseUrl: this.options.modelGateway.baseUrl, protocolMode: input.modelProvider.protocolMode }) : []),
           "features.plugins=false",
           "features.memories=false",
@@ -4419,12 +3907,10 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
-        const computerToken = randomBytes(32).toString("base64url");
         const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const webSiteToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
-        const localToolsToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
           {
             ...recoveryStartInput,
@@ -4459,17 +3945,6 @@ export class AppServerProcessPool {
               LINKSENSE_WEB_SITE_TOKEN: webSiteToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
-              ...(input.environment.LINKSENSE_DESKTOP_CLOUD_TOOLS === "1" ? {
-                LINKSENSE_LOCAL_TOOLS_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-local-tools/${input.conversationId}/execute`,
-                LINKSENSE_LOCAL_TOOLS_TOKEN: localToolsToken,
-              } : {}),
-              ...(this.options.desktopComputerEnabled ? {
-                LINKSENSE_COMPUTER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/computer-execute`,
-                LINKSENSE_COMPUTER_TOKEN: computerToken,
-                ...(this.options.desktopComputerWaitEnabled ? { LINKSENSE_COMPUTER_WAIT: "1" } : {}),
-                // Production stays text-only until the end-to-end raster and
-                // masking contract is proven; no environment flag enables it.
-              } : {}),
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE:
                 recoveryStartInput.collaborationMode ?? "default",
@@ -4832,22 +4307,7 @@ export class AppServerProcessPool {
     if (managed.activeCollaborationMode === "plan") {
       throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
     }
-    if (this.options.desktopWorkspace && !this.options.desktopArtifactsEnabled) {
-      throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
-    }
-    // The supervisor builds the website archive only when the run negotiated it.
-    if (this.options.desktopWorkspace && input.webRootRelativePath &&
-        !this.options.desktopArtifactsWebsiteEnabled) {
-      throw new FileServiceRequestError(
-        "ARTIFACT_REGISTRATION_INVALID",
-        false,
-        400,
-      );
-    }
-    // Desktop tool frames are scoped to the project turn, not the native turn.
-    const turnId = this.options.desktopWorkspace
-      ? managed.activeProjectionTurnId
-      : managed.activeTurnId;
+    const turnId = managed.activeTurnId;
     if (!turnId) {
       throw new FileServiceRequestError(
         "FILE_SERVICE_TURN_INACTIVE",
@@ -4867,20 +4327,6 @@ export class AppServerProcessPool {
         400,
       );
     }
-    // A registration request may arrive while the preceding native notification
-    // is still queued. Use the native receive order, not HTTP arrival order.
-    const creation = this.options.desktopWorkspace
-      ? await managed.notificationQueue.enqueueOperation(async () =>
-          managed.desktopFileCreations.get(`${turnId}\0${input.workspaceRelativePath}`),
-        )
-      : undefined;
-    if (this.options.desktopWorkspace) {
-      signal?.throwIfAborted();
-      if (this.processes.get(conversationId) !== managed ||
-          managed.activeProjectionTurnId !== turnId || !managed.activeTurnId) {
-        throw new FileServiceRequestError("FILE_SERVICE_TURN_INACTIVE", false, 409);
-      }
-    }
     const artifact = {
       conversationId,
       turnId,
@@ -4889,13 +4335,6 @@ export class AppServerProcessPool {
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.artifactKind ? { artifactKind: input.artifactKind } : {}),
       ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
-      ...(creation && {
-        sourceBinding: {
-          digest: createHash("sha256")
-            .update(desktopArtifactPathDigestInput(turnId, creation.itemId, creation.preview)).digest("hex"),
-          sha256: creation.sha256,
-        },
-      }),
     };
     return this.options.eventSink.registerArtifact(artifact, ...(signal ? [signal] : []));
   }
@@ -5316,127 +4755,14 @@ export class AppServerProcessPool {
     return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
   }
 
-  async localToolsExecute(
-    conversationId: string,
-    token: string,
-    invocation: import("@linksense/shared").DesktopCloudToolInvocation,
-    signal: AbortSignal,
-  ): Promise<unknown> {
-    const managed = this.processes.get(conversationId);
-    if (
-      this.shuttingDown || !managed || managed.closing || !managed.activeTurnId ||
-      !managed.activeProjectionTurnId || managed.activeCollaborationMode !== "default" ||
-      !safeTokenEqual(token, managed.localToolsToken)
-    ) {
-      throw new ConversationReferenceRequestError(403);
-    }
-    if (!this.options.eventSink.localToolsExecute) throw new ConversationReferenceRequestError(503);
-    const turnId = managed.activeProjectionTurnId;
-    const result = await this.options.eventSink.localToolsExecute({
-      conversationId, turnId, operation: invocation.operation, input: invocation.input, signal,
-    });
-    if (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId) {
-      throw new ConversationReferenceRequestError(409);
-    }
-    return result;
-  }
-
-  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal, nativeCallId?: string): Promise<unknown> {
+  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     const { browserUseReadOnly, browserUseFailure } = await import("@linksense/shared");
     if (managed.activeCollaborationMode === "plan" && !browserUseReadOnly(input)) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
-    if (this.options.desktopWorkspace && !this.options.desktopBrowserEnabled) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
-    if (this.options.desktopWorkspace && nativeCallId && !signal.aborted && !managed.interruptRequest &&
-        !managed.nativeTerminalTurnIds.has(managed.activeTurnId)) {
-      for (const confirmation of managed.userInputConfirmations.values()) {
-        if (confirmation.browserDecision === "allow" && confirmation.threadId === managed.codexThreadId &&
-            confirmation.turnId === managed.activeTurnId && confirmation.itemId === nativeCallId) {
-          confirmation.settle(true);
-        }
-      }
-    }
-    if (this.options.desktopWorkspace && input.action === "screenshot" && managed.modelProviderProtocolMode === "chat_completions_bridge") {
-      return browserUseFailure("BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED");
-    }
     if (!this.options.eventSink.browserUse) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
     const turnId = managed.activeProjectionTurnId;
-    const result = await this.options.eventSink.browserUse({ conversationId, turnId, input, signal });
-    if (this.options.desktopWorkspace && (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== turnId))
-      return browserUseFailure(browserUseReadOnly(input) ? "BROWSER_USE_CANCELLED" : "RUNNER_OPERATION_UNCERTAIN");
-    return result;
-  }
-
-  /**
-   * Relay one model computer_status/observe/act call to the Mac engine. The
-   * worker callback token, the active native thread/turn, and the exact native
-   * approval are all required; the act claim is consumed before the first
-   * outbound request and is never retried.
-   */
-  async computerExecute(
-    conversationId: string,
-    token: string,
-    input: ComputerExecuteInput,
-    signal: AbortSignal,
-    nativeCallId?: string,
-  ): Promise<ComputerExecuteResult> {
-    const failure = (error: ComputerFailureCode): ComputerExecuteResult => ({ kind: "failure", error });
-    const request = computerExecuteInputSchema.safeParse(input);
-    if (!request.success) return failure("COMPUTER_INVALID");
-    input = request.data;
-    const managed = this.processes.get(conversationId);
-    if (this.shuttingDown || !this.options.desktopWorkspace || !this.options.desktopComputerEnabled ||
-        !managed || managed.closing || !safeTokenEqual(token, managed.computerToken)) {
-      return failure("COMPUTER_ACCESS_DENIED");
-    }
-    if (!managed.activeTurnId || !managed.activeProjectionTurnId || !managed.codexThreadId ||
-        managed.nativeTerminalTurnIds.has(managed.activeTurnId) || managed.interruptRequest !== null) {
-      return failure(input.kind === "act" ? "COMPUTER_ACCESS_DENIED" : "COMPUTER_UNAVAILABLE");
-    }
-    // The read-only wait kind exists only on a worker whose supervised
-    // environment was authored from the negotiated marker. A direct call on an
-    // older run is refused cleanly and never disconnects the device.
-    if (input.kind === "wait" && !this.options.desktopComputerWaitEnabled) {
-      return failure("COMPUTER_UNAVAILABLE");
-    }
-    if (managed.activeCollaborationMode === "plan" && (input.kind === "act" || input.kind === "wait")) {
-      return failure("COMPUTER_ACCESS_DENIED");
-    }
-    if (input.kind === "act") {
-      if (!nativeCallId || nativeCallId !== input.native_call_id) {
-        return failure("COMPUTER_ACCESS_DENIED");
-      }
-      const approved = await this.claimComputerActRelay({
-        ownerId: managed.ownerId,
-        conversationId,
-        runtimeGeneration: managed.runtimeGeneration,
-        codexThreadId: managed.codexThreadId,
-        nativeTurnId: managed.activeTurnId,
-        projectionTurnId: managed.activeProjectionTurnId,
-        nativeCallId,
-        toolName: computerActToolName,
-        input: input.input,
-      });
-      if (!approved) return failure("COMPUTER_ACCESS_DENIED");
-    }
-    const projectionTurnId = managed.activeProjectionTurnId;
-    if (!this.options.eventSink.computerExecute) return failure("COMPUTER_UNAVAILABLE");
-    let result: ComputerExecuteResult;
-    try {
-      const raw = await this.options.eventSink.computerExecute({
-        conversationId, turnId: projectionTurnId, input, signal,
-      });
-      const parsed = computerExecuteResultSchema.safeParse(raw);
-      result = parsed.success ? parsed.data : failure(
-        input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
-      );
-    } catch {
-      result = failure(input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE");
-    }
-    if (signal.aborted || !managed.activeTurnId || managed.activeProjectionTurnId !== projectionTurnId) {
-      return failure(input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE");
-    }
-    return result;
+    return this.options.eventSink.browserUse({ conversationId, turnId, input, signal });
   }
 
   async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
@@ -5454,7 +4780,6 @@ export class AppServerProcessPool {
     token: string,
     input: ConnectionInput,
     signal?: AbortSignal,
-    page?: import("@linksense/shared").DesktopConnectionRequestBody["page"],
   ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (
@@ -5473,7 +4798,6 @@ export class AppServerProcessPool {
       turnId,
       input,
       ...(signal ? { signal } : {}),
-      ...(page ? { page } : {}),
     });
     if (managed.activeProjectionTurnId !== turnId || !managed.activeTurnId)
       throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
@@ -5481,9 +4805,7 @@ export class AppServerProcessPool {
   }
 
   private artifactRegistrationEndpoint(conversationId: string): string {
-    const endpoint = `${this.options.mcpEndpointBase}/${conversationId}/register-artifact`;
-    if (!this.options.desktopWorkspace) return endpoint;
-    return `${endpoint}?desktop=1${this.options.desktopArtifactsWebsiteEnabled ? "&website=1" : ""}`;
+    return `${this.options.mcpEndpointBase}/${conversationId}/register-artifact`;
   }
 
   private get knowledgeMcpEndpointBase(): string {
@@ -6353,10 +5675,6 @@ export class AppServerProcessPool {
       const webSearchToken = input.environment.LINKSENSE_WEB_SEARCH_TOKEN;
       if (!webSearchToken) throw new CodexProtocolError("web search token is missing");
       const currentUserToken = input.environment.LINKSENSE_CURRENT_USER_TOKEN;
-      const computerToken = input.environment.LINKSENSE_COMPUTER_TOKEN;
-      if (this.options.desktopComputerEnabled && !computerToken) {
-        throw new CodexProtocolError("computer relay token is missing");
-      }
       const automationToken = input.environment.LINKSENSE_AUTOMATION_TOKEN;
       if (!automationToken) throw new CodexProtocolError("automation token is missing");
       const webSiteToken = input.environment.LINKSENSE_WEB_SITE_TOKEN;
@@ -6429,9 +5747,6 @@ export class AppServerProcessPool {
           // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
-            ...(this.options.desktopWorkspace ? desktopPermissionConfigOverrides({
-              control: paths.ownerControl, codex: this.options.command,
-            }) : []),
             ...linkSenseSkillConfigOverrides(input.collaborationMode),
             ...linkSenseImageCapabilityConfigOverrides(
               input.modelProvider.supportsImageInput,
@@ -6457,19 +5772,6 @@ export class AppServerProcessPool {
                   }),
             }),
             ...builtInMcpConfigOverrides({
-              disableBrowserUse: this.options.desktopWorkspace === true && !this.options.desktopBrowserEnabled,
-              disableArtifactRegistration: this.options.desktopWorkspace === true && !this.options.desktopArtifactsEnabled,
-              promptForBrowserUse: this.options.desktopWorkspace === true && this.options.desktopBrowserEnabled === true,
-              computerActApproval: this.options.desktopWorkspace === true &&
-                this.options.desktopComputerEnabled === true && input.collaborationMode !== "plan",
-              // Plan keeps the relay for authorized status/observe reads; only
-              // the act approval is default-mode-only.
-              computerRelay: this.options.desktopWorkspace === true &&
-                this.options.desktopComputerEnabled === true,
-              computerWait: this.options.desktopWorkspace === true &&
-                this.options.desktopComputerEnabled === true &&
-                this.options.desktopComputerWaitEnabled === true &&
-                input.collaborationMode !== "plan",
               command: this.options.mcpCommand,
               args: this.options.mcpArgs,
               ...(this.options.managedBrowserMcpArgs
@@ -6477,10 +5779,6 @@ export class AppServerProcessPool {
                 : {}),
               knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
             }),
-            ...(this.options.desktopConnectionMcpArgs ? desktopConnectionMcpConfigOverrides({
-              command: this.options.mcpCommand,
-              args: this.options.desktopConnectionMcpArgs,
-            }) : []),
             ...planRuntimeConfigOverrides(
               input.collaborationMode,
               this.options.managedBrowserMcpArgs !== undefined,
@@ -6512,7 +5810,7 @@ export class AppServerProcessPool {
           ...(this.options.codexProcessIdentity
             ? { processIdentity: this.options.codexProcessIdentity }
             : {}),
-          onServerRequest: (request, responseWritten) => {
+          onServerRequest: (request) => {
             const current = managedReference.current;
             if (!current) {
               throw new CodexProtocolError(
@@ -6520,7 +5818,7 @@ export class AppServerProcessPool {
               );
             }
             return current.notificationQueue
-              .enqueueOperation(() => this.prepareServerRequest(current, request, responseWritten))
+              .enqueueOperation(() => this.prepareServerRequest(current, request))
               .then(({ response }) => response);
           },
         });
@@ -6573,8 +5871,6 @@ export class AppServerProcessPool {
         skillManagementToken,
         interactiveFormToken,
         currentUserToken,
-        localToolsToken: input.environment.LINKSENSE_LOCAL_TOOLS_TOKEN ?? "",
-        computerToken: computerToken ?? "",
         webSearchToken,
         automationToken,
         webSiteToken,
@@ -6589,14 +5885,8 @@ export class AppServerProcessPool {
           { maxCount: RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT, maxBytes: RUNNER_EVENT_BATCH_TARGET_BYTES },
         ),
         pendingUserInputRequests: new Map(),
-        browserApprovalItems: new Map(),
-        computerActItems: new Map(),
-        computerActApprovals: new Map(),
-        fileChangeApprovalItems: new Map(),
-        userInputConfirmations: new Map(),
         assistantMessageProjections: new Map(),
         imageViewProjections: new Map(),
-        desktopFileCreations: new Map(),
         subAgentLabelsByThreadId: new Map(),
         subAgentRuntimeByThreadId: new Map(),
         subAgentRuntimeNotificationRevision: 0,
@@ -6626,87 +5916,6 @@ export class AppServerProcessPool {
         // earlier output is waiting for asset processing or durable storage.
         const params = objectRecord(notification.params);
         const turn = objectRecord(params.turn);
-        const item = objectRecord(params.item);
-        if (this.options.desktopBrowserEnabled && params.threadId === managed.codexThreadId &&
-            typeof params.turnId === "string" && typeof item.id === "string" &&
-            item.type === "mcpToolCall" && item.server === coreMcpServerKey && item.tool === browserUseToolName) {
-          if (notification.method === "item/started") {
-            rememberBounded(managed.browserApprovalItems, item.id, params.turnId, 128);
-          } else if (notification.method === "item/completed") {
-            managed.browserApprovalItems.delete(item.id);
-            // An explicit Cancel or an empty answer records a local cancel
-            // decision. The browser item's failed terminal state confirms it;
-            // do not depend on Codex's version-specific error text.
-            if (item.status === "failed" &&
-                !managed.interruptRequest && !managed.nativeTerminalTurnIds.has(params.turnId)) {
-              for (const confirmation of managed.userInputConfirmations.values()) {
-                if (confirmation.browserDecision === "cancel" && confirmation.turnId === params.turnId &&
-                    confirmation.itemId === item.id) confirmation.settle(true);
-              }
-            }
-          }
-        }
-        if (this.options.desktopWorkspace && this.options.desktopComputerEnabled &&
-            params.threadId === managed.codexThreadId && typeof params.turnId === "string" &&
-            typeof item.id === "string" && item.type === "mcpToolCall" &&
-            item.server === coreMcpServerKey && item.tool === computerActToolName) {
-          const nativeCallId = boundedCorrelationId(item.id, 240);
-          if (nativeCallId && notification.method === "item/started") {
-            const existing = managed.computerActItems.get(nativeCallId);
-            if (existing) {
-              // A repeated native start is not a second call. Poison this call
-              // for the rest of its lifetime instead of replacing its item.
-              existing.state = "invalid";
-              this.forgetComputerActApproval(managed, nativeCallId);
-            } else {
-              // Keep the exact native arguments only as a one-way fingerprint
-              // plus the bounded action summary. Never evict another call's
-              // item: a full bound refuses new items and fails them closed.
-              const act = computerActInputSchema.safeParse(item.arguments);
-              if (act.success && managed.computerActItems.size < MAX_COMPUTER_ACT_APPROVALS) {
-                managed.computerActItems.set(nativeCallId, {
-                  turnId: params.turnId,
-                  inputFingerprint: hashCanonicalValue(act.data),
-                  action: act.data.action,
-                  state: "open",
-                });
-              }
-            }
-          } else if (nativeCallId && notification.method === "item/completed") {
-            managed.computerActItems.delete(nativeCallId);
-            this.forgetComputerActApproval(managed, nativeCallId);
-          }
-        }
-        if (this.options.desktopWorkspace && this.options.desktopNativeApprovalsEnabled &&
-            params.threadId === managed.codexThreadId && typeof params.turnId === "string" &&
-            typeof item.id === "string" && item.type === "fileChange") {
-          if (notification.method === "item/started") {
-            const changes = mapCodexFileChangeApprovalChanges(item, {
-              workspace: managed.workspace,
-              codexHome: managed.codexHome,
-            });
-            if (changes) {
-              rememberBounded(managed.fileChangeApprovalItems, item.id,
-                { turnId: params.turnId, changes }, 128);
-            } else {
-              managed.fileChangeApprovalItems.delete(item.id);
-            }
-          } else if (notification.method === "item/completed") {
-            managed.fileChangeApprovalItems.delete(item.id);
-          }
-        }
-        if (notification.method === "serverRequest/resolved" && typeof params.requestId === "number") {
-          const pending = managed.pendingUserInputRequests.get(params.requestId);
-          if (pending?.kind === "approval" && pending.threadId === params.threadId) {
-            cancelPendingUserInputRequest(pending);
-          }
-          const confirmation = managed.userInputConfirmations.get(params.requestId);
-          if (confirmation && confirmation.browserDecision === null && confirmation.threadId === params.threadId) {
-            // Native question closure can confirm submission, not browser authorization.
-            confirmation.settle(managed.activeTurnId === confirmation.turnId &&
-              !managed.interruptRequest && !managed.nativeTerminalTurnIds.has(confirmation.turnId));
-          }
-        }
         if (
           params.threadId === managed.codexThreadId &&
           typeof turn.id === "string" &&
@@ -6723,11 +5932,6 @@ export class AppServerProcessPool {
           ) {
             rememberBounded(managed.nativeTerminalTurnIds, turn.id, true, 128);
             this.settleNativeTurnStartedWaiters(managed, turn.id, false);
-            for (const confirmation of managed.userInputConfirmations.values()) {
-              if (confirmation.turnId === turn.id) {
-                confirmation.settle(false);
-              }
-            }
           }
         }
         const preparation = managed.internalModelTransitionCompaction;
@@ -6787,7 +5991,6 @@ export class AppServerProcessPool {
           for (const turnId of managed.nativeTurnStartedWaiters.keys()) {
             this.settleNativeTurnStartedWaiters(managed, turnId, false);
           }
-          for (const confirmation of managed.userInputConfirmations.values()) confirmation.settle(false);
           const wasCurrent =
             this.processes.get(input.conversationId) === managed;
           if (wasCurrent) {
@@ -6886,7 +6089,6 @@ export class AppServerProcessPool {
                     paths.workspace,
                     input.modelTransitionSource?.provider ??
                       input.modelProvider,
-                    this.options.desktopWorkspace,
                   ),
                   excludeTurns: true,
                 },
@@ -6906,7 +6108,6 @@ export class AppServerProcessPool {
             } catch (error) {
               if (
                 input.forkFromCodexTurnId ||
-                (this.options.desktopWorkspace && input.modelTransitionSource) ||
                 creationContext?.allowReplacementThread === false ||
                 !isMissingNativeThreadRollout(error)
               ) {
@@ -7193,9 +6394,6 @@ export class AppServerProcessPool {
           !preparation.baselineTurnIds.has(event.params.turnId) &&
           event.params.item.type === "contextCompaction"
         ) {
-          // The desktop API projects only the new thread. This source marker
-          // would block its ordered event outbox.
-          if (this.options.desktopWorkspace) continue;
           await this.options.eventSink.publish(managed.conversationId, {
             ...event,
             preparation: { turnId: preparation.projectionTurnId },
@@ -7335,20 +6533,9 @@ export class AppServerProcessPool {
     }
     await this.hydrateSubAgentLabels(managed, notification);
     const activeTurnId = managed.activeTurnId;
-    const projectionTurnId = managed.activeProjectionTurnId;
     const projectionContext = {
       ...this.correlateNativeStopHook(managed, notification),
       subAgentLabelsByThreadId: managed.subAgentLabelsByThreadId,
-      desktopBrowserApproval: this.options.desktopBrowserEnabled === true,
-      ...(this.options.desktopArtifactsEnabled && projectionTurnId && notifiedTurnId === activeTurnId && {
-        onDesktopFileCreated: (path: string, preview: string, itemId: string, sha256: string) => {
-          // shortcut: older creations fall back to cards; grow the window only if typical turns exhaust it.
-          rememberBounded(
-            managed.desktopFileCreations,
-            `${projectionTurnId}\0${path}`, { itemId, preview, sha256 }, runnerCodexPreviewLimits.fileChanges,
-          );
-        },
-      }),
       ...(localModelUsage ? { localModelUsage } : {}),
     } satisfies CodexNotificationProjectionContext;
     const events = notifications.flatMap(entry => mapCodexNotification(
@@ -7430,7 +6617,6 @@ export class AppServerProcessPool {
           cancelPendingUserInputRequest(pending);
         }
       }
-      this.clearComputerActApprovals(managed, activeTurnId ?? undefined);
       await this.withProcessLifecycleLock(managed.conversationId, async () => {
         if (
           this.processes.get(managed.conversationId) !== managed ||
@@ -7798,21 +6984,9 @@ export class AppServerProcessPool {
   private async prepareServerRequest(
     managed: ManagedProcess,
     request: JsonRpcRequest,
-    responseWritten: Promise<boolean>,
-  ): Promise<{ response: Promise<ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">> }> {
-    const approvalMethod = desktopApprovalMethodSchema.safeParse(request.method);
-    if (approvalMethod.success && (!this.options.desktopWorkspace || !this.options.desktopNativeApprovalsEnabled)) {
-      throw new CodexProtocolError("unsupported native approval request", -32_601);
-    }
-    const params = objectRecord(request.params);
-    const fileScope = request.method === "item/fileChange/requestApproval" && typeof params.itemId === "string"
-      ? managed.fileChangeApprovalItems.get(params.itemId) : undefined;
-    const [mapped] = mapCodexServerRequest(request, {
-      previewContext: { workspace: managed.workspace, codexHome: managed.codexHome },
-      fileChangeApprovalChanges: fileScope && fileScope.turnId === params.turnId ? fileScope.changes : null,
-    });
-    if (!mapped || (mapped.method !== "item/tool/requestUserInput" &&
-        mapped.method !== "item/commandExecution/requestApproval" && mapped.method !== "item/fileChange/requestApproval")) {
+  ): Promise<{ response: Promise<ToolRequestUserInputResponse> }> {
+    const [mapped] = mapCodexServerRequest(request);
+    if (!mapped || mapped.method !== "item/tool/requestUserInput") {
       throw new CodexProtocolError(
         `unsupported server request: ${request.method}`,
         request.method === "item/tool/requestUserInput"
@@ -7820,97 +6994,56 @@ export class AppServerProcessPool {
           : -32_601,
       );
     }
-    if (mapped.method === "item/tool/requestUserInput" && this.options.desktopWorkspace &&
-        !this.options.desktopBrowserEnabled && !this.options.desktopArtifactsEnabled &&
-        !this.options.desktopComputerEnabled) {
-      // Older peers cannot present or answer questions; resolve without granting anything.
-      return { response: Promise.resolve({ answers: {} }) };
-    }
     const itemId = mapped.params.itemId;
     if (
       managed.closing ||
       this.processes.get(managed.conversationId) !== managed ||
       mapped.params.threadId !== managed.codexThreadId ||
       mapped.params.turnId !== managed.activeTurnId ||
-      managed.pendingUserInputRequests.has(request.id) ||
-      managed.userInputConfirmations.has(request.id) ||
-      (approvalMethod.success && (managed.interruptRequest !== null ||
-        managed.nativeTerminalTurnIds.has(mapped.params.turnId)))
+      managed.pendingUserInputRequests.has(request.id)
     ) {
       throw new CodexProtocolError("stale user-input request", -32_602);
     }
 
-    let pending: PendingUserInputRequest | undefined;
-    let computerActApproval = false;
-    if (mapped.method === "item/tool/requestUserInput" && this.options.desktopWorkspace &&
-        this.options.desktopComputerEnabled) {
-      const item = managed.computerActItems.get(itemId);
-      computerActApproval = item !== undefined &&
-        item.turnId === mapped.params.turnId &&
-        isExactComputerActApprovalRequest(mapped.params);
-    }
-    const response = new Promise<ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">>((resolve) => {
-      const base = {
-        requestId: request.id,
-        threadId: mapped.params.threadId,
-        turnId: mapped.params.turnId,
-        itemId,
-        responseWritten,
-        timer: null,
-        resolve: (result: ToolRequestUserInputResponse | Pick<DesktopApprovalResponse, "decision">) => {
-          if (
-            managed.pendingUserInputRequests.get(request.id) !== createdPending
-          ) {
-            return;
-          }
-          managed.pendingUserInputRequests.delete(request.id);
-          if (createdPending.timer) clearTimeout(createdPending.timer);
-          resolve(result);
-        },
-      };
-      const createdPending: PendingUserInputRequest = mapped.method === "item/tool/requestUserInput"
-        ? {
-            ...base, kind: "questions", questions: mapped.params.questions,
-            browserApproval: managed.browserApprovalItems.get(itemId) === mapped.params.turnId,
-            computerActApproval,
-          }
-        : { ...base, kind: "approval", method: mapped.method, decisions: mapped.params.approval.decisions };
-      pending = createdPending;
-      managed.pendingUserInputRequests.set(request.id, createdPending);
+    let settle: (result: ToolRequestUserInputResponse) => void = () => undefined;
+    const response = new Promise<ToolRequestUserInputResponse>((resolve) => {
+      settle = resolve;
     });
-    if (pending?.kind === "questions" && pending.computerActApproval &&
-        !this.armComputerActApproval(managed, pending, managed.activeProjectionTurnId)) {
-      // The exact native request has no trusted run scope to bind to; cancel it
-      // instead of showing an approval that could never authorize a relay.
-      cancelPendingUserInputRequest(pending);
-      return { response };
-    }
-    const timeout = mapped.method === "item/tool/requestUserInput"
-      ? mapped.params.isBlocking ? null : mapped.params.autoResolutionMs
-      : desktopApprovalTimeoutMs;
-    if (pending && timeout !== null) {
+    const pending: PendingUserInputRequest = {
+      kind: "questions",
+      requestId: request.id,
+      threadId: mapped.params.threadId,
+      turnId: mapped.params.turnId,
+      itemId,
+      questions: mapped.params.questions,
+      timer: null,
+      resolve: (result) => {
+        if (managed.pendingUserInputRequests.get(request.id) !== pending) return;
+        managed.pendingUserInputRequests.delete(request.id);
+        if (pending.timer) clearTimeout(pending.timer);
+        settle(result);
+      },
+    };
+    managed.pendingUserInputRequests.set(request.id, pending);
+    const timeout = mapped.params.isBlocking
+      ? null
+      : mapped.params.autoResolutionMs;
+    if (timeout !== null) {
       pending.timer = setTimeout(
         () => {
-          if (pending) cancelPendingUserInputRequest(pending);
+          cancelPendingUserInputRequest(pending);
         },
         timeout,
       );
       pending.timer.unref();
     }
     try {
-      // The native question text is not trusted. Publish a stable tool/action
-      // summary while keeping the exact native id and Allow/Cancel options the
-      // response must echo.
-      const published = pending?.kind === "questions" && pending.computerActApproval
-        ? redactComputerActApproval(mapped, managed.computerActItems.get(itemId)?.action)
-        : mapped;
-      await this.options.eventSink.publish(managed.conversationId, published);
+      await this.options.eventSink.publish(managed.conversationId, mapped);
     } catch (error) {
-      if (pending && managed.pendingUserInputRequests.get(request.id) === pending) {
+      if (managed.pendingUserInputRequests.get(request.id) === pending) {
         managed.pendingUserInputRequests.delete(request.id);
         if (pending.timer) clearTimeout(pending.timer);
       }
-      this.forgetComputerActApproval(managed, itemId, request.id);
       throw error;
     }
     return { response };
@@ -8473,11 +7606,9 @@ export class AppServerProcessPool {
     if (this.processes.get(managed.conversationId) !== managed) return;
     this.clearIdleTimer(managed);
     managed.closing = true;
-    for (const confirmation of managed.userInputConfirmations.values()) confirmation.settle(false);
     for (const pending of [...managed.pendingUserInputRequests.values()]) {
       cancelPendingUserInputRequest(pending);
     }
-    this.clearComputerActApprovals(managed);
     try {
       await managed.client.close();
     } catch (error) {
@@ -8516,7 +7647,6 @@ export class AppServerProcessPool {
       managed.internalModelTransitionCompaction = null;
       managed.suppressedNativeTurnIds.clear();
       managed.pendingStopHooks.clear();
-      this.clearComputerActApprovals(managed);
       managed.modelGatewayLease.release();
       this.removeUserMcpProxyRuntime(
         managed.conversationId,
@@ -8840,18 +7970,7 @@ function cancelPendingUserInputRequest(
     pending.resolve({ answers: {} });
     return;
   }
-  if (pending.kind === "approval") {
-    // Timeouts and native cancellation map to cancel, never to decline.
-    pending.resolve({ decision: "cancel" });
-    return;
-  }
   pending.resolve({ action: "cancel" });
-}
-
-function isDesktopApprovalResponse(
-  response: NativeUserInputResponse,
-): response is DesktopApprovalResponse {
-  return "method" in response && "decision" in response;
 }
 
 function validateUserInputAnswers(
@@ -8890,145 +8009,6 @@ function validateUserInputAnswers(
       return [question.id, { answers: [answer] }] as const;
     }),
   );
-}
-
-/**
- * Codex's native browser approval question lists Allow first and Cancel
- * second. Use the first option's label instead of matching the English word
- * "Allow", so localized or renamed labels keep working.
- */
-function browserApprovalDecision(
-  questions: ToolRequestUserInputQuestion[],
-  answers: ToolRequestUserInputResponse["answers"],
-): "allow" | "cancel" {
-  for (const [questionId, answer] of Object.entries(answers)) {
-    const selected = answer.answers[0];
-    if (selected === undefined) continue;
-    const question = questions.find(
-      (candidate) => candidate.id === questionId,
-    );
-    if (question?.options?.[0]?.label === selected) return "allow";
-  }
-  return "cancel";
-}
-
-/**
- * Only the exact native question id and options are required to answer a
- * computer_act approval. Replace every free-text field with a bounded tool
- * summary so model arguments, typed text, window titles or paths can never
- * reach the durable outbox through a misleading native question.
- */
-function redactComputerActApproval(
-  event: LinkSenseCodexEvent,
-  action: "click" | "type" | undefined,
-): LinkSenseCodexEvent {
-  if (event.method !== "item/tool/requestUserInput") return event;
-  const summary = action ? `${computerActToolName}: ${action}` : computerActToolName;
-  return {
-    ...event,
-    params: {
-      ...event.params,
-      questions: event.params.questions.map(question => ({
-        ...question,
-        header: computerActToolName,
-        question: summary,
-        // Native option labels are exact; descriptions are untrusted free text.
-        ...(question.options
-          ? {
-              options: question.options.map(option => ({
-                ...option,
-                description: "",
-              })),
-            }
-          : {}),
-      })),
-    },
-  };
-}
-
-function isExactComputerActApprovalRequest(
-  params: ToolRequestUserInputParams,
-): boolean {
-  return params.isBlocking === true &&
-    params.autoResolutionMs === null &&
-    isExactComputerActApprovalQuestions(params.questions, params.itemId);
-}
-
-function isExactComputerActApprovalQuestions(
-  questions: ToolRequestUserInputQuestion[],
-  nativeCallId: string,
-): boolean {
-  if (questions.length !== 1) return false;
-  const question = questions[0];
-  if (!question) return false;
-  return question.id === `mcp_tool_call_approval_${nativeCallId}` &&
-    question.isOther === false &&
-    question.isSecret === false &&
-    question.options?.length === 2 &&
-    question.options[0]?.label === "Allow" &&
-    question.options[1]?.label === "Cancel";
-}
-
-function isExactComputerActAllow(
-  questions: ToolRequestUserInputQuestion[],
-  nativeCallId: string,
-  content: Record<string, unknown>,
-): boolean {
-  if (!isExactComputerActApprovalQuestions(questions, nativeCallId)) return false;
-  const entries = Object.entries(content);
-  return entries.length === 1 &&
-    entries[0]?.[0] === `mcp_tool_call_approval_${nativeCallId}` &&
-    entries[0]?.[1] === "Allow";
-}
-
-/**
- * Normalized fingerprint of every act field. Zod defaults timeout_ms before
- * hashing, so omitted and explicit 8000 match; any changed field does not.
- */
-function computerActInputFingerprint(input: unknown): string | null {
-  const parsed = computerActInputSchema.safeParse(input);
-  return parsed.success ? hashCanonicalValue(parsed.data) : null;
-}
-
-function isComputerActRelayScope(
-  value: unknown,
-): value is ComputerActRelayScope {
-  if (!value || typeof value !== "object") return false;
-  const scope = value as Record<string, unknown>;
-  return [
-    scope.ownerId,
-    scope.conversationId,
-    scope.runtimeGeneration,
-    scope.codexThreadId,
-    scope.nativeTurnId,
-    scope.projectionTurnId,
-    scope.nativeCallId,
-    scope.toolName,
-  ].every(
-    (field) =>
-      typeof field === "string" && field.length > 0 && field.length <= 512,
-  );
-}
-
-function settleWithinTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  fallback: T,
-): Promise<T> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(fallback), timeoutMs);
-    timer.unref();
-    void promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(fallback);
-      },
-    );
-  });
 }
 
 function startRequestFingerprint(input: StartTurnInput): string {
@@ -9166,15 +8146,15 @@ type LinkSenseThreadRuntimeOverrides = {
   modelProvider: typeof linkSenseModelProviderId;
   cwd: string;
   runtimeWorkspaceRoots: string[];
-  approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY | "untrusted";
+  approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY;
   config?: Record<string, unknown>;
-} & ({ sandbox: "danger-full-access"; permissions?: never } | { permissions: string; sandbox?: never });
+  sandbox: "danger-full-access";
+};
 
 function linkSenseThreadRuntimeOverrides(
   model: string,
   workspace: string,
   modelConfig?: ThreadModelConfig,
-  desktopWorkspace = false,
 ): LinkSenseThreadRuntimeOverrides {
   const autoCompactTokenLimit =
     modelConfig?.modelAutoCompactTokenLimit ??
@@ -9197,8 +8177,8 @@ function linkSenseThreadRuntimeOverrides(
     modelProvider: linkSenseModelProviderId,
     cwd: workspace,
     runtimeWorkspaceRoots: [workspace],
-    approvalPolicy: desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
-    ...(desktopWorkspace ? { permissions: desktopPermissionProfiles.default } : { sandbox: "danger-full-access" }),
+    approvalPolicy: LINKSENSE_APPROVAL_POLICY,
+    sandbox: "danger-full-access",
     ...(Object.keys(config).length === 0 ? {} : { config }),
   };
 }

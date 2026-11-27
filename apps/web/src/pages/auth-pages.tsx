@@ -42,8 +42,6 @@ import {
   setAppLanguage,
 } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
-import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
-import { DesktopSignInPage } from "@/features/desktop-login/desktop-login-page"
 
 const emailSchema = z.email()
 
@@ -62,7 +60,7 @@ function PublicPanel({
 }
 
 export function LoginPage() {
-  return isDesktopHost() ? <DesktopSignInPage /> : <WebLoginPage />
+  return <WebLoginPage />
 }
 
 function WebLoginPage() {

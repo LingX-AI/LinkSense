@@ -41,13 +41,10 @@ describe("getErrorMessage", () => {
     )
   })
 
-  it.each(["RUNNER_OPERATION_UNCERTAIN", "DESKTOP_DEVICE_REVOKED"] as const)(
+  it.each(["RUNNER_OPERATION_UNCERTAIN"] as const)(
     "keeps %s distinct from offline in all locales and uses the Chinese fallback",
     (code) => {
-      const error = new ApiError({
-        status: code === "DESKTOP_DEVICE_REVOKED" ? 403 : 503,
-        errorCode: code,
-      })
+      const error = new ApiError({ status: 503, errorCode: code })
       for (const locale of supportedLocales) {
         const message = getErrorMessage(error, i18n.getFixedT(locale))
         expect(message).toBe(localizedErrorMessage(code, locale))
@@ -60,32 +57,6 @@ describe("getErrorMessage", () => {
       )
     }
   )
-
-  it.each(supportedLocales)(
-    "maps the Mac privacy-masking error code to localized copy in %s",
-    (locale) => {
-      const code = "DESKTOP_PRIVACY_MASKING_UNAVAILABLE"
-      const error = new ApiError({ status: 403, errorCode: code })
-      expect(getErrorMessage(error, i18n.getFixedT(locale))).toBe(
-        localizedErrorMessage(code, locale)
-      )
-      expect(getErrorMessage(error, i18n.getFixedT(locale))).not.toBe(
-        localizedErrorMessage("FORBIDDEN", locale)
-      )
-    }
-  )
-
-  it("falls back to the Chinese Mac privacy-masking copy", () => {
-    const code = "DESKTOP_PRIVACY_MASKING_UNAVAILABLE"
-    const fallback = i18n.cloneInstance({ forkResourceStore: true })
-    fallback.removeResourceBundle("en-US", "translation")
-    expect(
-      getErrorMessage(
-        new ApiError({ status: 403, errorCode: code }),
-        fallback.getFixedT("en-US")
-      )
-    ).toBe(localizedErrorMessage(code, "zh-CN"))
-  })
 
   it("keeps other forbidden responses generic", () => {
     expect(
@@ -101,12 +72,11 @@ describe("getErrorMessage", () => {
   })
 
   it("uses the localized server message when an older client does not know the new error", () => {
-    const serverMessage =
-      "隐私脱敏已开启，无法在这台 Mac 上运行新的任务轮次。如云端可用，请在云端继续。"
+    const serverMessage = "这是服务器返回的新错误说明，当前客户端尚未内置翻译。"
     const error = new ApiError({
       status: 403,
-      errorCode: "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      messageKey: "errors.desktopPrivacyMaskingUnavailable",
+      errorCode: "NEW_SERVER_ERROR",
+      messageKey: "errors.someNewError",
       message: serverMessage,
     })
     const legacy = i18n.cloneInstance({ forkResourceStore: true })

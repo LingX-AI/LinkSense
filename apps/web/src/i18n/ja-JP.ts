@@ -2,7 +2,6 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
-import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -17,7 +16,6 @@ export const jaJP = {
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
-  desktopApproval: desktopApprovalMessages["ja-JP"],
   saml: samljaJP,
   social: {
     disableHelp:
@@ -1132,23 +1130,6 @@ export const jaJP = {
       "通知の接続が完了しました。タスクまたは自動化の結果が出ると、ここで通知します。",
     testSent:
       "システムにテスト通知を送信しました。表示されなかった場合は、OS におけるこのブラウザーの通知設定を確認してください。",
-    desktopTitle: "macOS の通知",
-    desktopDescription:
-      "LinkSense がバックグラウンドで動作している間にタスクや自動化が終了したとき、または署名済みの更新が利用可能になったときに通知が届きます。",
-    desktopEnable: "macOS の通知を有効にする",
-    desktopUnsupported:
-      "このアプリのビルドでは通知を利用できません。タスク完了通知を受け取るには、パッケージ化された LinkSense デスクトップアプリを使用してください。",
-    desktopPermissionDenied:
-      "macOS が {{productName}} の通知をブロックしています。「システム設定」>「通知」で許可してから、もう一度お試しください。",
-    desktopDeliveryError:
-      "システムが通知を表示できませんでした。macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認し、もう一度お試しください。",
-    desktopTestSent:
-      "テスト通知をシステムに送信しました。表示されない場合は、macOS の「システム設定」>「通知」で {{productName}} の通知設定を確認してください。",
-    approvalEnable: "承認リマインダー",
-    approvalDescription:
-      "LinkSense がバックグラウンドのときに、ローカルタスクが承認待ちになると通知します。クリックしてもタスクを開くだけで、承認は行いません。",
-    approvalPaused:
-      "macOS の通知がオフの間、承認リマインダーは一時停止します。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "処理が完了しました",
     statusFailedBody: "処理に失敗しました",
@@ -2645,34 +2626,6 @@ export const jaJP = {
       disableMode: "計画モードを終了",
       placeholder:
         "分析・計画したいタスクを記述してください。LinkSense がまず質問し、計画を作成します。",
-    },
-    localFolder: {
-      menuLabel: "ローカルフォルダーを使用",
-      menuSearchValue: "ローカル フォルダー コンピューター ファイル",
-      menuDescription: "このタスクで使うフォルダーを選択します。選択しない場合はこのコンピューター（ホームフォルダー）を使います。",
-      current: "ローカルフォルダー: {{name}}",
-      readOnly: "ローカルフォルダーを選択（読み取り専用）",
-      readWrite: "ローカルフォルダーを選択（読み書き）",
-      homeReadOnly: "現在のフォルダー: 読み取り専用",
-      homeReadWrite: "現在のフォルダー: 読み書き",
-      chooseFolder: "ローカルフォルダーを選択",
-      permissions: "フォルダーの権限",
-      permissionRead: "読み取り専用",
-      permissionWrite: "読み書き",
-      defaultFolder: "既定ではホームフォルダーを使用します",
-      permissionModeTitle: "権限モード",
-      permissionModeAuto: "自動",
-      permissionModeAutoDescription:
-        "フォルダー内の編集と単純な読み取り専用コマンドを自動で許可し、それ以外のコマンドは確認します。",
-      permissionModeManual: "手動",
-      permissionModeManualDescription:
-        "コマンドの実行とファイルの変更の前に、この Mac で確認します。",
-      permissionModeAcceptEdits: "編集を自動承認",
-      permissionModeAcceptEditsDescription:
-        "フォルダー内の編集を自動で許可し、コマンドの実行前に確認します。",
-      permissionModeBypass: "権限をバイパス",
-      permissionModeBypassDescription:
-        "確認しません。コマンドは Mac アカウントの完全な権限で実行されます。",
     },
     proposedPlan: {
       title: "計画",
@@ -5968,10 +5921,6 @@ export const jaJP = {
       "サービスから無効なデータが返されました。管理者にお問い合わせください。",
     clientUpdateRequired:
       "システムが更新されました。このページを更新して続行してください。",
-    desktopUpdateRequired: localizedErrorMessage(
-      "DESKTOP_UPDATE_REQUIRED",
-      "ja-JP"
-    ),
     serviceTemporarilyUnavailable:
       "システムを一時的に利用できません。少し待ってから再試行してください。",
     imageUnderstanding: {
@@ -6221,19 +6170,6 @@ export const jaJP = {
     downloadForbidden: "この成果物をダウンロードする権限がありません。",
     runnerUnavailable:
       "実行サービスを利用できません。しばらくしてから再試行してください。",
-    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "ja-JP"),
-    desktopTargetRetired: localizedErrorMessage(
-      "DESKTOP_LOCAL_TARGET_RETIRED",
-      "ja-JP"
-    ),
-    desktopLocalToolsDisabled: localizedErrorMessage(
-      "DESKTOP_LOCAL_TOOLS_DISABLED",
-      "ja-JP"
-    ),
-    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      "ja-JP"
-    ),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "ja-JP"
@@ -6280,7 +6216,6 @@ export const jaJP = {
     codexTurnFailed:
       "今回の実行に失敗しました。メッセージを確認して再試行してください。",
     modelGateway: modelGatewayMessages["ja-JP"],
-    desktopOutputLimit: "Macで実行したタスクの出力の一部が転送上限を超えたため、すべてを表示できませんでした。",
     turnCompletedWithoutOutput:
       "今回の実行は終了しましたが、表示可能な出力がありません。再実行してください。",
     automation: {

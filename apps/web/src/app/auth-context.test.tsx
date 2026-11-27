@@ -23,8 +23,6 @@ import { AuthProvider } from "@/app/auth-context"
 import { useAuth } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
-import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
-import { ensureDesktopDeviceForAuthRestore } from "@/adapters/desktop/desktop-device-adapter"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
@@ -34,8 +32,6 @@ const sessionState = vi.hoisted(() => ({
   loginSessionBoundary: 0,
   revision: 0,
 }))
-
-const hostState = vi.hoisted(() => ({ mac: false }))
 
 vi.mock("@/api/client", () => ({
   apiRequest: vi.fn(),
@@ -76,16 +72,6 @@ vi.mock("@/api/session", async (importOriginal) => ({
 
 vi.mock("@/i18n", () => ({
   setAppLanguage: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock("@/adapters/desktop/desktop-adapter", () => ({
-  clearDesktopSession: vi.fn().mockResolvedValue(undefined),
-  isDesktopHost: () => false,
-  isMacDesktopHost: () => hostState.mac,
-}))
-
-vi.mock("@/adapters/desktop/desktop-device-adapter", () => ({
-  ensureDesktopDeviceForAuthRestore: vi.fn().mockResolvedValue(null),
 }))
 
 const user: User = {
@@ -141,13 +127,7 @@ function AuthProbe({
   session?: AccessSession
   onSignOutError?: (error: unknown) => void
 }) {
-  const {
-    status,
-    user: currentUser,
-    acceptSession,
-    retryRestore,
-    signOut,
-  } = useAuth()
+  const { status, user: currentUser, acceptSession, signOut } = useAuth()
   return (
     <>
       <output data-testid="auth-status">{status}</output>
@@ -169,9 +149,6 @@ function AuthProbe({
           sign in
         </button>
       )}
-      <button type="button" onClick={() => retryRestore?.()}>
-        retry restore
-      </button>
     </>
   )
 }
@@ -233,7 +210,6 @@ describe("AuthProvider session restoration", () => {
     sessionState.revision = 0
     sessionState.listeners.clear()
     sessionState.loginSessionBoundary = 0
-    hostState.mac = false
     vi.mocked(apiRequest).mockReset()
     vi.mocked(refreshSession).mockReset()
     vi.mocked(isDefinitiveAuthenticationError).mockReset()
@@ -242,10 +218,6 @@ describe("AuthProvider session restoration", () => {
     vi.mocked(isRetryableApiError).mockReturnValue(false)
     vi.mocked(setAccessToken).mockClear()
     vi.mocked(setAppLanguage).mockClear()
-    vi.mocked(clearDesktopSession).mockReset().mockResolvedValue(undefined)
-    vi.mocked(ensureDesktopDeviceForAuthRestore)
-      .mockReset()
-      .mockResolvedValue(null)
   })
 
   afterEach(() => {
@@ -266,21 +238,7 @@ describe("AuthProvider session restoration", () => {
     expect(setAccessToken).not.toHaveBeenCalledWith(null)
   })
 
-  it("resumes the paired Mac after the Web session is verified", async () => {
-    sessionState.token = "persisted-access-token"
-    vi.mocked(apiRequest).mockResolvedValue(user)
-
-    renderAuthProvider()
-
-    await expectAuthStatus("authenticated")
-    await waitFor(() =>
-      expect(ensureDesktopDeviceForAuthRestore).toHaveBeenCalledExactlyOnceWith(
-        user.id
-      )
-    )
-  })
-
-  it("clears native credentials before completing local sign-out when the API is unreachable", async () => {
+  it("clears the local session before completing sign-out when the API is unreachable", async () => {
     sessionState.token = "persisted-access-token"
     const unavailable = new Error("network unavailable")
     vi.mocked(apiRequest).mockImplementation(async (path) => {
@@ -297,29 +255,10 @@ describe("AuthProvider session restoration", () => {
     await waitFor(() =>
       expect(onSignOutError).toHaveBeenCalledWith(unavailable)
     )
-    expect(clearDesktopSession).toHaveBeenCalledOnce()
     await expectAuthStatus("anonymous")
     expect(sessionState.token).toBeNull()
   })
 
-  it("clears memory and account caches while reporting a failed native credential deletion", async () => {
-    sessionState.token = "persisted-access-token"
-    vi.mocked(apiRequest).mockResolvedValue(user)
-    const lockedStore = new Error("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
-    vi.mocked(clearDesktopSession).mockRejectedValueOnce(lockedStore)
-    const onSignOutError = vi.fn()
-    renderAuthProvider(
-      createAuthQueryClient(),
-      <AuthProbe onSignOutError={onSignOutError} />
-    )
-    await expectAuthStatus("authenticated")
-    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
-    await waitFor(() =>
-      expect(onSignOutError).toHaveBeenCalledWith(lockedStore)
-    )
-    await expectAuthStatus("anonymous")
-    expect(sessionState.token).toBeNull()
-  })
   it("applies the database language before exposing the restored session", async () => {
     sessionState.token = "persisted-access-token"
     vi.mocked(apiRequest).mockResolvedValue({ ...user, language: "en-US" })
@@ -470,7 +409,6 @@ describe("AuthProvider session restoration", () => {
     ).toMatchObject({
       pages: [{ items: [{ id: "replacement-login-task" }] }],
     })
-    expect(clearDesktopSession).not.toHaveBeenCalled()
   })
 
   it("removes account-scoped data at the same time a live session loses its token", async () => {
@@ -499,45 +437,6 @@ describe("AuthProvider session restoration", () => {
 
     await expectAuthStatus("anonymous")
     expect(screen.getByTestId("auth-user")).toBeEmptyDOMElement()
-  })
-
-  it("runs native cleanup for the ending login when the token is cleared while logout is pending", async () => {
-    sessionState.token = "old-login-token"
-    let finishLogout!: () => void
-    const logoutResponse = new Promise<unknown>((resolve) => {
-      finishLogout = () => resolve(null)
-    })
-    vi.mocked(apiRequest).mockImplementation(async (path) => {
-      if (path === "/auth/logout") return logoutResponse
-      return user
-    })
-
-    renderAuthProvider()
-    await expectAuthStatus("authenticated")
-
-    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
-    await waitFor(() =>
-      expect(apiRequest).toHaveBeenCalledWith(
-        "/auth/logout",
-        expect.objectContaining({ skipRefresh: true })
-      )
-    )
-    const loggingOutBoundary = sessionState.loginSessionBoundary
-
-    // The definitive clear ends the verified login that sign-out is completing.
-    act(() => setAccessToken(null))
-    expect(sessionState.loginSessionBoundary).toBe(loggingOutBoundary + 1)
-    await expectAuthStatus("anonymous")
-
-    await act(async () => {
-      finishLogout()
-      await logoutResponse
-    })
-
-    await waitFor(() => expect(clearDesktopSession).toHaveBeenCalledOnce())
-    expect(sessionState.loginSessionBoundary).toBe(loggingOutBoundary + 1)
-    expect(sessionState.token).toBeNull()
-    await expectAuthStatus("anonymous")
   })
 
   it("clears account queries and model preferences before signing out", async () => {
@@ -915,46 +814,6 @@ describe("AuthProvider session restoration", () => {
       session.access_token_expires_at
     )
     expect(apiRequest).toHaveBeenCalledOnce()
-  })
-
-  it("retries a failed restore only after the user asks, without advancing the login generation", async () => {
-    vi.mocked(refreshSession).mockRejectedValueOnce(new Error("restore failed"))
-
-    renderAuthProvider()
-
-    await expectAuthStatus("error")
-    expect(refreshSession).toHaveBeenCalledTimes(1)
-    const failedBoundary = sessionState.loginSessionBoundary
-
-    vi.mocked(refreshSession).mockResolvedValueOnce({
-      access_token: "retried-restore-token",
-      access_token_expires_at: "2099-01-01T00:00:00.000Z",
-    })
-    vi.mocked(apiRequest).mockResolvedValue(user)
-    fireEvent.click(screen.getByRole("button", { name: "retry restore" }))
-
-    await expectAuthStatus("authenticated")
-    expect(refreshSession).toHaveBeenCalledTimes(2)
-    expect(apiRequest).toHaveBeenCalledWith("/me", expect.any(Object))
-    expect(sessionState.loginSessionBoundary).toBe(failedBoundary)
-    expect(sessionState.token).toBe("retried-restore-token")
-  })
-
-  it("ignores a restore retry while the session is not in the error state", async () => {
-    sessionState.token = "persisted-access-token"
-    vi.mocked(apiRequest).mockResolvedValue(user)
-
-    renderAuthProvider()
-    await expectAuthStatus("authenticated")
-
-    fireEvent.click(screen.getByRole("button", { name: "retry restore" }))
-    await act(async () => {
-      await Promise.resolve()
-    })
-
-    expect(apiRequest).toHaveBeenCalledTimes(1)
-    expect(refreshSession).not.toHaveBeenCalled()
-    expect(screen.getByTestId("auth-status")).toHaveTextContent("authenticated")
   })
 
   it("advances the login generation when a live session loses its token, but not on rotation", async () => {

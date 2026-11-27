@@ -20,10 +20,7 @@ export async function prepareTaskReferences(db: Pick<PrismaClient, "conversation
   return { inputText, display };
 }
 
-type TaskReferenceScope = { ownerId: string; conversationId: string; turnId: string } & (
-  | { executionTarget: "cloud" }
-  | { executionTarget: "local"; runtimeGeneration: string; verifyRun: () => Promise<void> }
-);
+type TaskReferenceScope = { ownerId: string; conversationId: string; turnId: string };
 
 export async function readTaskReferenceAfterProjection(
   db: PrismaClient, scope: TaskReferenceScope, input: ReadConversationReferenceInput, signal: AbortSignal,
@@ -47,11 +44,8 @@ type TaskReferenceProjection = { generation: string; threadId: string };
 async function awaitTaskReferenceProjection(
   db: PrismaClient, scope: TaskReferenceScope, sourceId: string, signal: AbortSignal,
 ): Promise<TaskReferenceProjection> {
-  const { ownerId, conversationId, turnId, executionTarget } = scope;
-  let generation = scope.executionTarget === "local" ? scope.runtimeGeneration : undefined;
+  const { ownerId, conversationId, turnId } = scope;
   for (;;) {
-    signal.throwIfAborted();
-    if (scope.executionTarget === "local") await scope.verifyRun();
     signal.throwIfAborted();
     // One snapshot: projection creates the turn and deletes the intent atomically.
     // Even a non-running turn rules out waiting. Stop before projection can
@@ -67,8 +61,7 @@ async function awaitTaskReferenceProjection(
       LEFT JOIN conversation_turn_start_intents i ON t.id IS NULL AND i.projection_turn_id = ${turnId}::uuid
         AND i.conversation_id = c.id AND i.owner_id = c.owner_id AND i.runtime_generation = c.runtime_generation
         AND i.runner_status IN ('prepared', 'runner_succeeded')
-      WHERE c.id = ${conversationId}::uuid AND c.owner_id = ${ownerId}::uuid AND c.execution_target = ${executionTarget}
-        ${generation ? Prisma.sql`AND c.runtime_generation = ${generation}::uuid` : Prisma.empty}
+      WHERE c.id = ${conversationId}::uuid AND c.owner_id = ${ownerId}::uuid
         AND NOT EXISTS (
           SELECT 1 FROM audit_logs a WHERE a.target_type = 'conversation_turn' AND a.target_id = (${turnId}::uuid)::text
             AND a.actor_id = c.owner_id AND a.action = 'conversation_turn_interrupt_requested' AND a.result = 'success'
@@ -79,7 +72,6 @@ async function awaitTaskReferenceProjection(
     if (state.threadId) return { threadId: state.threadId, generation: state.generation };
     const display = taskReferencesDisplaySchema.safeParse(state.pendingDisplay);
     if (!display.success || !display.data.conversation_ids.includes(sourceId)) throw new AppError("FORBIDDEN");
-    generation = state.generation;
     await delay(25, undefined, { signal });
   }
 }

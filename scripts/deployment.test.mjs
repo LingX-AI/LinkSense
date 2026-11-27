@@ -418,35 +418,6 @@ test("Compose forwards bounded ClawHub synchronization settings to the API", asy
   );
 });
 
-test("API Compose maps the desktop cloud target entry flag with a default true", async () => {
-  const [baseSource, releaseSource, environmentExample] = await Promise.all([
-    readFile(composePath, "utf8"),
-    readFile(resolve("deploy/release/compose.common.yml"), "utf8"),
-    readFile(environmentExamplePath, "utf8"),
-  ]);
-  for (const source of [baseSource, releaseSource]) {
-    const api = section(source, "  api:", "  web:");
-    assert.match(
-      api,
-      /^\s+LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: \$\{LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED:-true\}$/mu,
-    );
-    assert.equal(
-      [...source.matchAll(/^\s+LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED:/gmu)]
-        .length,
-      1,
-      "the desktop cloud target entry flag must map only the API service",
-    );
-    assert.doesNotMatch(
-      source,
-      /LINKSENSE_DESKTOP_(?:LOCAL_EXECUTION|BROWSER_USE|NATIVE_APPROVALS|ARTIFACTS|WEBSITE_ARTIFACTS|COMPUTER_USE)_ENABLED/u,
-    );
-  }
-  assert.match(
-    environmentExample,
-    /^LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=true$/mu,
-  );
-});
-
 test("production stack Compose exposes the merged deployment through one platform-independent entrypoint", async () => {
   const compose = await readFile(productionStackComposePath, "utf8");
 
@@ -467,7 +438,7 @@ for (const template of [
   "deploy/nginx/production-gateway.conf.template",
   "deploy/release/gateway.conf.template",
 ]) {
-  for (const channel of ["local-browser", "browser-use", "desktop/devices"]) {
+  for (const channel of ["local-browser", "browser-use"]) {
     test(`${template} forwards the authenticated ${channel} WebSocket`, async () => {
       const gateway = await readFile(resolve(template), "utf8");
       const location = gateway.match(
@@ -488,18 +459,6 @@ for (const template of [
     });
   }
 }
-
-test("host Nginx forwards the desktop WebSocket upgrade to the production gateway", async () => {
-  const host = await readFile(productionHostNginxExamplePath, "utf8");
-  const socket = /location = \/api\/v1\/desktop\/devices\/socket \{([^}]+)\}/u.exec(host)?.[1];
-  assert.ok(socket);
-  assert.match(socket, /proxy_pass http:\/\/127\.0\.0\.1:8080;/u);
-  assert.match(socket, /proxy_http_version 1\.1;/u);
-  assert.match(socket, /proxy_set_header Upgrade \$http_upgrade;/u);
-  assert.match(socket, /proxy_set_header Connection "upgrade";/u);
-  assert.match(socket, /proxy_set_header X-Forwarded-Proto https;/u);
-  assert.match(socket, /proxy_read_timeout 1h;/u);
-});
 
 test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO paths", async () => {
   const [gateway, hostExample] = await Promise.all([
@@ -545,9 +504,6 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     "^~ /html-preview/",
     "^~ /app/",
     "^~ /web/",
-    "= /api/v1/local-browser/socket",
-    "= /api/v1/browser-use/socket",
-    "= /api/v1/desktop/devices/socket",
     "/api/",
     "~ ^/linksense-(?:files|knowledge)(?:/|$)",
     "= /assistant-html-preview-shell.html",

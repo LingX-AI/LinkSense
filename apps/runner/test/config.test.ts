@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import {
   DEFAULT_NODE_PACKAGE_REGISTRY_URL,
@@ -19,32 +17,6 @@ const baseEnvironment = {
 }
 
 describe("parseRunnerConfig", () => {
-  it("accepts a production desktop worker only with a fixed session and private callback origin", () => {
-    const dataRoot = path.resolve(tmpdir(), "linksense-desktop-fixture")
-    const worker = {
-      ...baseEnvironment, NODE_ENV: "production",
-      LINKSENSE_USER_DATA_ROOT: path.join(dataRoot, "home"),
-      LINKSENSE_WORKER_CONTROL_ROOT: path.join(dataRoot, "control"),
-      LINKSENSE_CODEX_HOME_TEMPLATE: path.join(dataRoot, "template"),
-      LINKSENSE_RUNNER_MODE: "worker", LINKSENSE_WORKER_PROVIDER: "desktop",
-      LINKSENSE_WORKER_OWNER_ID: "10000000-0000-4000-8000-000000000001",
-      LINKSENSE_SERVICE_SESSION_ID: "10000000-0000-4000-8000-000000000002",
-      LINKSENSE_RUNNER_HOST: "127.0.0.1", LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
-      LINKSENSE_CONTROLLER_INTERNAL_URL: "http://127.0.0.1:49152",
-      LINKSENSE_API_INTERNAL_URL: "http://127.0.0.1:49152",
-    }
-    expect(parseRunnerConfig(worker).LINKSENSE_WORKER_PROVIDER).toBe("desktop")
-    for (const override of [
-      { LINKSENSE_RUNNER_HOST: "0.0.0.0" }, { LINKSENSE_RUNNER_MODE: "controller" },
-      { LINKSENSE_SERVICE_SESSION_ID: undefined }, { LINKSENSE_MANAGED_BROWSER_ENABLED: "true" },
-      { LINKSENSE_CONTROLLER_INTERNAL_URL: "http://127.0.0.1:49153" },
-      { LINKSENSE_API_INTERNAL_URL: "https://example.test" },
-      { LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true" },
-      { LINKSENSE_WORKER_CONTROL_ROOT: undefined },
-    ]) {
-      expect(() => parseRunnerConfig({ ...worker, ...override })).toThrow("desktop_worker_requires_supervised_loopback_configuration")
-    }
-  })
   it("requires an explicit compatible mode to omit CPU quotas", () => {
     expect(parseRunnerConfig(baseEnvironment).LINKSENSE_CPU_QUOTA_MODE).toBe("strict")
     expect(parseRunnerConfig({ ...baseEnvironment, LINKSENSE_CPU_QUOTA_MODE: "compatible" }).LINKSENSE_CPU_QUOTA_MODE).toBe("compatible")

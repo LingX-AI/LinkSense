@@ -1,6 +1,5 @@
 import { createContext, useContext } from "react"
 
-import type { MacSignOutOptions } from "@/adapters/desktop/mygo"
 import type { AccessSession, User } from "@/api/contracts"
 
 export type AuthContextValue = {
@@ -8,10 +7,7 @@ export type AuthContextValue = {
   user: User | null
   acceptSession: (session: AccessSession) => Promise<void>
   refreshUser: (options?: { signal?: AbortSignal }) => Promise<void>
-  // Optional only for state-only context fixtures; AuthProvider always supplies
-  // the bounded retry routine used by the restore-error screen.
-  retryRestore?: () => void
-  signOut: (options?: MacSignOutOptions) => Promise<void>
+  signOut: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

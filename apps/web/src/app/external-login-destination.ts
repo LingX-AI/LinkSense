@@ -1,5 +1,4 @@
 import { browserExtensionSettingsPath } from "@/features/browser-use/settings-path"
-import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const setupReturnKey = "linksense.browser-use-login-return"
 const setupReturnLifetimeMs = 15 * 60_000
@@ -27,10 +26,7 @@ export function rememberBrowserUseLoginReturn(state: unknown): void {
 
 export function externalLoginDestination(): string {
   const returnToSetup = takeBrowserUseLoginReturn()
-  return (
-    desktopLoginReturn() ??
-    (returnToSetup ? browserExtensionSettingsPath : "/conversations/new")
-  )
+  return returnToSetup ? browserExtensionSettingsPath : "/conversations/new"
 }
 
 function takeBrowserUseLoginReturn(): boolean {

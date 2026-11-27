@@ -2,7 +2,6 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
-import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
@@ -17,7 +16,6 @@ export const zhCN = {
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
-  desktopApproval: desktopApprovalMessages["zh-CN"],
   saml: samlzhCN,
   social: socialZhCN,
   personalQuota: personalQuotaZhCN,
@@ -807,23 +805,6 @@ export const zhCN = {
     testBody: "通知已连接，任务或自动化产出结果后会在这里提醒你。",
     testSent:
       "已请求系统显示测试通知。如果没有看到，请检查操作系统对当前浏览器的通知设置。",
-    desktopTitle: "macOS 通知",
-    desktopDescription:
-      "LinkSense 在后台运行时，任务或自动化结束以及有可用的签名更新时会发送通知。",
-    desktopEnable: "启用 macOS 通知",
-    desktopUnsupported:
-      "当前安装包无法显示系统通知。请使用已打包的 LinkSense 桌面应用接收任务完成通知。",
-    desktopPermissionDenied:
-      "macOS 已阻止 {{productName}} 的通知。请在“系统设置”>“通知”中允许通知，然后重试。",
-    desktopDeliveryError:
-      "系统未能显示通知。请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置，然后重试。",
-    desktopTestSent:
-      "已向系统发送测试通知。如果没有看到，请检查 macOS“系统设置”>“通知”中 {{productName}} 的设置。",
-    approvalEnable: "审批提醒",
-    approvalDescription:
-      "LinkSense 在后台运行时，本地任务等待你审批会发送通知。点击只会打开任务，不会代替你做出审批决定。",
-    approvalPaused:
-      "macOS 通知已关闭，审批提醒已暂停。",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "处理成功",
     statusFailedBody: "处理失败",
@@ -2196,33 +2177,6 @@ export const zhCN = {
       disableMode: "退出计划模式",
       placeholder:
         "描述需要分析和规划的任务，LinkSense 会先提出问题并形成计划。",
-    },
-    localFolder: {
-      menuLabel: "使用本机文件夹",
-      menuSearchValue: "本机 文件夹 电脑 文件",
-      menuDescription: "为这个任务选择一个文件夹；不选时默认使用这台电脑的主目录。",
-      current: "本机文件夹：{{name}}",
-      readOnly: "选择本机文件夹（只读）",
-      readWrite: "选择本机文件夹（读写）",
-      homeReadOnly: "当前文件夹：只读",
-      homeReadWrite: "当前文件夹：读写",
-      chooseFolder: "选择本地文件夹",
-      permissions: "文件夹权限",
-      permissionRead: "只读",
-      permissionWrite: "读写",
-      defaultFolder: "默认使用主目录",
-      permissionModeTitle: "权限模式",
-      permissionModeAuto: "自动",
-      permissionModeAutoDescription:
-        "自动允许文件夹内编辑和只读命令，其它命令仍先询问。",
-      permissionModeManual: "手动",
-      permissionModeManualDescription: "运行命令和修改文件前先在本机确认。",
-      permissionModeAcceptEdits: "自动接受编辑",
-      permissionModeAcceptEditsDescription:
-        "自动允许文件夹内编辑，运行命令前先确认。",
-      permissionModeBypass: "绕过权限",
-      permissionModeBypassDescription:
-        "不再询问，命令以你的 Mac 账户权限直接运行。",
     },
     proposedPlan: {
       title: "方案",
@@ -5264,7 +5218,6 @@ export const zhCN = {
     networkUnavailable: "无法连接服务，请检查网络后重试。",
     invalidResponse: "服务返回了无法识别的数据，请联系管理员。",
     clientUpdateRequired: errorCatalog.CLIENT_UPDATE_REQUIRED.messages["zh-CN"],
-    desktopUpdateRequired: errorCatalog.DESKTOP_UPDATE_REQUIRED.messages["zh-CN"],
     serviceTemporarilyUnavailable:
       errorCatalog.SERVICE_TEMPORARILY_UNAVAILABLE.messages["zh-CN"],
     imageUnderstanding: {
@@ -5452,19 +5405,6 @@ export const zhCN = {
       "RUNNER_OPERATION_UNCERTAIN",
       "zh-CN"
     ),
-    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "zh-CN"),
-    desktopTargetRetired: localizedErrorMessage(
-      "DESKTOP_LOCAL_TARGET_RETIRED",
-      "zh-CN"
-    ),
-    desktopLocalToolsDisabled: localizedErrorMessage(
-      "DESKTOP_LOCAL_TOOLS_DISABLED",
-      "zh-CN"
-    ),
-    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      "zh-CN"
-    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
@@ -5497,7 +5437,6 @@ export const zhCN = {
       "初始化凭据无效，请使用安装成功时显示的一次性凭据。",
     teamsFailed: "Teams 登录失败，请重试或使用其他登录方式。",
     codexTurnFailed: "本轮执行失败。你可以调整输入后继续重试。",
-    desktopOutputLimit: "部分 Mac 任务输出超出传输大小限制，未完整显示。",
     modelGateway: modelGatewayMessages["zh-CN"],
     turnCompletedWithoutOutput:
       "本轮执行已结束，但没有产出可展示的内容，请重新执行。",

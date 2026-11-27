@@ -34,10 +34,6 @@ export class FileServiceRequestError extends Error {
   }
 }
 
-export function desktopArtifactUncertain(artifactId?: string): FileServiceRequestError {
-  return new FileServiceRequestError("RUNNER_OPERATION_UNCERTAIN", false, 503, artifactId)
-}
-
 export function fileServiceErrorFromApi(
   statusCode: number,
   responseBody: unknown,

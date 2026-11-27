@@ -94,3 +94,6 @@ export * from "./automation-monitoring.js";
 export * from "./public-knowledge.js";
 export * from "./public-knowledge-output.js";
 export * from "./privacy-masking.js";
+export * from "./browser-panel.js";
+export * from "./browser-use.js";
+export * from "./local-browser.js";

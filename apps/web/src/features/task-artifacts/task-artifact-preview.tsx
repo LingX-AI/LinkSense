@@ -4,12 +4,7 @@ import { openHtmlPreview } from "@/features/conversations/html-preview-api"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { getErrorMessage } from "@/api/error-message"
-import {
-  getLoginSessionBoundary,
-  isLoginSessionCurrent,
-} from "@/api/session"
 import { notify } from "@/components/feedback/notification"
 import { ConversationFilePreview } from "@/features/conversations/conversation-office-preview"
 
@@ -35,14 +30,11 @@ export function TaskArtifactPreview({
 
   const runDownload = async (save: () => Promise<void>) => {
     if (downloadInFlightRef.current) return
-    const boundary = isMacDesktopHost() ? getLoginSessionBoundary() : null
     downloadInFlightRef.current = true
     try {
       await save()
     } catch (error) {
-      if (boundary === null || isLoginSessionCurrent(boundary)) {
-        notify.error(getErrorMessage(error, t))
-      }
+      notify.error(getErrorMessage(error, t))
     } finally {
       downloadInFlightRef.current = false
     }
@@ -73,8 +65,7 @@ export function TaskArtifactPreview({
             new Blob([new Uint8Array(content)], {
               type: candidate.mime_type ?? "application/octet-stream",
             }),
-            candidate.name,
-            content
+            candidate.name
           )
         )
       }

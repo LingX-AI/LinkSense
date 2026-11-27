@@ -3,9 +3,7 @@ import {
   APPLICATION_BUILDER_SKILL_NAME,
   RUNNER_TURN_INTERRUPT_REQUESTED,
   applicationDevelopmentSchema,
-  browserUseToolName,
   builtInCapabilityId,
-  coreMcpServerKey,
   type ApplicationAnnotationInput,
 } from "@linksense/shared"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
@@ -22,7 +20,6 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
-import * as desktopAdapter from "@/adapters/desktop/desktop-adapter"
 import { beginLoginSession, setAccessToken } from "@/api/session"
 import { notify } from "@/components/feedback/notification"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
@@ -155,17 +152,15 @@ function createDeferred<T>() {
  * while its native stream has exhausted every reconnect attempt.
  */
 function renderRunningTurnWithExhaustedStream({
-  executionTarget,
   showComposer = true,
   showHeader = true,
   completed = false,
 }: {
-  executionTarget?: "local" | "cloud"
   showComposer?: boolean
   showHeader?: boolean
   completed?: boolean
 }) {
-  const conversationId = `conversation-exhausted-${executionTarget ?? "legacy"}`
+  const conversationId = "conversation-exhausted"
   const turnId = "40000000-0000-4000-8000-000000000021"
   const startedAt = "2026-11-19T00:00:00.000Z"
   const interruptedAt = "2026-11-19T00:00:04.000Z"
@@ -251,7 +246,6 @@ function renderRunningTurnWithExhaustedStream({
           id: conversationId,
           title: "本地运行任务",
           archived: false,
-          ...(executionTarget ? { execution_target: executionTarget } : {}),
           execution_status: completed
             ? "completed"
             : terminal
@@ -342,11 +336,8 @@ function renderRunningTurnWithExhaustedStream({
   }
 }
 
-function renderTerminalTask(executionTarget?: "local" | "cloud") {
-  return renderRunningTurnWithExhaustedStream({
-    executionTarget,
-    completed: true,
-  })
+function renderTerminalTask() {
+  return renderRunningTurnWithExhaustedStream({ completed: true })
 }
 
 function conversation(id: string, title: string) {
@@ -745,9 +736,8 @@ describe("conversation file downloads", () => {
     { entry: "source preview", bodyResult: "completed" },
     { entry: "source preview", bodyResult: "failed" },
   ] as const)(
-    "keeps a $bodyResult $entry download from the previous Mac login silent and reports a current failure on retry",
+    "keeps a $bodyResult $entry download from the previous login silent and reports a current failure on retry",
     async ({ entry, bodyResult }) => {
-      vi.spyOn(desktopAdapter, "isMacDesktopHost").mockReturnValue(true)
       setAccessToken("test-account-a")
       await i18n.changeLanguage("zh-CN")
       const conversationId = "conversation-download"
@@ -1411,279 +1401,26 @@ describe("conversation knowledge base snapshots", () => {
     }
   )
 
-  it.each([
-    { submitting: false, matchingItem: true, nativeCommand: false },
-    { submitting: true, matchingItem: true, nativeCommand: false },
-    { submitting: false, matchingItem: false, nativeCommand: false },
-    { submitting: true, matchingItem: false, nativeCommand: true },
-  ])(
-    "can stop a Mac approval (native command: $nativeCommand, submitting: $submitting, matching item: $matchingItem)",
-    async ({ submitting, matchingItem, nativeCommand }) => {
-      const id = "20000000-0000-4000-8000-000000000001"
-      const turnId = "20000000-0000-4000-8000-000000000002"
-      const previousTurnId = "20000000-0000-4000-8000-000000000003"
-      const requestId = "20000000-0000-4000-8000-000000000004"
-      const createdAt = "2026-11-19T00:00:00.000Z"
-      const itemId = "browser-approval"
-      const request = {
-        id: requestId,
-        conversation_id: id,
-        turn_id: turnId,
-        item_id: itemId,
-        status: "pending",
-        resolved_at: null,
-        resolved_action: null,
-        created_at: createdAt,
-        updated_at: createdAt,
-      }
-      const question = {
-        ...request,
-        kind: "questions",
-        auto_resolve_at: null,
-        questions: [
-          {
-            id: "browser_action",
-            header: "Browser Use",
-            question: "Allow this browser action?",
-            is_other: false,
-            is_secret: false,
-            options: [
-              { label: "Allow", description: "" },
-              { label: "Cancel", description: "" },
-            ],
-          },
-        ],
-      }
-      const command = {
-        ...request,
-        kind: "desktop_approval",
-        auto_resolve_at: "2026-11-19T00:03:00.000Z",
-        approval: {
-          method: "item/commandExecution/requestApproval",
-          decisions: ["accept", "cancel"],
-          command: "printf hello",
-          cwd: "$WORKSPACE",
-        },
-      }
-      const started = (
-        sequence: number,
-        eventTurnId: string,
-        eventItemId: string,
-        host: string
-      ) => ({
-        id: `30000000-0000-4000-8000-00000000000${sequence}`,
-        conversation_id: id,
-        turn_id: eventTurnId,
-        sequence_no: sequence,
-        visibility: "user_collapsed",
-        sse_event_id: `${id}:${sequence}`,
-        created_at: createdAt,
-        event_type: "item/started",
-        payload: {
-          schema_version: 2,
-          source: "codex_app_server",
-          method: "item/started",
-          params: {
-            threadId: "native-thread",
-            turnId: eventTurnId === turnId ? "native-turn" : "previous-turn",
-            item: {
-              id: eventItemId,
-              type: "mcpToolCall",
-              server: coreMcpServerKey,
-              tool: browserUseToolName,
-              status: "inProgress",
-              browserApproval: {
-                action: "navigate",
-                tab_id: 9,
-                destination_host: host,
-              },
-            },
-          },
-        },
-      })
-      const events = [
-        ...(matchingItem ? [started(1, turnId, itemId, "matching.test")] : []),
-        started(2, turnId, "other-item", "wrong-item.test"),
-        started(3, previousTurnId, itemId, "wrong-turn.test"),
-      ]
-      const answer = createDeferred<Response>()
-      const respond = vi.fn(() => answer.promise)
-      const stop = vi.fn(() => envelope({ code: RUNNER_TURN_INTERRUPT_REQUESTED }))
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-          const path = new URL(String(input), window.location.origin).pathname
-          if (init?.method === "POST") {
-            if (path.endsWith(`/turns/${turnId}/interrupt`)) return stop()
-            if (path.endsWith(nativeCommand
-              ? `/approvals/${requestId}`
-              : `/user-input-requests/${requestId}/respond`))
-              return respond()
-          }
-          if (path.endsWith(`/conversations/${id}`)) {
-            const stopping = stop.mock.calls.length > 0
-            const conversation = {
-              id,
-              title: "Mac task",
-              project_id: null,
-              execution_target: "local",
-              execution_status: stopping ? "interrupted" : "running",
-              updated_at: createdAt,
-            }
-            if (nativeCommand) return envelope({
-              conversation,
-              turns: [{ id: turnId, status: stopping ? "interrupted" : "running" }],
-              desktop_approval_requests: stopping ? [] : [command],
-            })
-            return envelope({
-              ...conversation,
-              running_turn: stopping ? null : { id: turnId, status: "running" },
-              user_input_requests: stopping ? [] : [question],
-              events,
-            })
-          }
-          if (path.endsWith("/model-preference"))
-            return envelope(modelPreference())
-          if (path.endsWith("/events"))
-            return new Response("", {
-              headers: { "content-type": "text/event-stream" },
-            })
-          return envelope({ items: [], next_cursor: null })
-        })
-      )
-      const client = new QueryClient({
-        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-      })
-      const interaction = userEvent.setup()
-      const { unmount } = render(
-        <MemoryRouter>
-          <QueryClientProvider client={client}>
-            <ConversationPage conversationId={id} />
-          </QueryClientProvider>
-        </MemoryRouter>
-      )
-      try {
-        const card = within(
-          await screen.findByTestId("conversation-user-input-request")
-        )
-        expect(
-          screen.queryByRole("textbox", { name: "任务输入框" })
-        ).not.toBeInTheDocument()
-        const destination = (host: string) =>
-          i18n.t("browserUse.approval.destination", { host })
-        if (nativeCommand) {
-          expect(card.getByText(command.approval.command)).toBeVisible()
-        } else if (matchingItem) {
-          expect(card.getByText(destination("matching.test"))).toBeVisible()
-          expect(
-            card.getByText(i18n.t("browserUse.approval.targetTab", { tab: 9 }))
-          ).toBeVisible()
-        } else {
-          expect(
-            card.getByText(i18n.t("conversation.userInput.description"))
-          ).toBeVisible()
-        }
-        expect(card.queryByText(destination("wrong-item.test"))).toBeNull()
-        expect(card.queryByText(destination("wrong-turn.test"))).toBeNull()
-        if (submitting) {
-          if (nativeCommand) {
-            const allowOnce = card.getByRole("button", {
-              name: i18n.t("desktopApproval.allowOnce"),
-            })
-            await interaction.click(allowOnce)
-            expect(allowOnce).toBeDisabled()
-          } else {
-            await interaction.click(card.getByRole("radio", { name: "Allow" }))
-            await interaction.click(
-              card.getByRole("button", {
-                name: i18n.t("conversation.userInput.submit"),
-              })
-            )
-            expect(
-              await card.findByRole("button", {
-                name: i18n.t("conversation.userInput.submitting"),
-              })
-            ).toBeDisabled()
-          }
-          expect(respond).toHaveBeenCalledOnce()
-        }
-        const stopButton = within(screen.getByRole("banner")).getByRole("button", {
-          name: i18n.t("conversation.stop"),
-        })
-        expect(stopButton).toBeEnabled()
-        stopButton.focus()
-        await interaction.keyboard("{Enter}")
-        await waitFor(() => expect(stop).toHaveBeenCalledOnce())
-        if (!submitting) expect(respond).not.toHaveBeenCalled()
-        await waitFor(() =>
-          expect(
-            screen.queryByTestId("conversation-user-input-request")
-          ).not.toBeInTheDocument()
-        )
-      } finally {
-        unmount()
-        answer.resolve(envelope({}))
-        client.clear()
-      }
-    }
-  )
+  it("keeps an exhausted cloud stream on its existing stop path", async () => {
+    const fixture = renderRunningTurnWithExhaustedStream({})
+    const disconnectText = i18n.t(
+      "conversation.streamDisconnectedBeforeCompletion"
+    )
 
-  it.each([
-    { executionTarget: "cloud" as const, showComposer: true },
-    { executionTarget: "local" as const, showComposer: false },
-  ])(
-    "keeps an exhausted $executionTarget stream on its existing stop path",
-    async ({ executionTarget, showComposer }) => {
-      const fixture = renderRunningTurnWithExhaustedStream({
-        executionTarget,
-        showComposer,
+    await waitFor(() => expect(screen.getByText(disconnectText)).toBeVisible())
+    await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
+    const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
+    expect(
+      within(summary).getByText(i18n.t("statuses.interrupted"), {
+        exact: true,
       })
-      const interaction = userEvent.setup()
-      const disconnectText = i18n.t(
-        "conversation.streamDisconnectedBeforeCompletion"
-      )
-
-      await waitFor(() =>
-        expect(screen.getByText(disconnectText)).toBeVisible()
-      )
-      if (executionTarget === "cloud") {
-        await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
-        const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
-        expect(
-          within(summary).getByText(i18n.t("statuses.interrupted"), {
-            exact: true,
-          })
-        ).toBeVisible()
-      } else {
-        expect(fixture.interruptRequests).toHaveLength(0)
-        const headerStops = within(
-          screen.getByRole("banner")
-        ).getAllByRole("button", {
-          name: i18n.t("conversation.stop"),
-        })
-        expect(headerStops).toHaveLength(1)
-        expect(headerStops[0]).toBeEnabled()
-        await interaction.click(headerStops[0]!)
-        await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
-        const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
-        expect(
-          within(summary).getByText(i18n.t("conversation.processing"), {
-            exact: true,
-          })
-        ).toBeVisible()
-        expect(
-          within(summary).queryByText(i18n.t("statuses.interrupted"), {
-            exact: true,
-          })
-        ).toBeNull()
-      }
-      expect(fixture.interruptRequests).toEqual([
-        { method: "POST", path: fixture.interruptPath },
-      ])
-      expect(fixture.turnStartRequests).toHaveLength(0)
-      expect(screen.getAllByText(disconnectText)).toHaveLength(1)
-    }
-  )
+    ).toBeVisible()
+    expect(fixture.interruptRequests).toEqual([
+      { method: "POST", path: fixture.interruptPath },
+    ])
+    expect(fixture.turnStartRequests).toHaveLength(0)
+    expect(screen.getAllByText(disconnectText)).toHaveLength(1)
+  })
 
   it("shows a Goal card immediately, waits for native timing, and yields to a fast completion", async () => {
     const conversationId = "conversation-native-goal"
@@ -2176,30 +1913,20 @@ describe("conversation knowledge base snapshots", () => {
     ).toBeVisible()
   })
 
-  it.each([
-    { name: "cloud", executionTarget: "cloud" as const, showsBranch: true },
-    { name: "legacy cloud", executionTarget: undefined, showsBranch: true },
-  ])(
-    "offers Branch only for terminal cloud tasks ($name)",
-    async ({ executionTarget, showsBranch }) => {
-      renderTerminalTask(executionTarget)
-      const reply = await screen.findByRole("article", { name: "助手回复" })
-      expect(
-        within(reply).getByRole("button", { name: "复制消息" })
-      ).toBeVisible()
-      const branchButton = within(reply).queryByRole("button", {
-        name: "分支到新聊天",
-      })
-      if (showsBranch) expect(branchButton).toBeVisible()
-      else expect(branchButton).toBeNull()
-      expect(
-        within(screen.getByRole("article", { name: "用户消息" })).getByRole(
-          "button",
-          { name: "编辑消息" }
-        )
-      ).toBeVisible()
-    }
-  )
+  it("offers Branch for terminal cloud tasks", async () => {
+    renderTerminalTask()
+    const reply = await screen.findByRole("article", { name: "助手回复" })
+    expect(within(reply).getByRole("button", { name: "复制消息" })).toBeVisible()
+    expect(
+      within(reply).getByRole("button", { name: "分支到新聊天" })
+    ).toBeVisible()
+    expect(
+      within(screen.getByRole("article", { name: "用户消息" })).getByRole(
+        "button",
+        { name: "编辑消息" }
+      )
+    ).toBeVisible()
+  })
 
   it("consumes submitted Skills and attachments immediately, keeps them hidden across stale refetches, and restores them only after failure", async () => {
     const turnResponse = createDeferred<Response>()

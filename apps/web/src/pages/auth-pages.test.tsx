@@ -4,17 +4,15 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { StrictMode, type ReactElement } from "react"
-import { desktopLoginRedirectUri, supportedLocales } from "@linksense/shared"
+import { supportedLocales } from "@linksense/shared"
 
 import { bootstrapSchema } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
 import { AuthContext, type AuthContextValue } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
-import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
 import { AppProviders } from "@/app/providers"
 import { ThemeProvider } from "@/app/theme-context"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
-import { rememberDesktopLoginReturn } from "@/features/desktop-login/return-destination"
 import i18n from "@/i18n"
 import {
   CompleteRegistrationPage,
@@ -55,8 +53,6 @@ const bootstrap = bootstrapSchema.parse({
 })
 
 describe("enterprise sign-in return navigation", () => {
-  const setupPath = "/settings/general#browser-extension"
-
   afterEach(() => {
     cleanup()
     localStorage.clear()
@@ -64,75 +60,45 @@ describe("enterprise sign-in return navigation", () => {
     window.history.replaceState(null, "", "/")
   })
 
-  it.each([
-    {
-      name: "preserves the setup destination",
-      desktopPending: false,
-      state: { from: setupPath },
-      destination: setupPath,
-    },
-    {
-      name: "prioritizes an in-progress desktop authorization",
-      desktopPending: true,
-      state: { from: setupPath },
-      destination: "/desktop/authorize",
-    },
-    {
-      name: "does not carry another account's destination into external sign-in",
-      desktopPending: false,
-      state: { from: setupPath, fromUserId: "previous-account" },
-      destination: "/conversations/new",
-    },
-  ])(
-    "$name in StrictMode",
-    async ({ desktopPending, state, destination }) => {
-      const callbackPath = "/auth/oidc/callback?result=success"
-      rememberBrowserUseLoginReturn(state)
-      const desktopSearch = new URLSearchParams({
-        redirect_uri: desktopLoginRedirectUri,
-        state: "s".repeat(43),
-        code_challenge: "c".repeat(43),
-        code_challenge_method: "S256",
-      })
-      if (desktopPending) rememberDesktopLoginReturn(`?${desktopSearch}`)
-      window.history.replaceState(null, "", callbackPath)
+  it("returns to the account-scoped conversation destination in StrictMode", async () => {
+    const callbackPath = "/auth/oidc/callback?result=success"
+    window.history.replaceState(null, "", callbackPath)
 
-      function Destination() {
-        const { pathname, hash } = useLocation()
-        return <h1>{`${pathname}${hash}`}</h1>
-      }
-
-      render(
-        <StrictMode>
-          <AuthContext.Provider
-            value={{
-              status: "authenticated",
-              user: null,
-              acceptSession: vi.fn(),
-              refreshUser: vi.fn(),
-              signOut: vi.fn(),
-            }}
-          >
-            <MemoryRouter initialEntries={[callbackPath]}>
-              <Routes>
-                <Route
-                  path="/auth/oidc/callback"
-                  element={<EnterpriseCallbackPage />}
-                />
-                <Route path="*" element={<Destination />} />
-              </Routes>
-            </MemoryRouter>
-          </AuthContext.Provider>
-        </StrictMode>
-      )
-
-      expect(
-        await screen.findByRole("heading", {
-          name: destination,
-        })
-      ).toBeVisible()
+    function Destination() {
+      const { pathname, hash } = useLocation()
+      return <h1>{`${pathname}${hash}`}</h1>
     }
-  )
+
+    render(
+      <StrictMode>
+        <AuthContext.Provider
+          value={{
+            status: "authenticated",
+            user: null,
+            acceptSession: vi.fn(),
+            refreshUser: vi.fn(),
+            signOut: vi.fn(),
+          }}
+        >
+          <MemoryRouter initialEntries={[callbackPath]}>
+            <Routes>
+              <Route
+                path="/auth/oidc/callback"
+                element={<EnterpriseCallbackPage />}
+              />
+              <Route path="*" element={<Destination />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthContext.Provider>
+      </StrictMode>
+    )
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "/conversations/new",
+      })
+    ).toBeVisible()
+  })
 })
 
 function renderRegistrationPage({

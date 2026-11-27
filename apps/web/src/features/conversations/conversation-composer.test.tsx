@@ -861,62 +861,6 @@ describe("conversation voice input", () => {
     expect(onPlanModeChange).toHaveBeenLastCalledWith(false)
   })
 
-  it("chooses the local folder and its access mode from the composer controls", async () => {
-    const interaction = userEvent.setup()
-    const onChooseLocalFolder = vi.fn()
-    const onSetLocalFolderMode = vi.fn()
-    renderStatefulComposer({
-      onChooseLocalFolder,
-      onSetLocalFolderMode,
-      localFolderName: "Home",
-      localFolderMode: "write",
-    })
-
-    await interaction.click(
-      screen.getByRole("button", { name: "选择本地文件夹" })
-    )
-    expect(onChooseLocalFolder).toHaveBeenCalledWith("write")
-
-    await interaction.click(
-      screen.getByRole("button", { name: "文件夹权限" })
-    )
-    expect(screen.getByText("本机文件夹：Home")).toBeVisible()
-    await interaction.click(screen.getByRole("button", { name: "只读" }))
-    expect(onSetLocalFolderMode).toHaveBeenCalledWith("read")
-
-    // The Mac drives the grant from these controls, so Add keeps its file
-    // options only.
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
-    expect(screen.queryByRole("option", { name: /选择本机文件夹/ })).toBeNull()
-    expect(screen.queryByRole("option", { name: "文件夹" })).toBeNull()
-  })
-
-  it("selects the local permission mode from the shield menu", async () => {
-    const interaction = userEvent.setup()
-    const onSetLocalPermissionMode = vi.fn()
-    renderStatefulComposer({
-      onChooseLocalFolder: vi.fn(),
-      onSetLocalPermissionMode,
-      localPermissionMode: "manual",
-    })
-
-    await interaction.click(
-      screen.getByRole("button", { name: "文件夹权限" })
-    )
-    expect(screen.getByText("权限模式")).toBeVisible()
-    expect(screen.getByText("手动").closest("button")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    )
-    expect(screen.getByText("绕过权限").closest("button")).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    )
-
-    await interaction.click(screen.getByText("自动"))
-    expect(onSetLocalPermissionMode).toHaveBeenCalledWith("auto")
-  })
-
   it("can remove Plan mode from the add menu for restricted surfaces", async () => {
     const interaction = userEvent.setup()
     renderStatefulComposer({ planModeAvailable: false })
@@ -1394,51 +1338,6 @@ describe("conversation voice input", () => {
     expect(input.selectionStart).toBe(1)
     await interaction.keyboard("合调研结论做个比较")
     expect(input).toHaveValue("结合调研结论做个比较")
-  })
-
-  it("lists the granted local folder for @ mentions and inserts the chosen path", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(
-        Response.json({
-          success: true,
-          data: { items: [], next_cursor: null },
-        })
-      )
-    )
-    const interaction = userEvent.setup()
-    const onListLocalFiles = vi.fn(async (path: string) => ({
-      rootName: "Home",
-      mode: "write" as const,
-      path,
-      entries:
-        path === ""
-          ? [
-              { name: "src", path: "src", kind: "directory" as const },
-              { name: "notes.txt", path: "notes.txt", kind: "file" as const },
-            ]
-          : [{ name: "main.ts", path: "src/main.ts", kind: "file" as const }],
-      truncated: false,
-    }))
-    renderStatefulComposer({
-      onTaskReferencesChange: vi.fn(),
-      onListLocalFiles,
-    })
-    const input = screen.getByRole("textbox", { name: "任务输入框" })
-
-    await interaction.type(input, "@")
-    await interaction.click(
-      await screen.findByRole("option", { name: /notes\.txt/ })
-    )
-    expect(input).toHaveValue("@notes.txt ")
-
-    await interaction.clear(input)
-    await interaction.type(input, "@src/")
-    await interaction.click(
-      await screen.findByRole("option", { name: /main\.ts/ })
-    )
-    expect(input).toHaveValue("@src/main.ts ")
-    expect(onListLocalFiles).toHaveBeenCalledWith("src")
   })
 
   it.each([0, maximumConversationReferences])(

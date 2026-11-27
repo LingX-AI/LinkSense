@@ -2,7 +2,6 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
-import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
@@ -18,7 +17,6 @@ export const enUS = {
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   sideChat: sideChatMessages["en-US"],
-  desktopApproval: desktopApprovalMessages["en-US"],
   saml: samlenUS,
   social: socialEnUS,
   personalQuota: personalQuotaEnUS,
@@ -871,23 +869,6 @@ export const enUS = {
       "Notifications are connected. You will be notified here when a task or automation produces a result.",
     testSent:
       "A test notification was sent to the system. If you did not see it, check your operating system's notification settings for this browser.",
-    desktopTitle: "macOS notifications",
-    desktopDescription:
-      "Get a notification when a task or automation finishes, or a signed update is available, while LinkSense is in the background.",
-    desktopEnable: "Enable macOS notifications",
-    desktopUnsupported:
-      "Notifications are unavailable in this app build. Use a packaged LinkSense desktop app to receive task completion notifications.",
-    desktopPermissionDenied:
-      "macOS has blocked notifications for {{productName}}. Allow them in System Settings > Notifications, then try again.",
-    desktopDeliveryError:
-      "The system could not show the notification. Check the notification settings for {{productName}} in macOS System Settings, then try again.",
-    desktopTestSent:
-      "A test notification was sent. If you did not see it, check the notification settings for {{productName}} in macOS System Settings.",
-    approvalEnable: "Approval reminders",
-    approvalDescription:
-      "Show a notification when a local task is waiting for your approval while LinkSense is in the background. Clicking opens the task; it never answers the approval.",
-    approvalPaused:
-      "Approval reminders are paused while macOS notifications are off.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processed successfully",
     statusFailedBody: "Processing failed",
@@ -2368,34 +2349,6 @@ export const enUS = {
       disableMode: "Exit Plan mode",
       placeholder:
         "Describe the task to analyze and plan. LinkSense will ask questions and draft a plan first.",
-    },
-    localFolder: {
-      menuLabel: "Use local folder",
-      menuSearchValue: "local folder computer files",
-      menuDescription: "Choose a folder for this task. Without a choice, This Mac (your home folder) is used.",
-      current: "Local folder: {{name}}",
-      readOnly: "Choose local folder (read only)",
-      readWrite: "Choose local folder (read and write)",
-      homeReadOnly: "Current folder: read only",
-      homeReadWrite: "Current folder: read and write",
-      chooseFolder: "Choose local folder",
-      permissions: "Folder permissions",
-      permissionRead: "Read only",
-      permissionWrite: "Read and write",
-      defaultFolder: "The home folder is used by default",
-      permissionModeTitle: "Permission mode",
-      permissionModeAuto: "Auto",
-      permissionModeAutoDescription:
-        "Auto-approve folder edits and plain read-only commands; ask for other commands.",
-      permissionModeManual: "Manual",
-      permissionModeManualDescription:
-        "Ask on this Mac before commands and file changes.",
-      permissionModeAcceptEdits: "Accept edits",
-      permissionModeAcceptEditsDescription:
-        "Auto-approve folder edits; ask before commands.",
-      permissionModeBypass: "Bypass permissions",
-      permissionModeBypassDescription:
-        "Never ask. Commands run with your Mac account's full access.",
     },
     proposedPlan: {
       title: "Plan",
@@ -5669,7 +5622,6 @@ export const enUS = {
     invalidResponse:
       "The service returned invalid data. Contact an administrator.",
     clientUpdateRequired: errorCatalog.CLIENT_UPDATE_REQUIRED.messages["en-US"],
-    desktopUpdateRequired: errorCatalog.DESKTOP_UPDATE_REQUIRED.messages["en-US"],
     serviceTemporarilyUnavailable:
       errorCatalog.SERVICE_TEMPORARILY_UNAVAILABLE.messages["en-US"],
     imageUnderstanding: {
@@ -5923,19 +5875,6 @@ export const enUS = {
       "RUNNER_OPERATION_UNCERTAIN",
       "en-US"
     ),
-    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "en-US"),
-    desktopTargetRetired: localizedErrorMessage(
-      "DESKTOP_LOCAL_TARGET_RETIRED",
-      "en-US"
-    ),
-    desktopLocalToolsDisabled: localizedErrorMessage(
-      "DESKTOP_LOCAL_TOOLS_DISABLED",
-      "en-US"
-    ),
-    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      "en-US"
-    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["en-US"],
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
@@ -5974,7 +5913,6 @@ export const enUS = {
       "The initialization credential is invalid. Use the one-time credential shown after installation.",
     teamsFailed: "Teams sign-in failed. Retry or use another sign-in method.",
     codexTurnFailed: "This run failed. You can adjust the input and try again.",
-    desktopOutputLimit: "Some Mac task output exceeded the transfer limit and could not be shown in full.",
     modelGateway: modelGatewayMessages["en-US"],
     turnCompletedWithoutOutput:
       "This run finished without producing displayable output. Run it again.",

@@ -18,20 +18,10 @@ const answerId = "30000000-0000-4000-8000-000000000002"
 const referenceId = "40000000-0000-4000-8000-000000000001"
 const currentTurnId = "50000000-0000-4000-8000-000000000001"
 const draft = "继续问这段引用"
-const stagedFile = {
-  id: "70000000-0000-4000-8000-000000000001",
-  name: "旁聊附件.txt",
-  kind: "attachment",
-  status: "staged",
-  size: 64,
-}
-
 async function openExistingSideChat({
-  target,
   phase,
   initialDraft = draft,
 }: {
-  target: "local" | "cloud"
   phase: "starting" | "running"
   initialDraft?: string
 }) {
@@ -52,14 +42,12 @@ async function openExistingSideChat({
         success: true,
         data:
           id === parentId
-            ? { ...conversation, id, title: "主任务", execution_target: target }
+            ? { ...conversation, id, title: "主任务" }
             : {
                 ...conversation,
                 id,
                 title: "旁聊",
-                execution_target: target,
                 execution_status: completed ? "completed" : "running",
-                attachments: target === "local" ? [stagedFile] : [],
                 running_turn:
                   !completed && phase === "running"
                     ? { id: currentTurnId, status: "running" }
@@ -193,7 +181,7 @@ describe("parallel side chat", () => {
 
   it("still queues a structured quote in a running cloud side chat", async () => {
     const { childPath, interaction, panel, submissions } =
-      await openExistingSideChat({ target: "cloud", phase: "running" })
+      await openExistingSideChat({ phase: "running" })
     await interaction.click(panel.getByRole("button", { name: "发送" }))
     await waitFor(() =>
       expect(submissions()).toEqual([

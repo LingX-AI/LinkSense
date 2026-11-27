@@ -29,57 +29,6 @@ function createApp(buildId: string | null = current) {
 }
 
 describe("first-party page build handshake", () => {
-  it("admits a supported desktop protocol across Web builds and still checks authentication", async () => {
-    const app = createApp();
-    app.get("/api/v1/public", async () => ({ success: true }));
-    app.get("/api/v1/private", { preHandler: async () => { throw new AppError("AUTH_REQUIRED"); } }, async () => ({}));
-    const headers = { "x-linksense-desktop-protocol": "1", "x-linksense-client-build": "0".repeat(64) };
-    const response = await app.inject({ url: "/api/v1/public", headers });
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["x-linksense-desktop-protocol"]).toBe("1");
-    expect((await app.inject({ url: "/api/v1/private", headers })).statusCode).toBe(401);
-  });
-
-  it("makes a pre-desktop production build guard reject desktop writes before effects", async () => {
-    const app = Fastify();
-    applications.push(app);
-    // Contract of the guard before desktop support (f654d0a).
-    app.addHook("onRequest", async request => {
-      const client = request.headers["x-linksense-client-build"];
-      if (client !== undefined && client !== current) throw new AppError("CLIENT_UPDATE_REQUIRED");
-    });
-    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
-    const handler = vi.fn(async () => ({ success: true }));
-    app.post("/api/v1/conversations", handler);
-    const response = await app.inject({
-      method: "POST", url: "/api/v1/conversations",
-      headers: { "x-linksense-desktop-protocol": "1", "x-linksense-client-build": "0".repeat(64) },
-    });
-    expect(response.statusCode).toBe(409);
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it.each(["2", "999"])("rejects unsupported desktop protocol %s before effects", async (protocol) => {
-    const app = createApp();
-    const handler = vi.fn(async () => ({}));
-    app.post("/api/v1/applications", handler);
-    const response = await app.inject({
-      method: "POST", url: "/api/v1/applications",
-      headers: { "x-linksense-desktop-protocol": protocol },
-    });
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error_code).toBe("DESKTOP_UPDATE_REQUIRED");
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it.each(["0", "-1", "1.0", "private-value", "1, 1"])("rejects malformed desktop protocol %s", async (protocol) => {
-    const app = createApp();
-    app.get("/api/v1/public", async () => ({}));
-    const response = await app.inject({ url: "/api/v1/public", headers: { "x-linksense-desktop-protocol": protocol } });
-    expect(response.statusCode).toBe(400);
-    expect(response.json().error_code).toBe("VALIDATION_ERROR");
-  });
-
   it.each(["GET", "POST", "PUT", "PATCH", "DELETE"] as const)("rejects outdated %s before validation or business effects", async (method) => {
     const app = createApp();
     const handler = vi.fn(async () => ({ success: true }));

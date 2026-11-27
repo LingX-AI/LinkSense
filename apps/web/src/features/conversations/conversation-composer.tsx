@@ -17,19 +17,16 @@ import {
   type SyntheticEvent,
 } from "react"
 import {
-  CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
   FileInputIcon,
-  FolderOpenIcon,
   GoalIcon,
   Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
   PaperclipIcon,
-  ShieldCheckIcon,
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
@@ -76,11 +73,6 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import {
-  desktopPermissionModes,
-  type DesktopFileRootListing,
-  type DesktopPermissionMode,
-} from "@/adapters/desktop/desktop-device-adapter"
 import { ConversationComposerInput } from "@/features/conversations/conversation-composer-input"
 import {
   HoverCard,
@@ -460,29 +452,6 @@ export type KnowledgeBaseSelectionStatus =
 
 const noRequiredCapabilityIds: readonly string[] = []
 
-const permissionModeLabels: Record<
-  DesktopPermissionMode,
-  { label: string; description: string }
-> = {
-  auto: {
-    label: "conversation.localFolder.permissionModeAuto",
-    description: "conversation.localFolder.permissionModeAutoDescription",
-  },
-  manual: {
-    label: "conversation.localFolder.permissionModeManual",
-    description: "conversation.localFolder.permissionModeManualDescription",
-  },
-  accept_edits: {
-    label: "conversation.localFolder.permissionModeAcceptEdits",
-    description:
-      "conversation.localFolder.permissionModeAcceptEditsDescription",
-  },
-  bypass: {
-    label: "conversation.localFolder.permissionModeBypass",
-    description: "conversation.localFolder.permissionModeBypassDescription",
-  },
-}
-
 type ConversationComposerProps = Readonly<{
   textOnly?: boolean
   maxLength?: number
@@ -515,7 +484,6 @@ type ConversationComposerProps = Readonly<{
   pendingAttachmentUploads?: readonly PendingAttachmentUpload[]
   attachmentPreviewEnabled?: boolean
   isRunning: boolean
-  waitingForAttachmentStart?: boolean
   interrupting: boolean
   submitting: boolean
   uploading: boolean
@@ -525,15 +493,6 @@ type ConversationComposerProps = Readonly<{
   planModeAvailable?: boolean
   goalModeAvailable?: boolean
   planModeDisabled?: boolean
-  localFolderName?: string
-  localFolderMode?: "read" | "write"
-  localFolderPending?: boolean
-  localPermissionMode?: DesktopPermissionMode
-  localPermissionModePending?: boolean
-  onChooseLocalFolder?: (mode: "read" | "write") => void
-  onSetLocalFolderMode?: (mode: "read" | "write") => void
-  onSetLocalPermissionMode?: (mode: DesktopPermissionMode) => void
-  onListLocalFiles?: (path: string) => Promise<DesktopFileRootListing>
   unavailableMessage?: string
   interactionBlocked?: boolean
   localModelControl?: ReactNode
@@ -618,7 +577,6 @@ export const ConversationComposer = forwardRef<
     pendingAttachmentUploads = [],
     attachmentPreviewEnabled = true,
     isRunning,
-    waitingForAttachmentStart = false,
     interrupting,
     submitting,
     uploading,
@@ -628,15 +586,6 @@ export const ConversationComposer = forwardRef<
     planModeAvailable = true,
     goalModeAvailable = true,
     planModeDisabled = false,
-    localFolderName,
-    localFolderMode,
-    localFolderPending = false,
-    localPermissionMode = "manual",
-    localPermissionModePending = false,
-    onChooseLocalFolder,
-    onSetLocalFolderMode,
-    onSetLocalPermissionMode,
-    onListLocalFiles,
     interactionBlocked = false,
     unavailableMessage,
     localModelControl,
@@ -682,7 +631,6 @@ export const ConversationComposer = forwardRef<
   const [capabilityPanelOpen, setCapabilityPanelOpen] = useState(false)
   const [referenceFileOpen, setReferenceFileOpen] = useState(false)
   const [taskReferenceOpen, setTaskReferenceOpen] = useState(false)
-  const [folderPermissionsOpen, setFolderPermissionsOpen] = useState(false)
   const [taskReferenceCaret, setTaskReferenceCaret] = useState<number | null>(
     null
   )
@@ -1087,7 +1035,7 @@ export const ConversationComposer = forwardRef<
     quoteSubmissionBlocked && !isCompactionValue(value)
   const showSendButton =
     !isRunning ||
-    (hasTextContent && !waitingForAttachmentStart && !quoteSubmissionBlocked)
+    (hasTextContent && !quoteSubmissionBlocked)
   const sendButtonDisabled =
     voiceBusy ||
     submitting ||
@@ -1212,27 +1160,6 @@ export const ConversationComposer = forwardRef<
     onValueChange(nextValue)
     setTaskReferenceCaret(trigger.start)
     setDismissedTaskReferenceValue(nextValue)
-  }
-
-  // `@` also browses the conversation's granted local folder. Choosing a file
-  // completes the mention; choosing a folder keeps the menu open one level
-  // deeper.
-  const selectLocalFileMention = (path: string, kind: "file" | "directory") => {
-    const currentValue = latestValueRef.current
-    const trigger = findConversationTaskReferenceTrigger(
-      currentValue,
-      textareaRef.current?.selectionStart ?? currentValue.length
-    )
-    if (!trigger) return
-    const mention =
-      kind === "file" ? `@${path} ` : path ? `@${path}/` : "@"
-    const nextValue = `${currentValue.slice(0, trigger.start)}${mention}${currentValue.slice(trigger.end)}`
-    const caret = trigger.start + mention.length
-    latestValueRef.current = nextValue
-    onValueChange(nextValue)
-    setTaskReferenceCaret(caret)
-    pendingTaskReferenceSelectionRef.current = { value: nextValue, caret }
-    setDismissedTaskReferenceValue(kind === "file" ? nextValue : null)
   }
 
   const openSlashPanel = (panel: ConversationSlashCommandPanel) => {
@@ -1716,11 +1643,6 @@ export const ConversationComposer = forwardRef<
           currentConversationId={currentConversationId}
           selected={taskReferences}
           onSelect={selectTaskReference}
-          localFiles={
-            onListLocalFiles
-              ? { list: onListLocalFiles, onChoose: selectLocalFileMention }
-              : undefined
-          }
         />
       )}
       {slashMenuOpen && !skillMenuOpen && (
@@ -2209,20 +2131,18 @@ export const ConversationComposer = forwardRef<
                           </kbd>
                         </CommandItem>
                       )}
-                      {!onChooseLocalFolder && (
-                        <CommandItem
-                          value={t("conversation.attachFolderMenuSearchValue")}
-                          disabled={attachmentActionDisabled}
-                          onSelect={openAttachmentFolderPicker}
-                        >
-                          <span className="grid size-4 shrink-0 place-items-center">
-                            <DesignIcon name="folder" className="size-4" />
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-13)]">
-                            {t("conversation.attachFolderMenuLabel")}
-                          </span>
-                        </CommandItem>
-                      )}
+                      <CommandItem
+                        value={t("conversation.attachFolderMenuSearchValue")}
+                        disabled={attachmentActionDisabled}
+                        onSelect={openAttachmentFolderPicker}
+                      >
+                        <span className="grid size-4 shrink-0 place-items-center">
+                          <DesignIcon name="folder" className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-13)]">
+                          {t("conversation.attachFolderMenuLabel")}
+                        </span>
+                      </CommandItem>
                       {!managedApplicationName && goalModeAvailable && (
                         <CommandItem
                           value={t("conversation.goal.menuSearchValue")}
@@ -2749,141 +2669,6 @@ export const ConversationComposer = forwardRef<
               onWaveformTrackResize={voice.setWaveformTrackWidth}
               onStop={voice.stopRecording}
             />
-          )}
-
-          {onChooseLocalFolder && (
-            <>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="composer-control size-8"
-                      aria-label={t("conversation.localFolder.chooseFolder")}
-                      disabled={attachmentActionDisabled || localFolderPending}
-                      onClick={() =>
-                        onChooseLocalFolder(localFolderMode ?? "write")
-                      }
-                    >
-                      <FolderOpenIcon className="size-4" aria-hidden="true" />
-                    </Button>
-                  }
-                />
-                <ActionTooltipContent>
-                  {t("conversation.localFolder.chooseFolder")}
-                </ActionTooltipContent>
-              </Tooltip>
-              <Popover
-                open={folderPermissionsOpen}
-                onOpenChange={setFolderPermissionsOpen}
-              >
-                <PopoverTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="composer-control size-8"
-                      aria-label={t("conversation.localFolder.permissions")}
-                      aria-haspopup="dialog"
-                      disabled={localFolderPending}
-                    >
-                      <ShieldCheckIcon className="size-4" aria-hidden="true" />
-                    </Button>
-                  }
-                />
-                <PopoverContent
-                  side="top"
-                  align="end"
-                  sideOffset={8}
-                  className="w-72 gap-1 p-1.5"
-                >
-                  <PopoverHeader className="px-2 py-1.5">
-                    <PopoverTitle className="text-xs font-medium">
-                      {t("conversation.localFolder.permissions")}
-                    </PopoverTitle>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {localFolderName
-                        ? t("conversation.localFolder.current", {
-                            name: localFolderName,
-                          })
-                        : t("conversation.localFolder.defaultFolder")}
-                    </p>
-                  </PopoverHeader>
-                  {(["read", "write"] as const).map((mode) => (
-                    <Button
-                      key={mode}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-full justify-start gap-2 px-2 font-normal"
-                      aria-pressed={localFolderMode === mode}
-                      disabled={
-                        attachmentActionDisabled ||
-                        localFolderPending ||
-                        !onSetLocalFolderMode
-                      }
-                      onClick={() => {
-                        onSetLocalFolderMode?.(mode)
-                        setFolderPermissionsOpen(false)
-                      }}
-                    >
-                      {localFolderMode === mode ? (
-                        <CheckIcon className="size-4" aria-hidden="true" />
-                      ) : (
-                        <span className="size-4" aria-hidden="true" />
-                      )}
-                      {t(
-                        mode === "read"
-                          ? "conversation.localFolder.permissionRead"
-                          : "conversation.localFolder.permissionWrite"
-                      )}
-                    </Button>
-                  ))}
-                  <div className="my-1 h-px bg-border" role="separator" />
-                  <p className="px-2 pb-0.5 pt-1 text-xs font-medium">
-                    {t("conversation.localFolder.permissionModeTitle")}
-                  </p>
-                  {desktopPermissionModes.map((mode) => (
-                    <Button
-                      key={mode}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      data-permission-mode={mode}
-                      className="h-auto w-full items-start justify-start gap-2 px-2 py-1.5 text-left font-normal"
-                      aria-pressed={localPermissionMode === mode}
-                      disabled={
-                        attachmentActionDisabled ||
-                        localFolderPending ||
-                        localPermissionModePending ||
-                        !onSetLocalPermissionMode
-                      }
-                      onClick={() => {
-                        onSetLocalPermissionMode?.(mode)
-                        setFolderPermissionsOpen(false)
-                      }}
-                    >
-                      {localPermissionMode === mode ? (
-                        <CheckIcon className="mt-0.5 size-4" aria-hidden="true" />
-                      ) : (
-                        <span className="mt-0.5 size-4" aria-hidden="true" />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate text-[length:var(--app-font-13)]">
-                          {t(permissionModeLabels[mode].label)}
-                        </span>
-                        <span className="block text-[11px] leading-snug text-muted-foreground">
-                          {t(permissionModeLabels[mode].description)}
-                        </span>
-                      </span>
-                    </Button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </>
           )}
 
           {localModelControl ?? (

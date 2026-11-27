@@ -330,40 +330,6 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    // A separate, explicit release decision. Production keeps the block until
-    // this is set; enabling execution alone never releases it.
-    LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: z
-      .enum(["true", "false"])
-      .default("true")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_BROWSER_USE_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
-    LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((value) => value === "true"),
     LINKSENSE_TINYTRAFFIC_URL: optionalString,
     LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
@@ -466,52 +432,6 @@ const rawConfigSchema = z
       .default("false"),
   })
   .superRefine((config, context) => {
-    if (config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED"],
-        message: "desktop_approvals_require_local_execution",
-      });
-    }
-    if (config.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_BROWSER_USE_ENABLED"],
-        message: "desktop_browser_use_requires_local_execution",
-      });
-    }
-    if (config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_ARTIFACTS_ENABLED"],
-        message: "desktop_artifacts_require_local_execution",
-      });
-    }
-    if (config.LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED && !config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED"],
-        message: "desktop_website_artifacts_require_artifacts",
-      });
-    }
-    if (config.LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED && !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED"],
-        message: "desktop_computer_use_requires_local_execution",
-      });
-    }
-    // Production admission needs server-side metering, masking and crash cleanup,
-    // and an explicit release decision; enabling execution alone never releases it.
-    if (config.NODE_ENV === "production" &&
-        config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED &&
-        !config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED) {
-      context.addIssue({
-        code: "custom",
-        path: ["LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED"],
-        message: "desktop_local_execution_not_released",
-      });
-    }
     const objectStorageProvider = resolveObjectStorageProvider(config);
     if (objectStorageProvider === "minio") {
       for (const [path, value] of [
@@ -646,15 +566,6 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
       raw.LINKSENSE_CLAWHUB_SYNC_TRANSACTION_TIMEOUT_MS,
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
-    desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
-    desktopLocalExecutionReleased: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_RELEASED,
-    desktopCloudTargetEnabled: raw.LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED,
-    desktopBrowserUseEnabled: raw.LINKSENSE_DESKTOP_BROWSER_USE_ENABLED,
-    desktopNativeApprovalsEnabled: raw.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
-    desktopArtifactsEnabled: raw.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
-    desktopWebsiteArtifactsEnabled:
-      raw.LINKSENSE_DESKTOP_WEBSITE_ARTIFACTS_ENABLED,
-    desktopComputerUseEnabled: raw.LINKSENSE_DESKTOP_COMPUTER_USE_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     appwrite,
     analytics,

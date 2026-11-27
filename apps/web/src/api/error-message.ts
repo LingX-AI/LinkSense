@@ -64,8 +64,6 @@ const errorCodeToKey: Record<string, string> = {
     errorCatalog.WEB_SITE_RESOURCES_MISSING.message_key,
   WEB_SITE_BUNDLE_INVALID: errorCatalog.WEB_SITE_BUNDLE_INVALID.message_key,
   CLIENT_UPDATE_REQUIRED: "errors.clientUpdateRequired",
-  DESKTOP_UPDATE_REQUIRED: "errors.desktopUpdateRequired",
-  DESKTOP_FILE_ROOT_NOT_FOUND: errorCatalog.DESKTOP_FILE_ROOT_NOT_FOUND.message_key,
   SERVICE_TEMPORARILY_UNAVAILABLE: "errors.serviceTemporarilyUnavailable",
   APPLICATION_NOT_FOUND: errorCatalog.APPLICATION_NOT_FOUND.message_key,
   APPLICATION_DELETED: errorCatalog.APPLICATION_DELETED.message_key,
@@ -176,13 +174,6 @@ const errorCodeToKey: Record<string, string> = {
   DOWNLOAD_FORBIDDEN: "errors.downloadForbidden",
   RUNNER_UNAVAILABLE: "errors.runnerUnavailable",
   RUNNER_OPERATION_UNCERTAIN: errorCatalog.RUNNER_OPERATION_UNCERTAIN.message_key,
-  DESKTOP_DEVICE_REVOKED: errorCatalog.DESKTOP_DEVICE_REVOKED.message_key,
-  DESKTOP_LOCAL_TARGET_RETIRED:
-    errorCatalog.DESKTOP_LOCAL_TARGET_RETIRED.message_key,
-  DESKTOP_LOCAL_TOOLS_DISABLED:
-    errorCatalog.DESKTOP_LOCAL_TOOLS_DISABLED.message_key,
-  DESKTOP_PRIVACY_MASKING_UNAVAILABLE:
-    errorCatalog.DESKTOP_PRIVACY_MASKING_UNAVAILABLE.message_key,
   TURN_START_CLOSED: "errors.turnStartClosed",
   DEPLOYMENT_STOPPED: "errors.deploymentStopped",
   CREDIT_LIMIT_EXCEEDED: "errors.creditLimitExceeded",

@@ -6,8 +6,6 @@ import {
   claimBrowserNotificationDelivery,
   disableBrowserNotifications,
   persistBrowserNotificationPreference,
-  persistDesktopApprovalReminder,
-  readDesktopApprovalReminderEnabled,
   readBrowserNotificationPreference,
   requestBrowserNotificationPermission,
   showBrowserNotification,
@@ -217,20 +215,6 @@ describe("browser notification preferences", () => {
     expect(
       readBrowserNotificationPreference("remove-fallback-user")
     ).toMatchObject({ enabled: false, effectiveEnabled: false })
-  })
-
-  it("fails the approval choice closed when a disable write cannot be stored", () => {
-    const user = "approval-storage-failure-user"
-    expect(persistDesktopApprovalReminder(user, true)).toBe(true)
-    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
-      throw new DOMException("Storage unavailable", "QuotaExceededError")
-    })
-    vi.spyOn(window.localStorage, "removeItem").mockImplementation(() => {
-      throw new DOMException("Storage unavailable", "QuotaExceededError")
-    })
-
-    expect(persistDesktopApprovalReminder(user, false)).toBe(false)
-    expect(readDesktopApprovalReminderEnabled(user)).toBe(false)
   })
 
   it("focuses the window, invokes the callback, and closes on notification click", async () => {

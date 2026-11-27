@@ -2,7 +2,6 @@ import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
-import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlptBR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -17,7 +16,6 @@ export const ptBR = {
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   sideChat: sideChatMessages["pt-BR"],
-  desktopApproval: desktopApprovalMessages["pt-BR"],
   saml: samlptBR,
   social: {
     disableHelp:
@@ -1146,23 +1144,6 @@ export const ptBR = {
       "As notificações estão conectadas. Você receberá um aviso aqui quando uma tarefa ou automação produzir um resultado.",
     testSent:
       "Uma notificação de teste foi enviada ao sistema. Se não a viu, confira as configurações de notificações deste navegador no sistema operacional.",
-    desktopTitle: "Notificações do macOS",
-    desktopDescription:
-      "Receba uma notificação quando uma tarefa ou automação terminar, ou quando houver uma atualização assinada disponível, enquanto o LinkSense estiver em segundo plano.",
-    desktopEnable: "Ativar notificações do macOS",
-    desktopUnsupported:
-      "As notificações não estão disponíveis nesta versão do aplicativo. Use um aplicativo de desktop LinkSense empacotado para receber notificações de conclusão de tarefas.",
-    desktopPermissionDenied:
-      "O macOS bloqueou as notificações do {{productName}}. Permita-as em Ajustes do Sistema > Notificações e tente novamente.",
-    desktopDeliveryError:
-      "O sistema não conseguiu mostrar a notificação. Verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS e tente novamente.",
-    desktopTestSent:
-      "Uma notificação de teste foi enviada ao sistema. Se você não a viu, verifique os ajustes de notificações do {{productName}} nos Ajustes do Sistema do macOS.",
-    approvalEnable: "Lembretes de aprovação",
-    approvalDescription:
-      "Mostra uma notificação quando uma tarefa local está aguardando sua aprovação enquanto o LinkSense está em segundo plano. Clicar abre a tarefa; nunca responde à aprovação.",
-    approvalPaused:
-      "Os lembretes de aprovação ficam pausados enquanto as notificações do macOS estiverem desativadas.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Processamento concluído",
     statusFailedBody: "Falha no processamento",
@@ -2688,34 +2669,6 @@ export const ptBR = {
       disableMode: "Sair do modo Planejamento",
       placeholder:
         "Descreva a tarefa a analisar e planejar. O LinkSense fará perguntas e elaborará um plano primeiro.",
-    },
-    localFolder: {
-      menuLabel: "Usar pasta local",
-      menuSearchValue: "pasta local computador arquivos",
-      menuDescription: "Escolha uma pasta para esta tarefa. Sem escolha, este computador (sua pasta pessoal) é usado.",
-      current: "Pasta local: {{name}}",
-      readOnly: "Escolher pasta local (somente leitura)",
-      readWrite: "Escolher pasta local (leitura e escrita)",
-      homeReadOnly: "Pasta atual: somente leitura",
-      homeReadWrite: "Pasta atual: leitura e escrita",
-      chooseFolder: "Escolher pasta local",
-      permissions: "Permissões da pasta",
-      permissionRead: "Somente leitura",
-      permissionWrite: "Leitura e escrita",
-      defaultFolder: "A pasta pessoal é usada por padrão",
-      permissionModeTitle: "Modo de permissões",
-      permissionModeAuto: "Automático",
-      permissionModeAutoDescription:
-        "Aprova automaticamente edições na pasta e comandos simples somente de leitura; pergunta para os demais comandos.",
-      permissionModeManual: "Manual",
-      permissionModeManualDescription:
-        "Pede confirmação neste Mac antes de comandos e alterações de arquivos.",
-      permissionModeAcceptEdits: "Aceitar edições",
-      permissionModeAcceptEditsDescription:
-        "Aprova automaticamente edições na pasta; pergunta antes dos comandos.",
-      permissionModeBypass: "Ignorar permissões",
-      permissionModeBypassDescription:
-        "Nunca pergunta. Os comandos são executados com o acesso total da sua conta do Mac.",
     },
     proposedPlan: {
       title: "Plano",
@@ -6065,10 +6018,6 @@ export const ptBR = {
       "O serviço retornou dados inválidos. Entre em contato com um administrador.",
     clientUpdateRequired:
       "O sistema foi atualizado. Atualize esta página para continuar.",
-    desktopUpdateRequired: localizedErrorMessage(
-      "DESKTOP_UPDATE_REQUIRED",
-      "pt-BR"
-    ),
     serviceTemporarilyUnavailable:
       "O sistema está temporariamente indisponível. Tente novamente em breve.",
     imageUnderstanding: {
@@ -6327,19 +6276,6 @@ export const ptBR = {
       "Você não tem permissão para baixar este arquivo gerado.",
     runnerUnavailable:
       "O serviço de execução está indisponível. Tente novamente mais tarde.",
-    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "pt-BR"),
-    desktopTargetRetired: localizedErrorMessage(
-      "DESKTOP_LOCAL_TARGET_RETIRED",
-      "pt-BR"
-    ),
-    desktopLocalToolsDisabled: localizedErrorMessage(
-      "DESKTOP_LOCAL_TOOLS_DISABLED",
-      "pt-BR"
-    ),
-    desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-      "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-      "pt-BR"
-    ),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "pt-BR"
@@ -6387,7 +6323,6 @@ export const ptBR = {
     codexTurnFailed:
       "Esta execução falhou. Você pode ajustar a entrada e tentar novamente.",
     modelGateway: modelGatewayMessages["pt-BR"],
-    desktopOutputLimit: "Parte da saída da tarefa no Mac ultrapassou o limite de transferência e não pôde ser exibida por completo.",
     turnCompletedWithoutOutput:
       "Esta execução terminou sem produzir um resultado exibível. Execute novamente.",
     automation: {

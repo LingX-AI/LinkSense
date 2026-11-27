@@ -2,8 +2,7 @@
  * Model-image capability policy shared by every request ingress.
  *
  * Providers receive model requests through different transports (the runner
- * model gateway, the desktop model proxy) and protocols (Responses, Chat
- * Completions). Image parts must never be serialized into text for a model
+ * model gateway) and protocols (Responses, Chat Completions). Image parts must never be serialized into text for a model
  * that does not accept images: base64 content is tokenized as ordinary text by
  * those upstreams and can consume hundreds of thousands of context tokens.
  *

@@ -13,13 +13,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  desktopExecutionMaxFrameBytes,
   runnerEventBatchSchema,
   type RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 
 import { HttpRunnerEventSink } from "../src/event-sink.js";
-import { mapCodexNotification } from "../src/codex/event-mapper.js";
 import type {
   LinkSenseCodexEvent,
   LinkSensePublishedEvent,
@@ -41,106 +39,6 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
-  it("persists no computer payload, window title, AX text or raster in the durable outbox", async () => {
-    const { root, workspaceManager } = await createWorkspaceManager();
-    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
-      fetch: vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined)),
-      desktopOutboxScope: { generation: ownerId, turnId: conversationId },
-    });
-    const secret = "你好 👋 raw keyboard text";
-    const windowTitle = "Private Banking - 1234";
-    const image = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6B";
-    const [event] = mapCodexNotification({
-      method: "item/completed",
-      params: {
-        threadId: "thread-1", turnId: "turn-1",
-        item: {
-          type: "mcpToolCall", id: "computer-call", server: "linksense_core",
-          tool: "computer_act", status: "completed",
-          arguments: { action: "type", observation_id: "obs-1", ref: "e1", text: secret },
-          result: {
-            content: [
-              { type: "text", text: windowTitle },
-              { type: "image", data: image, mimeType: "image/png" },
-            ],
-            structuredContent: { window_title: windowTitle },
-          },
-          error: { message: `${windowTitle}: ${secret}` },
-        },
-      },
-    });
-    if (!event) throw new Error("computer event did not map");
-    await sink.publish(conversationId, event);
-    const files = await filesIn(desktopOutboxDirectory(root, ownerId, conversationId));
-    expect(files).toHaveLength(1);
-    const persisted = await readFile(
-      join(desktopOutboxDirectory(root, ownerId, conversationId), files[0] ?? ""), "utf8",
-    );
-    for (const value of [secret, windowTitle, image, "structuredContent", "arguments", "result"]) {
-      expect(persisted).not.toContain(value);
-    }
-    expect(persisted).toContain("computer_act");
-  });
-
-  it("keeps a desktop browser mutation with no confirmed receipt nonretryable", async () => {
-    const { workspaceManager } = await createWorkspaceManager();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({ error_code: "RUNNER_OPERATION_UNCERTAIN" }, { status: 503 }),
-    );
-    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
-      fetch: fetchMock, desktopOutboxScope: { generation: ownerId, turnId: conversationId },
-    });
-    await expect(sink.browserUse({ conversationId, turnId: conversationId, input: { action: "click", tab_id: 1, ref: "button" } }))
-      .resolves.toMatchObject({ ok: false, code: "RUNNER_OPERATION_UNCERTAIN", retryable: false });
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it("delivers a bounded multibyte final answer before native completion on desktop", async () => {
-    const { workspaceManager } = await createWorkspaceManager();
-    const batches: ReturnType<typeof runnerEventBatchSchema.parse>[] = [];
-    const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
-      const body = String(init?.body);
-      expect(Buffer.byteLength(body)).toBeLessThan(desktopExecutionMaxFrameBytes);
-      const batch = runnerEventBatchSchema.parse(JSON.parse(body));
-      batches.push(batch);
-      return Response.json({ data: { accepted_delivery_ids: batch.events.map(({ deliveryId }) => deliveryId) } });
-    });
-    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, {
-      fetch: fetchMock, desktopOutboxScope: { generation: ownerId, turnId: conversationId },
-    });
-    const text = '界🧪"\\\n'.repeat(110_000);
-    const final: LinkSenseCodexEvent = {
-      method: "item/completed", visibility: "user_visible",
-      params: { threadId: "native-thread", turnId: "native-turn",
-        item: { type: "agentMessage", id: "answer", phase: "final_answer", text } },
-    };
-    const terminal: LinkSenseCodexEvent = {
-      method: "turn/completed", visibility: "user_visible",
-      params: { threadId: "native-thread", turn: { id: "native-turn", status: "completed" } },
-    };
-    try {
-      await sink.publish(conversationId, final);
-      await sink.publish(conversationId, terminal);
-      await sink.flushConversation(conversationId);
-      const [answer, notice, completed] = batches.flatMap(({ events }) => events.map(({ event }) => event));
-      expect(notice).toMatchObject({
-        eventType: "conversation.error", threadId: "native-thread", turnId: "native-turn",
-        payload: { error_code: "DESKTOP_OUTPUT_LIMIT", message_key: "errors.desktopOutputLimit" },
-      });
-      expect(completed).toEqual(terminal);
-      if (!answer || !("method" in answer) || answer.method !== "item/completed" ||
-        answer.params.item.type !== "agentMessage") throw new Error("final answer not delivered");
-      const preview = answer.params.item.text;
-      expect(answer.params.item).toMatchObject({ id: "answer", phase: "final_answer" });
-      expect(preview.endsWith("…")).toBe(true);
-      expect(preview.length).toBeGreaterThan(100_000);
-      expect(text.startsWith(preview.slice(0, -1))).toBe(true);
-      expect(preview).not.toMatch(/[\uD800-\uDBFF]…$/u);
-    } finally {
-      await sink.close();
-    }
-  });
-
   it("relays web search with the task owner, cancellation, and redacted failures without retrying", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const result = { success: true, provider: "deepseek", query: "test", results: [] };
@@ -160,38 +58,6 @@ describe("HttpRunnerEventSink", () => {
       fetchMock.mockRejectedValueOnce(new TypeError("synthetic-private-token"));
       await expect(sink.searchWeb(body)).rejects.toMatchObject({ code: "WEB_SEARCH_UNAVAILABLE", message: "WEB_SEARCH_UNAVAILABLE", retryable: true });
       expect(fetchMock).toHaveBeenCalledTimes(3);
-    } finally { await sink.close(); }
-  });
-
-  it("sends the operation the local-tool API contract requires", async () => {
-    const { workspaceManager } = await createWorkspaceManager();
-    const result = { message: "hello", platform: "darwin", app_version: "1.3.1" };
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(result));
-    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
-    try {
-      await expect(sink.localToolsExecute({
-        conversationId, turnId: ownerId, operation: "local_tools.ping", input: { message: "hello" },
-      })).resolves.toEqual(result);
-      const [url, init] = fetchMock.mock.calls[0] ?? [];
-      expect(String(url)).toBe("http://api:4000/internal/local-tools/execute");
-      expect(init).toMatchObject({
-        method: "POST",
-        headers: expect.objectContaining({
-          authorization: "Bearer runner-secret", "x-linksense-owner-id": ownerId,
-        }),
-      });
-      expect(JSON.parse(String(init?.body))).toEqual({
-        conversationId, turnId: ownerId, operation: "local_tools.ping", input: { message: "hello" },
-      });
-      fetchMock.mockResolvedValueOnce(Response.json({
-        error_code: "DESKTOP_FILE_CONFLICT",
-      }, { status: 409 }));
-      await expect(sink.localToolsExecute({
-        conversationId, turnId: ownerId, operation: "local_files.write",
-        input: { root_id: "50000000-0000-4000-8000-000000000001", path: "a.txt", content: "x" },
-      })).rejects.toMatchObject({
-        statusCode: 409, errorCode: "DESKTOP_FILE_CONFLICT",
-      });
     } finally { await sink.close(); }
   });
 
@@ -570,34 +436,6 @@ describe("HttpRunnerEventSink", () => {
     ]);
     expect(await outboxFiles(root)).toEqual([]);
     await sink.close();
-  });
-
-  it("lets the desktop supervisor retire the writer while events still await delivery", async () => {
-    const { workspaceManager } = await createWorkspaceManager();
-    const pending = new AbortController();
-    const fetchMock = vi.fn<typeof fetch>((url, init) => {
-      if (String(url).endsWith("/runner/process-exit")) {
-        return Promise.resolve(jsonResponse({ data: { confirmed: true, outcome: "not_applicable" } }));
-      }
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-        pending.signal.addEventListener("abort", () => reject(pending.signal.reason), { once: true });
-      });
-    });
-    const turnId = "01900000-0000-7000-8000-000000000003";
-    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
-      fetch: fetchMock, processExitTimeoutMs: 100,
-      desktopOutboxScope: { turnId, generation: "01900000-0000-7000-8000-000000000004" },
-    });
-    try {
-      await sink.publish(conversationId, statusEvent());
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-      await sink.reportProcessExit({ conversationId, projectionTurnId: turnId, capabilityGeneration: "a".repeat(64) });
-      expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/runner\/process-exit$/u);
-    } finally {
-      pending.abort();
-      await sink.close();
-    }
   });
 
   it("forwards automation management with bound ownership and redacts upstream errors", async () => {
@@ -1122,21 +960,6 @@ async function createWorkspaceManager() {
 
 function outboxDirectory(root: string) {
   return join(root, ownerId, "control", "workspaces", conversationId, "outbox");
-}
-
-function desktopOutboxDirectory(root: string, generation: string, turnId: string) {
-  return join(
-    root, ownerId, "control", "workspaces", conversationId,
-    "desktop-outbox", generation, turnId,
-  );
-}
-
-async function filesIn(directory: string): Promise<string[]> {
-  try {
-    return (await readdir(directory)).filter((file) => file.endsWith(".json")).sort();
-  } catch {
-    return [];
-  }
 }
 
 async function outboxFiles(root: string): Promise<string[]> {

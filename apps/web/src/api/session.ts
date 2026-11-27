@@ -3,8 +3,6 @@ import {
   type AccessTokenClaims,
 } from "@linksense/shared"
 
-import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
-
 const ACCESS_SESSION_STORAGE_KEY = "linksense.auth.access-session"
 const DEFAULT_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const MAX_TIMEOUT_MS = 2_147_483_647
@@ -61,7 +59,7 @@ const listeners = new Set<SessionListener>()
 const loginSessionListeners = new Set<LoginSessionListener>()
 
 function getLocalStorage() {
-  if (typeof window === "undefined" || isDesktopHost()) return null
+  if (typeof window === "undefined") return null
   try {
     return window.localStorage
   } catch {
@@ -120,18 +118,6 @@ function parsePersistedAccessSession(
 }
 
 function readStoredAccessSession(removeInvalid = true): StorageReadResult {
-  if (isDesktopHost()) {
-    // The native host owns desktop credentials, so there is no shared storage
-    // to read and the in-memory session is the only source of truth.
-    return accessToken &&
-      accessTokenExpiresAt !== null &&
-      accessTokenExpiresAt > Date.now()
-      ? {
-          status: "valid",
-          session: { accessToken, expiresAt: accessTokenExpiresAt },
-        }
-      : { status: "empty" }
-  }
   const storedValue = readStoredValue(getLocalStorage())
   if (storedValue === undefined || storedValue === failedWriteBackingValue) {
     return { status: "unavailable" }
@@ -426,7 +412,6 @@ export function subscribeToAccessToken(listener: SessionListener) {
 }
 
 function handleStorageEvent(event: StorageEvent) {
-  if (isDesktopHost()) return
   if (event.key !== null && event.key !== ACCESS_SESSION_STORAGE_KEY) return
   if (event.storageArea !== getLocalStorage()) return
   restoreAccessTokenFromStorage()

@@ -19,12 +19,7 @@ import {
 import { useTranslation } from "react-i18next"
 import { Link, useSearchParams } from "react-router-dom"
 
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { getErrorMessage } from "@/api/error-message"
-import {
-  getLoginSessionBoundary,
-  isLoginSessionCurrent,
-} from "@/api/session"
 import {
   EmptyState,
   ErrorState,
@@ -155,15 +150,12 @@ export function TaskArtifactLibrary({
 
   const download = async (file: TaskArtifact) => {
     if (downloadInFlightRef.current) return
-    const boundary = isMacDesktopHost() ? getLoginSessionBoundary() : null
     downloadInFlightRef.current = true
     setDownloadingFileId(file.id)
     try {
       await downloadTaskArtifact(file)
     } catch (error) {
-      if (boundary === null || isLoginSessionCurrent(boundary)) {
-        notify.error(getErrorMessage(error, t))
-      }
+      notify.error(getErrorMessage(error, t))
     } finally {
       downloadInFlightRef.current = false
       setDownloadingFileId(undefined)

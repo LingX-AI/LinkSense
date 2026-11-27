@@ -32,9 +32,6 @@ docker compose --project-directory "$PWD" --env-file .data/uat/runtime.env -p li
 
 公开访问时应使用 HTTPS；HTTP 适合本机或可信测试网络，部分浏览器能力和第三方登录需要 HTTPS。
 
-## 可选：关闭桌面端云目标入口
-
-桌面端云目标入口默认开启。如需在 UAT 关闭该入口，在 `.data/uat/runtime.env` 中设置 `LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=false`；`prepare.mjs` 会在后续部署中保留该值。关闭后，Mac 新任务界面会拦截云端预热和云端提交，已认证的任务续接接口也会在服务创建任务前以 `RUNNER_UNAVAILABLE` 拒绝云目标。已有云任务仍可打开和运行，Web 普通新建云任务与 `POST /api/v1/conversations` 不受影响；该开关不是通用的云端准入或安全控制，也不改变单独的本地执行开关。
 
 ## 可选：动态应用（Appwrite）接入
 

@@ -17,74 +17,9 @@ const deviceId = "10000000-0000-4000-8000-000000000005";
 const connectionId = "10000000-0000-4000-8000-000000000006";
 const runtimeGeneration = "10000000-0000-4000-8000-000000000007";
 const capabilityGeneration = "a".repeat(64);
-const desktop = { ownerId, deviceId, connectionId };
-const desktopTurn = { ...desktop, conversationId, projectionTurnId, runtimeGeneration };
 afterEach(() => vi.useRealTimers());
 
 describe("targeted task recovery", () => {
-  it("queues exact read-only recovery when a Mac reports exit even while its cloud runner is live", async () => {
-    const f = fixture();
-    f.prisma.conversationTurnStartIntent.findFirst.mockResolvedValueOnce({ projectionTurnId });
-    f.redis.runnerOwnerDeadline.mockResolvedValue(Date.now() + 60_000);
-    await f.scheduler.enqueueDesktopRecovery(desktopTurn);
-    const job = f.queue.add.mock.calls[0]?.[1];
-    expect(job).toEqual({ type: "desktop-turn", ...desktopTurn });
-    await f.scheduler.process({ data: job });
-    expect(f.conversations.recoverStartIntent).toHaveBeenCalledExactlyOnceWith(
-      projectionTurnId, { resubmitNonTerminal: false, desktopConnectionId: connectionId },
-    );
-    expect(f.events.reconcileAfterProcessExit).toHaveBeenCalledExactlyOnceWith(
-      { conversationId, projectionTurnId, capabilityGeneration }, { desktopConnectionId: connectionId },
-    );
-    expect(f.redis.runnerOwnerDeadline).not.toHaveBeenCalled();
-  });
-
-  it("reconciles a terminal turn whose reservation survived an API crash before release", async () => {
-    const f = fixture();
-    f.redis.runningTurnSlotsForOwner.mockResolvedValueOnce({
-      slots: [{ conversationId, turnId: projectionTurnId }], after: null,
-    });
-    f.prisma.$queryRaw.mockImplementationOnce(async (_sql, ...params) =>
-      params.some(value => Array.isArray(value) && value.includes(projectionTurnId))
-        ? [{ conversationId, runtimeGeneration, startId: null, turnIds: [projectionTurnId] }]
-        : [],
-    );
-    await f.scheduler.process({ data: { type: "desktop", ...desktop } });
-    const job = f.queue.add.mock.calls[0]?.[1];
-    expect(job).toEqual({ type: "desktop-turn", ...desktopTurn });
-    await f.scheduler.process({ data: job });
-    expect(f.events.reconcileAfterProcessExit).toHaveBeenCalledExactlyOnceWith(
-      { conversationId, projectionTurnId, capabilityGeneration }, { desktopConnectionId: connectionId },
-    );
-    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
-  });
-
-  it("ignores an exit job after its Mac connection was replaced", async () => {
-    const f = fixture();
-    f.redis.client.mget.mockResolvedValueOnce([bootId, `${bootId}:${deviceId}`]);
-    await f.scheduler.process({ data: { type: "desktop-turn", ...desktopTurn } });
-    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
-    expect(f.events.reconcileAfterProcessExit).not.toHaveBeenCalled();
-  });
-
-  it("keeps settling revoked Mac work when a conversation is locked and revisits it on the next sweep", async () => {
-    const f = fixture();
-    const nextTurnId = "10000000-0000-4000-8000-000000000008";
-    const row = { ownerId, deviceId, conversationId, runtimeGeneration };
-    const mac = { ...row, projectionTurnId };
-    f.prisma.$queryRaw
-      .mockResolvedValueOnce([{ ...row, turnIds: [projectionTurnId, nextTurnId] }])
-      .mockResolvedValueOnce([{ ...row, turnIds: [projectionTurnId] }]);
-    f.events.settleRevokedMacTurn.mockRejectedValueOnce(new Error("TASK_RECOVERY_BUSY"));
-    await f.scheduler.process({ data: { type: "maintenance" } });
-    await f.scheduler.process({ data: { type: "maintenance" } });
-    expect(f.events.settleRevokedMacTurn.mock.calls).toEqual([
-      [mac], [{ ...mac, projectionTurnId: nextTurnId }], [mac],
-    ]);
-    expect(f.events.reconcileAfterProcessExit).not.toHaveBeenCalled();
-    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
-  });
-
   it("checks only expired workers and indexed pending records during ordinary maintenance", async () => {
     const f = fixture();
     await f.scheduler.process({ data: { type: "maintenance" } });
@@ -278,32 +213,6 @@ describe("targeted task recovery", () => {
         attempts: START_RECOVERY_ATTEMPTS,
       },
     );
-  });
-
-  it("skips local conversations when dispatching start recovery", async () => {
-    const f = fixture();
-    const localConversationId = "10000000-0000-4000-8000-000000000013";
-    const localTurnId = "10000000-0000-4000-8000-000000000014";
-    const createdAt = new Date(Date.now() - 60_000);
-    f.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce([
-      { conversationId, projectionTurnId, createdAt },
-      {
-        conversationId: localConversationId,
-        projectionTurnId: localTurnId,
-        createdAt,
-      },
-    ]);
-    f.prisma.conversation.findMany.mockResolvedValueOnce([
-      { id: conversationId, executionTarget: "cloud" },
-      { id: localConversationId, executionTarget: "local" },
-    ]);
-
-    await f.scheduler.process({ data: { type: "maintenance" } });
-
-    const starts = f.queue.add.mock.calls.filter(([name]) => name === "start");
-    expect(starts.map(([, data]) => data)).toEqual([
-      { type: "start", conversationId, projectionTurnId },
-    ]);
   });
 
   it("persists the next pending page only after every record has been durably enqueued", async () => {

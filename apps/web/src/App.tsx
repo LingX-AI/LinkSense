@@ -38,11 +38,6 @@ const AdminPages = lazy(() =>
 const LoginPage = lazy(() =>
   import("@/pages/auth-pages").then((module) => ({ default: module.LoginPage }))
 )
-const DesktopAuthorizePage = lazy(() =>
-  import("@/features/desktop-login/desktop-login-page").then((module) => ({
-    default: module.DesktopAuthorizePage,
-  }))
-)
 const ForgotPasswordPage = lazy(() =>
   import("@/pages/auth-pages").then((module) => ({
     default: module.ForgotPasswordPage,
@@ -264,7 +259,6 @@ export function App() {
     <Suspense fallback={<LoadingState fullScreen />}>
       <Routes>
         <Route element={<BootstrapGate />}>
-          <Route path="/desktop/authorize" element={<DesktopAuthorizePage />} />
           <Route path="/initialize" element={<InitializePage />} />
           <Route element={<PublicAuthRoute />}>
             <Route path="/login" element={<LoginPage />} />

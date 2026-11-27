@@ -29,7 +29,6 @@ import {
 import { useTranslation } from "react-i18next"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
 
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
@@ -233,7 +232,6 @@ const administratorItems: SettingsNavigationItem[] = [
 export function SettingsShell() {
   const { t } = useTranslation()
   const productName = useProductName()
-  const macDesktopHost = isMacDesktopHost()
   const { user } = useAuth()
   const location = useLocation()
   const [search, setSearch] = useState("")
@@ -294,12 +292,10 @@ export function SettingsShell() {
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
         <div className="settings-brand-bar -mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
-          {!macDesktopHost && (
-            <ProductLogo
-              productName={productName}
-              className="sidebar-brand-logo min-w-0"
-            />
-          )}
+          <ProductLogo
+            productName={productName}
+            className="sidebar-brand-logo min-w-0"
+          />
         </div>
         <NavLink
           to={appReturnTo}

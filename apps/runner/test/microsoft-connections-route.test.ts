@@ -48,7 +48,6 @@ describe("Microsoft file worker route", () => {
       "process-token",
       { operation: "list_connections" },
       expect.any(AbortSignal),
-      undefined,
     );
   });
   it("rejects incomplete writes before reaching the API", async () => {
@@ -65,7 +64,7 @@ describe("Microsoft file worker route", () => {
     const payload = { operation: "create_file", provider: "onedrive", drive_id: "drive-1", name: "report.txt", content_base64: Buffer.alloc(2 * 1024 * 1024, 65).toString("base64") };
     const response = await server.inject({ ...input, headers: { authorization: "Bearer token" }, payload });
     expect(response.statusCode).toBe(200);
-    expect(accessConnection).toHaveBeenCalledWith(conversationId, "token", payload, expect.any(AbortSignal), undefined);
+    expect(accessConnection).toHaveBeenCalledWith(conversationId, "token", payload, expect.any(AbortSignal));
   });
   it("rejects malformed task identifiers without exposing validation details", async () => {
     const response = await server.inject({

@@ -1,15 +1,12 @@
-import { createHash } from "node:crypto";
-
 import {
   runnerCodexEventSchema,
   runnerCodexPreviewLimits,
 } from "@linksense/shared";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   deriveSubAgentThreadLabel,
   filterChildOwnedCodexTurns,
-  mapCodexFileChangeApprovalChanges,
   mapCodexNotification,
   mapCodexServerRequest,
   opaqueAgentKey,
@@ -21,171 +18,8 @@ const previewContext = {
   codexHome: "/srv/link-sense/codex-homes/conversation-1",
 };
 
-describe("native desktop approval previews", () => {
-  const thread = { threadId: "thr_1", turnId: "turn_1", itemId: "activity" };
-
-  it("keeps advertised one-time decisions and drops persistent options", () => {
-    const method = "item/commandExecution/requestApproval";
-    const params = {
-      ...thread, kind: "command", command: "printf hello", cwd: previewContext.workspace,
-      proposedExecpolicyAmendment: ["printf"],
-      // Codex 0.170.0 also advertises acceptForSession; only one-time decisions may be shown.
-      availableDecisions: ["accept", "acceptForSession", "cancel", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["printf"] } }],
-    };
-    expect(mapCodexServerRequest({ id: 77, method, params }, { previewContext })).toEqual([{
-      method, visibility: "user_visible",
-      params: { ...thread, requestId: 77, approval: { method, command: "printf hello", cwd: "$WORKSPACE", decisions: ["accept", "cancel"] } },
-    }]);
-    expect(mapCodexServerRequest({
-      id: 77, method, params: { ...params, networkApprovalContext: { host: "example.test" } },
-    })).toEqual([]);
-  });
-
-  it("keeps exact quoted spacing in the native command", () => {
-    const method = "item/commandExecution/requestApproval";
-    const command = `/bin/zsh -lc "printf 'two  spaces' > '${previewContext.workspace}/two  spaces.txt'"`;
-    expect(mapCodexServerRequest({
-      id: 77, method, params: { ...thread, command, cwd: previewContext.workspace, kind: "command",
-        availableDecisions: ["accept", "cancel"] },
-    }, { previewContext })).toEqual([expect.objectContaining({
-      params: expect.objectContaining({
-        approval: expect.objectContaining({ command: `$SYSTEM_BIN/zsh -lc "printf 'two  spaces' > '$WORKSPACE/two  spaces.txt'"` }),
-      }),
-    })]);
-  });
-
-  it.each([
-    { kind: "writeStdin", command: "private terminal input" },
-    { kind: "humanCommand" },
-    { kind: undefined },
-    { command: `printf '${"a".repeat(runnerCodexPreviewLimits.commandCharacters)}'` },
-    { command: "printf hello > /outside/workspace/report.txt" },
-    { command: "TOKEN=approval-test-credential printf hello" },
-    { command: "printf '%s' 'first\nsecond'" },
-    { command: "printf hello > '$WORKSPACE/report.txt'" },
-    { cwd: "/outside/workspace" },
-    { cwd: null },
-  ])("does not publish an approval when the native scope cannot be shown: %j", (overrides) => {
-    expect(mapCodexServerRequest({
-      id: 77, method: "item/commandExecution/requestApproval",
-      params: { ...thread, kind: "command", command: "printf hello", cwd: previewContext.workspace,
-        availableDecisions: ["accept", "cancel"], ...overrides },
-    }, { previewContext })).toEqual([]);
-  });
-
-  it("keeps the file operation and rename endpoints without publishing a diff", () => {
-    const changes = [
-      { path: `${previewContext.workspace}/new.txt`, kind: { type: "add" } },
-      { path: `${previewContext.workspace}/old.txt`, kind: { type: "delete" } },
-      { path: `${previewContext.workspace}/edit.txt`, kind: { type: "update", move_path: null } },
-      { path: `${previewContext.workspace}/before.txt`,
-        kind: { type: "update", move_path: `${previewContext.workspace}/after.txt` } },
-    ].map(change => ({ ...change, diff: "unpublished file contents" }));
-    const previews = mapCodexFileChangeApprovalChanges({ type: "fileChange", changes }, previewContext);
-    const method = "item/fileChange/requestApproval";
-    const request = { id: 78, method, params: thread };
-    expect(mapCodexServerRequest(request)).toEqual([]);
-    expect(mapCodexServerRequest(request, { fileChangeApprovalChanges: previews })).toEqual([{
-      method, visibility: "user_visible",
-      params: { ...thread, requestId: 78, approval: {
-        method, decisions: ["accept", "decline", "cancel"],
-        changes: [
-          { path: "$WORKSPACE/new.txt", kind: { type: "add" } },
-          { path: "$WORKSPACE/old.txt", kind: { type: "delete" } },
-          { path: "$WORKSPACE/edit.txt", kind: { type: "update", move_path: null } },
-          { path: "$WORKSPACE/before.txt", kind: { type: "update", move_path: "$WORKSPACE/after.txt" } },
-        ],
-      } },
-    }]);
-  });
-
-  it("keeps spacing in a workspace filename and refuses a partial or ambiguous path list", () => {
-    const paths = (names: string[]) => mapCodexFileChangeApprovalChanges({
-      type: "fileChange",
-      changes: names.map(path => ({ path, kind: { type: "add" } })),
-    }, previewContext);
-    const workspaceFile = `${previewContext.workspace}/two  spaces.txt`;
-    expect(paths([workspaceFile])).toEqual([{ path: "$WORKSPACE/two  spaces.txt", kind: { type: "add" } }]);
-    expect(paths([workspaceFile, "/outside/first/report.txt", "/outside/second/report.txt"])).toBeNull();
-    expect(paths([workspaceFile, `${previewContext.workspace}/${"a".repeat(runnerCodexPreviewLimits.pathCharacters)}`])).toBeNull();
-    expect(paths([workspaceFile, `${previewContext.workspace}/../report.txt`])).toBeNull();
-  });
-});
-
 describe("mapCodexNotification", () => {
-  it("binds native additions by their exact local path without changing the redacted preview", () => {
-    const contents = "private fixture contents";
-    const checksum = createHash("sha256").update(contents).digest("hex");
-    const unicode = "artifacts/résumé.txt".normalize("NFD");
-    const long = `artifacts/${"directory/".repeat(110)}report.txt`;
-    const notification = {
-      method: "item/completed",
-      params: {
-        threadId: "thr_1", turnId: "turn_1",
-        item: {
-          id: "file-change", type: "fileChange", status: "completed",
-          changes: [
-            `${previewContext.workspace}/${unicode}`,
-            `${previewContext.workspace}/${long}`,
-            `${previewContext.codexHome}/artifacts/preview.png`,
-            `${previewContext.workspace}/../outside.txt`,
-          ].map(path => ({ path, kind: { type: "add" }, diff: contents })),
-        },
-      },
-    };
-    const onDesktopFileCreated = vi.fn();
-    const mapped = mapCodexNotification(notification, previewContext, { onDesktopFileCreated });
-    expect(mapped).toEqual(mapCodexNotification(notification, previewContext));
-    expect(onDesktopFileCreated.mock.calls).toEqual([
-      [unicode, "$WORKSPACE/artifacts/résumé.txt", "file-change", checksum],
-      [long, expect.stringContaining("…"), "file-change", checksum],
-    ]);
-    expect(JSON.stringify(mapped)).not.toContain(previewContext.workspace);
-    expect(JSON.stringify(mapped)).not.toContain(contents);
-    expect(JSON.stringify(mapped)).not.toContain(checksum);
-
-    onDesktopFileCreated.mockClear();
-    const changes = [
-      { path: unicode, kind: { type: "add" }, diff: contents },
-      { path: unicode.normalize("NFC"), kind: { type: "add" }, diff: contents },
-      { path: "artifacts/edited.txt", kind: { type: "update" }, diff: "only a patch" },
-    ];
-    mapCodexNotification({
-      ...notification, params: { ...notification.params, item: { ...notification.params.item, changes } },
-    }, previewContext, { onDesktopFileCreated });
-    expect(onDesktopFileCreated).not.toHaveBeenCalled();
-  });
-
-  it("projects only a bounded Mac Browser Use action and destination, never raw arguments", () => {
-    const notification = {
-      method: "item/started",
-      params: {
-        threadId: "thr_1",
-        turnId: "turn_1",
-        item: {
-          type: "mcpToolCall",
-          id: "native-browser-call",
-          status: "inProgress",
-          server: "linksense_core",
-          tool: "browser_use",
-          arguments: { action: "navigate", tab_id: 9, url: "https://example.test/private?key=fixture#secret" },
-        },
-      },
-    };
-    const mapped = mapCodexNotification(notification, {}, { desktopBrowserApproval: true });
-    expect(mapped[0]).toMatchObject({ params: { item: {
-      browserApproval: { action: "navigate", tab_id: 9, destination_host: "example.test" },
-    } } });
-    expect(JSON.stringify(mapped)).not.toMatch(/private|fixture|secret|arguments/u);
-    expect(JSON.stringify(mapCodexNotification(notification))).not.toContain("browserApproval");
-    expect(JSON.stringify(mapCodexNotification({
-      ...notification, params: { ...notification.params, item: {
-        ...notification.params.item, server: "external",
-      } },
-    }, {}, { desktopBrowserApproval: true }))).not.toContain("browserApproval");
-  });
-
-  it("projects no computer payload, window title, AX text or raster into events", () => {
+  it("projects no raw MCP tool arguments, result or error payload into events", () => {
     const secret = "你好 👋 raw keyboard text";
     const windowTitle = "Private Banking - 1234";
     const image = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6B";
@@ -196,9 +30,9 @@ describe("mapCodexNotification", () => {
         turnId: "turn_1",
         item: {
           type: "mcpToolCall",
-          id: "computer-call",
+          id: "tool-call",
           server: "linksense_core",
-          tool: "computer_act",
+          tool: "run_tool",
           status: "completed",
           arguments: { action: "type", observation_id: "obs-1", ref: "e1", text: secret },
           result: {
@@ -217,8 +51,8 @@ describe("mapCodexNotification", () => {
     expect(mapped[0]).toMatchObject({
       params: {
         item: {
-          type: "mcpToolCall", id: "computer-call",
-          server: "linksense_core", tool: "computer_act", status: "completed",
+          type: "mcpToolCall", id: "tool-call",
+          server: "linksense_core", tool: "run_tool", status: "completed",
         },
       },
     })

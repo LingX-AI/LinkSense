@@ -3,7 +3,6 @@ import type { WebSite } from "@linksense/shared"
 import { ExternalLinkIcon, PencilIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
-import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -37,7 +36,7 @@ export function SiteDetailsDialog({
   const id = useId()
   const heading = useRef<HTMLHeadingElement>(null)
   const [editTrigger, setEditTrigger] = useState<HTMLElement | null>(null)
-  const url = site.url ?? new URL(site.url_path, getPublicAppOrigin()).href
+  const url = site.url ?? new URL(site.url_path, window.location.origin).href
   const visitUrl = siteCustomAliasUrl(site) ?? url
   const published = site.status === "published"
 

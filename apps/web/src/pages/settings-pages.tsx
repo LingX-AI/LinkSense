@@ -26,12 +26,6 @@ import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
 import {
-  cancelDeferredDesktopNotification,
-  isDesktopHost,
-  isMacDesktopHost,
-} from "@/adapters/desktop/desktop-adapter"
-import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
-import {
   personalizationSettingsSchema,
   personalUsageProfileSchema,
   resetMemoriesResultSchema,
@@ -52,7 +46,6 @@ import {
   MAX_UI_FONT_SIZE,
   MIN_UI_FONT_SIZE,
   normalizeUiFontSize,
-  supportsUiFontSizePreference,
 } from "@/app/ui-font-size"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
@@ -267,18 +260,6 @@ export function SettingsGeneralPage() {
         </SettingsCard>
         <BrowserNotificationSettings key={user?.id} userId={user?.id} />
         <BrowserExtensionSettings userId={user?.id} />
-        {isDesktopHost() && (
-          <SettingsCard
-            header={
-              <SettingsSectionHeader
-                id="desktop-update-heading"
-                title={t("desktopUpdate.title")}
-              />
-            }
-          >
-            <DesktopUpdateControl />
-          </SettingsCard>
-        )}
       </div>
     </SettingsPageFrame>
   )
@@ -813,8 +794,6 @@ export function SettingsPersonalizationPage() {
         open={blocker.state === "blocked"}
         onOpenChange={(open) => {
           if (!open && blocker.state === "blocked") {
-            if (isMacDesktopHost())
-              cancelDeferredDesktopNotification(blocker.location.pathname)
             blocker.reset()
           }
         }}
@@ -855,7 +834,6 @@ export function SettingsAppearancePage() {
   const productName = useProductName()
   const { theme, setTheme, uiFontSize, setUiFontSize } = useTheme()
   const [uiFontSizeInput, setUiFontSizeInput] = useState(String(uiFontSize))
-  const uiFontSizeEnabled = supportsUiFontSizePreference()
 
   const themeLabelKeys: Record<ThemePreference, string> = {
     system: "settings.themeSystem",
@@ -882,11 +860,7 @@ export function SettingsAppearancePage() {
   return (
     <SettingsPageFrame
       title={t("settings.appearance")}
-      description={
-        uiFontSizeEnabled
-          ? t("settings.appearancePageDescription", { productName })
-          : undefined
-      }
+      description={t("settings.appearancePageDescription", { productName })}
     >
       <div className="grid min-w-0 gap-6">
         <div className="min-w-0 rounded-card border border-border bg-card p-6">
@@ -925,50 +899,47 @@ export function SettingsAppearancePage() {
             </RadioGroup>
           </FieldSet>
         </div>
-        {uiFontSizeEnabled && (
-          <SettingsCard>
-            <SettingsFieldGroup>
-              <SettingsFieldRow
-                id="appearance-font-size"
-                label={t("settings.uiFontSize")}
-                hint={t("settings.uiFontSizeDescription", {
-                  productName,
-                  min: MIN_UI_FONT_SIZE,
-                  max: MAX_UI_FONT_SIZE,
-                })}
-                controlWidth="compact"
-              >
-                <div className="appearance-font-size-control">
-                  <Input
-                    id="appearance-font-size"
-                    type="number"
-                    inputMode="numeric"
-                    min={MIN_UI_FONT_SIZE}
-                    max={MAX_UI_FONT_SIZE}
-                    step={1}
-                    value={uiFontSizeInput}
-                    className="h-9 w-18 text-center max-[420px]:w-16"
-                    onChange={(event) =>
-                      updateUiFontSizeInput(event.target.value)
+        <SettingsCard>
+          <SettingsFieldGroup>
+            <SettingsFieldRow
+              id="appearance-font-size"
+              label={t("settings.uiFontSize")}
+              hint={t("settings.uiFontSizeDescription", {
+                productName,
+                min: MIN_UI_FONT_SIZE,
+                max: MAX_UI_FONT_SIZE,
+              })}
+              controlWidth="compact"
+            >
+              <div className="appearance-font-size-control">
+                <Input
+                  id="appearance-font-size"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_UI_FONT_SIZE}
+                  max={MAX_UI_FONT_SIZE}
+                  step={1}
+                  value={uiFontSizeInput}
+                  className="h-9 w-18 text-center max-[420px]:w-16"
+                  onChange={(event) =>
+                    updateUiFontSizeInput(event.target.value)
+                  }
+                  onBlur={commitUiFontSizeInput}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      event.currentTarget.blur()
                     }
-                    onBlur={commitUiFontSizeInput}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault()
-                        event.currentTarget.blur()
-                      }
-                    }}
-                  />
-                  <span aria-hidden="true">{t("settings.uiFontSizeUnit")}</span>
-                </div>
-              </SettingsFieldRow>
-            </SettingsFieldGroup>
-            <p className="border-t border-divider py-4 text-sm text-foreground">
-              {t("workspaceHome.description")}
-            </p>
-          </SettingsCard>
-        )}
-      </div>
+                  }}
+                />
+                <span aria-hidden="true">{t("settings.uiFontSizeUnit")}</span>
+              </div>
+            </SettingsFieldRow>
+          </SettingsFieldGroup>
+          <p className="border-t border-divider py-4 text-sm text-foreground">
+            {t("workspaceHome.description")}
+          </p>
+        </SettingsCard>      </div>
     </SettingsPageFrame>
   )
 }

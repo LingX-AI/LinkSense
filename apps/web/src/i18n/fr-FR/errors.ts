@@ -87,7 +87,6 @@ export const errors = {
     "Le service a renvoyé des données invalides. Contactez un administrateur.",
   clientUpdateRequired:
     "Le système a été mis à jour. Actualisez cette page pour continuer.",
-  desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "fr-FR"),
   serviceTemporarilyUnavailable:
     "Le système est temporairement indisponible. Réessayez dans un instant.",
   imageUnderstanding: {
@@ -339,19 +338,6 @@ export const errors = {
     "Vous n’avez pas l’autorisation de télécharger ce fichier produit.",
   runnerUnavailable:
     "Le service d’exécution est indisponible. Réessayez plus tard.",
-  desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "fr-FR"),
-  desktopTargetRetired: localizedErrorMessage(
-    "DESKTOP_LOCAL_TARGET_RETIRED",
-    "fr-FR"
-  ),
-  desktopLocalToolsDisabled: localizedErrorMessage(
-    "DESKTOP_LOCAL_TOOLS_DISABLED",
-    "fr-FR"
-  ),
-  desktopPrivacyMaskingUnavailable: localizedErrorMessage(
-    "DESKTOP_PRIVACY_MASKING_UNAVAILABLE",
-    "fr-FR"
-  ),
   runnerOperationUncertain: localizedErrorMessage(
     "RUNNER_OPERATION_UNCERTAIN",
     "fr-FR"
@@ -400,7 +386,6 @@ export const errors = {
   codexTurnFailed:
     "Cette exécution a échoué. Vous pouvez ajuster la saisie et réessayer.",
   modelGateway: modelGatewayMessages["fr-FR"],
-  desktopOutputLimit: "Une partie des résultats de la tâche sur Mac dépasse la taille autorisée pour le transfert et ne peut pas être affichée en entier.",
   turnCompletedWithoutOutput:
     "L’exécution s’est terminée sans produire de résultat affichable. Relancez-la.",
   automation: {

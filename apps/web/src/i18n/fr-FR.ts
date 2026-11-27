@@ -1,7 +1,6 @@
 import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
-import { desktopApprovalMessages } from "@/features/conversations/desktop-approval-messages"
 import { samlfrFR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
@@ -25,7 +24,6 @@ export const frFR = {
   modelSetup: modelSetupMessages["fr-FR"],
   connections: connectionMessages["fr-FR"],
   sideChat: sideChatMessages["fr-FR"],
-  desktopApproval: desktopApprovalMessages["fr-FR"],
   saml: samlfrFR,
   common: {
     poweredBy: "Powered by",

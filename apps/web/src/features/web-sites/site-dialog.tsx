@@ -1,5 +1,4 @@
 import { useId, useRef, useState } from "react"
-import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
 import {
   CopyIcon,
   GlobeIcon,
@@ -250,7 +249,7 @@ export function SiteDialog({
     try {
       await copyTextToClipboard(
         visibleResult.url ??
-          new URL(visibleResult.url_path, getPublicAppOrigin()).href
+          new URL(visibleResult.url_path, window.location.origin).href
       )
       notify.success(t("webSites.copied"))
     } catch {
@@ -354,7 +353,7 @@ export function SiteDialog({
                   readOnly
                   value={
                     visibleResult.url ??
-                    new URL(visibleResult.url_path, getPublicAppOrigin()).href
+                    new URL(visibleResult.url_path, window.location.origin).href
                   }
                 />
                 {viewingExisting && (
@@ -430,7 +429,7 @@ export function SiteDialog({
                           readOnly
                           value={
                             selectedSite.url ??
-                            new URL(selectedSite.url_path, getPublicAppOrigin())
+                            new URL(selectedSite.url_path, window.location.origin)
                               .href
                           }
                         />

@@ -2,22 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   builtInMcpConfigOverrides,
-  desktopPermissionConfigOverrides,
   linkSenseImageCapabilityConfigOverrides,
   linkSenseModelProviderConfigOverrides,
   linkSenseSkillConfigOverrides,
 } from "../src/codex/runtime-config-overrides.js";
 
 describe("Codex process-level runtime config", () => {
-  it("retains a root denial for approved local commands while preserving the two workspace modes", () => {
-    const overrides = desktopPermissionConfigOverrides({ control: "/fixture/control", codex: "/fixture/codex" });
-    expect(overrides).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^permissions\.linksense-workspace\.filesystem=.*":root"="deny".*":workspace_roots"="write"/u),
-      expect.stringMatching(/^permissions\.linksense-read-only\.filesystem=.*":root"="deny".*":workspace_roots"="read"/u),
-      "permissions.linksense-workspace.network.enabled=false",
-      "permissions.linksense-read-only.network.enabled=false",
-    ]));
-  });
   it("disables the native view_image tool unless the model declares image support", () => {
     expect(linkSenseImageCapabilityConfigOverrides(undefined)).toEqual([
       "features.view_image=false",
@@ -76,47 +66,6 @@ describe("Codex process-level runtime config", () => {
         'model_auto_compact_token_limit_scope="total"',
         'model_catalog_json="/home/.codex/linksense-models.json"',
       ]),
-    );
-  });
-
-  it("asks for the native computer_act approval and relay environment only for an admitted worker", () => {
-    const base = { command: "/usr/local/bin/node", args: ["/app/dist/mcp/core-service-server.js"] };
-    expect(builtInMcpConfigOverrides(base)).not.toContain(
-      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
-    );
-    expect(builtInMcpConfigOverrides({ ...base, computerActApproval: true })).toContain(
-      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
-    );
-    const envLineFor = (overrides: string[]) => overrides.find(value =>
-      value.startsWith("mcp_servers.linksense_core.env_vars="));
-    // The persistent template and every unnegotiated/cloud process keep the
-    // original allowlist; the callback names exist only where it was actually
-    // provisioned.
-    const baseEnvLine = envLineFor(builtInMcpConfigOverrides(base));
-    for (const variable of [
-      "LINKSENSE_COMPUTER_ENDPOINT",
-      "LINKSENSE_COMPUTER_TOKEN",
-    ]) {
-      expect(baseEnvLine).not.toContain(variable);
-      expect(envLineFor(builtInMcpConfigOverrides({ ...base, computerRelay: true })))
-        .toContain(variable);
-    }
-    // Production raster stays unavailable, and the stdio MCP process never
-    // receives the worker/supervisor secret.
-    const relayEnvLine = envLineFor(builtInMcpConfigOverrides({ ...base, computerRelay: true }));
-    expect(relayEnvLine).not.toContain("LINKSENSE_COMPUTER_SCREENSHOTS_ENABLED");
-    expect(relayEnvLine).not.toContain("LINKSENSE_RUNNER_SHARED_SECRET");
-    // The wait marker is authored only for a relayed worker that negotiated it.
-    expect(baseEnvLine).not.toContain("LINKSENSE_COMPUTER_WAIT");
-    expect(relayEnvLine).not.toContain("LINKSENSE_COMPUTER_WAIT");
-    expect(envLineFor(builtInMcpConfigOverrides({ ...base, computerWait: true })))
-      .not.toContain("LINKSENSE_COMPUTER_WAIT");
-    expect(envLineFor(builtInMcpConfigOverrides({
-      ...base, computerRelay: true, computerWait: true,
-    }))).toContain("LINKSENSE_COMPUTER_WAIT");
-    // Browser prompting keeps its existing independent template semantic.
-    expect(builtInMcpConfigOverrides({ ...base, promptForBrowserUse: true })).toContain(
-      'mcp_servers.linksense_core.tools.browser_use.approval_mode="prompt"',
     );
   });
 

@@ -4,16 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
 import { useConnectionAuthorization } from "./use-connection-authorization"
 
-const mocks = vi.hoisted(() => ({
-  desktop: false,
-  authorize: vi.fn(),
-  openExternal: vi.fn(),
-}))
+const mocks = vi.hoisted(() => ({ authorize: vi.fn() }))
 vi.mock("./api", () => ({ connectionsApi: { authorize: mocks.authorize } }))
-vi.mock("@/adapters/desktop/desktop-adapter", () => ({
-  isDesktopHost: () => mocks.desktop,
-  openDesktopExternal: mocks.openExternal,
-}))
 
 function wrapper({ children }: { children: ReactNode }) {
   return (
@@ -27,28 +19,33 @@ function wrapper({ children }: { children: ReactNode }) {
   )
 }
 
+function browserPopup() {
+  return {
+    opener: {},
+    location: { replace: vi.fn() },
+    close: vi.fn(),
+  } as unknown as Window
+}
+
 afterEach(() => {
-  mocks.desktop = false
   vi.clearAllMocks()
   vi.restoreAllMocks()
 })
 
-describe("connection authorization host integration", () => {
-  it("opens desktop OAuth in the system browser without reserving a WebView popup", async () => {
-    mocks.desktop = true
+describe("connection authorization", () => {
+  it("navigates the reserved browser popup to the provider", async () => {
     mocks.authorize.mockResolvedValue({
       authorization_url: "https://example.com/oauth/authorize",
     })
-    mocks.openExternal.mockResolvedValue(undefined)
-    const open = vi.spyOn(window, "open").mockReturnValue(null)
+    const popup = browserPopup()
+    vi.spyOn(window, "open").mockReturnValue(popup)
     const { result } = renderHook(useConnectionAuthorization, { wrapper })
     act(() => result.current.start("onedrive"))
     await waitFor(() =>
-      expect(mocks.openExternal).toHaveBeenCalledWith(
+      expect(popup.location.replace).toHaveBeenCalledWith(
         "https://example.com/oauth/authorize"
       )
     )
-    expect(open).not.toHaveBeenCalled()
     expect(result.current.tabBlocked).toBe(false)
   })
 
@@ -58,20 +55,25 @@ describe("connection authorization host integration", () => {
     act(() => result.current.start("onedrive"))
     expect(result.current.tabBlocked).toBe(true)
     expect(mocks.authorize).not.toHaveBeenCalled()
-    expect(mocks.openExternal).not.toHaveBeenCalled()
   })
 
-  it("allows another desktop attempt after an authorization failure", async () => {
-    mocks.desktop = true
+  it("allows another attempt after an authorization failure", async () => {
     mocks.authorize.mockRejectedValueOnce(new Error("unavailable"))
+    const failedPopup = browserPopup()
+    vi.spyOn(window, "open").mockReturnValueOnce(failedPopup)
     const { result } = renderHook(useConnectionAuthorization, { wrapper })
     act(() => result.current.start("onedrive"))
     await waitFor(() => expect(result.current.error).toBeInstanceOf(Error))
+    expect(failedPopup.close).toHaveBeenCalledOnce()
+
+    const popup = browserPopup()
+    vi.spyOn(window, "open").mockReturnValueOnce(popup)
     mocks.authorize.mockResolvedValueOnce({
       authorization_url: "https://example.com/oauth/authorize",
     })
-    mocks.openExternal.mockResolvedValue(undefined)
     act(() => result.current.start("onedrive"))
-    await waitFor(() => expect(mocks.openExternal).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(popup.location.replace).toHaveBeenCalledOnce()
+    )
   })
 })

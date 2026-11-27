@@ -62,62 +62,6 @@ describe("official connection runtime isolation", () => {
     return { preflight, input, database, home, credentials, listAvailableProviders, connections };
   }
 
-  it("advertises the cloud local-tool lane only for a granted task with an online Mac", async () => {
-    const f = await fixture();
-    const disabled = await f.preflight.resolve(f.input);
-    expect(disabled.environment).not.toHaveProperty("LINKSENSE_DESKTOP_CLOUD_TOOLS");
-    f.database.conversation.findFirst.mockResolvedValue({ desktopToolsEnabled: true });
-    const offline = await f.preflight.resolve(f.input);
-    expect(offline.environment).not.toHaveProperty("LINKSENSE_DESKTOP_CLOUD_TOOLS");
-    f.database.desktopDevice.findFirst.mockResolvedValue({ id: "10000000-0000-4000-8000-000000000009" });
-    const enabled = await f.preflight.resolve(f.input);
-    expect(enabled.environment).toMatchObject({ LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" });
-    expect(f.database.desktopDevice.findFirst).toHaveBeenCalledWith({
-      where: {
-        ownerId: USER_ID, revokedAt: null,
-        lastSeenAt: { gte: expect.any(Date) },
-      },
-      select: { id: true },
-    });
-  });
-
-  it("rehydrates the local-tool lane for a recovered turn only while the Mac is online", async () => {
-    const f = await fixture();
-    f.database.conversation.findFirst.mockResolvedValue({ desktopToolsEnabled: true });
-    const offline = await f.preflight.resolveRecovery({
-      userId: USER_ID, conversationId: TASK_ID, capabilities: [],
-    });
-    expect(offline.environment).not.toHaveProperty("LINKSENSE_DESKTOP_CLOUD_TOOLS");
-    f.database.desktopDevice.findFirst.mockResolvedValue({ id: "10000000-0000-4000-8000-000000000009" });
-    const online = await f.preflight.resolveRecovery({
-      userId: USER_ID, conversationId: TASK_ID, capabilities: [],
-    });
-    expect(online.environment).toMatchObject({ LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" });
-  });
-
-  it("does not treat the per-task local-tool switch as stale capability state at start", async () => {
-    const f = await fixture();
-    f.database.conversation.findFirst.mockResolvedValue({ desktopToolsEnabled: true });
-    f.database.desktopDevice.findFirst.mockResolvedValue({ id: "10000000-0000-4000-8000-000000000009" });
-    const resolved = await f.preflight.resolve(f.input);
-    expect(resolved.environment).toMatchObject({ LINKSENSE_DESKTOP_CLOUD_TOOLS: "1" });
-
-    const action = vi.fn(async () => "started");
-    await expect(f.preflight.withCapabilityStartBarrier({
-      userId: USER_ID,
-      conversationId: TASK_ID,
-      priorityCapabilityIds: [],
-      capabilities: resolved.capabilities,
-      capabilityGeneration: resolved.capabilityGeneration,
-      capabilityVerification: resolved.capabilityVerification,
-      mcpServers: resolved.mcpServers,
-      mcpGeneration: resolved.mcpGeneration,
-      environment: resolved.environment,
-      credentialUsageReceipts: resolved.credentialUsageReceipts,
-    }, action)).resolves.toBe("started");
-    expect(action).toHaveBeenCalledOnce();
-  });
-
   it("publishes the authorized official package through native capability materialization with no credential binding", async () => {
     const f = await fixture();
     const result = await f.preflight.resolve(f.input);

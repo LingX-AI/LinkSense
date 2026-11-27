@@ -11,7 +11,6 @@ const provider = process.argv.at(-1) ?? "";
 const context = {
   environment: process.env,
   workspaceRoot: process.cwd(),
-  desktopReadOnly: process.argv.at(-2) === "--desktop-read-only",
 };
 const module =
   provider === "microsoft-files"

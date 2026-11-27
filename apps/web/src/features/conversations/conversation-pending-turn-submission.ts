@@ -12,17 +12,7 @@ export type PendingConversationTurnSubmission = Readonly<{
   replacesTurnId?: string
   afterEventSequence?: number
   interruptRequested?: boolean
-  restoredDesktopAttachmentStart?: true
 }>
-
-export function hasDesktopAttachmentSubmission(
-  pending: PendingConversationTurnSubmission | null | undefined
-): pending is PendingConversationTurnSubmission {
-  return Boolean(
-    pending?.restoredDesktopAttachmentStart ||
-    pending?.message.attachments?.length
-  )
-}
 
 function pendingConversationTurnSubmissionQueryKey(conversationId: string) {
   return ["conversation", conversationId, "pending-turn-submission"] as const

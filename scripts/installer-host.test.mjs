@@ -88,24 +88,6 @@ load_runtime_env`, {
   assert.match(result.stderr, /Required secret LINKSENSE_JWT_SECRET is missing/u)
 })
 
-test("configuration regeneration preserves a desktop cloud target opt-out", t => {
-  const dir = directory(t)
-  const writer = fn("write_runtime_env")
-  const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
-  writeFileSync(path.join(dir, ".env"), "LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED=false\n", { mode: 0o600 })
-  const result = run(`${writer}
-${fn("load_strict_env")}
-fail() { echo "$*" >&2; exit 1; }
-write_runtime_env
-load_strict_env "$INSTALL_DIR/.env" runtime
-printf '%s' "$LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED"`, {
-    ...fixture, RESOURCE_HOST_ADAPTATION_FORMAT: "1", INSTALL_DIR: dir, EDITION: "core", RELEASE_VERSION: "v0.3.7",
-    LINKSENSE_CPU_QUOTA_MODE: "strict",
-  })
-  assert.equal(result.status, 0, result.stderr)
-  assert.equal(result.stdout, "false")
-})
-
 test("macOS discovers per-user Docker tools without replacing an existing Docker CLI", t => {
   const dir = directory(t)
   const dockerBin = path.join(dir, ".docker/bin")

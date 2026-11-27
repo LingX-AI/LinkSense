@@ -24,7 +24,7 @@ export const internalConversationReferenceRoutes: FastifyPluginAsync<{ prisma: P
     if (reply.raw.destroyed) abort();
     try {
       return await readTaskReferenceAfterProjection(options.prisma, {
-        ownerId, conversationId, turnId, executionTarget: "cloud",
+        ownerId, conversationId, turnId,
       }, input, controller.signal);
     } finally {
       reply.raw.off("close", abort);

@@ -172,12 +172,9 @@ export function PendingRequests({
               const blocked =
                 request.status === "blocked_overload" ||
                 request.status === "blocked_preflight"
-              const blockKey =
-                request.block_code === "desktop_device_revoked"
-                  ? "errors.desktopDeviceRevoked"
-                  : request.block_code
-                    ? `conversation.pendingBlockCodes.${request.block_code}`
-                    : undefined
+              const blockKey = request.block_code
+                ? `conversation.pendingBlockCodes.${request.block_code}`
+                : undefined
               const translatedBlock = blockKey ? t(blockKey) : undefined
               const priorityCapabilities = (
                 request.priority_capability_ids ?? []

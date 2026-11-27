@@ -27,7 +27,6 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   conversationFormWaitingPolicySchema,
-  computerExecuteInputSchema,
   nativeUserInputResponseSchema,
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
@@ -46,7 +45,6 @@ import {
   runnerKnowledgeBaseSelectionSchema,
   runnerCodexAgentKeySchema,
   runnerCodexAgentKeysSchema,
-  runnerNativeIdSchema,
   runtimeMcpServerSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
   RUNNER_TURN_INTERRUPT_REQUESTED,
@@ -62,8 +60,8 @@ import { AutomationRequestError } from "./automation-error.js";
 import { WebSiteToolRequestError } from "./web-site-tool-error.js";
 import { AUTOMATION_TOOL_BODY_LIMIT, automationToolRequestSchema } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
-import { connectionInputSchema, desktopConnectionRequestBodySchema } from "@linksense/shared";
-import { FileServiceRequestError, desktopArtifactUncertain } from "./file-service-error.js";
+import { connectionInputSchema } from "@linksense/shared";
+import { FileServiceRequestError } from "./file-service-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
 import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
@@ -160,7 +158,6 @@ const runnerEnvironmentSchema = z
   .record(
     z.union([
       credentialSource,
-      z.literal("LINKSENSE_DESKTOP_CLOUD_TOOLS"),
       z.string().regex(/^LINKSENSE_MCP_CREDENTIAL_[A-F0-9]{32}$/u),
       z.string().regex(/^LINKSENSE_MCP_STDIO_[A-F0-9]{32}$/u),
     ]),
@@ -267,9 +264,7 @@ function validateAuthorizedRuntime(
       message: "credential_environment_source_must_be_capability_scoped",
     });
   }
-  const suppliedSources = Object.keys(body.environment)
-    .filter((key) => key !== "LINKSENSE_DESKTOP_CLOUD_TOOLS")
-    .sort();
+  const suppliedSources = Object.keys(body.environment).sort();
   const requiredSources = [...mappedSources].sort();
   if (JSON.stringify(suppliedSources) !== JSON.stringify(requiredSources)) {
     context.addIssue({
@@ -856,7 +851,6 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-web-site/") ||
       request.url.startsWith("/mcp-web-search/") ||
       request.url.startsWith("/mcp-current-user/") ||
-      request.url.startsWith("/mcp-local-tools/") ||
       request.url.startsWith("/mcp-automations/") ||
       request.url.startsWith("/mcp-web-sites/") ||
       request.url.startsWith("/mcp-connections/") ||
@@ -881,9 +875,6 @@ export function buildRunnerServer(
     );
     if (!conversationId.success || !ownerId.success) {
       return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
-    }
-    if (config.LINKSENSE_WORKER_PROVIDER === "desktop" && conversationId.data !== config.LINKSENSE_SERVICE_SESSION_ID) {
-      return reply.code(403).send({ error_code: "RUNNER_OWNER_MISMATCH" });
     }
     const workspace = userWorkspacePathSchema.optional().safeParse(request.headers[runtimeWorkspaceHeader]);
     if (!workspace.success) return reply.code(400).send({ error_code: "RUNNER_WORKSPACE_INVALID" });
@@ -1116,13 +1107,6 @@ export function buildRunnerServer(
       if (!token)
         return reply.code(401).send({ code: "FILE_SERVICE_FORBIDDEN" });
       const body = mcpArtifactBodySchema.parse(request.body);
-      const desktop = Boolean(config.LINKSENSE_DESKTOP_TURN_ID);
-      const controller = new AbortController();
-      const abort = () => { if (!reply.raw.writableFinished) controller.abort(); };
-      if (desktop) {
-        reply.raw.once("close", abort);
-        if (reply.raw.destroyed) abort();
-      }
       try {
         return await pool.registerArtifact(conversationId, token, {
           workspaceRelativePath: body.workspaceRelativePath,
@@ -1130,12 +1114,12 @@ export function buildRunnerServer(
           ...(body.mimeType ? { mimeType: body.mimeType } : {}),
           ...(body.artifactKind ? { artifactKind: body.artifactKind } : {}),
           ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
-        }, desktop ? controller.signal : undefined);
+        });
       } catch (error) {
         const failure =
           error instanceof FileServiceRequestError
             ? error
-            : desktop ? desktopArtifactUncertain() : new FileServiceRequestError(
+            : new FileServiceRequestError(
                 "ARTIFACT_REGISTRATION_UNAVAILABLE",
                 true,
                 503,
@@ -1153,8 +1137,6 @@ export function buildRunnerServer(
           retryable: failure.retryable,
           ...(failure.artifactId && { artifact_id: failure.artifactId }),
         });
-      } finally {
-        if (desktop) reply.raw.off("close", abort);
       }
     },
   );
@@ -1557,66 +1539,9 @@ export function buildRunnerServer(
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
-    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data.input, controller.signal, body.data.nativeCallId))); }
+    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data.input, controller.signal))); }
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
     finally { reply.raw.off("close", abort); }
-  });
-
-  app.post<{ Params: { conversationId: string } }>(
-    "/mcp-current-user/:conversationId/computer-execute",
-    { bodyLimit: 40_000 },
-    async (request, reply) => {
-      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
-      const conversationId = uuid.safeParse(request.params.conversationId);
-      const body = z.strictObject({
-        input: computerExecuteInputSchema,
-        // Reads carry no native call id; an act without one is denied below.
-        nativeCallId: runnerNativeIdSchema.optional(),
-      }).safeParse(request.body);
-      if (!token) return reply.code(401).send({ error_code: "COMPUTER_ACCESS_DENIED" });
-      if (!conversationId.success || !body.success) {
-        return reply.code(400).send({ error_code: "COMPUTER_INVALID" });
-      }
-      const controller = new AbortController();
-      const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
-      reply.raw.once("close", abort);
-      try {
-        return await pool.computerExecute(
-          conversationId.data, token, body.data.input, controller.signal, body.data.nativeCallId,
-        );
-      } catch {
-        return reply.code(503).send({ error_code: "COMPUTER_UNAVAILABLE" });
-      } finally {
-        reply.raw.off("close", abort);
-      }
-    },
-  );
-
-  app.post<{ Params: { conversationId: string } }>("/mcp-local-tools/:conversationId/execute", { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
-    const { desktopCloudToolInvocationSchema } = await import("@linksense/shared");
-    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
-    const conversationId = uuid.safeParse(request.params.conversationId);
-    if (!token) return reply.code(401).send({ error_code: "FORBIDDEN" });
-    if (!conversationId.success) return reply.code(400).send({ error_code: "VALIDATION_ERROR" });
-    const body = z.strictObject({ operation: z.string(), input: z.unknown() }).safeParse(request.body);
-    const invocation = body.success
-      ? desktopCloudToolInvocationSchema.safeParse({ operation: body.data.operation, input: body.data.input })
-      : null;
-    if (!invocation?.success) return reply.code(400).send({ error_code: "VALIDATION_ERROR" });
-    const controller = new AbortController();
-    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
-    reply.raw.once("close", abort);
-    try {
-      return await pool.localToolsExecute(conversationId.data, token, invocation.data, controller.signal);
-    } catch (error) {
-      const status = error instanceof ConversationReferenceRequestError ? error.statusCode : 503;
-      const code = error instanceof ConversationReferenceRequestError && error.errorCode
-        ? error.errorCode
-        : status === 403 ? "FORBIDDEN" : "DESKTOP_TOOL_UNAVAILABLE";
-      return reply.code(status).send({ error_code: code });
-    } finally {
-      reply.raw.off("close", abort);
-    }
   });
 
   app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/referenced-conversation", async (request, reply) => {
@@ -1645,10 +1570,7 @@ export function buildRunnerServer(
       if (!token)
         return reply.code(401).send({ code: "CONNECTION_ACCESS_DENIED", retryable: false });
       const conversationId = uuid.safeParse(request.params.conversationId);
-      const input = (config.LINKSENSE_DESKTOP_TURN_ID
-        ? desktopConnectionRequestBodySchema
-        : connectionInputSchema.transform(input => ({ input, page: undefined }))
-      ).safeParse(request.body);
+      const input = connectionInputSchema.safeParse(request.body);
       if (!conversationId.success || !input.success)
         return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
       const controller = new AbortController();
@@ -1660,9 +1582,8 @@ export function buildRunnerServer(
         return await pool.accessConnection(
           conversationId.data,
           token,
-          input.data.input,
+          input.data,
           controller.signal,
-          input.data.page,
         );
       } catch (error) {
         const failure =

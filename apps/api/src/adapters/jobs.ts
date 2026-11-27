@@ -4,10 +4,8 @@ import { rm } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
 
 import { Queue, Worker, type ConnectionOptions, type RedisOptions, type Job } from "bullmq"
-import pLimit from "p-limit"
 import { z } from "zod"
 
-import { desktopArtifactMaxParts, webBundleLimits, webBundlePathSchema } from "@linksense/shared"
 
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
@@ -23,10 +21,6 @@ import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
 import { removeConversationArtifactThumbnails } from "../modules/files/artifact-thumbnail.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
-import { webBundleObjectKey } from "../modules/web-sites/bundle.js"
-import {
-  desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactScratchPath, desktopArtifactStagingKey,
-} from "../modules/files/desktop-artifact-storage.js"
 import {
   conversationPrewarmInputSchema,
   type ConversationPrewarmInput,
@@ -52,11 +46,6 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("object-delete"),
     objectKey: z.string().min(1),
-  }),
-  z.strictObject({ type: z.literal("desktop-artifact-cleanup"), conversationId: z.uuid(), artifactId: z.uuid() }),
-  z.strictObject({
-    type: z.literal("desktop-website-cleanup"), conversationId: z.uuid(), artifactId: z.uuid(),
-    paths: z.array(webBundlePathSchema).min(1).max(webBundleLimits.files),
   }),
   z.strictObject({
     type: z.literal("runtime-cleanup"),
@@ -296,38 +285,6 @@ export class BackgroundJobs {
     )
   }
 
-  async enqueueDesktopArtifactCleanup(
-    conversationId: string,
-    artifactId: string,
-    delay: number,
-    partCount = 0,
-  ): Promise<void> {
-    const cleanup = {
-      name: "desktop-artifact-cleanup" as const,
-      data: { type: "desktop-artifact-cleanup" as const, conversationId, artifactId },
-      opts: { jobId: `desktop-artifact-${artifactId}`, delay },
-    }
-    const count = z.number().int().min(0).max(desktopArtifactMaxParts).parse(partCount)
-    if (count === 0) {
-      await this.queue.add(cleanup.name, cleanup.data, cleanup.opts)
-      return
-    }
-    const parts = Array.from({ length: count }, (_, index) => {
-      const objectKey = desktopArtifactPartKey(artifactId, index)
-      return {
-        name: "object-delete" as const,
-        data: { type: "object-delete" as const, objectKey },
-        opts: { jobId: `object-${digest(objectKey)}`, delay },
-      }
-    })
-    await this.queue.addBulk([cleanup, ...parts])
-  }
-
-  async enqueueDesktopWebsiteCleanup(conversationId: string, artifactId: string, paths: string[], delay: number): Promise<void> {
-    await this.queue.add("desktop-website-cleanup", { type: "desktop-website-cleanup", conversationId, artifactId, paths },
-      { jobId: `desktop-website-${artifactId}`, delay })
-  }
-
   async enqueueRuntimeCleanup(
     ownerId: string,
     conversationId: string,
@@ -491,43 +448,6 @@ export class BackgroundJobs {
     if (data.type === "object-delete") {
       await this.storage.removeObject(data.objectKey, AbortSignal.timeout(30_000))
       return { deleted: true }
-    }
-    if (data.type === "desktop-artifact-cleanup" || data.type === "desktop-website-cleanup") {
-      if (!this.prisma) throw new Error("Artifact cleanup database is not configured")
-      const { conversationId, artifactId } = data
-      const finalKey = desktopArtifactObjectKey(conversationId, artifactId)
-      const retained = await this.prisma.$transaction(async tx => {
-        // Wait out a deletion transaction that is moving the artifact to retention.
-        await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${conversationId}::uuid FOR SHARE`
-        const [row] = await tx.$queryRaw<Array<{ referenced: boolean }>>`
-          SELECT EXISTS (SELECT 1 FROM conversation_files WHERE minio_object_key = ${finalKey})
-              OR EXISTS (SELECT 1 FROM retained_artifacts WHERE minio_object_key = ${finalKey}) AS referenced
-        `
-        return row?.referenced !== false
-      })
-      if (data.type === "desktop-website-cleanup") {
-        if (!retained) {
-          const keys = data.paths.map(path => webBundleObjectKey(artifactId, path))
-          if (this.storage.removeObjects) {
-            await this.storage.removeObjects(keys, AbortSignal.timeout(30_000))
-          } else {
-            const limit = pLimit(8)
-            const results = await Promise.allSettled(keys.map(key => limit(() =>
-              this.storage.removeObject(key, AbortSignal.timeout(30_000)))))
-            const failure = results.find(result => result.status === "rejected")
-            if (failure) throw failure.reason
-          }
-        }
-        return { deleted: !retained }
-      }
-      const signal = AbortSignal.timeout(30_000)
-      const stage = desktopArtifactStagingKey(artifactId)
-      for (const key of [stage, finalKey]) {
-        await this.storage.removeIncompleteUpload?.(key, signal)
-        if (key !== finalKey || !retained) await this.storage.removeObject(key, signal)
-      }
-      await rm(desktopArtifactScratchPath(this.capabilityRoot, artifactId), { recursive: true, force: true })
-      return { deleted: !retained }
     }
     if (data.type === "conversation-prewarm") {
       // A speculative warmup must not compete with real work after a queue
@@ -999,7 +919,7 @@ function projectCleanupFailure(
     data.type === "runtime-cleanup" ||
     data.type === "workspace-directory-delete"
       ? "workspace"
-      : data.type === "object-delete" || data.type === "desktop-artifact-cleanup" || data.type === "desktop-website-cleanup"
+      : data.type === "object-delete"
         ? "object_storage"
         : "capability_directory"
   return {

@@ -51,7 +51,6 @@ import {
   type Paginated,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import { useSignOutConfirmation } from "@/components/auth/use-sign-out-confirmation"
@@ -413,7 +412,6 @@ function AppSidebarContent({
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
-  const macDesktopHost = isMacDesktopHost()
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -974,19 +972,17 @@ function AppSidebarContent({
       <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
         <div className="sidebar-brand-bar -mx-4 flex h-(--conversation-top-bar-height) shrink-0 items-center justify-between gap-4 border-b border-border px-4">
           <div className="sidebar-brand-row contents gap-4">
-            {!macDesktopHost && (
-              <Link
-                to="/conversations/new"
-                state={newTaskNavigationState}
-                onClick={onNavigate}
-                className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <ProductLogo
-                  productName={productName}
-                  className="sidebar-brand-logo min-w-0"
-                />
-              </Link>
-            )}
+            <Link
+              to="/conversations/new"
+              state={newTaskNavigationState}
+              onClick={onNavigate}
+              className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <ProductLogo
+                productName={productName}
+                className="sidebar-brand-logo min-w-0"
+              />
+            </Link>
             <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
               <ShellSidebarActions
                 mobile={!observeBackgroundExecutions}

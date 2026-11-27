@@ -132,7 +132,7 @@ const taskOwnedDirectoryPreparationDependencies: TaskOwnedDirectoryPreparationDe
 export class WorkerManager {
   private get runtimeIdentities(): RuntimeIdentities {
     const identity = this.provider.capabilities.workspaceIdentity
-    if (!identity) throw new Error("desktop workers require the supervised desktop entrypoint")
+    if (!identity) throw new Error("worker provider requires a workspace identity")
     return identity
   }
   private readonly workers = new Map<string, ManagedWorker>()

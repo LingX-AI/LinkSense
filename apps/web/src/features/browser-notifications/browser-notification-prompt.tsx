@@ -2,7 +2,6 @@ import { useState } from "react"
 import { BellRingIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { useAuth } from "@/app/auth-state"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
@@ -22,7 +21,7 @@ import { useBrowserNotificationActivation } from "@/features/browser-notificatio
 
 export function BrowserNotificationPrompt() {
   const { status, user } = useAuth()
-  if (isMacDesktopHost() || status !== "authenticated" || !user) return null
+  if (status !== "authenticated" || !user) return null
   return <ActiveBrowserNotificationPrompt key={user.id} userId={user.id} />
 }
 

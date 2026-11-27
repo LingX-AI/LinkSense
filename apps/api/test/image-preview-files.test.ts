@@ -10,7 +10,7 @@ const preview = {
   kind: "attachment", source: "user_upload", status: "bound", filename: "image.png", mimeType: "image/png",
   sizeBytes: 128n, checksumSha256: "a".repeat(64), storageBackend: "workspace", workspaceRelativePath: `attachments/${fileId}/image.png`,
   workspaceRootRelPath: "owner/home/workspace", minioObjectKey: null, downloadable: false, downloadCardEventId: null,
-  knowledgeAssetReferenceId: null, desktopSourcePathDigest: null, createdBy: null, createdAt: new Date(0), updatedAt: new Date(0),
+  knowledgeAssetReferenceId: null, createdBy: null, createdAt: new Date(0), updatedAt: new Date(0),
 } satisfies ConversationFile;
 
 describe("referenced image attachments", () => {

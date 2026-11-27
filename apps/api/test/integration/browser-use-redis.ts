@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -93,50 +92,6 @@ try {
     browser: "local",
     data: { tab_id: 1 },
   });
-  const mailbox = {
-    credentialMasterKey: randomBytes(32).toString("base64"),
-    credentialKeyId: "fixture",
-    isActiveRun: async () => true,
-  };
-  const source = new BrowserUseService(second.store, endpoint, mailbox);
-  const pump = new BrowserUseService(first.store, endpoint, mailbox);
-  const scope = {
-    ownerId: owner, conversationId: task, turnId: randomUUID(), deviceId: randomUUID(),
-    connectionId: randomUUID(), runtimeGeneration: randomUUID(),
-  };
-  const controller = new AbortController();
-  const text = "fixture command payload";
-  const desktop = source.execute(owner, task, { action: "type", tab_id: 1, text, clear: false },
-    controller.signal, { scope, connectionId: connection, checkRun: async () => {} });
-  try {
-    const commandKey = `local-browser:${owner}:desktop:command`;
-    const requestKey = `local-browser:${owner}:desktop:request`;
-    for (let attempt = 0; attempt < 100 && !await firstClient.exists(commandKey); attempt++) await delay(10);
-    const records = await firstClient.mget(commandKey, requestKey);
-    for (const record of records) {
-      assert.match(record ?? "", /^v1\./u);
-      assert(!record?.includes(text));
-    }
-    assert.equal(await first.next(owner, connection), null, "the disabled API cannot consume Mac work");
-    const deliveries = (await Promise.all([pump.next(owner, connection), source.next(owner, connection)]))
-      .filter(delivery => delivery !== null);
-    assert.equal(deliveries.length, 1);
-    const delivered = deliveries[0];
-    assert(delivered && delivered.request.action === "type");
-    assert.equal(delivered.request.text, text);
-    await pump.reply(owner, connection, {
-      id: delivered.id,
-      result: { ok: true, browser: "local", data: { tab_id: 1 } },
-    });
-    await pump.reply(owner, connection, {
-      id: delivered.id,
-      result: { ok: true, browser: "local", data: { tab_id: 2 } },
-    });
-    assert.deepEqual(await desktop, { ok: true, browser: "local", data: { tab_id: 1 } });
-  } finally {
-    controller.abort();
-    await desktop;
-  }
   const replacement = await second.connect(owner, credential, "edge");
   assert.equal(await first.maintain(owner, connection), false);
   await first.disconnect(owner, connection);
@@ -145,7 +100,7 @@ try {
   assert.deepEqual(await first.status(owner), { connected: false });
   assert.equal(await first.authenticate(credential), null);
   process.stdout.write(
-    "PASS: two API instances share legacy and encrypted Mac mailboxes, with single delivery, lock enforcement and revocation through real Redis\n",
+    "PASS: two API instances share browser jobs with single delivery, lock enforcement and revocation through real Redis\n",
   );
 } finally {
   await Promise.all(clients.map((client) => client.quit()));

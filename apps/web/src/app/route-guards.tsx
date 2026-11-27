@@ -1,17 +1,9 @@
 import { CloudOffIcon } from "lucide-react"
-import { useEffect, useLayoutEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
-import {
-  isMacDesktopHost,
-  scopeDesktopNotificationNavigation,
-  subscribeDesktopLaunchNavigation,
-  subscribeDesktopNavigation,
-  updateDesktopLaunchContext,
-} from "@/adapters/desktop/desktop-adapter"
-import { type User, type BootstrapStatus } from "@/api/contracts"
-import { useAuth, type AuthContextValue } from "@/app/auth-state"
+import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { rememberBrowserUseLoginReturn } from "@/app/external-login-destination"
 import { hasMaintenanceAdminEntry } from "@/app/maintenance-admin-entry"
@@ -26,7 +18,6 @@ import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowl
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { browserExtensionSettingsPath } from "@/features/browser-use/settings-path"
-import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -37,85 +28,12 @@ const maintenanceAdminAuthPaths = new Set([
   "/auth/social/callback",
 ])
 
-// These locations may redirect as soon as auth/bootstrap settles. Let their
-// own navigation commit before consuming a launch link so it cannot be
-// overwritten, while stable signed-in public pages remain eligible.
-const desktopLaunchRedirectPaths = new Set([
-  "/",
-  "/initialize",
-  "/login",
-  "/register",
-  "/register/activate",
-  "/auth/oidc/callback",
-  "/auth/saml/callback",
-  "/auth/social/callback",
-])
-
-// Deep links can originate on public pages, but their protected destination
-// must wait for auth, bootstrap and redirects. ProtectedRoute separately
-// scopes notification clicks.
-function useDesktopLaunchNavigation({
-  status,
-  user,
-  bootstrap,
-  pathname,
-  search,
-  hash,
-}: {
-  status: AuthContextValue["status"]
-  user: User | null
-  bootstrap: BootstrapStatus | undefined
-  pathname: string
-  search: string
-  hash: string
-}): void {
-  const navigate = useNavigate()
-  const ownerId = user?.id ?? null
-  const ready =
-    status === "authenticated" &&
-    user !== null &&
-    bootstrap?.initialized === true &&
-    !(bootstrap.maintenance?.active && user.role !== "admin") &&
-    !desktopLaunchRedirectPaths.has(pathname)
-
-  useEffect(() => {
-    updateDesktopLaunchContext({
-      authenticated: status === "authenticated",
-      ownerId,
-      ready,
-      pathname,
-      search,
-      hash,
-    })
-    // A notification buffered on a public page can first route after the
-    // destination commits under ProtectedRoute, even if auth did not change.
-  }, [ownerId, ready, status, pathname, search, hash])
-
-  useEffect(
-    () =>
-      subscribeDesktopLaunchNavigation((path) => {
-        void Promise.resolve(navigate(path)).catch(() => {
-          console.error("DESKTOP_NAVIGATION_UNAVAILABLE")
-        })
-      }),
-    [navigate]
-  )
-}
-
 export function BootstrapGate() {
   const { t } = useTranslation()
   const productName = useProductName()
   const { bootstrap, isLoading, error, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
-  useDesktopLaunchNavigation({
-    status,
-    user,
-    bootstrap,
-    pathname: location.pathname,
-    search: location.search,
-    hash: location.hash,
-  })
   const content = (
     <>
       <Outlet />
@@ -132,7 +50,7 @@ export function BootstrapGate() {
         title={t("bootstrap.unavailableTitle", { productName })}
         message={
           error instanceof ApiError &&
-          error.errorCode === "DESKTOP_UPDATE_REQUIRED"
+          error.errorCode === "CLIENT_UPDATE_REQUIRED"
             ? getErrorMessage(error, t, { productName })
             : t("bootstrap.unavailableDescription", { productName })
         }
@@ -164,29 +82,6 @@ export function ProtectedRoute() {
   const { status, user } = useAuth()
   const { bootstrap } = useBootstrap()
   const location = useLocation()
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (status !== "authenticated") return
-    // Menu actions stay live-only: they are delivered only while their
-    // protected route owns the listener. Deep links use the stable
-    // BootstrapGate subscription so signed-in public pages can consume them.
-    return subscribeDesktopNavigation((path) => {
-      if (path === location.pathname) return
-      void Promise.resolve(navigate(path)).catch(() => {
-        console.error("DESKTOP_NAVIGATION_UNAVAILABLE")
-      })
-    })
-  }, [status, navigate, location.pathname])
-  useLayoutEffect(() => {
-    // Let the index redirect settle before consuming an app-launch click.
-    if (status !== "authenticated" || !user || location.pathname === "/") return
-    return scopeDesktopNotificationNavigation(
-      user.id,
-      location.pathname,
-      location.search,
-      location.hash
-    )
-  }, [status, user, location.pathname, location.search, location.hash])
   const [destinationUserId, setDestinationUserId] = useState(user?.id)
   if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
     setDestinationUserId(user.id)
@@ -243,20 +138,12 @@ export function PublicAuthRoute() {
 function SessionRestoreError() {
   const { t } = useTranslation()
   const productName = useProductName()
-  const { retryRestore } = useAuth()
-
-  // Only the Mac host keeps a pending launch intent in this document. Web,
-  // Windows, and an unresolved platform retain the reload fallback.
-  const onRetry =
-    retryRestore && isMacDesktopHost()
-      ? retryRestore
-      : () => window.location.reload()
 
   return (
     <PublicFailureScreen
       title={t("bootstrap.unavailableTitle", { productName })}
       message={t("auth.sessionRestoreFailed")}
-      onRetry={onRetry}
+      onRetry={() => window.location.reload()}
     />
   )
 }
@@ -332,7 +219,7 @@ function resolveAuthenticatedDestination(
   state: unknown,
   userId: string | undefined
 ): string {
-  const fallback = desktopLoginReturn() ?? "/conversations/new"
+  const fallback = "/conversations/new"
   if (
     typeof state !== "object" ||
     state === null ||

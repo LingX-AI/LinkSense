@@ -246,19 +246,15 @@ export class ConnectionService {
     turnId: string,
     input: ConnectionInput,
     signal?: AbortSignal,
-    checkRun?: () => Promise<void>,
   ): Promise<{ data: ConnectionResult; assertCurrent: () => Promise<void> }> {
     const write = isConnectionWrite(input);
-    if (checkRun && write) throw new AppError("CONNECTION_ACCESS_DENIED");
     const assertTurn = () => this.options.repository.assertTurn(
       ownerId,
       conversationId,
       turnId,
       write,
-      ...(checkRun ? [true] as const : []),
     );
     signal?.throwIfAborted();
-    await checkRun?.();
     await assertTurn();
     if (input.operation === "list_connections") {
       const items = await this.list(ownerId);
@@ -272,22 +268,14 @@ export class ConnectionService {
       };
     }
     const { provider } = input;
-    const checkDesktopTurn = checkRun && (async () => {
-      signal?.throwIfAborted();
-      await assertTurn();
-      await checkRun();
-      signal?.throwIfAborted();
-    });
-    const { token, revision } = await this.access(ownerId, provider, signal, checkDesktopTurn);
+    const { token, revision } = await this.access(ownerId, provider, signal);
     if (write && !hasConnectionWriteAccess(provider, token.scopes))
       throw new AppError("CONNECTION_WRITE_REQUIRED");
     const assertCurrent = async () => {
       signal?.throwIfAborted();
       await assertTurn();
-      const settings = checkRun ? await this.options.settings.resolve(provider) : undefined;
       const current = await this.options.repository.get(ownerId, provider);
-      if (current?.status !== "connected" || current.revision !== revision ||
-          (checkRun && (!current.encryptedPayload || settings?.client_id !== token.clientId))) {
+      if (current?.status !== "connected" || current.revision !== revision) {
         throw new AppError("CONNECTION_REQUIRED");
       }
     };
@@ -311,10 +299,6 @@ export class ConnectionService {
         throw new AppError("VALIDATION_ERROR");
       }
     }
-    if (checkRun) {
-      await assertCurrent();
-      await checkRun();
-    }
     signal?.throwIfAborted();
     let page;
     try {
@@ -337,7 +321,7 @@ export class ConnectionService {
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof AppError && error.code === "CONNECTION_REQUIRED")
-        await this.requireReconnect(ownerId, input.provider, revision, checkDesktopTurn);
+        await this.requireReconnect(ownerId, input.provider, revision);
       throw error;
     }
     await this.options.audit.write({
@@ -368,7 +352,6 @@ export class ConnectionService {
     ownerId: string,
     provider: ConnectionProvider,
     signal?: AbortSignal,
-    checkDesktopTurn?: () => Promise<void>,
   ): Promise<{ token: ConnectionToken; revision: number }> {
     const row = await this.options.repository.mutate(
       ownerId,
@@ -376,7 +359,6 @@ export class ConnectionService {
       async (current) => {
         signal?.throwIfAborted();
         const settings = await this.settings(provider);
-        await checkDesktopTurn?.();
         signal?.throwIfAborted();
         if (
           !current ||
@@ -401,7 +383,6 @@ export class ConnectionService {
             token,
             signal,
           );
-          await checkDesktopTurn?.();
           return {
             ...current,
             encryptedPayload: this.encrypt(
@@ -413,7 +394,6 @@ export class ConnectionService {
         } catch (error) {
           signal?.throwIfAborted();
           if (error instanceof AppError && error.code === "CONNECTION_REQUIRED") {
-            await checkDesktopTurn?.();
             return this.reconnectWrite(current);
           }
           throw error;
@@ -434,10 +414,8 @@ export class ConnectionService {
     ownerId: string,
     provider: ConnectionProvider,
     revision: number,
-    checkDesktopTurn?: () => Promise<void>,
   ): Promise<void> {
     await this.options.repository.mutate(ownerId, provider, async (row) => {
-      await checkDesktopTurn?.();
       return row?.revision === revision
         ? this.reconnectWrite(row)
         : (row ?? disconnectedConnection(0));

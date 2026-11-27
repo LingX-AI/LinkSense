@@ -145,10 +145,6 @@ export class SystemService {
       maintenance,
       registration,
       knowledge: { enabled: this.config.knowledge.enabled },
-      desktop: {
-        local_computer: this.config.desktopLocalExecutionEnabled,
-        cloud_target: this.config.desktopCloudTargetEnabled,
-      },
       auth: {
         password: { status: "available" },
         oidc: {

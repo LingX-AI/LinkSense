@@ -25,7 +25,6 @@ import {
   FileService,
   fileServiceTesting,
 } from "../src/modules/files/service.js";
-import { desktopArtifactObjectKey } from "../src/modules/files/desktop-artifact-storage.js";
 import { testConfig } from "./test-config.js";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -2802,120 +2801,6 @@ describe("FileService download authorization audit", () => {
       expect(JSON.stringify(fixture.audit.write.mock.calls)).not.toContain(
         `conversations/private/${filename}`,
       );
-    },
-  );
-});
-
-describe("FileService desktop artifact source path binding", () => {
-  const turnId = "40000000-0000-4000-8000-000000000001";
-  const digestA = "a".repeat(64);
-  const digestB = "b".repeat(64);
-  const sha = createHash("sha256").update("desktop-artifact").digest("hex");
-
-  const artifactInput = (desktopSourcePathDigest?: string) => ({
-    ownerId: OWNER_ID,
-    conversationId: CONVERSATION_ID,
-    projectionTurnId: turnId,
-    artifactId: FILE_ID,
-    displayName: "report.txt",
-    mimeType: "text/plain",
-    sizeBytes: 8,
-    sha256: sha,
-    ...(desktopSourcePathDigest ? { desktopSourcePathDigest } : {}),
-  });
-
-  const committedArtifact = (desktopSourcePathDigest: string | null) => ({
-    id: FILE_ID,
-    conversationId: CONVERSATION_ID,
-    turnId,
-    kind: "artifact",
-    source: "agent_generated",
-    status: "registered",
-    filename: "report.txt",
-    mimeType: "text/plain",
-    sizeBytes: 8n,
-    checksumSha256: sha,
-    storageBackend: "minio",
-    minioObjectKey: desktopArtifactObjectKey(CONVERSATION_ID, FILE_ID),
-    downloadable: true,
-    desktopSourcePathDigest,
-  });
-
-  async function desktopArtifactFixture(
-    committed: Record<string, unknown> | null,
-  ) {
-    const fixture = await fileFixture();
-    const tx = artifactTransactionFixture();
-    tx.conversationFile.findFirst.mockResolvedValue(committed);
-    fixture.prisma.$transaction.mockImplementation(
-      async (operation: (transaction: typeof tx) => Promise<unknown>) =>
-        operation(tx),
-    );
-    return { fixture, tx };
-  }
-
-  it("commits a new digest with the artifact and never returns or logs it", async () => {
-    const { fixture, tx } = await desktopArtifactFixture(null);
-    const receipt = await fixture.service.registerVerifiedDesktopArtifact(
-      artifactInput(digestA),
-      async () => {},
-    );
-    expect(receipt).toMatchObject({ artifact_id: FILE_ID });
-    expect(tx.conversationFile.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ desktopSourcePathDigest: digestA }),
-    });
-    expect(JSON.stringify(receipt)).not.toContain(digestA);
-    expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(digestA);
-    expect(JSON.stringify(tx.conversationEvent.create.mock.calls.map(
-      ([event]) => event.data.payloadJson,
-    ))).not.toContain(digestA);
-    expect(
-      JSON.stringify(fixture.redis.publishConversationEvent.mock.calls),
-    ).not.toContain(digestA);
-  });
-
-  it("replays an identical digest without rewriting the committed artifact", async () => {
-    const { fixture, tx } = await desktopArtifactFixture(
-      committedArtifact(digestA),
-    );
-    await expect(
-      fixture.service.registerVerifiedDesktopArtifact(
-        artifactInput(digestA),
-        async () => {},
-      ),
-    ).resolves.toMatchObject({ artifact_id: FILE_ID });
-    expect(tx.conversationFile.create).not.toHaveBeenCalled();
-  });
-
-  it("refuses to rebind a committed artifact to a different digest", async () => {
-    const { fixture, tx } = await desktopArtifactFixture(
-      committedArtifact(digestA),
-    );
-    await expect(
-      fixture.service.registerVerifiedDesktopArtifact(
-        artifactInput(digestB),
-        async () => {},
-      ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(tx.conversationFile.create).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["an artifact stored before digests", null, digestA],
-    ["a worker that omits the header", digestA, undefined],
-  ] as const)(
-    "keeps %s replayable without changing the existing binding",
-    async (_label, committedDigest, requestDigest) => {
-      const { fixture, tx } = await desktopArtifactFixture(
-        committedArtifact(committedDigest),
-      );
-      await expect(
-        fixture.service.registerVerifiedDesktopArtifact(
-          artifactInput(requestDigest),
-          async () => {},
-        ),
-      ).resolves.toMatchObject({ artifact_id: FILE_ID });
-      expect(tx.conversationFile.create).not.toHaveBeenCalled();
     },
   );
 });

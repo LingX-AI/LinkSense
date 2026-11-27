@@ -375,34 +375,6 @@ export const conversationMessages = {
       placeholder:
         "Describe la tarea que quieres analizar y planificar. LinkSense hará preguntas y redactará un plan primero.",
     },
-    localFolder: {
-      menuLabel: "Usar carpeta local",
-      menuSearchValue: "carpeta local equipo archivos",
-      menuDescription: "Elige una carpeta para esta tarea. Si no eliges ninguna, se usa este equipo (tu carpeta personal).",
-      current: "Carpeta local: {{name}}",
-      readOnly: "Elegir carpeta local (solo lectura)",
-      readWrite: "Elegir carpeta local (lectura y escritura)",
-      homeReadOnly: "Carpeta actual: solo lectura",
-      homeReadWrite: "Carpeta actual: lectura y escritura",
-      chooseFolder: "Elegir carpeta local",
-      permissions: "Permisos de la carpeta",
-      permissionRead: "Solo lectura",
-      permissionWrite: "Lectura y escritura",
-      defaultFolder: "Se usa la carpeta personal por defecto",
-      permissionModeTitle: "Modo de permisos",
-      permissionModeAuto: "Automático",
-      permissionModeAutoDescription:
-        "Aprueba automáticamente las ediciones de la carpeta y los comandos de solo lectura simples; pregunta por los demás comandos.",
-      permissionModeManual: "Manual",
-      permissionModeManualDescription:
-        "Pide confirmación en este Mac antes de ejecutar comandos y modificar archivos.",
-      permissionModeAcceptEdits: "Aceptar ediciones",
-      permissionModeAcceptEditsDescription:
-        "Aprueba automáticamente las ediciones de la carpeta; pregunta antes de los comandos.",
-      permissionModeBypass: "Omitir permisos",
-      permissionModeBypassDescription:
-        "No pregunta nunca. Los comandos se ejecutan con el acceso completo de tu cuenta del Mac.",
-    },
     proposedPlan: {
       title: "Plan",
     },

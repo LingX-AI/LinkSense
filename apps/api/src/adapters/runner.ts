@@ -3,8 +3,6 @@ import { publicKnowledgeRunnerResultSchema, type PublicKnowledgeRunnerInput, typ
 import { diskUsageSchema, runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
-import type { DesktopRunner } from "./desktop-runner.js";
-import { DesktopCommandUncertainError } from "./desktop-device-transport.js";
 import {
   runtimeWorkspaceHeader,
   runnerRequestIdHeader,
@@ -33,8 +31,6 @@ import {
   type RuntimeMcpServer,
   type RunnerCodexGoal,
   type RunnerKnowledgeBaseSelection,
-  type ConversationReferenceContext,
-  type DesktopExecutionStartReceipt,
 } from "@linksense/shared";
 import { z } from "zod";
 import pRetry from "p-retry";
@@ -217,28 +213,6 @@ const runnerSteerOperationSchema = z.discriminatedUnion("status", [
 export type RunnerStartOperation = z.infer<typeof runnerStartOperationSchema>;
 type RunnerSteerOperation = z.infer<typeof runnerSteerOperationSchema>;
 
-// The cloud HTTP start-operation wire contract is intentionally strict and has
-// no native fork lineage. A desktop start receipt carries the optional
-// `forkedFromId`; preserve it on this internal view without relaxing the cloud
-// parser or accepting that key from a cloud response.
-type RunnerStartOperationView =
-  | Exclude<RunnerStartOperation, { status: "succeeded" }>
-  | Extract<DesktopExecutionStartReceipt, { status: "succeeded" }>;
-
-type RunnerStartSuccessResult =
-  Extract<RunnerStartOperationView, { status: "succeeded" }>["result"];
-
-function provesExactTransitionFork(
-  result: RunnerStartSuccessResult,
-  sourceThreadId: string,
-): boolean {
-  // The scoped native inspect must prove that the target forked from the
-  // authorized source and is a distinct native thread. A nil or same-thread
-  // proof cannot authorize a model transition.
-  return result.forkedFromId === sourceThreadId &&
-    result.codexThreadId !== sourceThreadId;
-}
-
 export type RunnerCapability = {
   id: string;
   name: string;
@@ -264,10 +238,6 @@ export type RunnerStartInput = {
   conversationId: string;
   projectionTurnId: string;
   appServerProcessLimit: number;
-  /** Server-derived bounded quote context; never accepted from a device or raw prompt. */
-  conversationReferenceContext?: ConversationReferenceContext;
-  /** Internal Mac capability gate; never serialized to the cloud runner. */
-  requiresConversationReferenceRead?: true;
   operationKind?: "turn" | "compact";
   eventProjectionTurnId?: string;
   ownerId: string;
@@ -389,8 +359,8 @@ export type RunnerRecoveryConfirmationInput = {
 };
 
 export class RunnerStartOperationUncertainError extends AppError {
-  constructor(desktop = false) {
-    super(desktop ? "RUNNER_OPERATION_UNCERTAIN" : "RUNNER_UNAVAILABLE");
+  constructor() {
+    super("RUNNER_UNAVAILABLE");
     this.name = "RunnerStartOperationUncertainError";
   }
 }
@@ -430,37 +400,7 @@ class RunnerTransportError extends Error {
 }
 
 export class RunnerClient {
-  private desktop?: DesktopRunner;
   private readonly coldStartDispatcher: Agent;
-
-  useDesktopRunner(desktop: DesktopRunner): void {
-    this.desktop = desktop;
-  }
-
-  async isDesktopConversation(ownerId: string, conversationId: string): Promise<boolean> {
-    return await this.resolveWorkspace?.(ownerId, conversationId) === "local";
-  }
-
-  assertDesktopAvailable(ownerId: string, conversationId: string, needsAttachments = false, needsConversationReference = false, needsModelSwitch = false, needsConversationReferenceRead = false): Promise<void> {
-    return this.desktopRunner().assertAvailable({ ownerId, conversationId }, needsAttachments, needsConversationReference, needsModelSwitch, needsConversationReferenceRead);
-  }
-
-  assertDesktopDeviceAvailable(deviceId: string, needsConversationReferenceRead = false): Promise<void> {
-    return this.desktopRunner().assertDeviceAvailable(deviceId, needsConversationReferenceRead);
-  }
-
-  drainDesktopTurn(scope: Parameters<DesktopRunner["drain"]>[0]): ReturnType<DesktopRunner["drain"]> {
-    return this.desktopRunner().drain(scope);
-  }
-
-  desktopProjectionFence(...args: Parameters<DesktopRunner["projectionFence"]>): ReturnType<DesktopRunner["projectionFence"]> {
-    return this.desktopRunner().projectionFence(...args);
-  }
-
-  private desktopRunner(): DesktopRunner {
-    if (!this.desktop) throw new AppError("RUNNER_UNAVAILABLE");
-    return this.desktop;
-  }
 
   async runPublicKnowledgeTurn(input: PublicKnowledgeRunnerInput): Promise<PublicKnowledgeRunnerResult> {
     return publicKnowledgeRunnerResultSchema.parse(await this.request("/public-knowledge/turn", "POST", input, { ownerId: input.applicationId, timeoutMs: 210_000 }));
@@ -479,7 +419,7 @@ export class RunnerClient {
   }
   constructor(
     private readonly config: AppConfig,
-    private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | "local" | null>,
+    private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | null>,
   ) {
     this.coldStartDispatcher = new Agent({ headersTimeout: this.coldStartTimeoutMs });
   }
@@ -492,8 +432,6 @@ export class RunnerClient {
     const conversationId = /^\/conversations\/([0-9a-f-]{36})(?:\/|$)/iu.exec(pathname)?.[1];
     if (!ownerId || !conversationId) return {};
     const resolved = await this.resolveWorkspace?.(ownerId, conversationId);
-    // Operations without a device contract may not fall back to cloud.
-    if (resolved === "local") throw new AppError("RUNNER_UNAVAILABLE");
     const selected = workspacePath === undefined ? resolved : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
     if (selected == null) return {};
     const placement = runtimePlacementSchema.parse(selected);
@@ -508,20 +446,15 @@ export class RunnerClient {
   async acceptStartTurn(
     input: RunnerStartInput,
     placement?: RuntimePlacement,
-    desktopConnectionId?: string,
-  ): Promise<RunnerStartOperationView> {
+  ): Promise<RunnerStartOperation> {
     assertCapabilityGeneration(input.capabilityGeneration);
     assertCapabilityGeneration(input.mcpGeneration);
     const { conversationId, ...startBody } = input;
-    // Local-only device fields are never cloud runner start-body fields.
-    delete startBody.conversationReferenceContext;
-    delete startBody.requiresConversationReferenceRead;
     const startPath = `/conversations/${conversationId}/turns/start`;
     const operationPath = `${startPath}/${input.projectionTurnId}`;
     let operation: RunnerStartOperation;
-    const local = Boolean(desktopConnectionId) || await this.isDesktopConversation(input.ownerId, conversationId);
     try {
-      operation = local ? await this.desktopRunner().start(input, desktopConnectionId) : await this.requestStartOperation(
+      operation = await this.requestStartOperation(
         startPath,
         "POST",
         input.ownerId,
@@ -529,10 +462,6 @@ export class RunnerClient {
         placement,
       );
     } catch (error) {
-      if (local) {
-        if (error instanceof DesktopCommandUncertainError) throw new RunnerStartOperationUncertainError(true);
-        throw error;
-      }
       if (
         error instanceof RunnerHttpError &&
         error.status === 409 &&
@@ -574,7 +503,7 @@ export class RunnerClient {
       return operation;
     }
     if (operation.status === "uncertain") {
-      throw new RunnerStartOperationUncertainError(local);
+      throw new RunnerStartOperationUncertainError();
     }
     if (operation.errorCode === "RUNNER_TURN_START_SEALED") {
       throw new AppError("TURN_START_CLOSED");
@@ -582,49 +511,25 @@ export class RunnerClient {
     throw new AppError("RUNNER_UNAVAILABLE");
   }
 
-  async startTurn(input: RunnerStartInput, desktopConnectionId?: string): Promise<Extract<DesktopExecutionStartReceipt, { status: "succeeded" }>["result"]> {
+  async startTurn(input: RunnerStartInput): Promise<Extract<RunnerStartOperation, { status: "succeeded" }>["result"]> {
     const waitDeadline = Date.now() + START_OPERATION_WAIT_LIMIT_MS;
     const { conversationId } = input;
-    const local = Boolean(desktopConnectionId) || await this.isDesktopConversation(input.ownerId, conversationId);
-    let operation = desktopConnectionId
-      ? await this.acceptStartTurn(input, undefined, desktopConnectionId)
-      : await this.acceptStartTurn(input);
+    let operation = await this.acceptStartTurn(input);
 
-    const transitionSourceThreadId = local && input.modelTransitionSource ? input.codexThreadId ?? undefined : undefined;
-    // A start with attachments can return success immediately. The same
-    // read-only inspection still has to verify that result's native lineage.
-    const needsForkProof = operation.status === "succeeded" && transitionSourceThreadId !== undefined;
     let consecutiveQueryFailures = 0;
-    for (let inspectSucceeded = needsForkProof; operation.status === "starting" || inspectSucceeded; inspectSucceeded = false) {
+    while (operation.status === "starting") {
       if (Date.now() >= waitDeadline) {
-        throw new RunnerStartOperationUncertainError(local);
+        throw new RunnerStartOperationUncertainError();
       }
       await wait(100);
       try {
-        const queried = await this.inspectStartOperation(conversationId, input.projectionTurnId, input.ownerId,
-          ...(local ? [{
-            ...(desktopConnectionId && { connectionId: desktopConnectionId }),
-            runtimeGeneration: input.expectedRuntimeGeneration,
-            ...(transitionSourceThreadId && { transitionSourceThreadId }),
-          }] : []));
+        const queried = await this.inspectStartOperation(conversationId, input.projectionTurnId, input.ownerId);
         if (!queried) {
           throw new RunnerStartOperationUncertainError();
-        }
-        // A native start receipt cannot prove the fork, so both immediate and
-        // delayed successes are authorized only by the scoped inspect above.
-        if (queried.status === "succeeded" && transitionSourceThreadId !== undefined &&
-            !provesExactTransitionFork(queried.result, transitionSourceThreadId)) {
-          throw new RunnerStartOperationUncertainError(true);
-        }
-        if (operation.status === "succeeded" && (queried.status !== "succeeded" ||
-          queried.result.codexThreadId !== operation.result.codexThreadId ||
-          queried.result.codexTurnId !== operation.result.codexTurnId)) {
-          throw new RunnerStartOperationUncertainError(true);
         }
         operation = queried;
         consecutiveQueryFailures = 0;
       } catch (error) {
-        if (local) throw new RunnerStartOperationUncertainError(true);
         if (
           error instanceof AppError ||
           error instanceof RunnerStartOperationUncertainError
@@ -640,7 +545,7 @@ export class RunnerClient {
 
     if (operation.status === "succeeded") return operation.result;
     if (operation.status === "uncertain") {
-      throw new RunnerStartOperationUncertainError(local);
+      throw new RunnerStartOperationUncertainError();
     }
     if (operation.errorCode === "RUNNER_TURN_START_SEALED") {
       throw new AppError("TURN_START_CLOSED");
@@ -652,15 +557,7 @@ export class RunnerClient {
     conversationId: string,
     projectionTurnId: string,
     ownerId: string,
-    desktopScope?: { runtimeGeneration?: string; connectionId?: string; transitionSourceThreadId?: string },
-  ): Promise<RunnerStartOperationView | null> {
-    if (desktopScope?.connectionId || await this.isDesktopConversation(ownerId, conversationId)) {
-      try {
-        return await this.desktopRunner().inspect({ ownerId, conversationId, turnId: projectionTurnId, ...desktopScope });
-      } catch {
-        throw new RunnerStartOperationUncertainError(true);
-      }
-    }
+  ): Promise<RunnerStartOperation | null> {
     return this.queryStartOperation(
       `/conversations/${conversationId}/turns/start/${projectionTurnId}`,
       ownerId,
@@ -672,16 +569,8 @@ export class RunnerClient {
     projectionTurnId: string,
     ownerId: string,
     expectedRuntimeGeneration: string,
-    desktopConnectionId?: string,
   ): Promise<RunnerStartOperation> {
-    const local = Boolean(desktopConnectionId) || await this.isDesktopConversation(ownerId, conversationId);
     try {
-      if (local) {
-        return await this.desktopRunner().seal({
-          ownerId, conversationId, turnId: projectionTurnId, runtimeGeneration: expectedRuntimeGeneration,
-          ...(desktopConnectionId ? { connectionId: desktopConnectionId } : {}),
-        });
-      }
       return await this.requestStartOperation(
         `/conversations/${conversationId}/turns/start/${projectionTurnId}/seal`,
         "POST",
@@ -692,7 +581,7 @@ export class RunnerClient {
       // A generation/owner conflict, an unavailable seal store, or a lost
       // response cannot prove that the runner did not accept a concurrent
       // start. Every seal failure therefore remains fail-closed.
-      throw new RunnerStartOperationUncertainError(local);
+      throw new RunnerStartOperationUncertainError();
     }
   }
 
@@ -908,14 +797,6 @@ export class RunnerClient {
     ownerId: string,
     expectedRuntimeGeneration: string,
   ): Promise<RunnerTurnInterruptResult> {
-    if (await this.isDesktopConversation(ownerId, conversationId)) {
-      try {
-        return await this.desktopRunner().interrupt({ ownerId, conversationId, turnId: projectionTurnId, runtimeGeneration: expectedRuntimeGeneration });
-      } catch (error) {
-        if (error instanceof DesktopCommandUncertainError) throw new AppError("RUNNER_OPERATION_UNCERTAIN");
-        throw error;
-      }
-    }
     const result = await this.request<unknown>(
       `/conversations/${conversationId}/turns/start/${projectionTurnId}/interrupt`,
       "POST",
@@ -942,12 +823,7 @@ export class RunnerClient {
     codexTurnId: string;
     itemId: string;
     response: NativeUserInputResponse;
-    desktop?: { turnId: string; runtimeGeneration: string };
   }): Promise<{ accepted: true }> {
-    if (input.desktop) {
-      const { desktop, ownerId, conversationId, ...body } = input;
-      return this.desktopRunner().respondUserInput({ ownerId, conversationId, ...desktop }, body);
-    }
     if ("method" in input.response) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     let response: Response;
     try {

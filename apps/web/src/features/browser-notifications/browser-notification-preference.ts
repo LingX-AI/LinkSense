@@ -1,15 +1,7 @@
-import {
-  getDesktopServerUrl,
-  isMacDesktopHost,
-  supportsNativeDesktopNotifications,
-} from "@/adapters/desktop/desktop-adapter"
-
 export const BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX =
   "linksense.browserNotifications.enabled"
 export const BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX =
   "linksense.browserNotifications.delivered"
-export const DESKTOP_APPROVAL_NOTIFICATION_STORAGE_KEY_PREFIX =
-  "linksense.browserNotifications.approvals"
 export const BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS = 5_000
 export const BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT = 5_000
 export const BROWSER_NOTIFICATION_DISPLAY_CONFIRMATION_TIMEOUT_MS = 500
@@ -17,10 +9,8 @@ export const BROWSER_NOTIFICATION_DISPLAY_CONFIRMATION_TIMEOUT_MS = 500
 const BROWSER_NOTIFICATION_PREFERENCE_CHANGED_EVENT =
   "linksense:browser-notification-preference-changed"
 const transientDisabledPreferences = new Set<string>()
-const transientDisabledApprovalPreferences = new Set<string>()
 const transientDeliveryHistory = new Map<string, string[]>()
 const transientFeedCursors = new Map<string, string>()
-const macNotificationDenials = new Set<string>()
 
 export type BrowserNotificationPermission =
   NotificationPermission | "unsupported" | "unknown"
@@ -44,23 +34,11 @@ export function isLinkSenseActivelyUsed(): boolean {
 }
 
 export function browserNotificationStorageKey(userId: string) {
-  return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
+  return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${userId}`
 }
 
 export function browserNotificationDeliveryStorageKey(userId: string) {
-  return `${BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
-}
-
-/**
- * Approval reminders are a separate, default-off choice for the same server
- * and account as the master macOS notification preference.
- */
-export function desktopApprovalNotificationStorageKey(userId: string) {
-  return `${DESKTOP_APPROVAL_NOTIFICATION_STORAGE_KEY_PREFIX}:${notificationAccountKey(userId)}`
-}
-
-function notificationAccountKey(userId: string) {
-  return isMacDesktopHost() ? `mac:${getDesktopServerUrl()}:${userId}` : userId
+  return `${BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX}:${userId}`
 }
 
 function resolveNotificationApi(): typeof Notification | null {
@@ -82,7 +60,7 @@ function resolveLocalStorage(): Storage | null {
 
 function readEnabled(userId: string): boolean {
   try {
-    if (transientDisabledPreferences.has(notificationAccountKey(userId)))
+    if (transientDisabledPreferences.has(userId))
       return false
     const stored = resolveLocalStorage()?.getItem(
       browserNotificationStorageKey(userId)
@@ -95,82 +73,17 @@ function readEnabled(userId: string): boolean {
   return false
 }
 
-export function readDesktopApprovalReminderEnabled(userId: string): boolean {
-  try {
-    if (
-      transientDisabledApprovalPreferences.has(notificationAccountKey(userId))
-    )
-      return false
-    return (
-      resolveLocalStorage()?.getItem(
-        desktopApprovalNotificationStorageKey(userId)
-      ) === "true"
-    )
-  } catch {
-    return false
-  }
-}
-
-/**
- * Persist the approval reminder choice independently of the master switch.
- * A false write is the only accepted failure: the caller keeps the switch off
- * and reports a local storage error.
- */
-export function persistDesktopApprovalReminder(
-  userId: string,
-  enabled: boolean
-): boolean {
-  const storageKey = desktopApprovalNotificationStorageKey(userId)
-  const accountKey = notificationAccountKey(userId)
-  try {
-    const storage = resolveLocalStorage()
-    if (!storage) throw new Error("browser notification storage unavailable")
-    storage.setItem(storageKey, String(enabled))
-    if (storage.getItem(storageKey) !== String(enabled)) {
-      throw new Error("browser notification preference was not persisted")
-    }
-    transientDisabledApprovalPreferences.delete(accountKey)
-  } catch {
-    if (
-      !enabled &&
-      removeBrowserNotificationPreference(resolveLocalStorage(), storageKey)
-    ) {
-      transientDisabledApprovalPreferences.delete(accountKey)
-      dispatchPreferenceChanged(userId)
-      return true
-    }
-    // The approval choice fails closed: whatever storage accepted, this tab
-    // keeps reminders off until a later successful preference write.
-    transientDisabledApprovalPreferences.add(accountKey)
-    dispatchPreferenceChanged(userId)
-    return false
-  }
-  dispatchPreferenceChanged(userId)
-  return true
-}
-
 export function readBrowserNotificationPreference(
   userId: string
 ): BrowserNotificationPreference {
   const notificationApi = resolveNotificationApi()
-  const desktop = isMacDesktopHost()
-  const supported = desktop
-    ? supportsNativeDesktopNotifications()
-    : notificationApi !== null
-  const permission = desktop
-    ? macNotificationDenials.has(notificationAccountKey(userId))
-      ? "denied"
-      : "unknown"
-    : (notificationApi?.permission ?? "unsupported")
+  const supported = notificationApi !== null
+  const permission = notificationApi?.permission ?? "unsupported"
   const enabled = readEnabled(userId)
 
   return {
     enabled,
-    effectiveEnabled:
-      enabled &&
-      (desktop
-        ? supported && permission !== "denied"
-        : permission === "granted"),
+    effectiveEnabled: enabled && permission === "granted",
     permission,
     supported,
   }
@@ -189,7 +102,6 @@ export function persistBrowserNotificationPreference(
   enabled: boolean
 ): boolean {
   const storageKey = browserNotificationStorageKey(userId)
-  const accountKey = notificationAccountKey(userId)
   const storage = resolveLocalStorage()
   try {
     if (!storage) throw new Error("browser notification storage unavailable")
@@ -197,16 +109,15 @@ export function persistBrowserNotificationPreference(
     if (storage.getItem(storageKey) !== String(enabled)) {
       throw new Error("browser notification preference was not persisted")
     }
-    transientDisabledPreferences.delete(accountKey)
-    if (enabled) macNotificationDenials.delete(accountKey)
+    transientDisabledPreferences.delete(userId)
   } catch {
     const removed = removeBrowserNotificationPreference(storage, storageKey)
     if (!enabled && removed) {
-      transientDisabledPreferences.delete(accountKey)
+      transientDisabledPreferences.delete(userId)
       dispatchPreferenceChanged(userId)
       return true
     }
-    transientDisabledPreferences.add(accountKey)
+    transientDisabledPreferences.add(userId)
     dispatchPreferenceChanged(userId)
     return false
   }
@@ -232,11 +143,6 @@ export function disableBrowserNotifications(userId: string) {
   return persistBrowserNotificationPreference(userId, false)
 }
 
-export function recordMacNotificationDenial(userId: string) {
-  macNotificationDenials.add(notificationAccountKey(userId))
-  disableBrowserNotifications(userId)
-}
-
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationEnableResult> {
   const notificationApi = resolveNotificationApi()
   if (!notificationApi) return "unsupported"
@@ -254,18 +160,18 @@ export async function requestBrowserNotificationPermission(): Promise<BrowserNot
 }
 
 export function readBrowserNotificationFeedCursor(userId: string) {
-  return transientFeedCursors.get(notificationAccountKey(userId)) ?? null
+  return transientFeedCursors.get(userId) ?? null
 }
 
 export function saveBrowserNotificationFeedCursor(
   userId: string,
   cursor: string
 ) {
-  transientFeedCursors.set(notificationAccountKey(userId), cursor)
+  transientFeedCursors.set(userId, cursor)
 }
 
 export function clearBrowserNotificationFeedCursor(userId: string) {
-  transientFeedCursors.delete(notificationAccountKey(userId))
+  transientFeedCursors.delete(userId)
 }
 
 export function subscribeBrowserNotificationPreference(
@@ -278,11 +184,7 @@ export function subscribeBrowserNotificationPreference(
     if (detail?.userId === userId) onChange()
   }
   const handleStorage = (event: StorageEvent) => {
-    if (
-      event.key === browserNotificationStorageKey(userId) ||
-      event.key === desktopApprovalNotificationStorageKey(userId)
-    )
-      onChange()
+    if (event.key === browserNotificationStorageKey(userId)) onChange()
   }
   const handleVisibilityChange = () => {
     if (document.visibilityState === "visible") onChange()

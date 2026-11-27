@@ -1,6 +1,6 @@
 import type { WorkerRequestTrace } from "./worker-lifecycle.js"
 
-export type WorkerProviderKind = "docker" | "local-process" | "desktop"
+export type WorkerProviderKind = "docker" | "local-process"
 
 export type PosixWorkerProviderCapabilities = {
   isolation: "container" | "none"

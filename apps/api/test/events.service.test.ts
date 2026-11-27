@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 
 import Fastify, { type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
 import type { ConversationEvent, Prisma } from "../src/generated/prisma/client.js";
@@ -25,9 +24,6 @@ const PLAN_REVIEW_ID = "32000000-0000-4000-8000-000000000001";
 const ATTEMPT_ID = "31000000-0000-4000-8000-000000000001";
 const RECOVERY_ATTEMPT_ID = "31000000-0000-4000-8000-000000000002";
 const CAPABILITY_GENERATION = "d".repeat(64);
-const RUNTIME_GENERATION = "01900000-0000-7000-8000-000000000010";
-const DEVICE_ID = "40000000-0000-4000-8000-000000000001";
-const CONNECTION_ID = "40000000-0000-4000-8000-000000000002";
 const TEST_MODEL_RUNTIME = {
   model: "test-model",
   reasoningEffort: "medium" as const,
@@ -1214,13 +1210,11 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
   });
 
   it.each([
-    { runtime: "cloud", status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
-    { runtime: "cloud", status: "answering", resolvedAction: "accept", transition: { status: "answered", resolvedAction: "accept" } },
-    { runtime: "Mac", status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
-    { runtime: "Mac", status: "answering", resolvedAction: "accept", transition: { status: "expired", resolvedAction: "accept" } },
+    { status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
+    { status: "answering", resolvedAction: "accept", transition: { status: "answered", resolvedAction: "accept" } },
   ] as const)(
-    "records native request closure for a $runtime request in $status with action $resolvedAction",
-    async ({ runtime, status, resolvedAction, transition }) => {
+    "records native request closure for a request in $status with action $resolvedAction",
+    async ({ status, resolvedAction, transition }) => {
       const fixture = eventFixture();
       const storedRequest = {
         id: "72000000-0000-4000-8000-000000000001",
@@ -1257,27 +1251,8 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         params: { threadId: "codex-thread-1", requestId: 17 },
       } as const;
       const deliveryId = "73000000-0000-4000-8000-000000000001";
-      if (runtime === "Mac") {
-        const credential = {
-          id: CONVERSATION_ID, codexThreadId: storedRequest.codexThreadId,
-          revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active",
-        };
-        fixture.tx.$queryRaw.mockResolvedValueOnce([credential]);
-        fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(turnRow());
-        await expect(fixture.service.ingestDesktopBatch({
-          scope: {
-            conversationId: CONVERSATION_ID, ownerId: OWNER_ID, turnId: TURN_ID,
-            deviceId: "74000000-0000-4000-8000-000000000001",
-            runtimeGeneration: "75000000-0000-4000-8000-000000000001",
-          },
-          check: async () => {},
-          questions: true,
-        }, { conversationId: CONVERSATION_ID, events: [{ deliveryId, event }] }, error => { throw error; }))
-          .resolves.toEqual([deliveryId]);
-      } else {
-        await expect(fixture.service.ingest(CONVERSATION_ID, event, deliveryId))
-          .resolves.toMatchObject({ accepted: true });
-      }
+      await expect(fixture.service.ingest(CONVERSATION_ID, event, deliveryId))
+        .resolves.toMatchObject({ accepted: true });
 
       expect(fixture.tx.conversationUserInputRequest.update).toHaveBeenCalledWith(
         {
@@ -4863,120 +4838,6 @@ describe("ConversationEventService SSE replay privacy", () => {
     expect(auditCreate).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ["no terminal proof from the drain", undefined, "RUNNING_TURN_RECOVERY_RUNNER_UNAVAILABLE"],
-    ["a mismatched thread", {
-      codexThreadId: "other-thread",
-      turn: { id: "codex-turn-1", status: "interrupted" },
-    }, "RUNNING_TURN_RECOVERY_FAILED"],
-    ["a mismatched turn", {
-      codexThreadId: "codex-thread-1",
-      turn: { id: "other-turn", status: "interrupted" },
-    }, "RUNNING_TURN_RECOVERY_FAILED"],
-  ] as const)(
-    "retains the original running local turn and slot for process-exit history with %s",
-    async (_name, terminal, reasonCode) => {
-      const fixture = localProcessExitFixture(terminal);
-      const ingest = vi.spyOn(fixture.service, "ingest");
-
-      await expect(
-        fixture.service.reconcileAfterProcessExit(processExitPayload(), {
-          desktopConnectionId: CONNECTION_ID,
-        }),
-      ).resolves.toEqual({ outcome: "failed", reasonCode });
-
-      expect(fixture.drainDesktopTurn).toHaveBeenCalledExactlyOnceWith({
-        ownerId: OWNER_ID,
-        conversationId: CONVERSATION_ID,
-        turnId: TURN_ID,
-        runtimeGeneration: RUNTIME_GENERATION,
-        deviceId: DEVICE_ID,
-        connectionId: CONNECTION_ID,
-      });
-      expect(ingest).not.toHaveBeenCalled();
-      expect(fixture.prisma.conversationTurn.updateMany).not.toHaveBeenCalled();
-      expect(fixture.releaseTurnSlot).not.toHaveBeenCalled();
-      expect(fixture.startPending).not.toHaveBeenCalled();
-      expect(fixture.prisma.auditLog.create).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("retries an uncertain local history read with the original identity and settles only after its exact terminal", async () => {
-    const fixture = localProcessExitFixture(undefined);
-    const ingest = vi.spyOn(fixture.service, "ingest").mockResolvedValue({
-      accepted: true,
-    });
-    fixture.conversationTurn.findUnique
-      .mockResolvedValueOnce(fixture.runningTurn)
-      .mockResolvedValueOnce(fixture.runningTurn)
-      .mockResolvedValueOnce({ ...fixture.runningTurn, status: "completed" });
-    // The real runner throws when native history has no terminal (for example
-    // still in progress or absent), rather than inventing one for the caller.
-    fixture.drainDesktopTurn.mockRejectedValueOnce(
-      new Error("desktop native terminal outcome is unavailable"),
-    );
-
-    await expect(
-      fixture.service.reconcileAfterProcessExit(processExitPayload(), {
-        desktopConnectionId: CONNECTION_ID,
-      }),
-    ).resolves.toEqual({
-      outcome: "failed",
-      reasonCode: "RUNNING_TURN_RECOVERY_FAILED",
-    });
-    expect(ingest).not.toHaveBeenCalled();
-    expect(fixture.releaseTurnSlot).not.toHaveBeenCalled();
-    expect(fixture.startPending).not.toHaveBeenCalled();
-
-    fixture.drainDesktopTurn.mockResolvedValueOnce({
-      terminal: {
-        codexThreadId: "codex-thread-1",
-        turn: { id: "codex-turn-1", status: "completed" },
-      },
-      deviceId: DEVICE_ID,
-      check: fixture.check,
-    });
-    await expect(
-      fixture.service.reconcileAfterProcessExit(processExitPayload(), {
-        desktopConnectionId: CONNECTION_ID,
-      }),
-    ).resolves.toEqual({ outcome: "succeeded" });
-
-    expect(fixture.drainDesktopTurn).toHaveBeenCalledTimes(2);
-    expect(fixture.drainDesktopTurn.mock.calls[1]).toEqual(
-      fixture.drainDesktopTurn.mock.calls[0],
-    );
-    expect(ingest).toHaveBeenCalledOnce();
-    const [conversationId, event, deliveryId, options] =
-      ingest.mock.calls[0]!;
-    expect(conversationId).toBe(CONVERSATION_ID);
-    expect(event).toEqual({
-      method: "turn/completed",
-      visibility: "user_visible",
-      params: {
-        threadId: "codex-thread-1",
-        turn: { id: "codex-turn-1", status: "completed" },
-      },
-    });
-    expect(deliveryId).toBe(
-      uuidv5("desktop:recovered-terminal", TURN_ID),
-    );
-    expect(options).toEqual({
-      scope: {
-        ownerId: OWNER_ID,
-        conversationId: CONVERSATION_ID,
-        turnId: TURN_ID,
-        runtimeGeneration: RUNTIME_GENERATION,
-        deviceId: DEVICE_ID,
-      },
-      check: fixture.check,
-    });
-    expect(fixture.releaseTurnSlot).toHaveBeenCalledExactlyOnceWith(
-      CONVERSATION_ID,
-      TURN_ID,
-    );
-  });
-
   it("confirms the exact recovery token only after terminal projection commits", async () => {
     const turnUpdate = vi.fn().mockResolvedValue({ count: 1 });
     const confirmRecovery = vi.fn().mockResolvedValue({ confirmed: true });
@@ -6318,78 +6179,6 @@ function processExitPayload() {
     conversationId: CONVERSATION_ID,
     projectionTurnId: TURN_ID,
     capabilityGeneration: CAPABILITY_GENERATION,
-  };
-}
-
-type LocalProcessExitTerminal = {
-  codexThreadId: string;
-  turn: {
-    id: string;
-    status: "inProgress" | "completed" | "failed" | "interrupted";
-  };
-};
-
-function localProcessExitFixture(terminal: LocalProcessExitTerminal | undefined) {
-  const check = vi.fn(async () => undefined);
-  const drainDesktopTurn = vi.fn().mockResolvedValue({
-    terminal,
-    deviceId: DEVICE_ID,
-    check,
-  });
-  const releaseTurnSlot = vi.fn().mockResolvedValue(undefined);
-  const startPending = vi.fn().mockResolvedValue(undefined);
-  const runningTurn = {
-    id: TURN_ID,
-    conversationId: CONVERSATION_ID,
-    submittedBy: OWNER_ID,
-    codexThreadId: "codex-thread-1",
-    codexTurnId: "codex-turn-1",
-    status: "running",
-    taskKind: "turn",
-    collaborationMode: "default",
-    capabilityGeneration: CAPABILITY_GENERATION,
-    capabilitiesJson: [],
-  };
-  const prisma = {
-    conversation: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: CONVERSATION_ID,
-        ownerId: OWNER_ID,
-        executionTarget: "local",
-        desktopDeviceId: DEVICE_ID,
-        codexThreadId: "codex-thread-1",
-        runtimeGeneration: RUNTIME_GENERATION,
-      }),
-    },
-    conversationTurn: {
-      findUnique: vi.fn().mockResolvedValue(runningTurn),
-      updateMany: vi.fn(),
-    },
-    pendingRequest: {
-      findFirst: vi.fn().mockResolvedValue({
-        id: "60000000-0000-4000-8000-000000000020",
-        status: "waiting_previous_turn",
-      }),
-    },
-    auditLog: { create: vi.fn().mockResolvedValue({}) },
-  };
-  const service = new ConversationEventService(
-    prisma as never,
-    { releaseTurnSlot } as never,
-    {
-      runnerForRecovery: () => ({ drainDesktopTurn }),
-      startPending,
-    } as never,
-  );
-  return {
-    service,
-    prisma,
-    conversationTurn: prisma.conversationTurn,
-    runningTurn,
-    drainDesktopTurn,
-    releaseTurnSlot,
-    startPending,
-    check,
   };
 }
 

@@ -7,7 +7,6 @@ import {
   Clock3Icon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
-  ShieldAlertIcon,
 } from "lucide-react"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { toString } from "mdast-util-to-string"
@@ -15,26 +14,21 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import { useTranslation } from "react-i18next"
 import remarkGfm from "remark-gfm"
 
-import {
-  computerActToolName,
-  type BrowserUseApproval,
-  type ConversationUserInputResponse,
-  type DesktopApprovalRequest,
+import type {
+  BrowserUseApproval,
+  ConversationUserInputResponse,
 } from "@linksense/shared"
 
 import type {
   ConversationUserInputRequest,
   ConversationUserInputRequestView,
 } from "@/api/contracts"
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -72,26 +66,12 @@ import { cn } from "@/lib/utils"
 
 const otherChoice = "__linksense_other__"
 const optionChoice = (index: number) => `option:${index}`
-const computerActApprovalQuestionIdPrefix = "mcp_tool_call_approval_"
-
-type ComputerActApprovalQuestionKey =
-  | "desktopComputerUse.approvalQuestion"
-  | "desktopComputerUse.approvalClickQuestion"
-  | "desktopComputerUse.approvalTypeQuestion"
-
-type DesktopApprovalDecision = NonNullable<
-  DesktopApprovalRequest["resolved_action"]
->
 
 type ConversationUserInputRequestCardProps = Readonly<{
   request: ConversationUserInputRequestView
   browserApproval?: BrowserUseApproval
   submitting: boolean
   onSubmit?: (response: ConversationUserInputResponse) => void
-  onApprovalDecision?: (
-    request: DesktopApprovalRequest,
-    decision: DesktopApprovalDecision
-  ) => void
   onInteractionStart?: () => void
 }>
 
@@ -100,7 +80,6 @@ export function ConversationUserInputRequestCard({
   browserApproval,
   submitting,
   onSubmit,
-  onApprovalDecision,
   onInteractionStart,
 }: ConversationUserInputRequestCardProps) {
   const { t } = useTranslation()
@@ -140,28 +119,16 @@ export function ConversationUserInputRequestCard({
             aria-level={3}
             className="flex min-w-0 items-center gap-2 text-sm"
           >
-            {request.kind === "desktop_approval" ? (
-              <ShieldAlertIcon
-                className="size-3.5 shrink-0"
-                aria-hidden="true"
-              />
-            ) : (
-              <MessageCircleQuestionIcon
-                className="size-3.5 shrink-0"
-                aria-hidden="true"
-              />
-            )}
+            <MessageCircleQuestionIcon
+              className="size-3.5 shrink-0"
+              aria-hidden="true"
+            />
             {t(
               request.kind === "form"
                 ? terminal
                   ? "conversation.userInput.formResultTitle"
                   : "conversation.userInput.formTitle"
-                : request.kind === "desktop_approval"
-                  ? request.approval.method ===
-                    "item/commandExecution/requestApproval"
-                    ? "desktopApproval.titleCommand"
-                    : "desktopApproval.titleFileChange"
-                  : "conversation.userInput.title"
+                : "conversation.userInput.title"
             )}
           </CardTitle>
           <UserInputStatusBadge status={displayStatus} />
@@ -185,14 +152,6 @@ export function ConversationUserInputRequestCard({
                 </span>
               )}
             </>
-          ) : request.kind === "desktop_approval" ? (
-            t(
-              request.status === "unconfirmed"
-                ? "desktopApproval.unconfirmedDescription"
-                : request.approval.method === "item/commandExecution/requestApproval"
-                  ? "desktopApproval.descriptionCommand"
-                  : "desktopApproval.descriptionFileChange"
-            )
           ) : request.kind === "form" ? (
             <UserInputRequestMarkdownDescription content={request.message} />
           ) : (
@@ -216,23 +175,10 @@ export function ConversationUserInputRequestCard({
           terminal={terminal}
           onSubmit={(response) => onSubmit?.(response)}
         />
-      ) : request.kind === "desktop_approval" ? (
-        <DesktopApprovalDetails
-          key={`${request.id}:${request.status}:${request.updated_at}`}
-          request={request}
-          disabled={disabled}
-          submitting={submitting}
-          onDecision={
-            onApprovalDecision
-              ? (decision) => onApprovalDecision(request, decision)
-              : undefined
-          }
-        />
       ) : (
         <QuestionUserInputForm
           key={`${request.id}:${request.status}:${request.updated_at}`}
           request={request}
-          browserApproval={browserApproval}
           formId={formId}
           disabled={disabled}
           submitting={submitting}
@@ -341,7 +287,7 @@ function UserInputStatusBadge({
 }) {
   const { t } = useTranslation()
   const Icon =
-    status === "pending" || status === "unconfirmed"
+    status === "pending"
       ? MessageCircleQuestionIcon
       : status === "submitting"
         ? LoaderCircleIcon
@@ -369,180 +315,13 @@ function UserInputStatusBadge({
         className={status === "submitting" ? "animate-spin" : undefined}
         aria-hidden="true"
       />
-      {t(status === "unconfirmed"
-        ? "desktopApproval.unconfirmed"
-        : `conversation.userInput.status.${status}`)}
+      {t(`conversation.userInput.status.${status}`)}
     </Badge>
   )
 }
 
-function DesktopApprovalDetails({
-  request,
-  disabled,
-  submitting,
-  onDecision,
-}: {
-  request: DesktopApprovalRequest
-  disabled: boolean
-  submitting: boolean
-  onDecision?: (decision: DesktopApprovalDecision) => void
-}) {
-  const { t } = useTranslation()
-  const { approval } = request
-  const decisions =
-    request.status === "pending" && onDecision ? approval.decisions : []
-  const decisionLabel = (decision: DesktopApprovalDecision) =>
-    t(
-      decision === "accept"
-        ? "desktopApproval.allowOnce"
-        : decision === "decline"
-          ? "desktopApproval.decline"
-          : "desktopApproval.cancel"
-    )
-
-  return (
-    <>
-      <CardContent className="pb-(--card-spacing)">
-        <dl className="grid gap-3 text-sm">
-          {approval.method === "item/commandExecution/requestApproval" ? (
-            <>
-              <div className="grid gap-1">
-                <dt className="text-xs font-semibold text-[var(--app-muted)]">
-                  {t("desktopApproval.commandLabel")}
-                </dt>
-                <dd className="min-w-0">
-                  <code className="block rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 font-mono text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-[var(--app-text)]">
-                    {approval.command.replace(/^\$SYSTEM_BIN\//u, "/bin/")}
-                  </code>
-                </dd>
-              </div>
-              {approval.cwd && (
-                <div className="grid gap-1">
-                  <dt className="text-xs font-semibold text-[var(--app-muted)]">
-                    {t("desktopApproval.cwdLabel")}
-                  </dt>
-                  <dd className="min-w-0">
-                    <code className="block rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 font-mono text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-[var(--app-text)]">
-                      {approval.cwd}
-                    </code>
-                  </dd>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="grid gap-1">
-              <dt className="text-xs font-semibold text-[var(--app-muted)]">
-                {t("desktopApproval.pathsLabel")}
-              </dt>
-              <dd className="min-w-0">
-                <ul role="list" className="grid gap-1">
-                  {approval.changes.map(({ path, kind }) => {
-                    const destination = kind.type === "update" ? kind.move_path : null
-                    return (
-                      <li key={path} className="min-w-0 rounded-lg border border-[color:var(--app-border)] bg-[var(--app-user-surface)] px-3 py-2 text-xs">
-                        <span className="font-semibold text-foreground">
-                          {t(`desktopApproval.fileOperations.${destination ? "move" : kind.type}`)}
-                        </span>
-                        <code className="block font-mono leading-5 wrap-anywhere whitespace-pre-wrap">{path}</code>
-                        {destination && (
-                          <>
-                            <span>{t("desktopApproval.moveTo")}</span>
-                            <code className="block font-mono leading-5 wrap-anywhere whitespace-pre-wrap">{destination}</code>
-                          </>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              </dd>
-            </div>
-          )}
-        </dl>
-      </CardContent>
-      {decisions.length > 0 && (
-        <CardFooter
-          className="shrink-0 flex-wrap justify-end gap-1.5 border-t pb-2 [.border-t]:pt-2"
-          aria-busy={submitting || undefined}
-        >
-          {decisions.map((decision) => (
-            <Button
-              key={decision}
-              type="button"
-              size="sm"
-              variant={
-                decision === "accept"
-                  ? "default"
-                  : decision === "decline"
-                    ? "outline"
-                    : "ghost"
-              }
-              disabled={disabled}
-              onClick={() => onDecision?.(decision)}
-            >
-              {decisionLabel(decision)}
-            </Button>
-          ))}
-        </CardFooter>
-      )}
-    </>
-  )
-}
-
-/**
- * Matches only the exact projection the Runner makes for a native computer_act
- * approval: one blocking question correlated to the item, the tool name as
- * header and summary (or summary with the projected click/type action), and the
- * exact Allow/Cancel options with no free text. Any other question keeps its
- * native text.
- */
-function getComputerActApprovalQuestionKey(
-  request: Extract<
-    ConversationUserInputRequest,
-    { kind: "questions" | "async_questions" }
-  >,
-  browserApproval: BrowserUseApproval | undefined
-): ComputerActApprovalQuestionKey | null {
-  if (
-    request.kind !== "questions" ||
-    browserApproval ||
-    request.questions.length !== 1 ||
-    request.auto_resolve_at !== null
-  ) {
-    return null
-  }
-  const [question] = request.questions
-  if (!question) return null
-  const options = question.options
-  if (options?.length !== 2) return null
-  const [allow, cancel] = options
-  if (
-    question.id !==
-      `${computerActApprovalQuestionIdPrefix}${request.item_id}` ||
-    question.header !== computerActToolName ||
-    question.is_other !== false ||
-    question.is_secret !== false ||
-    allow?.label !== "Allow" ||
-    allow?.description !== "" ||
-    cancel?.label !== "Cancel" ||
-    cancel?.description !== ""
-  ) {
-    return null
-  }
-  if (question.question === computerActToolName) {
-    return "desktopComputerUse.approvalQuestion"
-  }
-  if (question.question === `${computerActToolName}: click`) {
-    return "desktopComputerUse.approvalClickQuestion"
-  }
-  if (question.question === `${computerActToolName}: type`) {
-    return "desktopComputerUse.approvalTypeQuestion"
-  }
-  return null
-}
-
 function QuestionUserInputForm({
   request,
-  browserApproval,
   formId,
   disabled,
   submitting,
@@ -552,19 +331,12 @@ function QuestionUserInputForm({
     ConversationUserInputRequest,
     { kind: "questions" | "async_questions" }
   >
-  browserApproval?: BrowserUseApproval
   formId: string
   disabled: boolean
   submitting: boolean
   onSubmit: (response: ConversationUserInputResponse) => void
 }) {
   const { t } = useTranslation()
-  const computerActApprovalQuestionKey = getComputerActApprovalQuestionKey(
-    request,
-    browserApproval
-  )
-  const showComputerActRisk =
-    computerActApprovalQuestionKey !== null && isMacDesktopHost()
   const savedAnswers =
     request.kind === "async_questions" ? request.response_content : null
   const fieldsDisabled = disabled || savedAnswers !== null
@@ -648,30 +420,12 @@ function QuestionUserInputForm({
               >
                 <FieldLegend variant="label" className="mb-1.5 w-full">
                   {request.kind !== "async_questions" && (
-                    <span
-                      className={cn(
-                        "block text-xs font-semibold text-[var(--app-muted)]",
-                        showComputerActRisk &&
-                          "flex flex-wrap items-center gap-x-2 gap-y-1"
-                      )}
-                    >
-                      {computerActApprovalQuestionKey
-                        ? t("desktopComputerUse.title")
-                        : question.header}
-                      {showComputerActRisk && (
-                        <Badge
-                          variant="outline"
-                          className="h-auto max-w-full whitespace-normal"
-                        >
-                          {t("desktopComputerUse.riskUnknown")}
-                        </Badge>
-                      )}
+                    <span className="block text-xs font-semibold text-[var(--app-muted)]">
+                      {question.header}
                     </span>
                   )}
                   <span className="mt-0.5 flex items-start gap-2 text-sm leading-5 text-[var(--app-text)]">
-                    {computerActApprovalQuestionKey
-                      ? t(computerActApprovalQuestionKey)
-                      : question.question}
+                    {question.question}
                     <RequiredIndicator />
                   </span>
                 </FieldLegend>
@@ -690,14 +444,7 @@ function QuestionUserInputForm({
                   >
                     {options.map((option, optionIndex) => {
                       const optionId = `${inputId}-option-${optionIndex}`
-                      const optionLabel =
-                        computerActApprovalQuestionKey === null
-                          ? option.label
-                          : t(
-                              optionIndex === 0
-                                ? "desktopApproval.allowOnce"
-                                : "conversation.userInput.cancel"
-                            )
+                      const optionLabel = option.label
                       return (
                         <RadioGroupOption
                           key={`${option.label}:${optionIndex}`}

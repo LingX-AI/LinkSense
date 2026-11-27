@@ -4,10 +4,6 @@ import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router-dom"
 
 import { ApiError, apiRequest } from "@/api/client"
-import {
-  isMacDesktopHost,
-  showDesktopCompletionNotification,
-} from "@/adapters/desktop/desktop-adapter"
 import { completionNotificationFeedSchema } from "@/api/contracts"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
@@ -17,15 +13,11 @@ import {
   hasBrowserNotificationDelivery,
   isLinkSenseActivelyUsed,
   readBrowserNotificationFeedCursor,
-  readBrowserNotificationPreference,
-  recordMacNotificationDenial,
   saveBrowserNotificationFeedCursor,
   BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS,
   showBrowserNotification,
   withBrowserNotificationLock,
 } from "@/features/browser-notifications/browser-notification-preference"
-import { DesktopApprovalNotificationCenter } from "@/features/browser-notifications/desktop-approval-notification-center"
-import { useDesktopApprovalNotificationClickVerifier } from "@/features/browser-notifications/use-desktop-approval-notification"
 import { useBrowserNotificationPreference } from "@/features/browser-notifications/use-browser-notification-preference"
 
 let nextBrowserNotificationQueryInstanceId = 0
@@ -33,9 +25,6 @@ let nextBrowserNotificationQueryInstanceId = 0
 export function BrowserNotificationCenter() {
   const { status, user } = useAuth()
   const preference = useBrowserNotificationPreference(user?.id)
-  // Register the exact-pair approval click recheck before any auth-ready launch
-  // flush can consume a cold-start notification.
-  useDesktopApprovalNotificationClickVerifier()
   const authenticated = status === "authenticated" && user !== null
 
   return (
@@ -43,7 +32,6 @@ export function BrowserNotificationCenter() {
       {authenticated && preference.effectiveEnabled && (
         <ActiveBrowserNotificationCenter key={user.id} userId={user.id} />
       )}
-      {authenticated && <DesktopApprovalNotificationCenter />}
     </>
   )
 }
@@ -60,7 +48,6 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
   )
   const deliveredInThisTabRef = useRef(new Set<string>())
   const activeNotificationsRef = useRef(new Set<Notification>())
-  const nativeNotifications = isMacDesktopHost()
 
   const completionQuery = useQuery({
     queryKey: ["completion-notifications", userId, queryInstanceId],
@@ -129,41 +116,6 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
             : item.status === "failed"
               ? t("browserNotifications.statusFailedBody")
               : t("browserNotifications.statusInterruptedBody")
-        if (nativeNotifications) {
-          // Native text stays generic: the task title and content must not
-          // reach the lock screen or Notification Center.
-          const result = await withBrowserNotificationLock(
-            userId,
-            notificationId,
-            async () => {
-              if (
-                signal.aborted ||
-                !readBrowserNotificationPreference(userId).effectiveEnabled ||
-                hasBrowserNotificationDelivery(userId, notificationId)
-              )
-                return
-              const result = await showDesktopCompletionNotification(
-                {
-                  userId,
-                  conversationId: item.conversation_id,
-                  turnId: item.turn_id,
-                  body,
-                },
-                signal
-              )
-              if (!signal.aborted && result === "shown") {
-                claimBrowserNotificationDelivery(userId, notificationId)
-                deliveredInThisTabRef.current.add(notificationId)
-              }
-              return result
-            }
-          )
-          if (!signal.aborted && result === "denied") {
-            recordMacNotificationDenial(userId)
-            return
-          }
-          continue
-        }
         const notification = await createClaimedBrowserNotification({
           userId,
           notificationId,
@@ -196,7 +148,6 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
     return () => delivery.abort()
   }, [
     completionData,
-    nativeNotifications,
     navigate,
     productName,
     refetch,

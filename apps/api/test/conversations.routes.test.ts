@@ -41,21 +41,6 @@ describe("side chat routes", () => {
     expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
   });
 
-  it("maps a retired local side chat to the explicit retirement error", async () => {
-    const { app, openSideChat } = await conversationRouteFixture();
-    openSideChat.mockRejectedValueOnce(new AppError("DESKTOP_LOCAL_TARGET_RETIRED"));
-    const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
-    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
-    expect(response.statusCode, response.body).toBe(409);
-    expect(response.json()).toMatchObject({
-      success: false,
-      error_code: "DESKTOP_LOCAL_TARGET_RETIRED",
-      message_key: "errors.desktopTargetRetired",
-      request_id: expect.any(String),
-    });
-    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
-  });
-
   it("rejects oversized quotes and unexpected parent IDs before creating a conversation", async () => {
     const { app, openSideChat } = await conversationRouteFixture();
     for (const fields of [{ selection_text: "a".repeat(4_001) }, { parent_conversation_id: MESSAGE_ID }]) {
@@ -244,132 +229,18 @@ describe("conversation create route", () => {
     expect(response.statusCode, response.body).toBe(201);
     expect(create).toHaveBeenCalledWith(OWNER_ID, {
       collaborationMode: "plan",
-      executionTarget: "cloud",
-      desktopDeviceId: null,
       fallbackLocale: "zh-CN",
     });
   });
 
-  it("retires explicit local creation and rejects inconsistent execution selections", async () => {
-    const { app, create } = await conversationRouteFixture(null, false, {
-      desktopLocalExecutionEnabled: true,
-    });
-    const device = "10000000-0000-4000-8000-000000000009";
-    const local = await app.inject({
-      method: "POST", url: "/conversations", payload: { execution_target: "local", desktop_device_id: device },
-    });
-    expect(local.statusCode, local.body).toBe(409);
-    expect(local.json()).toMatchObject({ error_code: "DESKTOP_LOCAL_TARGET_RETIRED" });
-    expect(create).not.toHaveBeenCalled();
-    for (const payload of [
-      { execution_target: "local" }, { execution_target: "local", desktop_device_id: "invalid" },
-    ]) {
-      const response = await app.inject({ method: "POST", url: "/conversations", payload });
-      expect(response.statusCode, response.body).toBe(409);
-      expect(response.json()).toMatchObject({ error_code: "DESKTOP_LOCAL_TARGET_RETIRED" });
-    }
-    for (const payload of [
-      { execution_target: "cloud", desktop_device_id: device }, { execution_target: "hybrid" },
-    ]) {
-      expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
-    }
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it("retires local creation before the service even when the old local flag is off", async () => {
-    const logLines: Record<string, unknown>[] = [];
-    const { app, create, config } = await conversationRouteFixture(null, false, { logLines });
-    expect(config.desktopLocalExecutionEnabled).toBe(false);
-    const device = "10000000-0000-4000-8000-000000000009";
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/conversations",
-      payload: { execution_target: "local", desktop_device_id: device },
-    });
-
-    expect(response.statusCode, response.body).toBe(409);
-    expect(response.json()).toMatchObject({
-      success: false,
-      error_code: "DESKTOP_LOCAL_TARGET_RETIRED",
-      message_key: "errors.desktopTargetRetired",
-      message: "本机运行已停用，新任务只在云端执行。",
-      request_id: expect.any(String),
-    });
-    expect(create).not.toHaveBeenCalled();
-    expect(logLines).toHaveLength(1);
-    expect(logLines[0]).toMatchObject({
-      event: "desktop_local_execution_denied",
-      target: "local",
-      reason_code: "desktop_local_target_retired",
-      reqId: expect.any(String),
-    });
-    expect(JSON.stringify(logLines)).not.toContain(device);
-  });
-
-  it("passes the per-task local-tools grant into creation", async () => {
-    const { app, create } = await conversationRouteFixture();
-    const response = await app.inject({
-      method: "POST", url: "/conversations", payload: { desktop_tools_enabled: true },
-    });
-    expect(response.statusCode, response.body).toBe(201);
-    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({
-      desktopToolsEnabled: true,
-    }));
-  });
-
-  it("keeps cloud task creation available when the desktop cloud entry is disabled", async () => {
-    const { app, create, config } = await conversationRouteFixture(null, false, {
-      desktopCloudTargetEnabled: false,
-    });
-    expect(config.desktopCloudTargetEnabled).toBe(false);
-
+  it("rejects unauthenticated creation before the service", async () => {
+    const { app, create } = await conversationRouteFixture(null, false, { authenticated: false });
     const response = await app.inject({
       method: "POST",
       url: "/conversations",
       payload: {},
     });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({
-      executionTarget: "cloud",
-      desktopDeviceId: null,
-    }));
-  });
-
-  it("keeps invalid bodies and unauthenticated requests ahead of the desktop admission gate", async () => {
-    const { app, create } = await conversationRouteFixture();
-    expect((await app.inject({
-      method: "POST", url: "/conversations", payload: { execution_target: "local" },
-    })).statusCode).toBe(409);
-    expect((await app.inject({
-      method: "POST", url: "/conversations", payload: { execution_target: "hybrid" },
-    })).statusCode).toBe(400);
-    expect(create).not.toHaveBeenCalled();
-
-    const unauthenticated = await conversationRouteFixture(null, false, { authenticated: false });
-    const response = await unauthenticated.app.inject({
-      method: "POST",
-      url: "/conversations",
-      payload: {
-        execution_target: "local",
-        desktop_device_id: "10000000-0000-4000-8000-000000000009",
-      },
-    });
     expect(response.statusCode).toBe(401);
-    expect(unauthenticated.create).not.toHaveBeenCalled();
-  });
-
-  it("rejects removed server-draft fields", async () => {
-    const { app, create } = await conversationRouteFixture();
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/conversations",
-      payload: { collaboration_mode: "default", input_text: "local only" },
-    });
-
-    expect(response.statusCode).toBe(400);
     expect(create).not.toHaveBeenCalled();
   });
 });
@@ -1565,8 +1436,6 @@ async function conversationRouteFixture(
   applicationId: string | null = null,
   applicationAllowsUserModelSelection = false,
   options: {
-    desktopLocalExecutionEnabled?: boolean;
-    desktopCloudTargetEnabled?: boolean;
     authenticated?: boolean;
     logLines?: Record<string, unknown>[];
   } = {},
@@ -1779,22 +1648,7 @@ async function conversationRouteFixture(
     created_at: "2026-09-03T04:00:00.000Z",
     updated_at: "2026-09-03T04:00:00.000Z",
   }));
-  const config = testConfig({
-    ...(options.desktopLocalExecutionEnabled === undefined
-      ? {}
-      : {
-          LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: String(
-            options.desktopLocalExecutionEnabled,
-          ),
-        }),
-    ...(options.desktopCloudTargetEnabled === undefined
-      ? {}
-      : {
-          LINKSENSE_DESKTOP_CLOUD_TARGET_ENABLED: String(
-            options.desktopCloudTargetEnabled,
-          ),
-        }),
-  });
+  const config = testConfig();
   const logLines = options.logLines;
   const app = Fastify({
     loggerInstance: pino(

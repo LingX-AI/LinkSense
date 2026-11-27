@@ -14,19 +14,10 @@ import {
 } from "@/app/client-build"
 import { ClientUpdateNotice } from "@/components/shell/client-update-notice"
 import { ApplicationLoadError } from "@/app/application-load-error"
-import {
-  initializeDesktopHost,
-  installDesktopNavigationBridge,
-  installDesktopNotificationClickBridge,
-} from "@/adapters/desktop/desktop-adapter"
-import { installDesktopLanguageSync } from "@/adapters/desktop/desktop-language"
 
 initializeTheme()
 initializeUiFontSize()
 clearClientUpdateUrl()
-installDesktopNotificationClickBridge()
-installDesktopNavigationBridge()
-const disposeDesktopLanguageSync = installDesktopLanguageSync()
 const disposeClientBuildListeners = installClientBuildListeners()
 
 const rootElement = document.getElementById("root")
@@ -35,7 +26,6 @@ if (!rootElement) throw new Error("Application root element was not found")
 const router = createBrowserRouter([
   {
     path: "*",
-    loader: initializeDesktopHost,
     errorElement: <ApplicationLoadError />,
     element: (
       <AppProviders>
@@ -57,7 +47,6 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     root.unmount()
     router.dispose()
-    disposeDesktopLanguageSync()
     disposeClientBuildListeners()
   })
 }

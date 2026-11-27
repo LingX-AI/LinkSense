@@ -30,16 +30,13 @@ import {
   registrationSettingsSchema as sharedRegistrationSettingsSchema,
   capabilityRiskSummarySchema as sharedCapabilityRiskSummarySchema,
   conversationEventSchema,
-  conversationExecutionTargetSchema,
   conversationFileKindSchema,
-  desktopArtifactFileChangeSchema,
   conversationCollaborationModeSchema,
   conversationApplicationDevelopmentRoleSchema,
   conversationHistoryPageSchema,
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
   conversationUserInputRequestSchema,
-  desktopApprovalRequestSchema,
   executionConcurrencySettingsSchema as sharedExecutionConcurrencySettingsSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
@@ -73,7 +70,6 @@ import {
   clawHubSkillCatalogItemSchema as sharedClawHubSkillCatalogItemSchema,
   clawHubSkillCatalogSortSchema as sharedClawHubSkillCatalogSortSchema,
   completionNotificationFeedSchema as sharedCompletionNotificationFeedSchema,
-  desktopApprovalNotificationSnapshotSchema as sharedDesktopApprovalNotificationSnapshotSchema,
   feishuConnectionListSchema as sharedFeishuConnectionListSchema,
   feishuConnectionSchema as sharedFeishuConnectionSchema,
   feishuRegistrationSessionSchema as sharedFeishuRegistrationSessionSchema,
@@ -144,11 +140,6 @@ export const completionNotificationFeedSchema =
   sharedCompletionNotificationFeedSchema
 export type CompletionNotification = SharedCompletionNotification
 export type CompletionNotificationFeed = SharedCompletionNotificationFeed
-export const desktopApprovalNotificationSnapshotSchema =
-  sharedDesktopApprovalNotificationSnapshotSchema
-export type DesktopApprovalNotificationSnapshot = z.infer<
-  typeof desktopApprovalNotificationSnapshotSchema
->
 export const weixinConnectionSchema = sharedWeixinConnectionSchema
 export const weixinConnectionListSchema = sharedWeixinConnectionListSchema
 export const weixinLoginSessionSchema = sharedWeixinLoginSessionSchema
@@ -344,14 +335,6 @@ export const bootstrapSchema = z
     password_email: integrationStatusSchema.optional(),
     registration: sharedRegistrationAvailabilitySchema.optional(),
     knowledge: z.object({ enabled: z.boolean() }).optional(),
-    // Additive desktop rollout policy. Older deployments omit it entirely and
-    // keep the legacy cloud default plus native local-device availability.
-    desktop: z
-      .object({
-        local_computer: z.boolean().optional(),
-        cloud_target: z.boolean().optional(),
-      })
-      .optional(),
     smtp: integrationStatusSchema.optional(),
     auth: z
       .object({
@@ -426,7 +409,6 @@ export const conversationFileSchema = z
     created_at: z.string().optional(),
     download_available: z.boolean().optional(),
     downloadable: z.boolean().optional(),
-    desktop_file_change: desktopArtifactFileChangeSchema.optional(),
   })
   .passthrough()
   .refine((value) => Boolean(value.name ?? value.filename), {
@@ -732,16 +714,7 @@ export type ConversationUserInputRequest = z.infer<
   typeof conversationUserInputRequestSchema
 >
 
-// Local view model only. The wire formats stay separate: detail responses keep
-// `user_input_requests` unchanged and add `desktop_approval_requests`.
-export const conversationUserInputRequestViewSchema = z.union([
-  conversationUserInputRequestSchema,
-  desktopApprovalRequestSchema,
-])
-
-export type ConversationUserInputRequestView = z.infer<
-  typeof conversationUserInputRequestViewSchema
->
+export type ConversationUserInputRequestView = ConversationUserInputRequest
 
 export const capabilitySummarySchema = z
   .strictObject({
@@ -912,13 +885,6 @@ export const conversationSchema = z
   .object({
     id: z.string(),
     title: z.string(),
-    execution_target: conversationExecutionTargetSchema.optional(),
-    /**
-     * The Mac device recorded for a local conversation. Older servers omit it;
-     * the Computer Use card then relies on the native device check instead of
-     * guessing another device.
-     */
-    desktop_device_id: z.string().nullable().optional(),
     title_source: z.enum(["generated", "fallback", "manual"]).optional(),
     archived: z.boolean().optional(),
     archive_status: z.enum(["active", "archived"]).optional(),
@@ -972,7 +938,7 @@ export const conversationSchema = z
     starting_turn: conversationStartingTurnSchema.nullable().optional(),
     pending_requests: z.array(pendingRequestSchema).optional(),
     user_input_requests: z
-      .array(conversationUserInputRequestViewSchema)
+      .array(conversationUserInputRequestSchema)
       .optional(),
     plan_reviews: z.array(conversationPlanReviewSchema).optional(),
     available_capabilities: z.array(capabilitySummarySchema).optional(),
@@ -1016,9 +982,6 @@ const conversationDetailPayloadSchema = z
     pending_requests: z.array(pendingRequestSchema).default([]),
     user_input_requests: z
       .array(conversationUserInputRequestSchema)
-      .default([]),
-    desktop_approval_requests: z
-      .array(desktopApprovalRequestSchema)
       .default([]),
     plan_reviews: z.array(conversationPlanReviewSchema).default([]),
     files: z.array(conversationFileSchema).default([]),
@@ -1150,15 +1113,6 @@ const conversationDetailPayloadSchema = z
         (message) => message.artifacts?.map((file) => file.id) ?? []
       )
     )
-    const artifactIdsByEvent = new Map<string, Record<string, string>>()
-    for (const file of value.files) {
-      if (file.kind !== "artifact" || !file.desktop_file_change || !file.download_available)
-        continue
-      const { event_id, change_index } = file.desktop_file_change
-      const ids = artifactIdsByEvent.get(event_id) ?? {}
-      ids[change_index] = file.id
-      artifactIdsByEvent.set(event_id, ids)
-    }
     return conversationSchema.parse({
       ...value.conversation,
       goal: value.goal ?? value.conversation.goal ?? null,
@@ -1175,10 +1129,7 @@ const conversationDetailPayloadSchema = z
             file.kind === "attachment" && file.pending_request_id === request.id
         ),
       })),
-      user_input_requests: [
-        ...value.user_input_requests,
-        ...value.desktop_approval_requests,
-      ],
+      user_input_requests: value.user_input_requests,
       plan_reviews: value.plan_reviews,
       attachments: value.files.filter(
         (file) =>
@@ -1190,13 +1141,7 @@ const conversationDetailPayloadSchema = z
         (file) => file.kind === "artifact" && !attachedArtifactIds.has(file.id)
       ),
       activities: value.activities,
-      events: value.events.map((event) => {
-        const ids = artifactIdsByEvent.get(event.sse_event_id)
-        return {
-          ...toConversationTimelineEvent(event),
-          ...(ids && { file_change_artifact_ids: ids }),
-        }
-      }),
+      events: value.events.map(toConversationTimelineEvent),
       model_context_usage:
         value.model_context_usage ??
         value.conversation.model_context_usage ??

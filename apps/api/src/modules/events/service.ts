@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { v5 as uuidv5 } from "uuid";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { z } from "zod";
 
@@ -18,17 +17,14 @@ import {
   emitInteractiveApplicationCustomEventInputSchema,
   interactiveApplicationManifestSchema,
   conversationEventSchema,
-  desktopApprovalMethodSchema,
   runnerCodexGoalSchema,
   runnerCodexEventSchema,
-  runnerDesktopApprovalParamsSchema,
   runnerEventBatchSchema,
   runnerTextDeltaBatchKey,
   isRunnerTextDeltaEvent,
   runnerCodexErrorMessageSchema,
   threadGoalStatusSchema,
   type RunnerHeartbeat,
-  type RunnerCodexEvent,
 } from "@linksense/shared";
 import {
   Prisma,
@@ -45,8 +41,6 @@ import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { settleMonitoringStop, settleMonitoringRunStop } from "../automations/monitoring.js";
 import type { ConversationService } from "../conversations/service.js";
-import { cancelDesktopApprovals, recordDesktopApproval, resolveDesktopApproval } from "../conversations/desktop-approvals.js";
-import { settleRevokedMacTurn, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import {
   loadInterruptedAssistantOutputs,
   persistInterruptedAssistantOutputs,
@@ -64,8 +58,6 @@ import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
 import { upsertAsyncUserInputRequest } from "./async-user-input.js";
 import type { TaskRecoveryScheduler } from "./recovery-scheduler.js";
-import { projectRunnerEventBatch } from "./runner-batch.js";
-import { lockDesktopConversation, type DesktopProjectionFence } from "../desktop-credentials/run-authority.js";
 
 export type RunnerEventBatch = z.infer<typeof runnerEventBatchSchema>;
 
@@ -305,7 +297,6 @@ export class ConversationEventService {
   async ingestTextDeltaBatch(
     conversationId: string,
     input: readonly TextDeltaDelivery[],
-    desktop?: DesktopProjectionFence,
   ): Promise<{ accepted: boolean; ignored?: boolean; reason_code?: string }> {
     const entries = runnerEventBatchSchema.parse({ conversationId, events: input }).events.map(entry => {
       if (!isRunnerTextDeltaEvent(entry.event)) throw new Error("runner text batch contains a non-text event");
@@ -320,9 +311,8 @@ export class ConversationEventService {
     const projection = await this.resolveTurnProjection(conversationId, threadId, turnId);
     if (projection.status === "pending") return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     if (projection.status === "stale") return { accepted: true, ignored: true, reason_code: "STALE_BRANCH" };
-    if (desktop && projection.turn.id !== desktop.scope.turnId) throw new AppError("FORBIDDEN");
     const rows = await this.prisma.$transaction(async tx => {
-      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId, desktop, turnId))) return null;
+      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId))) return null;
       return persistTextDeltaBatch(tx, conversationId, projection.turn.id, entries);
     });
     if (!rows) return { accepted: true, ignored: true, reason_code: "STALE_BRANCH" };
@@ -332,47 +322,13 @@ export class ConversationEventService {
     return { accepted: true };
   }
 
-  async ingestDesktopBatch(
-    desktop: DesktopProjectionFence,
-    body: RunnerEventBatch,
-    onPartialFailure: (error: unknown, deliveryId: string) => void,
-  ): Promise<string[]> {
-    const { scope } = desktop;
-    if (body.conversationId !== scope.conversationId) throw new AppError("FORBIDDEN");
-    const turn = await this.prisma.conversationTurn.findFirst({
-      where: { id: scope.turnId, conversationId: scope.conversationId, submittedBy: scope.ownerId },
-      select: { codexThreadId: true, codexTurnId: true },
-    });
-    // The durable start receipt must project before the first event is accepted.
-    if (!turn) return [];
-    const events = body.events.map(({ deliveryId, event }) => {
-      const native = runnerCodexEventSchema.safeParse(event);
-      if (!native.success || native.data.params.threadId !== turn.codexThreadId) throw new AppError("FORBIDDEN");
-      const nativeTurn = nativeTurnId(native.data.params);
-      const preparation = "preparation" in native.data ? native.data.preparation : undefined;
-      if (preparation ? preparation.turnId !== scope.turnId : nativeTurn !== null && nativeTurn !== turn.codexTurnId) {
-        throw new AppError("FORBIDDEN");
-      }
-      return { deliveryId, event: native.data };
-    });
-    return projectRunnerEventBatch(events, async (entry, text) => {
-      await desktop.check();
-      if (skipDesktopEvent(entry.event, desktop)) return true;
-      const result = text.length > 1
-        ? await this.ingestTextDeltaBatch(scope.conversationId, text, desktop)
-        : await this.ingest(scope.conversationId, entry.event, entry.deliveryId, desktop);
-      return result.accepted === true;
-    }, onPartialFailure);
-  }
-
   async ingest(
     conversationId: string,
     input: IngestedRunnerEvent,
     deliveryId: string = randomUUID(),
-    desktop?: DesktopProjectionFence,
   ) {
     if ("method" in input) {
-      return this.ingestMethodEvent(conversationId, input, deliveryId, desktop);
+      return this.ingestMethodEvent(conversationId, input, deliveryId);
     }
     if (input.eventType === "conversation.title.updated") {
       return this.ingestTitleUpdate(conversationId, input, deliveryId);
@@ -759,7 +715,6 @@ export class ConversationEventService {
     conversationId: string,
     input: MethodRunnerEventInput,
     deliveryId: string,
-    desktop?: DesktopProjectionFence,
   ) {
     if (input.preparation) {
       return this.ingestPreparationCompaction(conversationId, input, deliveryId);
@@ -809,19 +764,7 @@ export class ConversationEventService {
         conversationId,
         input,
         deliveryId,
-        desktop,
       );
-    }
-    const approvalMethod = desktopApprovalMethodSchema.safeParse(input.method);
-    if (approvalMethod.success) {
-      if (!desktop?.approvals) throw new AppError("FORBIDDEN");
-      const body = runnerDesktopApprovalParamsSchema.parse(input.params);
-      if (body.approval.method !== approvalMethod.data) throw new AppError("FORBIDDEN");
-      const event = await recordDesktopApproval(this.prisma, desktop, body, deliveryId);
-      if (!event) return { accepted: true, ignored: true };
-      const projected = projectEvent(event, asObject(event.payloadJson));
-      await this.redis.publishConversationEvent(conversationId, projected);
-      return { accepted: true, event: projected };
     }
 
     const threadId = nativeThreadId(input.params);
@@ -830,7 +773,7 @@ export class ConversationEventService {
       return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     }
     if (input.method === "turn/started") {
-      const attachment = desktop ? null : await this.attachGoalContinuation(
+      const attachment = await this.attachGoalContinuation(
         conversationId,
         threadId,
         turnId,
@@ -854,10 +797,9 @@ export class ConversationEventService {
     const turn = projection.turn;
 
     const terminalStatus = nativeTerminalStatus(input);
-    if (desktop && turn.id !== desktop.scope.turnId) throw new AppError("FORBIDDEN");
     const contextWindowExceeded = nativeContextWindowExceeded(input);
     const contextWindowRecoveryEligible =
-      !desktop && contextWindowExceeded &&
+      contextWindowExceeded &&
       turn.taskKind === "turn" &&
       projection.attempt.attemptNo < MAX_CONTEXT_WINDOW_NATIVE_ATTEMPTS &&
       turn.status === "running" &&
@@ -897,7 +839,7 @@ export class ConversationEventService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       if (
-        !(await this.lockActiveConversationBranch(tx, conversationId, threadId, desktop, turnId))
+        !(await this.lockActiveConversationBranch(tx, conversationId, threadId))
       ) {
         return {
           event: null,
@@ -912,14 +854,7 @@ export class ConversationEventService {
       }
       const existingEvent = await tx.conversationEvent.findUnique({
         where: { id: deliveryId },
-      }) ?? (desktop && terminalStatus ? await tx.conversationEvent.findFirst({
-        where: {
-          conversationId,
-          turnId: turn.id,
-          eventType: input.method,
-          payloadJson: { path: ["params", "turn", "id"], equals: turnId },
-        },
-      }) : null);
+      });
       if (existingEvent) {
         if (
           existingEvent.conversationId !== conversationId ||
@@ -929,7 +864,7 @@ export class ConversationEventService {
           throw new Error("runner event delivery id collision");
         }
         const existingRecoveryAttempt =
-          !desktop && terminalStatus === "failed" && contextWindowExceeded
+          terminalStatus === "failed" && contextWindowExceeded
             ? await tx.conversationTurnAttempt.findUnique({
                 where: {
                   turnId_attemptNo: {
@@ -1113,7 +1048,7 @@ export class ConversationEventService {
           currentGoal?.activeTurnId === turn.id &&
           currentGoal.status === "active";
         const shouldRecoverContextWindow =
-          !desktop && terminalStatus === "failed" &&
+          terminalStatus === "failed" &&
           contextWindowExceeded &&
           currentTurn?.taskKind === "turn" &&
           projection.attemptPersisted &&
@@ -1177,7 +1112,6 @@ export class ConversationEventService {
           becameTerminal = update.count === 1;
           if (becameTerminal) {
             if (terminalStatus !== "completed") await settleMonitoringStop(tx, conversationId, turn);
-            if (desktop) await cancelDesktopApprovals(tx, turn.id, terminalAt);
             await tx.conversationUserInputRequest.updateMany({
               where: {
                 turnId: turn.id,
@@ -1310,7 +1244,7 @@ export class ConversationEventService {
       return { accepted: true, ignored: true, reason_code: "STALE_BRANCH" };
     }
 
-    if (!desktop && terminalStatus && !result.goalContinues) {
+    if (terminalStatus && !result.goalContinues) {
       await this.confirmTerminalRecovery(conversationId, turn);
     }
     if (result.recoveryAttemptId) {
@@ -1342,14 +1276,13 @@ export class ConversationEventService {
       );
     }
     if (terminalStatus && !result.goalContinues) {
-      if (desktop) await this.redis.releaseTurnSlot(conversationId, turn.id);
-      else await this.runTerminalPostActions(
+      await this.runTerminalPostActions(
         conversationId,
         turn.id,
         turn.submittedBy,
       );
     }
-    if (!desktop && terminalStatus === "completed" && result.becameTerminal) {
+    if (terminalStatus === "completed" && result.becameTerminal) {
       this.titleRefresh?.schedule(conversationId);
     }
     return result.event.visibility === "internal_sanitized"
@@ -1519,7 +1452,6 @@ export class ConversationEventService {
     conversationId: string,
     input: MethodRunnerEventInput,
     deliveryId: string,
-    desktop?: DesktopProjectionFence,
   ) {
     const threadId = nativeThreadId(input.params);
     const requestId = input.params.requestId;
@@ -1531,39 +1463,27 @@ export class ConversationEventService {
     ) {
       return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     }
-    if (desktop?.approvals) {
-      const event = await resolveDesktopApproval(this.prisma, desktop, threadId, requestId, deliveryId);
-      if (event !== undefined) {
-        if (!event) return { accepted: true, ignored: true };
-        const projected = projectEvent(event, asObject(event.payloadJson));
-        await this.redis.publishConversationEvent(conversationId, projected);
-        return { accepted: true, event: projected };
-      }
-    }
     const projectedRequest =
       await this.prisma.conversationUserInputRequest.findFirst({
         where: {
           conversationId,
           codexThreadId: threadId,
           nativeRequestId: BigInt(requestId),
-          ...(desktop && { turnId: desktop.scope.turnId, ownerId: desktop.scope.ownerId, requestKind: "questions" }),
         },
         orderBy: { createdAt: "desc" },
       });
     if (!projectedRequest) {
-      return desktop ? { accepted: true, ignored: true } : { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
+      return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId, desktop, projectedRequest.codexTurnId))) {
+      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId))) {
         return { event: null, payload: {}, ignored: true };
       }
       const existingEvent = await tx.conversationEvent.findUnique({
         where: { id: deliveryId },
       });
       if (existingEvent) {
-        if (desktop && (existingEvent.conversationId !== conversationId || existingEvent.turnId !== desktop.scope.turnId ||
-          existingEvent.eventType !== input.method)) throw new AppError("FORBIDDEN");
         return {
           event: existingEvent,
           payload: asObject(existingEvent.payloadJson),
@@ -1586,7 +1506,7 @@ export class ConversationEventService {
         await tx.conversationUserInputRequest.update({
           where: { id: current.id },
           data: {
-            status: !submitting || desktop ? "expired" : current.resolvedAction === "accept" ? "answered" : "cancelled",
+            status: !submitting ? "expired" : current.resolvedAction === "accept" ? "answered" : "cancelled",
             resolvedAction: submitting ? (current.resolvedAction ?? "cancel") : "cancel",
             resolvedAt: new Date(),
           },
@@ -2535,7 +2455,6 @@ export class ConversationEventService {
 
   async reconcileAfterProcessExit(
     rawInput: { conversationId: string; projectionTurnId: string; capabilityGeneration: string },
-    options: { deferDesktop?: boolean; desktopConnectionId?: string } = {},
   ): Promise<ProcessExitRecoveryResult> {
     const conversationId = rawInput.conversationId;
     try {
@@ -2556,37 +2475,6 @@ export class ConversationEventService {
       }
       if (running.submittedBy !== conversation.ownerId) {
         throw new AppError("CONVERSATION_NOT_FOUND");
-      }
-      if (conversation.executionTarget === "local") {
-        // API startup can restore capacity before any Mac has been able to reconnect.
-        if (options.deferDesktop) return { outcome: "not_applicable" };
-        if (TERMINAL_TURN_STATUSES.has(running.status)) {
-          await this.redis.releaseTurnSlot(conversationId, running.id);
-          return { outcome: "not_applicable" };
-        }
-        if (running.status !== "running" || !conversation.desktopDeviceId) throw new AppError("RUNNER_UNAVAILABLE");
-        const scope = {
-          ownerId: conversation.ownerId, conversationId, turnId: running.id,
-          runtimeGeneration: conversation.runtimeGeneration, deviceId: conversation.desktopDeviceId,
-        };
-        const { terminal, deviceId, check } = await this.conversations.runnerForRecovery().drainDesktopTurn({
-          ...scope, ...(options.desktopConnectionId ? { connectionId: options.desktopConnectionId } : {}),
-        });
-        if (deviceId !== scope.deviceId) throw new AppError("FORBIDDEN");
-        if (terminal) {
-          if (terminal.codexThreadId !== running.codexThreadId || terminal.turn.id !== running.codexTurnId) {
-            throw new AppError("FORBIDDEN");
-          }
-          const projected = await this.ingest(conversationId, {
-            method: "turn/completed", visibility: "user_visible",
-            params: { threadId: terminal.codexThreadId, turn: terminal.turn },
-          }, uuidv5("desktop:recovered-terminal", running.id), { scope, check });
-          if (!projected.accepted) throw new AppError("RUNNER_UNAVAILABLE");
-        }
-        const current = await this.prisma.conversationTurn.findUnique({ where: { id: running.id }, select: { status: true } });
-        if (!current || !TERMINAL_TURN_STATUSES.has(current.status)) throw new AppError("RUNNER_UNAVAILABLE");
-        await this.redis.releaseTurnSlot(conversationId, running.id);
-        return { outcome: "succeeded" };
       }
       if (TERMINAL_TURN_STATUSES.has(running.status)) {
         if (
@@ -2822,7 +2710,7 @@ export class ConversationEventService {
     const attemptedAt = new Date().toISOString();
     let projectionRecoveryFailure: unknown = null;
     try {
-      await this.conversations.recoverStartIntents({ deferDesktop: true });
+      await this.conversations.recoverStartIntents();
     } catch (error) {
       projectionRecoveryFailure = error;
     }
@@ -2956,7 +2844,7 @@ export class ConversationEventService {
                 conversationId: turn.conversationId,
                 projectionTurnId: turn.id,
                 capabilityGeneration: turn.capabilityGeneration,
-              }, { deferDesktop: true });
+              });
             } finally {
               await this.redis
                 .releaseRecoveryLock(turn.conversationId, token)
@@ -3171,18 +3059,6 @@ export class ConversationEventService {
   async scheduleProcessExitRecovery(input: Parameters<TaskRecoveryScheduler["enqueueTurn"]>[0]): Promise<void> {
     if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
     await this.recoveryScheduler.enqueueTurn(input);
-  }
-
-  async scheduleDesktopRecovery(input: Parameters<TaskRecoveryScheduler["enqueueDesktopRecovery"]>[0]): Promise<void> {
-    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
-    await this.recoveryScheduler.enqueueDesktopRecovery(input);
-  }
-
-  async settleRevokedMacTurn(scope: RevokedMacTurn): Promise<void> {
-    const events = await settleRevokedMacTurn(this.prisma, this.redis, scope, (text) =>
-      this.projectCompletedAssistantMessage({ id: scope.projectionTurnId }, text),
-    );
-    await this.redis.publishConversationEvents(scope.conversationId, events.map(row => projectEvent(row, asObject(row.payloadJson))));
   }
 
   async startRecoveryMonitor(): Promise<void> {
@@ -3551,23 +3427,7 @@ export class ConversationEventService {
     tx: Prisma.TransactionClient,
     conversationId: string,
     threadId: string,
-    desktop?: DesktopProjectionFence,
-    nativeTurnId?: string,
   ): Promise<boolean> {
-    if (desktop) {
-      const { scope } = desktop;
-      const locked = await lockDesktopConversation(tx, scope);
-      if (scope.conversationId !== conversationId || locked.codexThreadId !== threadId || !nativeTurnId ||
-          !await tx.conversationTurn.findFirst({
-            where: {
-              id: scope.turnId, conversationId, submittedBy: scope.ownerId,
-              codexThreadId: threadId, codexTurnId: nativeTurnId,
-            },
-            select: { id: true },
-          })) throw new AppError("FORBIDDEN");
-      await desktop.check();
-      return true;
-    }
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
       FROM conversations
@@ -3577,19 +3437,6 @@ export class ConversationEventService {
     `;
     return rows.length === 1;
   }
-}
-
-function skipDesktopEvent(event: RunnerCodexEvent, desktop: DesktopProjectionFence): boolean {
-  if (event.method === "serverRequest/resolved") return false;
-  if (event.method === "item/tool/requestUserInput") return desktop.questions !== true;
-  if (event.method === "item/commandExecution/requestApproval" || event.method === "item/fileChange/requestApproval") {
-    return desktop.approvals !== true;
-  }
-  // These methods need dedicated accounting, model transition or goals integration.
-  return ("preparation" in event && event.preparation !== undefined) ||
-    nativeTurnId(event.params) === null ||
-    event.method === "thread/tokenUsage/updated" || event.method === "thread/goal/updated" ||
-    event.method === "thread/goal/cleared";
 }
 
 async function settlePreparingPlanReview(

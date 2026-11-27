@@ -135,8 +135,6 @@ async function deleteConversationGraph(
   await tx.webSite.updateMany({ where: { conversationId }, data: { conversationId: null, status: "disabled" } });
   await detachConversationDevelopment(tx, conversationId);
   await tx.conversationShare.deleteMany({ where: { conversationId } });
-  await tx.computerPermissionGrant.deleteMany({ where: { conversationId } });
-  await tx.localComputerSession.deleteMany({ where: { conversationId } });
   await tx.feishuInboundMessage.deleteMany({ where: { conversationId } });
   await tx.feishuOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
@@ -167,7 +165,6 @@ async function deleteConversationGraph(
   await tx.conversationUserInputRequest.deleteMany({
     where: { conversationId },
   });
-  await tx.conversationDesktopApproval.deleteMany({ where: { conversationId } });
   await tx.conversationGoal.deleteMany({ where: { conversationId } });
   await tx.conversationTurn.deleteMany({ where: { conversationId } });
   await tx.conversationTurnStartIntent.deleteMany({

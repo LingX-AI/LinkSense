@@ -1,11 +1,8 @@
 import {
-  browserUseToolName,
-  computerActToolName,
   conversationFormToolTimeoutSeconds,
   coreMcpServerKey,
   managedBrowserMcpServerKey,
   modelAutoCompactTokenLimitFor,
-  workspaceProviderSchema,
   type ModelProviderProtocolMode,
 } from "@linksense/shared";
 
@@ -19,30 +16,6 @@ import {
 } from "../model-gateway/model-gateway.js";
 
 export const linkSenseModelProviderId = "link-sense" as const;
-
-export const desktopPermissionProfiles = { default: "linksense-workspace", plan: "linksense-read-only" } as const;
-
-export function desktopPermissionConfigOverrides(input: { control: string; codex: string }): string[] {
-  const systemRead = [
-    // Codex retains the workspace sandbox for approved commands when the root is explicitly denied.
-    `":root"="deny"`,
-    `":minimal"="read"`,
-    `${JSON.stringify(input.codex)}="read"`,
-    `${JSON.stringify(input.control)}="deny"`,
-    `":slash_tmp"="deny"`,
-    `"/private/var/tmp"="deny"`,
-  ].join(",");
-  return [
-    `default_permissions="${desktopPermissionProfiles.default}"`,
-    ...Object.entries(desktopPermissionProfiles).flatMap(([mode, profile]) => {
-      const prefix = `permissions.${profile}`;
-      return [
-        `${prefix}.network.enabled=false`,
-        `${prefix}.filesystem={${systemRead},":workspace_roots"="${mode === "default" ? "write" : "read"}"}`,
-      ];
-    }),
-  ];
-}
 
 /**
  * Native discovery must reach the model as well as skills/list. CLI overrides
@@ -96,18 +69,6 @@ export const coreMcpEnvironmentVariables = [
   "LINKSENSE_SKILL_MANAGEMENT_TOKEN",
   "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
   "LINKSENSE_APPLICATION_BUILDER_TOKEN",
-  "LINKSENSE_LOCAL_TOOLS_ENDPOINT",
-  "LINKSENSE_LOCAL_TOOLS_TOKEN",
-] as const;
-
-/**
- * Only a desktop process whose supervisor callback was actually provisioned
- * may allow these into the Core MCP stdio environment. The persistent owner
- * template never includes them, and neither does an unnegotiated worker.
- */
-const computerRelayEnvironmentVariables = [
-  "LINKSENSE_COMPUTER_ENDPOINT",
-  "LINKSENSE_COMPUTER_TOKEN",
 ] as const;
 
 const managedBrowserEnvironmentVariables = [
@@ -169,18 +130,6 @@ export function builtInMcpConfigOverrides(input: {
   args: string[];
   managedBrowserArgs?: string[];
   knowledgeSearchTimeoutMs?: number;
-  disableBrowserUse?: boolean;
-  disableArtifactRegistration?: boolean;
-  promptForBrowserUse?: boolean;
-  computerActApproval?: boolean;
-  /** The process received the trusted desktop computer relay endpoint/token. */
-  computerRelay?: boolean;
-  /**
-   * The current device connection negotiated the additive wait marker. It is
-   * authored only into a relayed desktop worker; no standalone setting selects
-   * it and Plan never exposes the tool.
-   */
-  computerWait?: boolean;
 }): string[] {
   const knowledgeSearchTimeouts = deriveKnowledgeSearchTimeouts(
     input.knowledgeSearchTimeoutMs ?? DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -190,30 +139,16 @@ export function builtInMcpConfigOverrides(input: {
     knowledgeSearchTimeouts.codexToolSeconds,
   );
   const corePrefix = `mcp_servers.${coreMcpServerKey}`;
-  const disabledTools = [
-    ...(input.disableBrowserUse ? [browserUseToolName] : []),
-    ...(input.disableArtifactRegistration ? ["register_artifact"] : []),
-  ];
   const managedBrowserPrefix = `mcp_servers.${managedBrowserMcpServerKey}`;
 
   return [
     `${corePrefix}.command=${JSON.stringify(input.command)}`,
     `${corePrefix}.args=${JSON.stringify(input.args)}`,
-    `${corePrefix}.env_vars=${JSON.stringify([
-      ...coreMcpEnvironmentVariables,
-      ...(input.computerRelay === true ? computerRelayEnvironmentVariables : []),
-      ...(input.computerRelay === true && input.computerWait === true ? ["LINKSENSE_COMPUTER_WAIT"] : []),
-    ])}`,
+    `${corePrefix}.env_vars=${JSON.stringify(coreMcpEnvironmentVariables)}`,
     `${corePrefix}.enabled=true`,
     `${corePrefix}.required=false`,
     `${corePrefix}.startup_timeout_sec=10`,
     `${corePrefix}.tool_timeout_sec=${String(coreToolTimeoutSeconds)}`,
-    ...(disabledTools.length ? [`${corePrefix}.disabled_tools=${JSON.stringify(disabledTools)}`] : []),
-    ...(input.promptForBrowserUse ? [`${corePrefix}.tools.${browserUseToolName}.approval_mode="prompt"`] : []),
-    // Prompt always requires the native exact one-shot Allow/Cancel card;
-    // Approve resolves without one (rust-v0.170.0 mcp_tool_call.rs:2808-2819),
-    // so the relay gate could never observe a user decision.
-    ...(input.computerActApproval ? [`${corePrefix}.tools.${computerActToolName}.approval_mode="prompt"`] : []),
     ...(input.managedBrowserArgs
       ? [
           `${managedBrowserPrefix}.command=${JSON.stringify(input.command)}`,
@@ -230,18 +165,4 @@ export function builtInMcpConfigOverrides(input: {
         ]
       : []),
   ];
-}
-
-/** Reuse the shipped connector handlers without loading cloud capability snapshots on the Mac. */
-export function desktopConnectionMcpConfigOverrides(input: { command: string; args: string[] }): string[] {
-  return ["microsoft-files", ...workspaceProviderSchema.options].flatMap(provider => {
-    const prefix = `mcp_servers.linksense_${provider.replaceAll("-", "_")}`;
-    return [
-      `${prefix}.command=${JSON.stringify(input.command)}`,
-      `${prefix}.args=${JSON.stringify([...input.args, "--desktop-read-only", provider])}`,
-      `${prefix}.env_vars=${JSON.stringify(["LINKSENSE_CONNECTION_ENDPOINT", "LINKSENSE_CONNECTION_TOKEN", "LINKSENSE_COLLABORATION_MODE"])}`,
-      `${prefix}.startup_timeout_sec=10`,
-      `${prefix}.tool_timeout_sec=120`,
-    ];
-  });
 }

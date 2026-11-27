@@ -1,12 +1,10 @@
 import { buildIdSchema, buildInfoSchema } from "@linksense/shared"
-import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
 
 let pendingBuild: string | null = null
 const listeners = new Set<() => void>()
 const reloadParameter = "__linksense_build"
 
 export function getClientBuildId(): string | null {
-  if (isDesktopHost()) return null
   const parsed = buildIdSchema.safeParse(
     import.meta.env.VITE_LINKSENSE_BUILD_ID
   )

@@ -8,18 +8,14 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
-import { isDeepStrictEqual } from "node:util";
 
 import {
   conversationEventSchema,
-  desktopArtifactMaxBytes,
-  desktopArtifactPathDigestSchema,
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   interactiveApplicationFileSchema,
   type InteractiveApplicationFile,
   isMeaninglessTemporaryUploadFilename,
   workspacePermissionPolicy,
-  webBundleManifestSchema,
   type TaskArtifactFileType,
   imagePreviewMimeTypeSchema,
   MAX_IMAGE_PREVIEW_BYTES,
@@ -27,7 +23,6 @@ import {
 } from "@linksense/shared";
 import { detectCfbf } from "@file-type/cfbf";
 import { FileTypeParser } from "file-type";
-import { z } from "zod";
 
 import type { AppConfig } from "../../config.js";
 import {
@@ -57,7 +52,6 @@ import { taskArtifactFileTypeFilter } from "./task-artifact-file-type-filter.js"
 import { getOrCreateArtifactThumbnail } from "./artifact-thumbnail.js";
 import { captureWebBundle } from "../web-sites/bundle.js";
 import type { WebBundleManifest } from "@linksense/shared";
-import { desktopArtifactObjectKey } from "./desktop-artifact-storage.js";
 
 export interface FileCleanupScheduler {
   enqueueObjectDelete(objectKey: string): Promise<void>;
@@ -123,36 +117,6 @@ type ReferenceableFileSummary = {
     archive_status: string;
   };
 };
-
-const desktopArtifactIdSchema = z
-  .uuid()
-  .transform((value) => value.toLowerCase());
-
-/**
- * A desktop artifact receipt whose bytes were already streamed, byte-verified
- * (size, MIME, SHA-256) and committed by the upload-confirmation step. Every
- * identifier is server-issued; the device never chooses ids or object keys.
- */
-const verifiedDesktopArtifactInputSchema = z.strictObject({
-  ownerId: desktopArtifactIdSchema,
-  conversationId: desktopArtifactIdSchema,
-  projectionTurnId: desktopArtifactIdSchema,
-  artifactId: desktopArtifactIdSchema,
-  displayName: z.string().min(1).max(260),
-  mimeType: z.string().min(1).max(160),
-  sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  multipart: z.literal(true).optional(),
-  webBundle: webBundleManifestSchema.optional(),
-  sha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/iu)
-    .transform((value) => value.toLowerCase()),
-  desktopSourcePathDigest: desktopArtifactPathDigestSchema.optional(),
-});
-
-export type VerifiedDesktopArtifactInput = z.infer<
-  typeof verifiedDesktopArtifactInputSchema
->;
 
 export function parseTaskArtifactCursor(
   value: string,
@@ -1107,147 +1071,9 @@ export class FileService {
   }
 
   /**
-   * Registers an artifact whose final object was already streamed and
-   * byte-verified (size, MIME, SHA-256) by the desktop upload-confirmation
-   * step. Identity and the object key are server-issued, so replaying the same
-   * receipt is an idempotent read: it creates no new events or audit rows and
-   * never rewrites or deletes the committed artifact.
-   *
-   * Everything runs under the conversation lock in one transaction:
-   *  1. lock the owned, active, local conversation row;
-   *  2. run `check(tx)`, which must fence the exact device, run, turn and
-   *     revocation state (the orchestrator locks the device/owner rows there);
-   *  3. read the exact running, non-interrupted, non-completed turn;
-   *  4. only then read or create the artifact row and its receipt.
-   *
-   * The fence precedes the receipt read, so a revoked or finished run cannot
-   * replay a committed artifact, and there is no expiry or terminal grace.
-   *
-   * The object belongs to the caller. This method must not delete it: a failed
-   * registration leaves the bytes for the orchestrator to reconcile instead of
-   * destroying an object whose write may have succeeded.
-   */
-  async registerVerifiedDesktopArtifact(
-    input: VerifiedDesktopArtifactInput,
-    check: (tx: Prisma.TransactionClient) => Promise<void>,
-  ) {
-    const parsed = verifiedDesktopArtifactInputSchema.safeParse(input);
-    if (!parsed.success) throw new AppError("VALIDATION_ERROR");
-    const verified = parsed.data;
-    const mimeType = normalizeMime(verified.mimeType);
-    if (!isStructuredMimeType(mimeType)) {
-      throw new AppError("ARTIFACT_REGISTRATION_INVALID");
-    }
-    if (verified.sizeBytes > (verified.multipart ? desktopArtifactMaxBytes : this.config.upload.maxFileSizeBytes)) {
-      throw new AppError("FILE_LIMIT_EXCEEDED");
-    }
-    if (verified.webBundle && mimeType !== "text/html") throw new AppError("ARTIFACT_REGISTRATION_INVALID");
-    const displayName = artifactDisplayName(verified.displayName, mimeType);
-    const objectKey = desktopArtifactObjectKey(
-      verified.conversationId,
-      verified.artifactId,
-    );
-    const sizeBytes = BigInt(verified.sizeBytes);
-
-    return this.withConversationLock(verified.conversationId, async () => {
-      const outcome = await this.prisma.$transaction(async (tx) => {
-        // Same lock as the attachment, deletion, and desktop projection flows,
-        // so ownership, archive state, and the execution target cannot change
-        // while this receipt is validated and committed.
-        const locked = await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id
-          FROM conversations
-          WHERE id = ${verified.conversationId}::uuid
-            AND owner_id = ${verified.ownerId}::uuid
-            AND archive_status = 'active'
-            AND execution_target = 'local'
-          FOR UPDATE
-        `;
-        if (locked.length !== 1) throw new AppError("FORBIDDEN");
-
-        await check(tx);
-
-        const turn = await tx.conversationTurn.findFirst({
-          where: {
-            id: verified.projectionTurnId,
-            conversationId: verified.conversationId,
-            submittedBy: verified.ownerId,
-            status: "running",
-            interruptRequestedAt: null,
-            completedAt: null,
-          },
-          select: { id: true },
-        });
-        if (!turn) throw new AppError("FORBIDDEN");
-
-        const committed = await tx.conversationFile.findFirst({
-          where: { id: verified.artifactId },
-        });
-        if (committed) {
-          assertCommittedDesktopArtifact(committed, {
-            conversationId: verified.conversationId,
-            turnId: turn.id,
-            displayName,
-            mimeType,
-            sizeBytes,
-            checksumSha256: verified.sha256,
-            objectKey,
-          });
-          // A replay never changes an existing binding. Old artifacts have no
-          // digest and stay replayable; when both sides carry one it must match.
-          if (committed.desktopSourcePathDigest && verified.desktopSourcePathDigest &&
-              committed.desktopSourcePathDigest !== verified.desktopSourcePathDigest) {
-            throw new AppError("CONFLICT");
-          }
-          if (verified.webBundle) {
-            const bundle = await tx.webArtifactBundle.findFirst({
-              where: { fileId: committed.id, ownerId: verified.ownerId, conversationId: verified.conversationId },
-            });
-            const archived = webBundleManifestSchema.safeParse(bundle?.manifestJson);
-            if (!archived.success || !isDeepStrictEqual(archived.data, verified.webBundle)) throw new AppError("CONFLICT");
-          }
-          return { artifact: committed, turnId: turn.id, created: null };
-        }
-
-        const created = await this.createArtifactRecord(tx, {
-          ownerId: verified.ownerId,
-          conversationId: verified.conversationId,
-          turnId: turn.id,
-          fileId: verified.artifactId,
-          displayName,
-          mimeType,
-          sizeBytes,
-          checksumSha256: verified.sha256,
-          objectKey,
-          ...(verified.desktopSourcePathDigest && { desktopSourcePathDigest: verified.desktopSourcePathDigest }),
-          ...(verified.webBundle && { webBundle: verified.webBundle }),
-        });
-        return { artifact: created.created, turnId: turn.id, created };
-      });
-
-      if (outcome.created) {
-        await this.publishArtifactEvents(
-          verified.conversationId,
-          outcome.turnId,
-          outcome.created.created,
-          outcome.created.eventSequence,
-          outcome.created.systemCapabilityEventId,
-        );
-      }
-      return {
-        success: true,
-        artifact_id: outcome.artifact.id,
-        file_id: outcome.artifact.id,
-        display_name: outcome.artifact.filename,
-        download_card_event_id: outcome.artifact.downloadCardEventId,
-      };
-    });
-  }
-
-  /**
-   * The single artifact publication path shared by the cloud workspace flow and
-   * the verified desktop flow: file row, optional web bundle, capability event,
-   * download-card event, and audit row commit together or not at all.
+   * The single artifact publication path: file row, optional web bundle,
+   * capability event, download-card event, and audit row commit together or
+   * not at all.
    */
   private async createArtifactRecord(
     tx: Prisma.TransactionClient,
@@ -1261,7 +1087,6 @@ export class FileService {
       sizeBytes: bigint;
       checksumSha256: string;
       objectKey: string;
-      desktopSourcePathDigest?: string;
       webBundle?: WebBundleManifest | null;
     },
   ) {
@@ -1283,10 +1108,6 @@ export class FileService {
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         checksumSha256: input.checksumSha256,
-        ...(input.desktopSourcePathDigest && {
-          desktopSourcePathDigest: input.desktopSourcePathDigest,
-          createdBy: input.ownerId,
-        }),
         storageBackend: "minio",
         minioObjectKey: input.objectKey,
         downloadable: true,
@@ -2231,54 +2052,6 @@ function artifactDisplayName(input: string, mimeType: string): string {
   if (filename.includes(".")) return filename;
   const extension = ARTIFACT_EXTENSION_BY_MIME.get(mimeType);
   return extension ? `${filename}.${extension}` : filename;
-}
-
-/**
- * A committed desktop receipt may be replayed only while every observable
- * field still matches the verified upload. Anything else is a conflicting
- * receipt for the same server-issued artifact id.
- */
-function assertCommittedDesktopArtifact(
-  file: {
-    conversationId: string;
-    turnId: string | null;
-    kind: string;
-    source: string;
-    status: string;
-    filename: string;
-    mimeType: string | null;
-    sizeBytes: bigint;
-    checksumSha256: string | null;
-    storageBackend: string;
-    minioObjectKey: string | null;
-    downloadable: boolean;
-  },
-  expected: {
-    conversationId: string;
-    turnId: string;
-    displayName: string;
-    mimeType: string;
-    sizeBytes: bigint;
-    checksumSha256: string;
-    objectKey: string;
-  },
-): void {
-  if (
-    file.conversationId !== expected.conversationId ||
-    file.turnId !== expected.turnId ||
-    file.kind !== "artifact" ||
-    file.source !== "agent_generated" ||
-    file.status !== "registered" ||
-    !file.downloadable ||
-    file.storageBackend !== "minio" ||
-    file.minioObjectKey !== expected.objectKey ||
-    file.filename !== expected.displayName ||
-    file.mimeType !== expected.mimeType ||
-    file.sizeBytes !== expected.sizeBytes ||
-    file.checksumSha256?.toLowerCase() !== expected.checksumSha256
-  ) {
-    throw new AppError("CONFLICT");
-  }
 }
 
 const ARTIFACT_MIME_BY_EXTENSION = new Map([

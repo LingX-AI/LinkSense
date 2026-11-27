@@ -366,34 +366,6 @@ export const conversation = {
     placeholder:
       "Décrivez la tâche à analyser et à planifier. LinkSense posera d’abord des questions et rédigera un plan.",
   },
-  localFolder: {
-    menuLabel: "Utiliser un dossier local",
-    menuSearchValue: "dossier local ordinateur fichiers",
-    menuDescription: "Choisissez un dossier pour cette tâche. Sans choix, cet ordinateur (votre dossier personnel) est utilisé.",
-    current: "Dossier local : {{name}}",
-    readOnly: "Choisir un dossier local (lecture seule)",
-    readWrite: "Choisir un dossier local (lecture et écriture)",
-    homeReadOnly: "Dossier actuel : lecture seule",
-    homeReadWrite: "Dossier actuel : lecture et écriture",
-    chooseFolder: "Choisir un dossier local",
-    permissions: "Autorisations du dossier",
-    permissionRead: "Lecture seule",
-    permissionWrite: "Lecture et écriture",
-    defaultFolder: "Le dossier personnel est utilisé par défaut",
-    permissionModeTitle: "Mode d’autorisation",
-    permissionModeAuto: "Auto",
-    permissionModeAutoDescription:
-      "Autorise automatiquement les modifications du dossier et les commandes de lecture simples ; demande pour les autres commandes.",
-    permissionModeManual: "Manuel",
-    permissionModeManualDescription:
-      "Demande une confirmation sur ce Mac avant les commandes et les modifications de fichiers.",
-    permissionModeAcceptEdits: "Accepter les modifications",
-    permissionModeAcceptEditsDescription:
-      "Autorise automatiquement les modifications du dossier ; demande avant les commandes.",
-    permissionModeBypass: "Ignorer les autorisations",
-    permissionModeBypassDescription:
-      "Ne demande jamais. Les commandes s’exécutent avec l’accès complet de votre compte Mac.",
-  },
   proposedPlan: { title: "Plan" },
   planDecision: {
     title: "Réaliser ce plan ?",

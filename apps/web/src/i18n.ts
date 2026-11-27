@@ -1,16 +1,8 @@
 import { workspaceUiDemoMessages } from "@/features/ui-demo/messages"
-import { desktopLoginMessages } from "@/features/desktop-login/messages"
-import { desktopUpdateMessages } from "@/features/desktop-update/messages"
-import { desktopDevicesMessages } from "@/features/desktop-devices/messages"
-import { desktopExecutionMessages } from "@/features/desktop-execution/messages"
-import { desktopComputerPermissionMessages } from "@/features/desktop-computer-permissions/messages"
-import { desktopComputerUseMessages } from "@/features/desktop-computer-use/messages"
-import { localWorkspaceMessages } from "@/features/local-workspace/messages"
 import { browserPanelMessages } from "@/features/browser-panel/messages"
 import { monitoringMessages } from "@/features/automations/monitoring-messages"
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
 import { taskReferenceMessages } from "@/features/conversations/task-reference-messages"
-import { taskArtifactDownloadMessages } from "@/features/task-artifacts/messages"
 import { richOutputMessages } from "@/features/conversations/rich-output-messages"
 import { webSearchMessages } from "@/features/admin/web-search-messages"
 import { sensitiveDataMessages } from "@/features/sensitive-data/messages"
@@ -75,22 +67,13 @@ function readStoredLanguage(): string | null {
   }
 }
 
-function readNativeLanguage(): string | null {
-  const native = window.mygo
-  if (native?.platform !== "darwin") return null
-  return typeof native.locale === "string" ? native.locale : null
-}
-
 export function resolveInitialLanguage(input: {
   stored?: string | null
-  native?: string | null
   languages?: readonly string[]
   language?: string | null
 }): SupportedLanguage {
   const stored = normalizeLanguage(input.stored)
   if (stored) return stored
-  const native = normalizeLanguage(input.native)
-  if (native) return native
   return resolveBrowserLanguage(input.languages, input.language)
 }
 
@@ -101,14 +84,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["zh-CN"],
         sensitiveData: sensitiveDataMessages["zh-CN"],
         ...zhCN,
-        desktopLogin: desktopLoginMessages["zh-CN"],
-        desktopUpdate: desktopUpdateMessages["zh-CN"],
-        desktopDevices: desktopDevicesMessages["zh-CN"],
-        desktopExecution: desktopExecutionMessages["zh-CN"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["zh-CN"],
-        desktopComputerUse: desktopComputerUseMessages["zh-CN"],
-        localWorkspace: localWorkspaceMessages["zh-CN"],
         accountAccess: accountAccessMessages["zh-CN"],
         workspaceHome: workspaceHomeMessages["zh-CN"],
         settingsInterface: settingsInterfaceMessages["zh-CN"],
@@ -116,7 +91,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["zh-CN"],
         monitoring: monitoringMessages["zh-CN"],
         taskReferences: taskReferenceMessages["zh-CN"],
-        taskArtifacts: taskArtifactDownloadMessages["zh-CN"],
         richOutput: richOutputMessages["zh-CN"],
         automationNotifications: automationNotificationMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
@@ -131,14 +105,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["en-US"],
         sensitiveData: sensitiveDataMessages["en-US"],
         ...enUS,
-        desktopLogin: desktopLoginMessages["en-US"],
-        desktopUpdate: desktopUpdateMessages["en-US"],
-        desktopDevices: desktopDevicesMessages["en-US"],
-        desktopExecution: desktopExecutionMessages["en-US"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["en-US"],
-        desktopComputerUse: desktopComputerUseMessages["en-US"],
-        localWorkspace: localWorkspaceMessages["en-US"],
         accountAccess: accountAccessMessages["en-US"],
         workspaceHome: workspaceHomeMessages["en-US"],
         settingsInterface: settingsInterfaceMessages["en-US"],
@@ -146,7 +112,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["en-US"],
         monitoring: monitoringMessages["en-US"],
         taskReferences: taskReferenceMessages["en-US"],
-        taskArtifacts: taskArtifactDownloadMessages["en-US"],
         richOutput: richOutputMessages["en-US"],
         automationNotifications: automationNotificationMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
@@ -161,14 +126,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["es-ES"],
         sensitiveData: sensitiveDataMessages["es-ES"],
         ...esES,
-        desktopLogin: desktopLoginMessages["es-ES"],
-        desktopUpdate: desktopUpdateMessages["es-ES"],
-        desktopDevices: desktopDevicesMessages["es-ES"],
-        desktopExecution: desktopExecutionMessages["es-ES"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["es-ES"],
-        desktopComputerUse: desktopComputerUseMessages["es-ES"],
-        localWorkspace: localWorkspaceMessages["es-ES"],
         accountAccess: accountAccessMessages["es-ES"],
         workspaceHome: workspaceHomeMessages["es-ES"],
         settingsInterface: settingsInterfaceMessages["es-ES"],
@@ -176,7 +133,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["es-ES"],
         monitoring: monitoringMessages["es-ES"],
         taskReferences: taskReferenceMessages["es-ES"],
-        taskArtifacts: taskArtifactDownloadMessages["es-ES"],
         richOutput: richOutputMessages["es-ES"],
         automationNotifications: automationNotificationMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
@@ -191,14 +147,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["pt-BR"],
         sensitiveData: sensitiveDataMessages["pt-BR"],
         ...ptBR,
-        desktopLogin: desktopLoginMessages["pt-BR"],
-        desktopUpdate: desktopUpdateMessages["pt-BR"],
-        desktopDevices: desktopDevicesMessages["pt-BR"],
-        desktopExecution: desktopExecutionMessages["pt-BR"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["pt-BR"],
-        desktopComputerUse: desktopComputerUseMessages["pt-BR"],
-        localWorkspace: localWorkspaceMessages["pt-BR"],
         accountAccess: accountAccessMessages["pt-BR"],
         workspaceHome: workspaceHomeMessages["pt-BR"],
         settingsInterface: settingsInterfaceMessages["pt-BR"],
@@ -206,7 +154,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["pt-BR"],
         monitoring: monitoringMessages["pt-BR"],
         taskReferences: taskReferenceMessages["pt-BR"],
-        taskArtifacts: taskArtifactDownloadMessages["pt-BR"],
         richOutput: richOutputMessages["pt-BR"],
         automationNotifications: automationNotificationMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
@@ -221,14 +168,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["fr-FR"],
         sensitiveData: sensitiveDataMessages["fr-FR"],
         ...frFR,
-        desktopLogin: desktopLoginMessages["fr-FR"],
-        desktopUpdate: desktopUpdateMessages["fr-FR"],
-        desktopDevices: desktopDevicesMessages["fr-FR"],
-        desktopExecution: desktopExecutionMessages["fr-FR"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["fr-FR"],
-        desktopComputerUse: desktopComputerUseMessages["fr-FR"],
-        localWorkspace: localWorkspaceMessages["fr-FR"],
         accountAccess: accountAccessMessages["fr-FR"],
         workspaceHome: workspaceHomeMessages["fr-FR"],
         settingsInterface: settingsInterfaceMessages["fr-FR"],
@@ -236,7 +175,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["fr-FR"],
         monitoring: monitoringMessages["fr-FR"],
         taskReferences: taskReferenceMessages["fr-FR"],
-        taskArtifacts: taskArtifactDownloadMessages["fr-FR"],
         richOutput: richOutputMessages["fr-FR"],
         automationNotifications: automationNotificationMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
@@ -251,14 +189,6 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["ja-JP"],
         sensitiveData: sensitiveDataMessages["ja-JP"],
         ...jaJP,
-        desktopLogin: desktopLoginMessages["ja-JP"],
-        desktopUpdate: desktopUpdateMessages["ja-JP"],
-        desktopDevices: desktopDevicesMessages["ja-JP"],
-        desktopExecution: desktopExecutionMessages["ja-JP"],
-        desktopComputerPermissions:
-          desktopComputerPermissionMessages["ja-JP"],
-        desktopComputerUse: desktopComputerUseMessages["ja-JP"],
-        localWorkspace: localWorkspaceMessages["ja-JP"],
         accountAccess: accountAccessMessages["ja-JP"],
         workspaceHome: workspaceHomeMessages["ja-JP"],
         settingsInterface: settingsInterfaceMessages["ja-JP"],
@@ -266,7 +196,6 @@ void i18n.use(initReactI18next).init({
         browserPanel: browserPanelMessages["ja-JP"],
         monitoring: monitoringMessages["ja-JP"],
         taskReferences: taskReferenceMessages["ja-JP"],
-        taskArtifacts: taskArtifactDownloadMessages["ja-JP"],
         richOutput: richOutputMessages["ja-JP"],
         automationNotifications: automationNotificationMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
@@ -279,7 +208,6 @@ void i18n.use(initReactI18next).init({
   },
   lng: resolveInitialLanguage({
     stored: readStoredLanguage(),
-    native: readNativeLanguage(),
     languages: window.navigator.languages,
     language: window.navigator.language,
   }),
@@ -297,20 +225,6 @@ i18n.on("languageChanged", (language) => {
 document.documentElement.lang =
   normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
 
-type NativeLanguageSync = (language: SupportedLanguage) => void
-
-let nativeLanguageSync: NativeLanguageSync | null = null
-let appLanguageRevision = 0
-
-/**
- * Registers the macOS shell bridge that makes the native app language follow
- * an explicit Web choice. Only the main document installs it; embedded pages
- * keep their configured locale without touching native state.
- */
-export function setNativeLanguageSync(handler: NativeLanguageSync | null) {
-  nativeLanguageSync = handler
-}
-
 async function changeDisplayedLanguage(language: SupportedLanguage) {
   const currentLanguage = normalizeLanguage(
     i18n.language ?? i18n.resolvedLanguage
@@ -326,25 +240,12 @@ export async function setAppLanguage(
   language: SupportedLanguage,
   options: { persist?: boolean } = {}
 ) {
-  // Only the installed macOS bridge follows persisted choices. A revision
-  // keeps an overlapping older choice from persisting or reaching the shell
-  // after a newer one; browsers and Windows keep writing as they did.
-  const revision =
-    options.persist === false || nativeLanguageSync === null
-      ? null
-      : ++appLanguageRevision
   await changeDisplayedLanguage(language)
   if (options.persist === false) return
-  if (revision !== null && revision !== appLanguageRevision) return
   try {
     window.localStorage?.setItem(LANGUAGE_STORAGE_KEY, language)
   } catch {
     // Language switching remains available when browser storage is disabled.
-  }
-  try {
-    nativeLanguageSync?.(language)
-  } catch {
-    // A native bridge failure must not break sign-in, Settings, or the page.
   }
 }
 

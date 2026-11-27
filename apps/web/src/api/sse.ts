@@ -15,7 +15,6 @@ import {
   isLoginSessionCurrent,
 } from "@/api/session"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
-import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 
 export type ConversationEventHandlers = {
   /**
@@ -213,7 +212,7 @@ export function connectConversationEvents(
             )
           }
           if (lastEventId) headers.set("Last-Event-ID", lastEventId)
-          response = await hostFetch(
+          response = await fetch(
             buildApiUrl(options.publicSession.path, {
               last_event_id: lastEventId || undefined,
             }),
@@ -319,9 +318,7 @@ export function connectConversationEvents(
         }
         if (
           error instanceof ApiError &&
-          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(
-            error.errorCode
-          )
+          error.errorCode === "CLIENT_UPDATE_REQUIRED"
         ) {
           controller.abort()
           return

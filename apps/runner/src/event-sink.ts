@@ -6,12 +6,6 @@ import { relative } from "node:path";
 
 import {
   browserUseFailure,
-  browserUseReadOnly,
-  browserUseResultSchema,
-  computerExecuteResultSchema,
-  desktopArtifactReceiptSchema,
-  desktopArtifactUploadLifetimeMs,
-  desktopComputerExecuteLifetimeMs,
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
@@ -22,9 +16,7 @@ import {
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
   runnerPrivacyMaskingCaptureSchema,
-  type ComputerExecuteInput,
-  type ComputerExecuteResult,
-  type DesktopArtifactSourceBinding,
+  type BrowserUseRequest,
   type ImagePreviewRegistration,
   type InternalWebSiteToolConfirm,
   type InternalWebSiteToolRequest,
@@ -42,7 +34,7 @@ import type {
   LinkSensePublishedEvent,
   LinkSenseRunnerEvent,
 } from "./codex/event-mapper.js";
-import { FileServiceRequestError, desktopArtifactUncertain, fileServiceErrorFromApi, type FileServiceErrorCode } from "./file-service-error.js";
+import { fileServiceErrorFromApi } from "./file-service-error.js";
 import { ImagePreviewRequestError } from "./image-preview-error.js";
 import { imageGenerationErrorFromApi, imageGenerationErrorFromTransport } from "./image-generation-error.js";
 import { knowledgeSearchErrorFromApi } from "./knowledge-search-error.js";
@@ -57,12 +49,12 @@ import { automationErrorFromApi } from "./automation-error.js";
 import { webSiteToolErrorFromApi } from "./web-site-tool-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
-import type { ConnectionInput, DesktopConnectionRequestBody } from "@linksense/shared";
+import type { ConnectionInput } from "@linksense/shared";
 import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   deriveKnowledgeSearchTimeouts,
 } from "./knowledge-search-timeout.js";
-import { RunnerEventOutboxStore, type DesktopOutboxScope, type RunnerEventOutboxEntry } from "./workspace/event-outbox.js";
+import { RunnerEventOutboxStore, type RunnerEventOutboxEntry } from "./workspace/event-outbox.js";
 import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
@@ -81,10 +73,8 @@ export interface RunnerEventSink {
     turnId: string;
     input: ConnectionInput;
     signal?: AbortSignal;
-    page?: DesktopConnectionRequestBody["page"];
   }): Promise<unknown>;
   reportStartSettled?(input: RunnerStartSettled): Promise<void>;
-  confirmDesktopAttachments?(input: RunnerStartSettled): Promise<number>;
   /** Atomically persists the event before returning. */
   publish(conversationId: string, event: LinkSensePublishedEvent): Promise<void>;
   /** Persists every original event, in order, before returning. */
@@ -98,7 +88,6 @@ export interface RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
-    sourceBinding?: DesktopArtifactSourceBinding;
   }, signal?: AbortSignal): Promise<unknown>;
   registerImagePreview(input: ImagePreviewRegistration): Promise<unknown>;
   generateImage?(input: {
@@ -152,20 +141,7 @@ export interface RunnerEventSink {
     input: import("@linksense/shared").ReadConversationReferenceInput;
     signal?: AbortSignal;
   }): Promise<unknown>;
-  browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
-  localToolsExecute?(input: {
-    conversationId: string;
-    turnId: string;
-    operation: import("@linksense/shared").DesktopCloudToolOperation;
-    input: unknown;
-    signal?: AbortSignal;
-  }): Promise<unknown>;
-  computerExecute?(input: {
-    conversationId: string;
-    turnId: string;
-    input: ComputerExecuteInput;
-    signal?: AbortSignal;
-  }): Promise<ComputerExecuteResult>;
+  browserUse?(input: { conversationId: string; turnId: string; input: BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
   requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
@@ -189,12 +165,8 @@ export type ProcessExitReport = {
   capabilityGeneration: string;
 };
 
-// The worker and supervisor bound the same full desktop artifact transfer.
-const desktopArtifactTimeoutMs = desktopArtifactUploadLifetimeMs + 10_000;
-
 type HttpRunnerEventSinkOptions = {
   serviceSessionId?: string;
-  desktopOutboxScope?: DesktopOutboxScope;
   logger?: Pick<Logger, "warn" | "error">;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
@@ -229,7 +201,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     private readonly workspaceManager: WorkspaceManager,
     private readonly options: HttpRunnerEventSinkOptions = {},
   ) {
-    this.outbox = new RunnerEventOutboxStore(workspaceManager, options.desktopOutboxScope);
+    this.outbox = new RunnerEventOutboxStore(workspaceManager);
     this.memoryUsageOutbox = new MemoryUsageOutboxStore(workspaceManager);
   }
 
@@ -354,17 +326,6 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     await this.resumeConversation(body.conversationId);
   }
 
-  async confirmDesktopAttachments(input: RunnerStartSettled): Promise<number> {
-    const body = runnerStartSettledSchema.parse(input);
-    const response = await this.post("/internal/runner/attachments-ready", body,
-      this.workspaceManager.ownerFor(body.conversationId));
-    const { confirmed, expiresAt } = asRecord(response);
-    if (confirmed !== true || typeof expiresAt !== "number" || !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) {
-      throw new Error("desktop attachment admission unavailable");
-    }
-    return expiresAt;
-  }
-
   async flushConversation(
     conversationId: string,
     timeoutMs = 250,
@@ -399,13 +360,10 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   }
 
   async reportProcessExit(input: ProcessExitReport): Promise<void> {
-    // Desktop recovery drains after the supervisor stops the only writer.
-    if (!this.options.desktopOutboxScope) {
-      await this.drainConversationOutbox(
-        input.conversationId,
-        this.options.processExitTimeoutMs ?? 150_000,
-      );
-    }
+    await this.drainConversationOutbox(
+      input.conversationId,
+      this.options.processExitTimeoutMs ?? 150_000,
+    );
     const response = await this.post(
       "/internal/runner/process-exit",
       input,
@@ -458,13 +416,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
-    sourceBinding?: DesktopArtifactSourceBinding;
-  }, signal?: AbortSignal): Promise<unknown> {
-    // Desktop keeps the file in the local workspace and relays it through the
-    // supervisor; the cloud registration contract is unchanged.
-    if (this.options.desktopOutboxScope) {
-      return this.postDesktopArtifact(input, signal);
-    }
+  }): Promise<unknown> {
     return this.postArtifact(
       input,
       this.workspaceManager.ownerFor(input.conversationId),
@@ -653,14 +605,11 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     turnId: string;
     input: ConnectionInput;
     signal?: AbortSignal;
-    page?: DesktopConnectionRequestBody["page"];
   }): Promise<unknown> {
-    const { signal, page, conversationId, turnId, input: operation } = input;
+    const { signal, conversationId, turnId, input: operation } = input;
     const response = await this.request(
       "/internal/connections/execute",
-      this.options.desktopOutboxScope
-        ? { conversationId, turnId, request: { input: operation, page } }
-        : { conversationId, turnId, input: operation },
+      { conversationId, turnId, input: operation },
       this.workspaceManager.ownerFor(conversationId),
       signal,
     );
@@ -669,101 +618,11 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return value;
   }
 
-  async localToolsExecute(input: {
-    conversationId: string;
-    turnId: string;
-    operation: import("@linksense/shared").DesktopCloudToolOperation;
-    input: unknown;
-    signal?: AbortSignal;
-  }): Promise<unknown> {
+  async browserUse(input: { conversationId: string; turnId: string; input: BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
-    const response = await this.request(
-      "/internal/local-tools/execute",
-      body,
-      this.workspaceManager.ownerFor(input.conversationId),
-      signal,
-    );
-    const result = await parseResponseBody(response);
-    if (!response.ok) {
-      const errorCode = result !== null && typeof result === "object" &&
-          "error_code" in result && typeof result.error_code === "string"
-        ? result.error_code
-        : undefined;
-      throw new ConversationReferenceRequestError(response.status, errorCode);
-    }
-    return result;
-  }
-
-  async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
-    const { signal, ...body } = input;
-    const request = () => this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
-    if (!this.options.desktopOutboxScope) {
-      const response = await request();
-      if (!response.ok) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
-      return parseResponseBody(response);
-    }
-    try {
-      const response = await request();
-      const payload = await parseResponseBody(response);
-      if (!response.ok) {
-        const code = asRecord(payload).error_code;
-        if (code === "RUNNER_OPERATION_UNCERTAIN") return browserUseFailure(code);
-        return browserUseFailure(response.status === 401 || response.status === 403
-          ? "BROWSER_USE_ACCESS_DENIED" : "BROWSER_USE_COMMAND_FAILED");
-      }
-      return browserUseResultSchema.parse(payload);
-    } catch {
-      return browserUseFailure(browserUseReadOnly(input.input) ? "BROWSER_USE_COMMAND_FAILED" : "RUNNER_OPERATION_UNCERTAIN");
-    }
-  }
-
-  /**
-   * Posts to the supervisor's worker-only loopback callback. The supervisor
-   * relays the closed body to the API over the existing desktop device
-   * WebSocket; the API has no HTTP endpoint for this operation and must not add
-   * one. Send exactly the closed input, never a second native-call proof.
-   */
-  async computerExecute(input: {
-    conversationId: string;
-    turnId: string;
-    input: ComputerExecuteInput;
-    signal?: AbortSignal;
-  }): Promise<ComputerExecuteResult> {
-    const { signal } = input;
-    const body = {
-      conversationId: input.conversationId,
-      turnId: input.turnId,
-      input: input.input,
-    };
-    const failure = (): ComputerExecuteResult => ({
-      kind: "failure",
-      error: input.input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
-    });
-    if (!this.options.desktopOutboxScope) {
-      return { kind: "failure", error: "COMPUTER_UNAVAILABLE" };
-    }
-    try {
-      const response = await this.request(
-        "/internal/computer-use/execute",
-        body,
-        this.workspaceManager.ownerFor(input.conversationId),
-        signal,
-      );
-      const payload = await parseResponseBody(response);
-      if (!response.ok) {
-        const code = asRecord(payload).error_code;
-        return {
-          kind: "failure",
-          error: response.status === 401 || response.status === 403 || code === "COMPUTER_ACCESS_DENIED"
-            ? "COMPUTER_ACCESS_DENIED"
-            : input.input.kind === "act" ? "RUNNER_OPERATION_UNCERTAIN" : "COMPUTER_UNAVAILABLE",
-        };
-      }
-      const parsed = computerExecuteResultSchema.safeParse(payload);
-      return parsed.success ? parsed.data : failure();
-    } catch {
-      return failure();
-    }
+    const response = await this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    if (!response.ok) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    return parseResponseBody(response);
   }
 
   async emitInteractiveApplicationEvent(input: {
@@ -795,44 +654,6 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       throw fileServiceErrorFromApi(response.status, responseBody);
     }
     return responseBody;
-  }
-
-  /**
-   * Desktop artifacts stay local until the supervisor grants a scoped upload.
-   * Only stable identifiers and display metadata cross the worker bridge.
-   */
-  private async postDesktopArtifact(input: {
-    conversationId: string;
-    turnId: string;
-    workspaceRelativePath: string;
-    displayName: string;
-    mimeType?: string;
-    webRootRelativePath?: string;
-    sourceBinding?: DesktopArtifactSourceBinding;
-  }, signal?: AbortSignal): Promise<unknown> {
-    const response = await this.request(
-      "/internal/file-service/register-artifact",
-      {
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-        workspaceRelativePath: input.workspaceRelativePath,
-        displayName: input.displayName,
-        ...(input.mimeType ? { mimeType: input.mimeType } : {}),
-        ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
-        ...(input.sourceBinding && { sourceBinding: input.sourceBinding }),
-      },
-      this.workspaceManager.ownerFor(input.conversationId),
-      signal,
-    );
-    const responseBody = await parseResponseBody(response);
-    if (!response.ok) {
-      throw desktopArtifactError(response.status, responseBody);
-    }
-    const receipt = desktopArtifactReceiptSchema.safeParse(responseBody);
-    if (!receipt.success) {
-      throw desktopArtifactUncertain();
-    }
-    return receipt.data;
   }
 
   private async postImageGeneration(
@@ -1109,14 +930,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
       : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/web-sites/") || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
-      : pathname === "/internal/computer-use/execute"
-        ? desktopComputerExecuteLifetimeMs + 2_000
-      : pathname === "/internal/local-tools/execute"
-        ? 12_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
-      : pathname === "/internal/file-service/register-artifact" && this.options.desktopOutboxScope
-        ? desktopArtifactTimeoutMs
         : (this.options.requestTimeoutMs ?? 15_000);
     const requestSignal = AbortSignal.timeout(timeoutMs);
     const signal = AbortSignal.any([
@@ -1157,43 +972,6 @@ export function acknowledgedEventCount(
     throw new Error("runner event batch acknowledgement is not an ordered prefix");
   }
   return accepted.length;
-}
-
-const desktopArtifactFailureCodes: Record<
-  Exclude<FileServiceErrorCode, "RUNNER_OPERATION_UNCERTAIN">,
-  { retryable: boolean; statusCode: number }
-> = {
-  WEB_SITE_BUNDLE_INVALID: { retryable: false, statusCode: 422 },
-  WEB_SITE_RESOURCES_MISSING: { retryable: false, statusCode: 422 },
-  ARTIFACT_NOT_FOUND: { retryable: false, statusCode: 404 },
-  ARTIFACT_REGISTRATION_BUSY: { retryable: true, statusCode: 409 },
-  ARTIFACT_REGISTRATION_FAILED: { retryable: false, statusCode: 400 },
-  ARTIFACT_REGISTRATION_INVALID: { retryable: false, statusCode: 400 },
-  ARTIFACT_REGISTRATION_UNAVAILABLE: { retryable: true, statusCode: 503 },
-  FILE_LIMIT_EXCEEDED: { retryable: false, statusCode: 413 },
-  FILE_SERVICE_FORBIDDEN: { retryable: false, statusCode: 403 },
-  FILE_SERVICE_TURN_INACTIVE: { retryable: false, statusCode: 409 },
-};
-
-function desktopArtifactError(
-  statusCode: number,
-  responseBody: unknown,
-): FileServiceRequestError {
-  const { code, artifact_id } = asRecord(responseBody);
-  if (code === "RUNNER_OPERATION_UNCERTAIN") {
-    return desktopArtifactUncertain(desktopArtifactReceiptSchema.shape.artifact_id.safeParse(artifact_id).data);
-  }
-  if (typeof code === "string" && Object.hasOwn(desktopArtifactFailureCodes, code)) {
-    const known = code as keyof typeof desktopArtifactFailureCodes;
-    const details = desktopArtifactFailureCodes[known];
-    return new FileServiceRequestError(
-      known,
-      details.retryable,
-      details.statusCode,
-    );
-  }
-  return statusCode >= 500 ? desktopArtifactUncertain()
-    : new FileServiceRequestError("ARTIFACT_REGISTRATION_FAILED", false, 400);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

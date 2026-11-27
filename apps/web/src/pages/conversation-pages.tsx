@@ -14,7 +14,6 @@ import type { ApplicationAnnotationSubmit } from "@/features/applications/applic
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { listConversationWebSites, webSiteKeys } from "@/features/web-sites/api"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
-import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 
 import { responseLatency } from "@/features/conversations/response-latency"
 import {
@@ -65,15 +64,12 @@ import {
   APPLICATION_BUILDER_SKILL_NAME,
   builtInCapabilityId,
   coreMcpServerKey,
-  desktopApprovalRequestSchema,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
-  type DesktopApprovalRequest,
   type SideChatReference,
 } from "@linksense/shared"
 import { z } from "zod"
 import { toast } from "sonner"
-import dayjs from "dayjs"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import {
@@ -81,26 +77,14 @@ import {
   isLoginSessionCurrent,
   type LoginSessionBoundary,
 } from "@/api/session"
-import { isMacDesktopHost } from "@/adapters/desktop/desktop-adapter"
-import {
-  addDesktopFileRoot,
-  getDesktopFileRoot,
-  getDesktopPermissionMode,
-  listDesktopFileRoot,
-  setDesktopFileRootMode,
-  setDesktopPermissionMode,
-  type DesktopPermissionMode,
-} from "@/adapters/desktop/desktop-device-adapter"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
   conversationInterruptTimeoutMs,
   interruptConversationTurn,
-  interruptDesktopTurnSubmission,
   type ConversationInterruptTarget,
 } from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
-import { useDesktopExecutionTargetPolicy } from "@/features/desktop-execution/use-desktop-execution-target-policy"
 import { withRequiredConversationCapabilities } from "@/features/conversations/conversation-capability-selection"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
@@ -227,7 +211,6 @@ import {
 import {
   clearPendingConversationTurnSubmission,
   getPendingConversationTurnSubmission,
-  hasDesktopAttachmentSubmission,
   movePendingConversationTurnSubmission,
   setPendingConversationTurnSubmission,
   updatePendingConversationTurnSubmission,
@@ -235,13 +218,9 @@ import {
   type PendingConversationTurnSubmission,
 } from "@/features/conversations/conversation-pending-turn-submission"
 import {
-  clearDesktopAttachmentStart,
   clearLocalConversationDraft,
   consumeAcceptedLocalConversationDraft,
-  EMPTY_LOCAL_CONVERSATION_DRAFT,
-  readDesktopAttachmentStart,
   readLocalConversationDraft,
-  writeDesktopAttachmentStart,
   writeLocalConversationDraft,
   type LocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
@@ -322,9 +301,7 @@ import {
 } from "@/features/conversations/conversation-plan-decision-card"
 import { ConversationGoalBar } from "@/features/conversations/conversation-goal-bar"
 import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
-import { CloudApprovalCard } from "@/features/conversations/cloud-approval-card"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
-import { useCloudApproval } from "@/features/conversations/use-cloud-approval"
 import {
   useKnowledgeBaseList,
   useKnowledgeSearchCapability,
@@ -445,7 +422,6 @@ type ComposerSubmission = Readonly<{
   optimisticId?: string
   referenceId?: string
   taskReferences?: { id: string; title: string }[]
-  waitForDesktopAttachmentStart?: boolean
 }>
 
 type PlanReviewActionSubmission =
@@ -741,8 +717,6 @@ export function ConversationPage({
     setComposerAttachmentOperationPending,
   ] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [attachmentUpdateConversationId, setAttachmentUpdateConversationId] =
-    useState<string | null>(null)
   const dismissError = useCallback((message: string) => {
     setError((current) => (current === message ? null : current))
   }, [])
@@ -1075,25 +1049,6 @@ export function ConversationPage({
   const conversationQuery = useQuery({
     ...conversationDetailQueryOptions(conversationId),
     enabled: !isNew,
-    refetchInterval: (query) => {
-      const detail = query.state.data
-      if (
-        !detail ||
-        detail.execution_target !== "local" ||
-        isDefinitiveConversationUnavailableError(query.state.error)
-      )
-        return false
-      const pending = getPendingConversationTurnSubmission(
-        queryClient,
-        detail.id
-      )
-      return hasDesktopAttachmentSubmission(pending) &&
-        pending.status !== "running" &&
-        dayjs().diff(dayjs(pending.message.created_at)) <
-          conversationInterruptTimeoutMs
-        ? conversationInterruptPollIntervalMs
-        : false
-    },
   })
   const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([])
   const handleVisibleMessageChange = useCallback((ids: string[]) => {
@@ -1423,136 +1378,6 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
-  // Rollout policy comes from the existing bootstrap polling. The gate belongs
-  // to a fresh task in the main Mac window, decided from the route and surface
-  // rather than transient composer visibility.
-  const desktopExecutionPolicy = useDesktopExecutionTargetPolicy()
-  const desktopExecutionTargetGated =
-    isNew &&
-    !embedded &&
-    !development &&
-    isMacDesktopHost() &&
-    !isApplicationConversation
-  const desktopCloudTargetEnabled =
-    !desktopExecutionTargetGated || desktopExecutionPolicy.cloudTarget
-  const [prewarmedConversationId, setPrewarmedConversationId] = useState<string | null>(null)
-  const localFolderKey = `${isNew ? "new" : conversationId ?? "none"}:${newTaskResetVersion}`
-  const [localFolderChoice, setLocalFolderChoice] = useState<{
-    key: string
-    id: string
-    name: string
-    mode: "read" | "write"
-  } | null>(null)
-  const localFolderConversationId = isNew ? prewarmedConversationId : conversationId
-  // The Mac owns the grant; read it once per conversation so the composer
-  // shows the real folder and mode even before this session changes either.
-  const localFolderRootQuery = useQuery({
-    queryKey: ["conversation", localFolderConversationId ?? "none", "file-root"],
-    queryFn: () => getDesktopFileRoot(localFolderConversationId ?? ""),
-    enabled: Boolean(isMacDesktopHost() && localFolderConversationId),
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  })
-  const localFolder =
-    localFolderChoice?.key === localFolderKey
-      ? localFolderChoice
-      : localFolderRootQuery.data
-        ? {
-            key: localFolderKey,
-            id: localFolderRootQuery.data.id,
-            name: localFolderRootQuery.data.name,
-            mode: localFolderRootQuery.data.mode,
-          }
-        : null
-  const chooseLocalFolder = useCallback(async (mode: "read" | "write") => {
-    if (!localFolderConversationId) return
-    try {
-      const root = await addDesktopFileRoot(localFolderConversationId, mode)
-      setLocalFolderChoice({
-        key: localFolderKey, id: root.id, name: root.name, mode: root.mode,
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message === "DESKTOP_FILE_PICKER_CANCELLED") return
-      throw error
-    }
-  }, [localFolderConversationId, localFolderKey])
-  const setLocalFolderMode = useCallback(async (mode: "read" | "write") => {
-    if (!localFolderConversationId) return
-    const root = await setDesktopFileRootMode(localFolderConversationId, mode)
-    setLocalFolderChoice({
-      key: localFolderKey, id: root.id, name: root.name, mode: root.mode,
-    })
-  }, [localFolderConversationId, localFolderKey])
-  const listLocalFolderFiles = useCallback(
-    (path: string) =>
-      localFolderConversationId
-        ? listDesktopFileRoot(localFolderConversationId, path)
-        : Promise.reject(new Error("DESKTOP_FILE_UNAVAILABLE")),
-    [localFolderConversationId]
-  )
-  // The Mac keeps the permission mode; the composer reads and changes it
-  // through the bridge. Default Manual until a conversation chooses another.
-  const permissionModeQuery = useQuery({
-    queryKey: [
-      "conversation",
-      localFolderConversationId ?? "none",
-      "permission-mode",
-    ],
-    queryFn: () => getDesktopPermissionMode(localFolderConversationId ?? ""),
-    enabled: Boolean(isMacDesktopHost() && localFolderConversationId),
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  })
-  const [permissionModeSaving, setPermissionModeSaving] = useState(false)
-  const localPermissionMode: DesktopPermissionMode =
-    permissionModeQuery.data ?? "manual"
-  const setLocalPermissionMode = useCallback(
-    async (mode: DesktopPermissionMode) => {
-      if (!localFolderConversationId) return
-      setPermissionModeSaving(true)
-      try {
-        const saved = await setDesktopPermissionMode(
-          localFolderConversationId,
-          mode
-        )
-        queryClient.setQueryData(
-          [
-            "conversation",
-            localFolderConversationId,
-            "permission-mode",
-          ],
-          saved
-        )
-      } catch (nextError) {
-        // The Mac refused to save (for example, the session ended). Keep the
-        // previous mode and tell the person instead of an unhandled rejection.
-        setError(getErrorMessage(nextError, t))
-      } finally {
-        setPermissionModeSaving(false)
-      }
-    },
-    [localFolderConversationId, queryClient, t]
-  )
-  const cloudApproval = useCloudApproval(
-    isMacDesktopHost() ? localFolderConversationId : null
-  )
-  const desktopNoTargetAvailable =
-    desktopExecutionTargetGated && !desktopExecutionPolicy.cloudTarget
-  // A poll can close the cloud entry after this render, so the background
-  // prewarm writes re-read the current rollout right before each attempt.
-  // Only a rollout-gated fresh Mac task opts in; other prewarm calls keep
-  // their existing flow.
-  const assertPrewarmTargetAllowed = desktopExecutionTargetGated
-    ? () => {
-        if (!desktopExecutionPolicy.readLatest().cloudTarget) {
-          throw new ApiError({
-            status: 409,
-            errorCode: "DESKTOP_EXECUTION_CLOUD_TARGET_DISABLED",
-            messageKey: "desktopExecution.cloudTargetUnavailable",
-          })
-        }
-      }
-    : undefined
   const canShowSiteDeliveries = Boolean(
     user &&
     conversationId &&
@@ -1618,16 +1443,6 @@ export function ConversationPage({
           )
         : unreconciledSubmission,
     [conversation, unreconciledSubmission]
-  )
-  const waitingForDesktopAttachmentStart = Boolean(
-    conversation?.execution_target === "local" &&
-    hasDesktopAttachmentSubmission(currentPendingTurnSubmission) &&
-    currentPendingTurnSubmission.status !== "running" &&
-    !conversation.turns?.some(
-      (turn) =>
-        turn.id === currentPendingTurnSubmission.turnId ||
-        turn.idempotency_key === currentPendingTurnSubmission.idempotencyKey
-    )
   )
   const applicationSubmissionScrollId =
     currentPendingTurnSubmission?.message.display?.kind ===
@@ -1734,7 +1549,6 @@ export function ConversationPage({
   const turnExecutionActive =
     running ||
     applicationSubmissionSending ||
-    waitingForDesktopAttachmentStart ||
     acceptedTurnAwaitingProjection ||
     acceptedCompactionAwaitingProjection
   const latestConversationTurn = conversation?.turns?.at(-1)
@@ -1750,23 +1564,10 @@ export function ConversationPage({
   const planMode = collaborationMode === "plan"
   const goalMode =
     goalModeState.conversationId === conversationId && goalModeState.enabled
-  // The local native quote path admits only a direct, idle, default-mode turn.
-  // Accepted starts can be visible before there is a projected running turn.
-  const localSideChatQuoteBlocked =
-    Boolean(sideChatReference) &&
-    conversation?.execution_target === "local" &&
-    (collaborationMode !== "default" ||
-      goalMode ||
-      turnExecutionActive ||
-      pendingTurnExecutionActive ||
-      Boolean(pendingConversationExecution || conversation.starting_turn) ||
-      conversation.execution_status === "running")
-  // The Mac cloud browser preview is the only preview entry added for P2-02.
-  // It is mounted into the shared conversation preview slot and only after the
-  // current owner, conversation and surface have loaded; the server still
-  // authorizes every frame and control request.
+  // The cloud browser preview is mounted into the shared conversation preview
+  // slot and only after the current owner, conversation and surface have
+  // loaded; the server still authorizes every frame and control request.
   const browserPanelAvailable = Boolean(
-    isMacDesktopHost() &&
     user &&
     conversation &&
     conversation.id === conversationId &&
@@ -1774,8 +1575,7 @@ export function ConversationPage({
     !embedded &&
     !readOnly &&
     showHeader &&
-    surfaceActive &&
-    (conversation.execution_target ?? "cloud") === "cloud"
+    surfaceActive
   )
   const browserPanelOpen = Boolean(
     browserPanelAvailable &&
@@ -1828,10 +1628,7 @@ export function ConversationPage({
     (running || pendingTurnExecutionActive || pendingConversationExecution) &&
     !reconnectExhausted
   )
-  const localStreamUnconfirmed = Boolean(
-    reconnectExhausted && running && conversation?.execution_target === "local"
-  )
-  const turnStoppable = visuallyRunning || localStreamUnconfirmed
+  const turnStoppable = visuallyRunning
   const sensitiveTaskId =
     !isNew && surfaceActive && !readOnly ? conversationId : undefined
   const sensitiveDataStatus = useTaskLocalModelStatus(
@@ -1860,21 +1657,12 @@ export function ConversationPage({
     collaborationMode,
     projectId: isNew ? newProjectId : undefined,
     configurationKey: modelPreferenceQuery.data?.selected_model ?? undefined,
-    onReservation: isNew ? setPrewarmedConversationId : undefined,
     enabled:
       !readOnly &&
       !turnExecutionActive &&
       !modelPreferenceMutation.isPending &&
       !modelPreferenceQuery.isPending &&
-      // A retired local task must never reserve or warm a cloud runner. A
-      // cloud entry closed by rollout must not start a new reservation; an
-      // existing reservation keeps its existing expiry behavior.
-      (isNew
-        ? desktopCloudTargetEnabled
-        : conversation
-          ? conversation.execution_target !== "local"
-          : false),
-    guard: assertPrewarmTargetAllowed,
+      (isNew || Boolean(conversation)),
   })
 
   const startNewTaskFromComposer = useCallback(() => {
@@ -1941,10 +1729,7 @@ export function ConversationPage({
   useLayoutEffect(() => {
     if (!user) return
     const keys = [
-      conversation?.execution_target === "local" &&
-      conversation.starting_turn?.attachments.length
-        ? undefined
-        : conversation?.starting_turn?.idempotency_key,
+      conversation?.starting_turn?.idempotency_key,
       ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
       ...(conversation?.pending_requests ?? []).map(
         (request) => request.idempotency_key
@@ -1956,51 +1741,11 @@ export function ConversationPage({
       localDraftScope,
       keys
     )
-    const confirmsLocalAttachmentDraft = Boolean(
-      conversation?.execution_target === "local" &&
-      hasDesktopAttachmentSubmission(currentPendingTurnSubmission) &&
-      keys.includes(currentPendingTurnSubmission.idempotencyKey) &&
-      composerValue.getSnapshot() ===
-        currentPendingTurnSubmission.message.content
-    )
-    if (conversationId && conversation?.execution_target === "local") {
-      const start = readDesktopAttachmentStart(user.id, conversationId)
-      if (start && keys.includes(start.idempotencyKey)) {
-        clearDesktopAttachmentStart(
-          user.id,
-          conversationId,
-          start.idempotencyKey
-        )
-      } else if (
-        start &&
-        !currentPendingTurnSubmission &&
-        !getPendingConversationTurnSubmission(queryClient, conversationId)
-      ) {
-        const draft = readLocalConversationDraft(
-          window.localStorage,
-          user.id,
-          localDraftScope
-        )
-        setPendingConversationTurnSubmission(queryClient, conversationId, {
-          conversationId,
-          idempotencyKey: start.idempotencyKey,
-          restoredDesktopAttachmentStart: true,
-          message: {
-            id: `starting-${start.idempotencyKey}`,
-            role: "user",
-            content:
-              draft.idempotencyKey === start.idempotencyKey ? draft.input : "",
-            created_at: start.createdAt,
-          },
-        })
-      }
-    }
     if (isNewTaskPromotion && hydratedDraftScopeRef.current === "new") {
       hydratedDraftScopeRef.current = localDraftScope
     }
     if (
       hydratedDraftScopeRef.current === localDraftScope &&
-      !confirmsLocalAttachmentDraft &&
       (!acceptedDraft || composerValue.getSnapshot() !== acceptedDraft.input)
     )
       return
@@ -2019,12 +1764,10 @@ export function ConversationPage({
     })
   }, [
     conversation,
-    currentPendingTurnSubmission,
     conversationId,
     isNewTaskPromotion,
     localDraftScope,
     newTaskResetVersion,
-    queryClient,
     user,
     composerValue,
     setValue,
@@ -2041,11 +1784,7 @@ export function ConversationPage({
       return
     const persistDraft = (skipUnchanged = false) => {
       if (hydratedDraftScopeRef.current !== localDraftScope) return
-      if (
-        composerSubmissionInFlightRef.current ||
-        waitingForDesktopAttachmentStart
-      )
-        return
+      if (composerSubmissionInFlightRef.current) return
       const draft = {
         input: composerValue.getSnapshot(),
         capabilityIds: selectedCapabilityIds,
@@ -2085,7 +1824,6 @@ export function ConversationPage({
     taskReferences,
     user,
     composerValue,
-    waitingForDesktopAttachmentStart,
   ])
 
   const scheduleConversationRefresh = useCallback(
@@ -2348,10 +2086,7 @@ export function ConversationPage({
     selectFreshConversationEventSubscriptionId({
       conversationId,
       isNew,
-      isSuccess:
-        conversationQuery.isSuccess ||
-        (waitingForDesktopAttachmentStart &&
-          !isDefinitiveConversationUnavailableError(conversationQuery.error)),
+      isSuccess: conversationQuery.isSuccess,
       isFetchedAfterMount: conversationQuery.isFetchedAfterMount,
       hasReusableReplayBoundary:
         isNewTaskPromotion || hasConversationLiveState(conversationId),
@@ -2387,38 +2122,6 @@ export function ConversationPage({
       dispatchedInterruptTurnIdsRef.current.delete(
         failure.start_failure.turn_id
       )
-      if (pending) {
-        dispatchedInterruptTurnIdsRef.current.delete(
-          `submission:${pending.idempotencyKey}`
-        )
-        if (
-          user &&
-          conversation?.execution_target === "local" &&
-          hasDesktopAttachmentSubmission(pending)
-        ) {
-          clearDesktopAttachmentStart(
-            user.id,
-            conversationId,
-            pending.idempotencyKey
-          )
-          if (composerValue.getSnapshot() === pending.message.content) {
-            const draft = readLocalConversationDraft(
-              window.localStorage,
-              user.id,
-              conversationId
-            )
-            if (draft !== EMPTY_LOCAL_CONVERSATION_DRAFT) {
-              setValue(draft.input)
-              setSelectedCapabilityIds([...draft.capabilityIds])
-              setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
-              setTaskReferenceSelection({
-                scope: conversationId,
-                items: [...(draft.taskReferences ?? [])],
-              })
-            }
-          }
-        }
-      }
       clearNativeReconnect()
       setPendingFirstMessageConversationId(null)
       setError(t(failure.message_key))
@@ -2428,10 +2131,6 @@ export function ConversationPage({
       conversationId,
       queryClient,
       pendingTurnSubmission,
-      conversation?.execution_target,
-      composerValue,
-      setValue,
-      user,
       clearInterruptingConversation,
       clearNativeReconnect,
       t,
@@ -2583,17 +2282,8 @@ export function ConversationPage({
               { queryKey: conversationSourcesQueryKey(conversationId) },
               { cancelRefetch: false }
             )
-            const awaitsDesktopAttachmentProjection =
-              currentConversation?.execution_target === "local" &&
-              hasDesktopAttachmentSubmission(pendingSubmission)
-            if (!awaitsDesktopAttachmentProjection) {
-              clearPendingConversationTurnSubmission(
-                queryClient,
-                conversationId
-              )
-            }
+            clearPendingConversationTurnSubmission(queryClient, conversationId)
             setPendingTurnSubmission((current) =>
-              !awaitsDesktopAttachmentProjection &&
               current?.conversationId === conversationId &&
               (!event.turn_id ||
                 !current.turnId ||
@@ -2677,10 +2367,6 @@ export function ConversationPage({
             event.turn_id &&
             pendingTurnSubmission &&
             pendingSubmissionBelongsToConversation &&
-            !(
-              conversation?.execution_target === "local" &&
-              hasDesktopAttachmentSubmission(pendingTurnSubmission)
-            ) &&
             !pendingTurnSubmission.turnId
           ) {
             setPendingTurnSubmission((current) =>
@@ -2702,7 +2388,6 @@ export function ConversationPage({
               : null
           const refreshScope = getConversationEventQueryRefreshScope(event, {
             projectedTurnId,
-            executionTarget: conversation?.execution_target,
           })
           const reconciliationScope =
             executionTransition && refreshScope === "detail-and-list"
@@ -3033,7 +2718,6 @@ export function ConversationPage({
         clearInterruptingConversation,
         clearNativeReconnect,
         conversation?.title_source,
-        conversation?.execution_target,
         conversation?.running_turn?.id,
         conversation?.turns,
         conversationId,
@@ -3114,7 +2798,6 @@ export function ConversationPage({
       isNew ||
       !conversationId ||
       connectionState !== "reconnecting" ||
-      waitingForDesktopAttachmentStart ||
       !turnExecutionActive
     ) {
       return
@@ -3134,7 +2817,6 @@ export function ConversationPage({
     isNew,
     refetchConversation,
     turnExecutionActive,
-    waitingForDesktopAttachmentStart,
   ])
 
   useEffect(() => {
@@ -3320,7 +3002,8 @@ export function ConversationPage({
   const captureConversationCreationOrigin = (): ConversationCreationOrigin => ({
     routeEpoch: routeEpochRef.current,
     executionOwnerId: executionOwnerIdRef.current,
-    gated: desktopExecutionTargetGated,
+    // The browser product has no local execution target to gate.
+    gated: false,
     routeConversationId: routeConversationIdRef.current,
     loginSessionBoundary: getLoginSessionBoundary(),
   })
@@ -3421,9 +3104,8 @@ export function ConversationPage({
       // mutation closure no longer renders a fresh Mac task.
       if (creationOrigin?.gated)
         assertConversationCreationOriginCurrent(creationOrigin)
-      // Only the rollout-gated Mac task page owns this gate; Web and the other
-      // existing create surfaces keep their current behavior.
-      if (!desktopExecutionTargetGated) return
+      // Browser creates keep their existing behavior.
+      if (!creationOrigin?.gated) return
       // Never create or retry a create for a page the user left or an account
       // that changed while this create was prepared.
       if (
@@ -3434,13 +3116,6 @@ export function ConversationPage({
           status: 409,
           errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
           messageKey: "desktopExecution.deviceChanged",
-        })
-      }
-      if (!desktopExecutionPolicy.readLatest().cloudTarget) {
-        throw new ApiError({
-          status: 409,
-          errorCode: "DESKTOP_EXECUTION_CLOUD_TARGET_DISABLED",
-          messageKey: "desktopExecution.cloudTargetUnavailable",
         })
       }
     }
@@ -3946,9 +3621,8 @@ export function ConversationPage({
       }
       await sidebarCancellation
       try {
-        const attachmentConsumption = submission.waitForDesktopAttachmentStart
-          ? undefined
-          : await optimisticallyConsumeSubmissionAttachments(submission)
+        const attachmentConsumption =
+          await optimisticallyConsumeSubmissionAttachments(submission)
         return {
           attachmentConsumption,
           sidebarExecutionStatus,
@@ -4024,22 +3698,10 @@ export function ConversationPage({
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
         collaboration_mode: submission.collaborationMode,
       }
-      let idempotencyKey = await stableOperationId(
+      const idempotencyKey = await stableOperationId(
         turnSubmitOperationRef,
         operation
       )
-      if (
-        submission.waitForDesktopAttachmentStart &&
-        conversation?.events?.some((event) =>
-          matchingConversationStartFailure(event, { idempotencyKey })
-        )
-      ) {
-        retireOperationId(turnSubmitOperationRef, idempotencyKey)
-        idempotencyKey = await stableOperationId(
-          turnSubmitOperationRef,
-          operation
-        )
-      }
       assertConversationCreationSessionCurrent(creationOrigin)
       const selectedCapabilities = new Map(
         (
@@ -4100,11 +3762,6 @@ export function ConversationPage({
           ...submission,
           idempotencyKey,
         })
-        if (submission.waitForDesktopAttachmentStart)
-          writeDesktopAttachmentStart(user.id, id, {
-            idempotencyKey,
-            createdAt: dayjs().toISOString(),
-          })
       }
       const receipt = await requestTurnStart(
         turnSubmitOperationRef,
@@ -4145,7 +3802,7 @@ export function ConversationPage({
       bindPendingConversationTurn(queryClient, id, receipt.turn_id)
       return { id, idempotencyKey, status: receipt.status }
     },
-    onSuccess: (result, submission, optimisticTurnStart) => {
+    onSuccess: (result, _submission, optimisticTurnStart) => {
       if (
         optimisticTurnStart?.loginSessionBoundary !== undefined &&
         !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
@@ -4154,16 +3811,6 @@ export function ConversationPage({
       const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
-      if (submission.waitForDesktopAttachmentStart) {
-        sendSubmissionConversationIdRef.current = null
-        // Admission is not confirmation. The detail projection consumes the
-        // keyed draft (and the server binds its staged files) on native start.
-        void refreshSubmittedConversation(
-          result.id,
-          optimisticTurnStart?.loginSessionBoundary
-        ).catch(() => undefined)
-        return
-      }
       if (routeConversationIdRef.current !== result.id) {
         commitOptimisticallyConsumedAttachments(attachmentConsumption)
         setPendingTurnSubmission((current) =>
@@ -4229,33 +3876,6 @@ export function ConversationPage({
         return
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
-      if (
-        targetConversationId &&
-        submission.waitForDesktopAttachmentStart &&
-        nextError instanceof ApiError &&
-        [
-          "NETWORK_UNAVAILABLE",
-          "API_RESPONSE_INVALID",
-          "RUNNER_OPERATION_UNCERTAIN",
-        ].includes(nextError.errorCode)
-      ) {
-        // A lost receipt may still have admitted the original start. Observe
-        // only its detail/events; do not post the user's input again.
-        if (routeConversationIdRef.current === targetConversationId)
-          setTurnAdmissionError(nextError)
-        sendSubmissionConversationIdRef.current = null
-        void refreshSubmittedConversation(
-          targetConversationId,
-          optimisticTurnStart?.loginSessionBoundary
-        ).catch(() => undefined)
-        return
-      }
-      if (
-        user &&
-        targetConversationId &&
-        submission.waitForDesktopAttachmentStart
-      )
-        clearDesktopAttachmentStart(user.id, targetConversationId)
       clearInterruptingConversation(targetConversationId)
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
@@ -4361,15 +3981,7 @@ export function ConversationPage({
               items: [...(submission.taskReferences ?? [])],
             }
       )
-      if (
-        submission.waitForDesktopAttachmentStart &&
-        nextError instanceof ApiError &&
-        nextError.errorCode === "DESKTOP_UPDATE_REQUIRED"
-      ) {
-        setAttachmentUpdateConversationId(targetConversationId)
-      } else {
-        setTurnAdmissionError(nextError)
-      }
+      setTurnAdmissionError(nextError)
       sendSubmissionConversationIdRef.current = null
     },
   })
@@ -5460,21 +5072,11 @@ export function ConversationPage({
   }
 
   const clearPendingInterruptRequest = useCallback(
-    ({
-      conversationId: targetConversationId,
-      turnId,
-      submissionKey,
-    }: ConversationInterruptTarget) => {
-      if (turnId) dispatchedInterruptTurnIdsRef.current.delete(turnId)
-      if (submissionKey)
-        dispatchedInterruptTurnIdsRef.current.delete(
-          `submission:${submissionKey}`
-        )
+    ({ conversationId: targetConversationId, turnId }: ConversationInterruptTarget) => {
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
       const reset = (pending: PendingTurnSubmission) =>
         pending.conversationId === targetConversationId &&
-        (submissionKey
-          ? pending.idempotencyKey === submissionKey
-          : turnId && pending.turnId === turnId) &&
+        pending.turnId === turnId &&
         pending.interruptRequested
           ? { ...pending, interruptRequested: false }
           : pending
@@ -5494,46 +5096,20 @@ export function ConversationPage({
     mutationFn: ({
       targetConversationId,
       turnId,
-      submissionKey,
     }: {
       targetConversationId: string
-    } & (
-      | { turnId: string; submissionKey?: never }
-      | { turnId?: never; submissionKey: string }
-    )) =>
-      turnId !== undefined
-        ? interruptConversationTurn(targetConversationId, turnId)
-        : interruptDesktopTurnSubmission(targetConversationId, submissionKey),
-    onMutate: ({ targetConversationId, turnId, submissionKey }) => {
-      setInterruptTarget({
-        conversationId: targetConversationId,
-        turnId,
-        submissionKey,
-      })
+      turnId: string
+    }) => interruptConversationTurn(targetConversationId, turnId),
+    onMutate: ({ targetConversationId, turnId }) => {
+      setInterruptTarget({ conversationId: targetConversationId, turnId })
       if (routeConversationIdRef.current === targetConversationId)
         setError(null)
     },
-    onSuccess: (_result, { targetConversationId, turnId, submissionKey }) => {
+    onSuccess: (_result, { targetConversationId, turnId }) => {
       const pending = getPendingConversationTurnSubmission(
         queryClient,
         targetConversationId
       )
-      const detail = queryClient.getQueryData<Conversation>([
-        "conversation",
-        targetConversationId,
-      ])
-      if (
-        submissionKey ||
-        (detail?.execution_target === "local" &&
-          pending?.turnId === turnId &&
-          hasDesktopAttachmentSubmission(pending))
-      ) {
-        // The Stop receipt does not say whether native submission raced it.
-        // Retain the operation until the original failure or turn is visible.
-        void refreshAfterMutation(targetConversationId).catch(() => undefined)
-        return
-      }
-      if (!turnId) return
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
       clearPendingConversationExecution(queryClient, targetConversationId)
       if (pending?.turnId === turnId && pending.interruptRequested) {
@@ -5550,14 +5126,12 @@ export function ConversationPage({
       // Receipt handling must not be held open by a slow detail/list refresh.
       void refreshAfterMutation(targetConversationId).catch(() => undefined)
     },
-    onError: (nextError, { targetConversationId, turnId, submissionKey }) => {
-      if (turnId)
-        clearPendingConversationExecution(queryClient, targetConversationId)
+    onError: (nextError, { targetConversationId, turnId }) => {
+      clearPendingConversationExecution(queryClient, targetConversationId)
       clearInterruptingConversation(targetConversationId, turnId)
       clearPendingInterruptRequest({
         conversationId: targetConversationId,
         turnId,
-        submissionKey,
       })
       if (routeConversationIdRef.current === targetConversationId) {
         setError(getErrorMessage(nextError, t))
@@ -5568,14 +5142,9 @@ export function ConversationPage({
 
   useEffect(() => {
     if (!interruptTarget) return
-    const {
-      conversationId: targetConversationId,
-      turnId,
-      submissionKey,
-    } = interruptTarget
+    const { conversationId: targetConversationId, turnId } = interruptTarget
     const poll =
-      (turnId || submissionKey) &&
-      targetConversationId !== newConversationPlaceholderId
+      turnId && targetConversationId !== newConversationPlaceholderId
         ? window.setInterval(() => {
             void queryClient
               .invalidateQueries(
@@ -5618,33 +5187,14 @@ export function ConversationPage({
     ) {
       return
     }
-    const submissionId = `submission:${pending.idempotencyKey}`
     const dispatched = dispatchedInterruptTurnIdsRef.current
-    if (
-      dispatched.has(submissionId) ||
-      (pending.turnId && dispatched.has(pending.turnId))
-    )
-      return
+    if (pending.turnId && dispatched.has(pending.turnId)) return
     const targetConversationId = pending.conversationId
     if (pending.turnId) {
       dispatched.add(pending.turnId)
       requestTurnInterrupt({ targetConversationId, turnId: pending.turnId })
-    } else if (
-      conversation?.execution_target === "local" &&
-      hasDesktopAttachmentSubmission(pending) &&
-      pending.idempotencyKey !== pending.optimisticId
-    ) {
-      dispatched.add(submissionId)
-      requestTurnInterrupt({
-        targetConversationId,
-        submissionKey: pending.idempotencyKey,
-      })
     }
-  }, [
-    conversation?.execution_target,
-    currentPendingTurnSubmission,
-    requestTurnInterrupt,
-  ])
+  }, [currentPendingTurnSubmission, requestTurnInterrupt])
 
   useEffect(() => {
     const turnId = conversation?.running_turn?.id
@@ -5653,10 +5203,6 @@ export function ConversationPage({
       !running ||
       !conversationId ||
       !turnId ||
-      // A local turn may still be executing while the SSE/model stream is
-      // unconfirmed. Its Stop must stay manual: an automatic interrupt would
-      // POST the same receipt as a user click at an unverified boundary.
-      conversation?.execution_target === "local" ||
       autoInterruptedTurnIdRef.current === turnId
     ) {
       return
@@ -5664,7 +5210,6 @@ export function ConversationPage({
     autoInterruptedTurnIdRef.current = turnId
     requestTurnInterrupt({ targetConversationId: conversationId, turnId })
   }, [
-    conversation?.execution_target,
     conversation?.running_turn?.id,
     conversationId,
     requestTurnInterrupt,
@@ -6025,33 +5570,6 @@ export function ConversationPage({
     },
   })
 
-  const respondDesktopApprovalMutation = useMutation({
-    mutationFn: ({
-      request,
-      decision,
-    }: {
-      request: DesktopApprovalRequest
-      decision: NonNullable<DesktopApprovalRequest["resolved_action"]>
-    }) => {
-      if (!conversationId) throw new Error("conversation id is required")
-      return apiRequest(
-        `/conversations/${conversationId}/approvals/${request.id}`,
-        {
-          method: "POST",
-          body: { method: request.approval.method, decision },
-          schema: desktopApprovalRequestSchema,
-        }
-      )
-    },
-    onSuccess: async () => {
-      if (conversationId) await refreshAfterMutation(conversationId)
-    },
-    onError: async (nextError) => {
-      setError(getErrorMessage(nextError, t))
-      if (conversationId) await refreshAfterMutation(conversationId)
-    },
-  })
-
   const planReviewActionMutation = useMutation({
     mutationFn: async (submission: PlanReviewActionSubmission) => {
       if (!conversationId) throw new Error("conversation id is required")
@@ -6202,28 +5720,13 @@ export function ConversationPage({
     })
   }
 
-  const desktopExecutionTargetBlockMessage = (): string | null => {
-    // Existing tasks are routed by the backend and are not gated here.
-    if (!desktopExecutionTargetGated) return null
-    if (desktopNoTargetAvailable) return t("desktopExecution.noTargetAvailable")
-    return desktopCloudTargetEnabled
-      ? null
-      : t("desktopExecution.cloudTargetUnavailable")
-  }
-
   const submitComposer = (input: string) => {
-    if (
-      applicationSubmissionSending ||
-      applicationInteractionBlocked ||
-      waitingForDesktopAttachmentStart
-    )
-      return
+    if (applicationSubmissionSending || applicationInteractionBlocked) return
     if (isConversationContextCompactionCommand(input)) {
       startContextCompaction(input)
       return
     }
     if (
-      localSideChatQuoteBlocked ||
       collaborationModeMutationPending ||
       composerSubmissionInFlightRef.current ||
       composerAttachmentOperationInFlightRef.current ||
@@ -6232,12 +5735,6 @@ export function ConversationPage({
     )
       return
     // Keep the draft and the selected target on every block; never switch to
-    // an available target on the user's behalf.
-    const targetBlockMessage = desktopExecutionTargetBlockMessage()
-    if (targetBlockMessage) {
-      setError(targetBlockMessage)
-      return
-    }
     const submission: ComposerSubmission = {
       input,
       ...(!goalMode &&
@@ -6251,10 +5748,7 @@ export function ConversationPage({
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
       attachments: [...attachments],
       collaborationMode,
-      waitForDesktopAttachmentStart:
-        conversation?.execution_target === "local" && attachments.length > 0,
     }
-    setAttachmentUpdateConversationId(null)
     setError(null)
     setCreditQuotaNotice(null)
     setValue(input)
@@ -6336,11 +5830,9 @@ export function ConversationPage({
       )
       scrollToBottom("auto")
       composerSubmissionInFlightRef.current = true
-      if (!submission.waitForDesktopAttachmentStart) {
-        setValue("")
-        setSelectedCapabilityIds([])
-        setTaskReferenceSelection({ scope: conversationId, items: [] })
-      }
+      setValue("")
+      setSelectedCapabilityIds([])
+      setTaskReferenceSelection({ scope: conversationId, items: [] })
       sendMutation.mutate({ ...submission, optimisticId })
       return
     }
@@ -6503,9 +5995,7 @@ export function ConversationPage({
   const downloadArtifact = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
-      const boundary = isMacDesktopHost()
-        ? getLoginSessionBoundary()
-        : undefined
+      const boundary = getLoginSessionBoundary()
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -6548,9 +6038,7 @@ export function ConversationPage({
   const downloadSourcePreview = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
-      const boundary = isMacDesktopHost()
-        ? getLoginSessionBoundary()
-        : undefined
+      const boundary = getLoginSessionBoundary()
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -6705,11 +6193,7 @@ export function ConversationPage({
   if (shouldRecoverUnavailableConversation && !embedded) {
     return <Navigate to="/conversations/new" replace />
   }
-  if (
-    !isNew &&
-    conversationQuery.isError &&
-    (!waitingForDesktopAttachmentStart || shouldRecoverUnavailableConversation)
-  ) {
+  if (!isNew && conversationQuery.isError) {
     return (
       <div className="conversation-workspace">
         <ErrorState
@@ -6841,7 +6325,6 @@ export function ConversationPage({
       : persistedMessages
   const optimisticMessage =
     activePendingTurnSubmission &&
-    !activePendingTurnSubmission.restoredDesktopAttachmentStart &&
     !reconciledPendingUserMessageId &&
     !projectedMessages.some(
       (message) =>
@@ -7015,13 +6498,10 @@ export function ConversationPage({
         visibleRunningTurn?.id,
         Boolean(activePlanReview)
       )
-  const awaitingDesktopQuestion =
-    displayConversation.execution_target === "local" &&
+  const awaitingBrowserQuestion =
     activeUserInputRequest?.kind === "questions"
-  const awaitingDesktopApproval =
-    activeUserInputRequest?.kind === "desktop_approval"
   // The app-server question and the started MCP item share the native item ID.
-  const browserApprovalEvent = awaitingDesktopQuestion
+  const browserApprovalEvent = awaitingBrowserQuestion
     ? visibleEvents.findLast((event) => {
         if (
           event.type !== "item/started" ||
@@ -7061,22 +6541,14 @@ export function ConversationPage({
           ? browserApproval.params.item.browserApproval
           : undefined
       }
-      submitting={
-        respondUserInputMutation.isPending ||
-        respondDesktopApprovalMutation.isPending
-      }
+      submitting={respondUserInputMutation.isPending}
       onInteractionStart={preserveScrollPositionForInteraction}
       onSubmit={(response) => {
-        if (activeUserInputRequest.kind === "desktop_approval") return
         setError(null)
         respondUserInputMutation.mutate({
           request: activeUserInputRequest,
           response,
         })
-      }}
-      onApprovalDecision={(request, decision) => {
-        setError(null)
-        respondDesktopApprovalMutation.mutate({ request, decision })
       }}
     />
   ) : activePlanReview ? (
@@ -7126,9 +6598,6 @@ export function ConversationPage({
   const showConversationComposer =
     showComposer &&
     !readOnly &&
-    // Local execution is retired: an existing local task stays readable but
-    // can never start another local turn.
-    displayConversation.execution_target !== "local" &&
     !applicationDeleted &&
     !applicationUnavailableMessage &&
     !blockingPanelActive
@@ -7185,10 +6654,14 @@ export function ConversationPage({
     const pending = activePendingTurnSubmission
     if (pending) {
       const { turnId } = pending
-      setInterruptTarget({
-        conversationId: pending.conversationId,
-        turnId,
-      })
+      // Mark the receipt immediately; the pending effect sends the interrupt
+      // as soon as the start response binds its turn.
+      if (turnId) {
+        setInterruptTarget({
+          conversationId: pending.conversationId,
+          turnId,
+        })
+      }
       updatePendingConversationTurnSubmission(
         queryClient,
         pending.conversationId,
@@ -7217,10 +6690,7 @@ export function ConversationPage({
   }
 
   const stopTurnButton =
-    (!showComposer ||
-      awaitingDesktopQuestion ||
-      awaitingDesktopApproval ||
-      localStreamUnconfirmed) &&
+    (!showComposer || awaitingBrowserQuestion) &&
     !executionBlocked &&
     turnStoppable ? (
       <Button
@@ -7772,7 +7242,6 @@ export function ConversationPage({
         downloadingFileId={downloadingFileId}
         editingDisabled={
           executionBlocked ||
-          displayConversation.execution_target === "local" ||
           regenerateMutation.isPending ||
           Boolean(turnExecutionActive) ||
           Boolean(activeUserInputRequest) ||
@@ -7822,14 +7291,8 @@ export function ConversationPage({
         onBlockingPanelReveal={handleScrollToBottom}
         scrollContainerRef={scrollContainerRef}
         contentRef={contentRef}
-        onRegenerateMessage={
-          displayConversation.execution_target === "local"
-            ? undefined
-            : handleRegenerateMessage
-        }
+        onRegenerateMessage={handleRegenerateMessage}
         onForkMessage={
-          // The service rejects local forks before the cloud runtime.
-          displayConversation.execution_target === "local" ||
           developmentRole === "preview" ||
           executionBlocked ||
           sideChatReference
@@ -7893,14 +7356,10 @@ export function ConversationPage({
               scrollToBottom("auto")
               pendingActionMutation.mutate({ request, action: "guide" })
             }}
-            onStart={
-              displayConversation.execution_target === "local"
-                ? undefined
-                : (request) => {
-                    scrollToBottom("auto")
-                    pendingActionMutation.mutate({ request, action: "start" })
-                  }
-            }
+            onStart={(request) => {
+              scrollToBottom("auto")
+              pendingActionMutation.mutate({ request, action: "start" })
+            }}
             onEdit={(request) => restorePendingMutation.mutate(request)}
             onCancel={(request) =>
               pendingActionMutation.mutate({ request, action: "cancel" })
@@ -7952,28 +7411,6 @@ export function ConversationPage({
             <AlertDescription>{applicationUnavailableMessage}</AlertDescription>
           </Alert>
         )}
-        {desktopNoTargetAvailable && (
-          <Alert
-            role="status"
-            aria-label={t("desktopExecution.noTargetAvailable")}
-            className="mx-auto w-full max-w-[var(--app-composer-width)] rounded-[18px] border-[color:var(--app-border)] bg-[var(--app-composer)] shadow-[var(--app-shadow)]"
-          >
-            <CircleAlertIcon aria-hidden="true" />
-            <AlertDescription>
-              {t("desktopExecution.noTargetAvailable")}
-            </AlertDescription>
-          </Alert>
-        )}
-        {showConversationComposer &&
-          attachmentUpdateConversationId === conversationId &&
-          attachments.length > 0 && (
-            <div className="mx-auto grid w-full max-w-(--app-composer-width) gap-2 rounded-2xl border bg-card p-3 sm:flex sm:items-start sm:justify-between">
-              <p className="text-sm text-muted-foreground" role="alert">
-                {t("desktopUpdate.attachmentRequired")}
-              </p>
-              <DesktopUpdateControl />
-            </div>
-          )}
         {showConversationComposer &&
           user &&
           surfaceActive &&
@@ -7988,14 +7425,6 @@ export function ConversationPage({
               messages={visibleMessages}
             />
           )}
-        {showConversationComposer && cloudApproval.approval ? (
-          <CloudApprovalCard
-            approval={cloudApproval.approval}
-            answering={cloudApproval.answering}
-            failed={cloudApproval.failed}
-            onAnswer={(decision) => void cloudApproval.answer(decision)}
-          />
-        ) : null}
         {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}
@@ -8067,7 +7496,6 @@ export function ConversationPage({
             attachments={attachments}
             pendingAttachmentUploads={pendingAttachmentUploads}
             isRunning={visuallyRunning}
-            waitingForAttachmentStart={waitingForDesktopAttachmentStart}
             interrupting={interrupting}
             goalMode={goalMode}
             goalModeAvailable={!sideChatReference}
@@ -8081,24 +7509,8 @@ export function ConversationPage({
               Boolean(displayGoal && displayGoal.status !== "complete")
             }
             onPlanModeChange={handlePlanModeChange}
-            localFolderName={localFolder?.name}
-            localFolderMode={localFolder?.mode}
-            localFolderPending={!localFolderConversationId}
-            localPermissionMode={localPermissionMode}
-            localPermissionModePending={permissionModeSaving}
-            onChooseLocalFolder={isMacDesktopHost() ? chooseLocalFolder : undefined}
-            onSetLocalFolderMode={isMacDesktopHost() ? setLocalFolderMode : undefined}
-            onSetLocalPermissionMode={
-              isMacDesktopHost() ? setLocalPermissionMode : undefined
-            }
-            onListLocalFiles={
-              isMacDesktopHost() && localFolderConversationId
-                ? listLocalFolderFiles
-                : undefined
-            }
             submitting={
               applicationSubmissionSending ||
-              waitingForDesktopAttachmentStart ||
               sendMutation.isPending ||
               goalStartMutation.isPending ||
               contextCompactionMutation.isPending ||
@@ -8159,13 +7571,6 @@ export function ConversationPage({
             taskStartDisabled={
               taskStartDisabledByCreditQuota || newProjectResolving
             }
-            submissionBlocked={desktopNoTargetAvailable}
-            quoteSubmissionBlocked={localSideChatQuoteBlocked}
-            submissionBlockedMessage={
-              localSideChatQuoteBlocked
-                ? t("sideChat.localQuoteWait")
-                : undefined
-            }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {
               if (
@@ -8191,7 +7596,6 @@ export function ConversationPage({
             onError={setError}
           />
         )}
-        {!showHeader && localStreamUnconfirmed && stopTurnButton}
       </div>
 
       <ConversationRenameDialog

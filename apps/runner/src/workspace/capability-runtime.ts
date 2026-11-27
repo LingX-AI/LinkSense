@@ -86,7 +86,6 @@ export class CapabilityRuntimeError extends Error {
 export class CapabilityRuntimeManager {
   readonly #apiIdentity: RuntimeIdentity
   readonly #taskIdentity: RuntimeIdentity
-  readonly #desktopOwnerUid: number | null
   readonly #onFullVerification: (() => void) | undefined
   readonly #enabledBuiltInSkillNames: readonly BuiltInSkillName[]
   readonly #verifiedSnapshots = new Map<string, {
@@ -105,16 +104,10 @@ export class CapabilityRuntimeManager {
   constructor(options?: {
     apiIdentity?: RuntimeIdentity
     taskIdentity?: RuntimeIdentity
-    desktop?: boolean
     onFullVerification?: () => void
     managedBrowserEnabled?: boolean
   }) {
     this.#onFullVerification = options?.onFullVerification
-    const desktopOwnerUid = options?.desktop === true ? process.geteuid?.() : undefined
-    if (options?.desktop === true && desktopOwnerUid === undefined) {
-      throw new Error("desktop capability runtime requires an effective user id")
-    }
-    this.#desktopOwnerUid = desktopOwnerUid ?? null
     this.#apiIdentity = options?.apiIdentity ?? {
       uid: linksenseRuntimeIdentity.apiUid,
       gid: linksenseRuntimeIdentity.sharedGid,
@@ -576,16 +569,6 @@ export class CapabilityRuntimeManager {
     mode: number,
     identity: RuntimeIdentity,
   ): void {
-    if (this.#desktopOwnerUid !== null) {
-      // Desktop workers run as the same user under a private data root. macOS
-      // can inherit a directory group from its parent instead of the process's
-      // primary group, so effective UID ownership and the exact mode define
-      // the access domain there.
-      if (info.uid !== this.#desktopOwnerUid || (info.mode & 0o7777) !== mode) {
-        throw new CapabilityRuntimeError()
-      }
-      return
-    }
     // Numeric UIDs are not portable across Linux bind mounts and Docker
     // Desktop's virtual filesystem. The shared GID and exact modes define
     // the access domain; symlink, path and content checks above preserve the

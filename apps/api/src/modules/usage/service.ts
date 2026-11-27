@@ -42,11 +42,7 @@ import { personalQuotaAnalytics } from "./personal-quota-service.js";
 import { creditUsageSnapshot } from "../system/quota-settings.js";
 import {
   calculatePriceAndCostSnapshot,
-  desktopProviderUsageCaptureSchema,
   modelUsageCaptureSchema,
-  type DesktopProviderUsageCapture,
-  type DesktopProviderUsageRecorder,
-  type DesktopProviderUsageResult,
   type ModelUsageCapture,
   type ModelUsageRecorder,
 } from "./model-usage.js";
@@ -163,7 +159,7 @@ type ModelCatalogSnapshot = {
 };
 
 export class UsageAnalyticsService
-  implements ModelUsageRecorder, DesktopProviderUsageRecorder
+  implements ModelUsageRecorder
 {
   private readonly now: () => Date;
   private readonly modelCatalog: ModelCatalogReader | undefined;
@@ -421,135 +417,6 @@ export class UsageAnalyticsService
       skipDuplicates: true,
     });
     return { recorded: inserted.count === 1 };
-  }
-
-  /**
-   * Records exact usage reported by the upstream provider for a desktop model
-   * proxy request. The run lease supplies the authoritative owner, conversation,
-   * runtime generation, projection turn and model; the caller captures the
-   * matching revision pricing during admission. The provider terminal frame
-   * supplies only token counts. Before turn projection the record keeps the
-   * server-issued projection turn id and leaves the native Codex ids empty.
-   * Primary and transition calls reuse assistant_response token records, while
-   * memory extraction reuses the existing memory_generation model usage record.
-   */
-  async recordDesktopProviderUsage(
-    rawInput: DesktopProviderUsageCapture,
-  ): Promise<DesktopProviderUsageResult> {
-    const input = desktopProviderUsageCaptureSchema.parse(rawInput);
-    const observedAt = this.now();
-    const pricing = input.pricing;
-    if (input.purpose === "memory_extraction") {
-      const conversation = await this.prisma.conversation.findUnique({
-        where: { id: input.conversationId },
-        select: { ownerId: true, runtimeGeneration: true },
-      });
-      if (!conversation || conversation.ownerId !== input.ownerId) {
-        return { recorded: false, reason_code: "CONVERSATION_NOT_FOUND" };
-      }
-      if (conversation.runtimeGeneration !== input.runtimeGeneration) {
-        return { recorded: false, reason_code: "STALE_RUNTIME" };
-      }
-      const result = await this.recordModelUsage({
-        requestId: input.requestId,
-        ownerId: input.ownerId,
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-        workload: "memory_generation",
-        modelKind: "generation",
-        model: input.model,
-        measurementMethod: "provider",
-        tokenUsage: input.tokenUsage,
-        pricing,
-        observedAt,
-      });
-      return result.recorded
-        ? { recorded: true }
-        : { recorded: false, reason_code: "USAGE_ALREADY_RECORDED" };
-    }
-    const tokens = toBigIntTokens(input.tokenUsage);
-    const costSnapshot = calculatePriceAndCostSnapshot(tokens, pricing);
-    const outcome = await this.prisma.$transaction(async (tx) => {
-      const conversation = await tx.conversation.findUnique({
-        where: { id: input.conversationId },
-        select: {
-          ownerId: true,
-          runtimeGeneration: true,
-          applicationId: true,
-          applicationNameSnapshot: true,
-        },
-      });
-      if (!conversation || conversation.ownerId !== input.ownerId) {
-        return "CONVERSATION_NOT_FOUND" as const;
-      }
-      if (conversation.runtimeGeneration !== input.runtimeGeneration) {
-        return "STALE_RUNTIME" as const;
-      }
-      const readTurn = () => tx.conversationTurn.findFirst({
-        where: {
-          id: input.turnId,
-          conversationId: input.conversationId,
-          submittedBy: input.ownerId,
-        },
-        select: { codexThreadId: true, codexTurnId: true },
-      });
-      let turn = await readTurn();
-      let intent: { projectionTurnId: string } | null = null;
-      if (!turn) {
-        // The provider call is authorized against the persisted start intent
-        // before start.settled projects conversation_turns. The projection turn
-        // id therefore stays authoritative while the native ids are unknown.
-        intent = await tx.conversationTurnStartIntent.findFirst({
-          where: {
-            projectionTurnId: input.turnId,
-            conversationId: input.conversationId,
-            ownerId: input.ownerId,
-            runtimeGeneration: input.runtimeGeneration,
-          },
-          select: { projectionTurnId: true },
-        });
-        if (!intent) {
-          // Atomic settlement creates the turn and deletes the intent in one
-          // transaction. If it committed between the two READ COMMITTED
-          // statements, both appeared absent; re-read the turn before deciding.
-          turn = await readTurn();
-        }
-      }
-      if (!turn && !intent) return "TURN_PROJECTION_PENDING" as const;
-      const inserted = await tx.tokenUsageRecord.createMany({
-        data: [
-          {
-            snapshotKey: desktopProviderUsageSnapshotKey(
-              input.purpose,
-              input.requestId,
-            ),
-            ownerId: input.ownerId,
-            conversationId: input.conversationId,
-            applicationId: conversation.applicationId,
-            applicationNameSnapshot: conversation.applicationNameSnapshot,
-            turnId: input.turnId,
-            codexThreadId: turn?.codexThreadId ?? null,
-            codexTurnId: turn?.codexTurnId ?? null,
-            model: input.model,
-            ...tokens,
-            ...costSnapshot,
-            ...(await creditUsageSnapshot(
-              tx,
-              costSnapshot.totalCostPicoUsd,
-            )),
-            observedAt,
-            createdAt: observedAt,
-          },
-        ],
-        skipDuplicates: true,
-      });
-      return inserted.count === 1
-        ? ("RECORDED" as const)
-        : ("USAGE_ALREADY_RECORDED" as const);
-    });
-    return outcome === "RECORDED"
-      ? { recorded: true }
-      : { recorded: false, reason_code: outcome };
   }
 
   async personalProfile(
@@ -1908,15 +1775,6 @@ function tokenUsageSnapshotKey(
         total.reasoningOutputTokens.toString(),
       ]),
     )
-    .digest("hex");
-}
-
-function desktopProviderUsageSnapshotKey(
-  purpose: string,
-  requestId: string,
-): string {
-  return createHash("sha256")
-    .update(JSON.stringify(["desktop-model-proxy", purpose, requestId]))
     .digest("hex");
 }
 

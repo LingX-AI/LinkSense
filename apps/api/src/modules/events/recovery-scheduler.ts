@@ -15,24 +15,11 @@ import type {
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
 import { START_RECOVERY_ATTEMPTS } from "../conversations/start-intent-policy.js";
-import { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
-import { recoverableSlotOwners, revokedMacRecoveryPage, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import type { ConversationEventService } from "./service.js";
 
 const queueName = "linksense-task-recovery";
 const pageSize = 100;
 const logger = createLogger("task-recovery");
-const desktopBindingSchema = z.strictObject({ ownerId: z.uuid(), deviceId: z.uuid(), connectionId: z.uuid() });
-const desktopRecoveryJobSchema = desktopBindingSchema.extend({
-  type: z.literal("desktop"),
-  after: z.uuid().optional(),
-});
-const desktopTurnRecoveryJobSchema = desktopBindingSchema.extend({
-  type: z.literal("desktop-turn"),
-  conversationId: z.uuid(),
-  projectionTurnId: z.uuid(),
-  runtimeGeneration: z.uuid(),
-});
 const jobSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("maintenance") }),
   z.strictObject({
@@ -55,12 +42,8 @@ const jobSchema = z.discriminatedUnion("type", [
     projectionTurnId: z.uuid(),
   }),
   z.strictObject({ type: z.literal("context"), attemptId: z.uuid() }),
-  desktopRecoveryJobSchema,
-  desktopTurnRecoveryJobSchema,
 ]);
 type RecoveryJob = z.infer<typeof jobSchema>;
-type DesktopTurnRecoveryRequest = Omit<z.infer<typeof desktopTurnRecoveryJobSchema>, "type"> & { expiresAt?: number };
-type DesktopRecoveryRequest = Omit<z.infer<typeof desktopRecoveryJobSchema>, "type"> | DesktopTurnRecoveryRequest;
 type RecoveryQueue = Queue<RecoveryJob, void, RecoveryJob["type"]>;
 export type TaskRecoveryQueueControl = Pick<
   RecoveryQueue,
@@ -85,7 +68,7 @@ export class TaskRecoveryScheduler {
     private readonly redis: LinkSenseRedis,
     private readonly events: Pick<
       ConversationEventService,
-      "recoverRunningTurns" | "reconcileAfterProcessExit" | "settleRevokedMacTurn"
+      "recoverRunningTurns" | "reconcileAfterProcessExit"
     >,
     private readonly conversations: Pick<
       ConversationService,
@@ -230,25 +213,6 @@ export class TaskRecoveryScheduler {
     });
   }
 
-  async enqueueDesktopRecovery(input: DesktopRecoveryRequest): Promise<void> {
-    if ("projectionTurnId" in input) {
-      await this.enqueueDesktopTurn(input, "exit");
-      return;
-    }
-    const data = desktopRecoveryJobSchema.parse({ type: "desktop", ...input });
-    await this.queue.add("desktop", data, { jobId: `desktop-${data.connectionId}-${data.after ?? "first"}` });
-  }
-
-  private async enqueueDesktopTurn(input: DesktopTurnRecoveryRequest, trigger: "reconnect" | "exit"): Promise<void> {
-    const { expiresAt, ...scope } = input;
-    const data = desktopTurnRecoveryJobSchema.parse({ type: "desktop-turn", ...scope });
-    const deadline = expiresAt === undefined ? undefined : z.number().int().positive().parse(expiresAt);
-    await this.queue.add("desktop-turn", data, {
-      jobId: `desktop-${deadline === undefined ? trigger : `expiry-${deadline}`}-${data.connectionId}-${data.projectionTurnId}`,
-      ...(deadline === undefined ? {} : { delay: Math.max(0, deadline - Date.now()) }),
-    });
-  }
-
   async process(job: { data: unknown }): Promise<void> {
     const data = jobSchema.parse(job.data);
     switch (data.type) {
@@ -257,9 +221,6 @@ export class TaskRecoveryScheduler {
         return;
       case "owner":
         await this.dispatchOwner(data);
-        return;
-      case "desktop":
-        await this.dispatchDesktop(data);
         return;
       case "context":
         if (
@@ -270,7 +231,6 @@ export class TaskRecoveryScheduler {
           throw new Error("TASK_RECOVERY_PENDING");
         return;
       case "start":
-      case "desktop-turn":
       case "turn": {
         // Longer than the Runner's 100s reconciliation HTTP timeout. Database
         // transitions and the Runner's native identity checks remain the fence.
@@ -286,8 +246,6 @@ export class TaskRecoveryScheduler {
               { resubmitNonTerminal: false },
             );
             if (outcome === "pending") throw new Error("TASK_RECOVERY_PENDING");
-          } else if (data.type === "desktop-turn") {
-            await this.recoverDesktopTurn(data);
           } else {
             const result = await this.events.reconcileAfterProcessExit({
               conversationId: data.conversationId,
@@ -301,70 +259,6 @@ export class TaskRecoveryScheduler {
         }
       }
     }
-  }
-
-  private async dispatchDesktop(data: Extract<RecoveryJob, { type: "desktop" }>): Promise<void> {
-    const { ownerId, deviceId, connectionId } = data;
-    const coordinator = new RedisDesktopDeviceCoordinator(this.redis.client);
-    if ((await coordinator.executionConnection(deviceId))?.connectionId !== connectionId) return;
-    const { slots, after: slotBoundary } = await this.redis.runningTurnSlotsForOwner(ownerId, data.after);
-    const rows = await this.prisma.$queryRaw<Array<{
-      conversationId: string; runtimeGeneration: string; startId: string | null; turnIds: string[];
-    }>>`
-      SELECT c.id AS "conversationId", c.runtime_generation AS "runtimeGeneration",
-        i.projection_turn_id AS "startId", COALESCE(array_agg(t.id) FILTER (WHERE t.id IS NOT NULL), '{}') AS "turnIds"
-      FROM conversations c
-      LEFT JOIN unnest(${slots.map(slot => slot.conversationId)}::uuid[], ${slots.map(slot => slot.turnId)}::uuid[])
-        AS slot(conversation_id, turn_id) ON slot.conversation_id = c.id
-      LEFT JOIN conversation_turn_start_intents i ON i.conversation_id = c.id
-        AND i.owner_id = c.owner_id AND i.runtime_generation = c.runtime_generation
-      LEFT JOIN conversation_turns t ON t.conversation_id = c.id AND t.submitted_by = c.owner_id
-        AND (t.status = 'running' OR t.id = slot.turn_id)
-      WHERE c.execution_target = 'local' AND c.archive_status = 'active'
-        AND c.owner_id = ${ownerId}::uuid AND c.desktop_device_id = ${deviceId}::uuid
-        AND (${data.after ?? null}::uuid IS NULL OR c.id > ${data.after ?? null}::uuid)
-        AND (${slotBoundary}::uuid IS NULL OR c.id <= ${slotBoundary}::uuid)
-        AND (i.projection_turn_id IS NOT NULL OR t.id IS NOT NULL)
-      GROUP BY c.id, i.projection_turn_id
-      ORDER BY c.id LIMIT ${pageSize}`;
-    for (const { conversationId, runtimeGeneration, startId, turnIds } of rows) {
-      const projectionTurnIds = new Set(startId ? [startId, ...turnIds] : turnIds);
-      for (const projectionTurnId of projectionTurnIds) {
-        await this.enqueueDesktopTurn({ ownerId, deviceId, connectionId, conversationId, projectionTurnId, runtimeGeneration }, "reconnect");
-      }
-    }
-    const after = rows.length === pageSize ? rows.at(-1)?.conversationId : slotBoundary;
-    if (after) await this.enqueueDesktopRecovery({ ownerId, deviceId, connectionId, after });
-  }
-
-  private async recoverDesktopTurn(data: Extract<RecoveryJob, { type: "desktop-turn" }>): Promise<void> {
-    const { ownerId, deviceId, connectionId, conversationId, projectionTurnId, runtimeGeneration } = data;
-    const coordinator = new RedisDesktopDeviceCoordinator(this.redis.client);
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, ownerId, executionTarget: "local", desktopDeviceId: deviceId, archiveStatus: "active", runtimeGeneration },
-      select: { id: true },
-    });
-    if (!conversation || (await coordinator.executionConnection(deviceId))?.connectionId !== connectionId) return;
-    const intent = await this.prisma.conversationTurnStartIntent.findFirst({
-      where: { projectionTurnId, conversationId, ownerId, runtimeGeneration },
-      select: { projectionTurnId: true },
-    });
-    if (intent) {
-      const outcome = await this.conversations.recoverStartIntent(projectionTurnId, {
-        resubmitNonTerminal: false, desktopConnectionId: connectionId,
-      });
-      if (outcome === "pending") throw new Error("TASK_RECOVERY_PENDING");
-      if (outcome === "released") return;
-    }
-    const turn = await this.prisma.conversationTurn.findFirst({
-      where: { id: projectionTurnId, conversationId, submittedBy: ownerId },
-      select: { capabilityGeneration: true },
-    });
-    if (!turn) return;
-    const result = await this.events.reconcileAfterProcessExit({
-      conversationId, projectionTurnId, capabilityGeneration: turn.capabilityGeneration,
-    }, { desktopConnectionId: connectionId });
-    if (result.outcome === "failed") throw new Error(result.reasonCode);
   }
 
   private async maintain(): Promise<void> {
@@ -387,57 +281,6 @@ export class TaskRecoveryScheduler {
     }
     await this.dispatchPendingStarts();
     await this.dispatchPendingContexts();
-    await this.maintainRevokedMacTurns();
-  }
-
-  private async maintainRevokedMacTurns(): Promise<void> {
-    // Revocation survives both notification loss and removal of BullMQ jobs.
-    const after = await this.redis.revokedMacRecoveryCursor();
-    const [rows, slots] = await Promise.all([
-      revokedMacRecoveryPage(this.prisma, after.conversation, pageSize),
-      this.redis.runningTurnSlotPage(after.slot, pageSize),
-    ]);
-    const work = new Map<string, RevokedMacTurn>();
-    for (const slot of await recoverableSlotOwners(this.prisma, slots.slots)) {
-      if (slot.deviceId !== null) {
-        work.set(slot.projectionTurnId, slot);
-        continue;
-      }
-      // A reservation can only be taken after the conversation and intent commit.
-      try {
-        await this.redis.releaseTurnSlot(slot.conversationId, slot.projectionTurnId, { databaseSettled: true });
-      } catch {
-        logger.warn({ conversationId: slot.conversationId, projectionTurnId: slot.projectionTurnId }, "Deleted task slot could not be released");
-      }
-    }
-    for (const { turnIds, ...scope } of rows) {
-      for (const projectionTurnId of turnIds) work.set(projectionTurnId, { ...scope, projectionTurnId });
-    }
-    for (const scope of work.values()) {
-      try {
-        await this.events.settleRevokedMacTurn(scope);
-      } catch {
-        logger.warn({ conversationId: scope.conversationId, projectionTurnId: scope.projectionTurnId }, "Revoked Mac turn could not be settled");
-      }
-    }
-    // Hold each tick to one page; revisit outstanding failures on the next pass.
-    await this.redis.setRevokedMacRecoveryCursor(
-      rows.length === pageSize ? rows.at(-1)?.conversationId ?? null : null, slots.after,
-    );
-
-    const releases = await this.prisma.desktopTurnSlotRelease.findMany({
-      orderBy: [{ createdAt: "asc" }, { turnId: "asc" }],
-      take: pageSize,
-      select: { conversationId: true, turnId: true },
-    });
-    for (const { conversationId, turnId } of releases) {
-      try {
-        await this.redis.releaseTurnSlot(conversationId, turnId, { databaseSettled: true });
-        await this.prisma.desktopTurnSlotRelease.deleteMany({ where: { conversationId, turnId } });
-      } catch {
-        logger.warn({ conversationId, projectionTurnId: turnId }, "Revoked Mac slot could not be released");
-      }
-    }
   }
 
   private async enqueueOwner(
@@ -554,27 +397,7 @@ export class TaskRecoveryScheduler {
       take: pageSize,
       select: { projectionTurnId: true, conversationId: true, createdAt: true },
     });
-    // Local intents belong to the device journal and its desktop-turn recovery;
-    // dispatching them here only produced endless pending retries for offline
-    // devices.
-    const localConversations = rows.length === 0
-      ? new Set<string>()
-      : new Set(
-          (
-            await this.prisma.conversation.findMany({
-              where: {
-                id: {
-                  in: [...new Set(rows.map((row) => row.conversationId))],
-                },
-              },
-              select: { id: true, executionTarget: true },
-            })
-          )
-            .filter((row) => row.executionTarget === "local")
-            .map((row) => row.id),
-        );
     for (const row of rows) {
-      if (localConversations.has(row.conversationId)) continue;
       const created = row.createdAt.getTime();
       await this.queue.add(
         "start",

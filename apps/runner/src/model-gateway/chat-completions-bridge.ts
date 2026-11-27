@@ -1,8 +1,5 @@
 import { randomBytes } from "node:crypto";
-import {
-  nativeProviderFailureCode,
-  splitModelContentParts,
-} from "@linksense/shared";
+import { splitModelContentParts } from "@linksense/shared";
 
 import { parseSseStream } from "./sse.js";
 
@@ -134,7 +131,6 @@ export function chatCompletionToResponse(
 export async function* chatCompletionStreamToResponses(
   upstream: Response,
   model: string,
-  desktopProxy = false,
 ): AsyncGenerator<ResponsesStreamEvent> {
   if (!upstream.body) throw new Error("model provider returned an empty stream");
   const id = responseId();
@@ -179,17 +175,6 @@ export async function* chatCompletionStreamToResponses(
       payload = JSON.parse(event.data);
     } catch {
       throw new Error("model provider returned malformed SSE JSON");
-    }
-    if (desktopProxy && isRecord(payload) && (isRecord(payload.error) || payload.type === "response.failed")) {
-      yield {
-        event: "response.failed",
-        data: {
-          type: "response.failed",
-          sequence_number: sequence,
-          response: { id, status: "failed", error: { code: nativeProviderFailureCode(payload) ?? "model_provider_error" } },
-        },
-      };
-      return;
     }
     if (!isRecord(payload) || isRecord(payload.error)) {
       throw new Error("model provider returned an invalid stream event");

@@ -1,8 +1,6 @@
 import { conversationReferenceDisplaySchema } from "@linksense/shared";
-import { v5 as uuidv5 } from "uuid";
 import { describe, expect, it, vi } from "vitest";
 import type { Prisma, PrismaClient } from "../src/generated/prisma/client.js";
-import { RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE } from "../src/modules/conversations/recovered-local-quote-draft.js";
 import { settleDeploymentTasks } from "../src/operations/deployment-task-stop.js";
 
 vi.mock("../src/modules/events/sequence.js", () => ({
@@ -10,10 +8,6 @@ vi.mock("../src/modules/events/sequence.js", () => ({
 }));
 
 const now = new Date("2026-09-09T00:00:00Z");
-const stringify = (value: unknown) =>
-  JSON.stringify(value, (_key, entry) =>
-    typeof entry === "bigint" ? entry.toString() : entry,
-  );
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const conversationId = "20000000-0000-4000-8000-000000000001";
 const projectionTurnId = "30000000-0000-4000-8000-000000000001";
@@ -86,15 +80,6 @@ function annotationPrompt(request: string) {
     "User request:",
     request,
   ].join("\n");
-}
-
-function markerEvents(f: ReturnType<typeof fixture>) {
-  return f.tx.conversationEvent.create.mock.calls
-    .map(([call]) => call.data as Record<string, unknown>)
-    .filter(
-      (data) =>
-        data.eventType === RECOVERED_LOCAL_QUOTE_DRAFT_EVENT_TYPE,
-    );
 }
 
 function fixture() {
@@ -347,59 +332,6 @@ describe("offline deployment settlement", () => {
     });
   });
 
-  it("recovers an annotation-shaped local quote request exactly and marks it internally", async () => {
-    const f = fixture();
-    const display = quoteDisplay(annotationShapedRequest);
-    const storedInput = annotationPrompt(annotationShapedRequest);
-    expect(storedInput).not.toBe(annotationShapedRequest);
-    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
-      { ...intent, inputText: storedInput, messageDisplayJson: display },
-    ]);
-    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
-
-    await settleDeploymentTasks(f.prisma, f.redis, now);
-
-    expect(f.tx.conversation.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: conversationId,
-        ownerId,
-        executionTarget: "local",
-      },
-      select: { id: true },
-    });
-    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        id: projectionTurnId,
-        inputText: annotationShapedRequest,
-        status: "blocked_preflight",
-        blockCode: "deployment_stopped",
-      }),
-    });
-    const stored = f.tx.pendingRequest.create.mock.calls[0]![0].data as Record<string, unknown>;
-    expect(stored.inputText).toBe(annotationShapedRequest);
-    expect(stringify(stored)).not.toContain("quoted selection");
-    expect(stringify(stored)).not.toContain("source task");
-
-    const markers = markerEvents(f);
-    expect(markers).toHaveLength(1);
-    expect(markers[0]).toMatchObject({
-      // The marker closes the exact turn id the Mac admission guard checks.
-      id: uuidv5("desktop-start-stop", projectionTurnId),
-      conversationId,
-      turnId: null,
-      visibility: "internal_sanitized",
-    });
-    expect(markers[0]!.payloadJson).toEqual({
-      schema_version: 1,
-      pending_request_id: projectionTurnId,
-    });
-    expect(markers[0]!.eventType).not.toBe(
-      "conversation.references.pending",
-    );
-    expect(stringify(markers[0])).not.toContain("LinkSense");
-    expect(stringify(markers[0])).not.toContain("quoted selection");
-  });
-
   it("keeps the stored prompt for a cloud quote intent", async () => {
     const f = fixture();
     const display = quoteDisplay(annotationShapedRequest);
@@ -417,7 +349,6 @@ describe("offline deployment settlement", () => {
         blockCode: "deployment_stopped",
       }),
     });
-    expect(markerEvents(f)).toHaveLength(0);
   });
 
   it("keeps the stored prompt for a malformed local quote display", async () => {
@@ -430,8 +361,6 @@ describe("offline deployment settlement", () => {
         messageDisplayJson: { kind: "conversation_reference" },
       },
     ]);
-    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
-
     await settleDeploymentTasks(f.prisma, f.redis, now);
 
     expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
@@ -440,7 +369,6 @@ describe("offline deployment settlement", () => {
         blockCode: "deployment_stopped",
       }),
     });
-    expect(markerEvents(f)).toHaveLength(0);
   });
 
   it("does not rewrite or mark an existing pending draft reused by settlement", async () => {
@@ -459,8 +387,6 @@ describe("offline deployment settlement", () => {
       conversationId,
       submittedBy: ownerId,
     });
-    f.tx.conversation.findFirst.mockResolvedValue({ id: conversationId });
-
     await settleDeploymentTasks(f.prisma, f.redis, now);
 
     expect(f.tx.pendingRequest.create).not.toHaveBeenCalled();
@@ -472,6 +398,5 @@ describe("offline deployment settlement", () => {
         steerOperationId: null,
       }),
     });
-    expect(markerEvents(f)).toHaveLength(0);
   });
 });

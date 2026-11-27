@@ -1,9 +1,6 @@
 import path from "node:path"
 
-import {
-  DEFAULT_WORKER_READY_TIMEOUT_SECONDS,
-  desktopServerOriginSchema,
-} from "@linksense/shared"
+import { DEFAULT_WORKER_READY_TIMEOUT_SECONDS } from "@linksense/shared"
 import { z } from "zod"
 
 import {
@@ -83,21 +80,10 @@ const runnerConfigSchema = z
       .enum(["controller", "worker", "standalone"])
       .default("standalone"),
     LINKSENSE_WORKER_PROVIDER: z
-      .enum(["docker", "local-process", "desktop"])
+      .enum(["docker", "local-process"])
       .default("docker"),
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
     LINKSENSE_SERVICE_SESSION_ID: uuid.optional(),
-    LINKSENSE_DESKTOP_PROXY_ORIGIN: desktopServerOriginSchema.optional(),
-    LINKSENSE_DESKTOP_DATA_ROOT: absoluteDirectory.optional(),
-    LINKSENSE_DESKTOP_TURN_ID: uuid.optional(),
-    LINKSENSE_DESKTOP_RUNTIME_GENERATION: uuid.optional(),
-    LINKSENSE_DESKTOP_CONNECTIONS_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_BROWSER_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_COMPUTER_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_ARTIFACTS_ENABLED: booleanEnvironment(false),
-    LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED: booleanEnvironment(false),
     LINKSENSE_USER_DATA_ROOT: absoluteDirectory,
     LINKSENSE_USER_DATA_VOLUME: dockerVolumeName.optional(),
     LINKSENSE_PYTHON_BASE_SITE_PACKAGES: z
@@ -215,28 +201,6 @@ const runnerConfigSchema = z
         path: ["LINKSENSE_WORKER_OWNER_ID"],
         message: "worker_owner_id_required",
       })
-    }
-    if (config.LINKSENSE_WORKER_PROVIDER === "desktop") {
-      const api = URL.parse(config.LINKSENSE_API_INTERNAL_URL)
-      const controller = URL.parse(config.LINKSENSE_CONTROLLER_INTERNAL_URL)
-      if (config.LINKSENSE_RUNNER_MODE !== "worker" ||
-        config.LINKSENSE_RUNNER_HOST !== "127.0.0.1" ||
-        !api || api.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(api.hostname) ||
-        api.username || api.password || api.search || api.hash || api.pathname !== "/" || api.href !== controller?.href ||
-        !config.LINKSENSE_SERVICE_SESSION_ID ||
-        !config.LINKSENSE_WORKER_CONTROL_ROOT || !config.LINKSENSE_CODEX_HOME_TEMPLATE ||
-        (config.LINKSENSE_DESKTOP_TURN_ID !== undefined) !== (config.LINKSENSE_DESKTOP_RUNTIME_GENERATION !== undefined) ||
-        (config.LINKSENSE_DESKTOP_TURN_ID !== undefined && !config.LINKSENSE_DESKTOP_PROXY_ORIGIN) ||
-        ((config.LINKSENSE_DESKTOP_CONNECTIONS_ENABLED || config.LINKSENSE_DESKTOP_BROWSER_ENABLED ||
-          config.LINKSENSE_DESKTOP_COMPUTER_ENABLED || config.LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED ||
-          config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED ||
-          config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED || config.LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED) &&
-          !config.LINKSENSE_DESKTOP_TURN_ID) ||
-        config.LINKSENSE_USER_DATA_VOLUME || config.LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS ||
-        config.LINKSENSE_MANAGED_BROWSER_ENABLED) {
-        context.addIssue({ code: "custom", path: ["LINKSENSE_WORKER_PROVIDER"], message: "desktop_worker_requires_supervised_loopback_configuration" })
-      }
-      return
     }
     if (config.LINKSENSE_WORKER_PROVIDER !== "local-process") return
     if (config.NODE_ENV !== "development") {

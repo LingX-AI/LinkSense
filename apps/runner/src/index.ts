@@ -15,7 +15,6 @@ import { cleanupManagedBrowserSession } from "./browser/session-cleanup.js"
 import { loadCodexTemplateFeatureOverrides } from "./codex/template-features.js"
 import { assertCodexRuntimeVersion } from "./codex/runtime-version.js"
 import { parseRunnerConfig, type RunnerConfig } from "./config.js"
-import { desktopWorkerListenerFd } from "./controller/desktop-worker-provider.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
 import { createWorkerProvider } from "./controller/worker-provider-registry.js"
@@ -83,9 +82,6 @@ export function resolveNativeImageTemporaryRoots(
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const config = parseRunnerConfig(env)
-  if (config.LINKSENSE_WORKER_PROVIDER === "desktop" && !process.connected) {
-    throw new Error("desktop worker requires its supervising process")
-  }
   if (config.LINKSENSE_RUNNER_MODE === "controller") {
     await startController(config)
     flushCompileCache()
@@ -150,7 +146,6 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const logger = createLogger("execution")
   const workerOwnerId = config.LINKSENSE_WORKER_OWNER_ID
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"
-  const isDesktopWorker = isWorker && config.LINKSENSE_WORKER_PROVIDER === "desktop"
   const isHostWorker =
     isWorker && config.LINKSENSE_WORKER_PROVIDER !== "docker"
   const managedBrowserEnabled =
@@ -185,22 +180,21 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   }
   const initializeRuntime = createUserRuntimeEnsurer(runtimeRootForOwner, {
     ...((isWorker && !isHostWorker) ||
-    (!isDesktopWorker && existsSync(config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES))
+    (!isHostWorker && existsSync(config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES))
       ? {
           basePythonSitePackages:
             config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES,
         }
       : {}),
     ...((isWorker && !isHostWorker) ||
-    (!isDesktopWorker && existsSync(config.LINKSENSE_NODE_BASE_PROJECT))
+    (!isHostWorker && existsSync(config.LINKSENSE_NODE_BASE_PROJECT))
       ? { baseNodeProject: config.LINKSENSE_NODE_BASE_PROJECT }
       : {}),
     ...((isWorker && !isHostWorker) ||
-    (!isDesktopWorker && existsSync(config.LINKSENSE_NODE_REGISTER_HOOK))
+    (!isHostWorker && existsSync(config.LINKSENSE_NODE_REGISTER_HOOK))
       ? { nodeRegisterHook: config.LINKSENSE_NODE_REGISTER_HOOK }
       : {}),
     pnpmVersion: config.LINKSENSE_PNPM_VERSION,
-    ...(isDesktopWorker ? { skipPythonBootstrap: true } : {}),
     pythonPackageIndexUrl: config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
     nodePackageRegistryUrl: config.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
     ...(isWorker
@@ -270,9 +264,6 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     workspaceManager,
     {
       ...(config.LINKSENSE_SERVICE_SESSION_ID ? { serviceSessionId: config.LINKSENSE_SERVICE_SESSION_ID } : {}),
-      ...(isDesktopWorker && config.LINKSENSE_DESKTOP_TURN_ID && config.LINKSENSE_DESKTOP_RUNTIME_GENERATION
-        ? { desktopOutboxScope: { turnId: config.LINKSENSE_DESKTOP_TURN_ID, generation: config.LINKSENSE_DESKTOP_RUNTIME_GENERATION } }
-        : {}),
       logger,
       knowledgeSearchTimeoutMs:
         config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -306,16 +297,6 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   )
   const modelGateway = new ModelGateway({
     logger,
-    ...(isDesktopWorker && config.LINKSENSE_DESKTOP_PROXY_ORIGIN
-      ? {
-          desktopProxyOrigin: config.LINKSENSE_DESKTOP_PROXY_ORIGIN,
-          desktopPaths: {
-            home: config.LINKSENSE_USER_DATA_ROOT,
-            ...(config.LINKSENSE_DESKTOP_DATA_ROOT && { dataRoot: config.LINKSENSE_DESKTOP_DATA_ROOT }),
-            runtimeRoot: path.dirname(path.dirname(config.CODEX_BIN)),
-          },
-        }
-      : {}),
     sensitiveDataRelay: (ownerId, request, signal) =>
       eventSink.authorizeSensitiveData(ownerId, request, signal),
     onMemoryUsage: async (capture) => {
@@ -330,15 +311,6 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   })
   await modelGateway.start()
   const pool = new AppServerProcessPool({
-    desktopWorkspace: isDesktopWorker,
-    desktopBrowserEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_BROWSER_ENABLED,
-    desktopComputerEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_COMPUTER_ENABLED,
-    desktopComputerWaitEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_COMPUTER_ENABLED &&
-      config.LINKSENSE_DESKTOP_COMPUTER_WAIT_ENABLED,
-    desktopNativeApprovalsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_NATIVE_APPROVALS_ENABLED,
-    desktopArtifactsEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED,
-    desktopArtifactsWebsiteEnabled: isDesktopWorker && config.LINKSENSE_DESKTOP_ARTIFACTS_ENABLED &&
-      config.LINKSENSE_DESKTOP_ARTIFACTS_WEBSITE_ENABLED,
     command: config.CODEX_BIN,
     processLimit: config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
     idleTtlMs: config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS * 1000,
@@ -347,29 +319,18 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     workspaceManager,
     modelGateway,
     capabilityRuntimeManager: new CapabilityRuntimeManager(
-      isDesktopWorker
+      isHostWorker
         ? {
-            desktop: true,
+            apiIdentity: currentProcessIdentity,
+            taskIdentity: currentProcessIdentity,
             managedBrowserEnabled,
           }
-        : isHostWorker
-          ? {
-              apiIdentity: currentProcessIdentity,
-              taskIdentity: currentProcessIdentity,
-              managedBrowserEnabled,
-            }
-          : { managedBrowserEnabled },
+        : { managedBrowserEnabled },
     ),
     eventSink,
     logger,
     mcpCommand: process.execPath,
     mcpArgs: [...process.execArgv, mcpScript],
-    ...(isDesktopWorker && config.LINKSENSE_DESKTOP_CONNECTIONS_ENABLED ? {
-      desktopConnectionMcpArgs: [
-        ...process.execArgv,
-        fileURLToPath(new URL("./mcp/connection-service-server.js", import.meta.url)),
-      ],
-    } : {}),
     ...(managedBrowserEnabled
       ? {
           managedBrowserMcpArgs: [
@@ -460,15 +421,10 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     await modelGateway.close()
     await eventSink.close()
   })
-  if (isDesktopWorker && !process.connected) {
-    await Promise.allSettled([server.close(), pool.closeAll(), modelGateway.close(), eventSink.close()])
-    return
-  }
   try {
     const listenOptions = {
       host: config.LINKSENSE_RUNNER_HOST,
       port: config.LINKSENSE_RUNNER_PORT,
-      ...(isDesktopWorker && config.LINKSENSE_DESKTOP_TURN_ID ? { fd: desktopWorkerListenerFd } : {}),
     }
     await server.listen(listenOptions)
     heartbeat.start()

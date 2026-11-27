@@ -11,28 +11,6 @@ import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import { registerBrowserUseRoutes } from "./modules/browser-use/routes.js";
-import { registerDesktopDeviceRoutes } from "./modules/desktop-devices/routes.js";
-import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
-import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
-import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
-import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
-import { DesktopCloudToolGateway } from "./modules/desktop-devices/cloud-tools.js";
-import { RedisDesktopCloudToolRelay } from "./modules/desktop-devices/cloud-tool-relay.js";
-import { DesktopFileRootService, PrismaDesktopFileRootRepository } from "./modules/desktop-devices/file-roots.js";
-import { desktopFileRootRoutes } from "./modules/desktop-devices/file-root-routes.js";
-import { internalDesktopCloudToolRoutes } from "./modules/desktop-devices/cloud-tool-routes.js";
-import {
-  createDesktopComputerPauseAuditClient,
-  recordDesktopComputerPauseAudit,
-  type DesktopComputerControl,
-} from "./modules/desktop-devices/computer-control.js";
-import { DesktopComputerPauseAudit } from "./modules/desktop-devices/pause-audit.js";
-import { DesktopBrowserUse } from "./modules/desktop-devices/browser-use.js";
-import { isDesktopRunActive } from "./modules/desktop-credentials/run-authority.js";
-import { DesktopRunLeases } from "./modules/desktop-credentials/run-leases.js";
-import { localComputerRoutes } from "./modules/local-computer/routes.js";
-import { LocalComputerService } from "./modules/local-computer/service.js";
-import { DesktopLoginService, RedisDesktopLoginStore } from "./modules/auth/desktop-login.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
 import { RedisBrowserStore } from "./modules/browser-use/store.js";
@@ -91,7 +69,6 @@ import { WebSiteVisitorSessions } from "./modules/web-site-backends/visitor-sess
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
-import { desktopActivityRoutes } from "./modules/audit/desktop-activity-routes.js";
 import {
   AuthService,
   ConfigurableMicrosoftTeamsTokenVerifier,
@@ -165,7 +142,6 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   'req.headers["x-fallback-cookies"]',
   'req.headers["x-linksense-app-capability"]',
   'req.headers["x-linksense-file-name"]',
-  'req.headers["x-linksense-desktop-attachment-grant"]',
   "req.headers.authorization",
   "req.headers.cookie",
   "req.body.passcode",
@@ -314,7 +290,6 @@ export async function buildApi(
   await app.register(authRoutes, {
     prefix: "/api/v1/auth",
     service: authService,
-    desktopLogin: new DesktopLoginService(authService, new RedisDesktopLoginStore(services.redis)),
     secureCookies: services.config.publicUrlUsesHttps,
     publicBaseUrl: services.config.publicBaseUrl,
     authenticate: app.authenticate,
@@ -703,112 +678,23 @@ export async function buildApi(
     service: services.users,
     sharedSecret: services.config.runnerSharedSecret,
   });
-  const desktopCoordinator = new RedisDesktopDeviceCoordinator(services.redis.client);
-  const desktopLeases = new DesktopRunLeases(services.redis.client, (scope, phase) =>
-    isDesktopRunActive(services.prisma, desktopCoordinator, scope, phase));
   const browserStore = new RedisBrowserStore(services.redis.client);
-  const { config } = services;
-  const { credentialMasterKey, credentialKeyId } = config;
-  const browser = new BrowserUseService(browserStore, browserUseEndpoint.href,
-    config.desktopBrowserUseEnabled ? {
-      credentialMasterKey, credentialKeyId, isActiveRun: scope => desktopLeases.isActiveToolScope(scope),
-    } : undefined);
   await registerBrowserUseRoutes(app, {
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
-    service: browser,
+    service: new BrowserUseService(browserStore, browserUseEndpoint.href),
     webSites: services.webSites,
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, browserStore, services.modelProviderSettings, services.usageAnalytics),
   });
-  let desktopComputerControl: DesktopComputerControl | undefined;
-  const desktopExecution = await registerDesktopExecution(app, {
-    ...services, connections,
-    ...(config.desktopBrowserUseEnabled ? {
-      browserUse: new DesktopBrowserUse(
-        services.prisma, browser, browserStore, { credentialMasterKey, credentialKeyId }, services.webSites,
-      ),
-    } : {}),
-  }, desktopCoordinator, desktopLeases, {
-    onComputerControl: control => { desktopComputerControl = control; },
-  });
-  if (desktopExecution) await app.register(localComputerRoutes, {
-    prefix: "/api/v1/conversations",
-    service: new LocalComputerService(services.prisma),
-  });
-  // The Mac product control owns one lazy, dedicated audit connection; the
-  // supervisor closes it only after all admitted writes have settled.
-  let pauseAuditDb: ReturnType<typeof createDesktopComputerPauseAuditClient> | undefined;
-  const pauseAudit = desktopComputerControl ? new DesktopComputerPauseAudit({
-    write: receipt => {
-      pauseAuditDb ??= createDesktopComputerPauseAuditClient(config.databaseUrl);
-      return recordDesktopComputerPauseAudit(pauseAuditDb, receipt);
-    },
-    close: async () => {
-      const current = pauseAuditDb;
-      pauseAuditDb = undefined;
-      await current?.$disconnect();
-    },
-    warn: message => app.log.warn(message),
-  }) : undefined;
-  const desktopFileRoots = new DesktopFileRootService(
-    new PrismaDesktopFileRootRepository(services.prisma),
-    services.audit,
-  );
-  await app.register(desktopFileRootRoutes, {
-    prefix: "/api/v1/desktop/file-roots",
-    service: desktopFileRoots,
-  });
-  const desktopCloudTools = new DesktopCloudToolGateway();
-  await desktopCloudTools.start(
-    new RedisDesktopCloudToolRelay(services.redis.client),
-    { warn: (meta, message) => app.log.warn(meta, message) },
-  );
-  await registerDesktopDeviceRoutes(app, {
-    service: new DesktopDeviceService(
-      new PrismaDesktopDeviceRepository(services.prisma),
-      desktopCoordinator,
-    ),
-    redis: services.redis.client,
-    rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
-    cloudTools: desktopCloudTools,
-    ...(desktopExecution ? {
-      execution: desktopExecution,
-      knowledgeTools: services.knowledgeSearch !== null,
-      connectionTools: true,
-      browserTools: config.desktopBrowserUseEnabled,
-      nativeApprovals: config.desktopNativeApprovalsEnabled,
-      artifactTools: config.desktopArtifactsEnabled,
-      websiteArtifacts: config.desktopWebsiteArtifactsEnabled,
-      computerExecute: desktopComputerControl !== undefined,
-      ...(desktopComputerControl && pauseAudit ? {
-        computerControl: desktopComputerControl,
-        pauseAudit,
-      } : {}),
-      onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
-    } : {}),
-  });
-  await app.register(internalDesktopCloudToolRoutes, {
-    prefix: "/internal",
-    prisma: services.prisma,
-    sharedSecret: services.config.runnerSharedSecret,
-    cloudTools: desktopCloudTools,
-    browser,
-    audit: services.audit,
-  });
-  app.addHook("preClose", async () => desktopCloudTools.close());
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",
     service: services.conversationAutomations,
     sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(auditRoutes, { prefix: "/api/v1/admin/audit", services });
-  await app.register(desktopActivityRoutes, {
-    prefix: "/api/v1/desktop",
-    prisma: services.prisma,
-  });
   await app.register(usageAnalyticsRoutes, {
     prefix: "/api/v1/admin/usage",
     services,

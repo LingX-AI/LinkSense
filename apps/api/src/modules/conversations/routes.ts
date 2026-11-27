@@ -10,8 +10,6 @@ import {
   conversationSourcesSchema,
   conversationOrderUpdateSchema,
   conversationUserInputResponseSchema,
-  desktopApprovalNotificationSnapshotSchema,
-  desktopApprovalResponseSchema,
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
   interactiveApplicationMessageSourceSchema,
@@ -21,7 +19,6 @@ import {
 } from "@linksense/shared";
 
 import { ok } from "../../lib/http.js";
-import { AppError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
 import { MAX_CONVERSATION_TITLE_CHARACTERS } from "../../lib/conversation-title.js";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
@@ -63,18 +60,6 @@ const pendingRequestOrderBodySchema = z.strictObject({
 const contextCompactionBodySchema = z.strictObject({
   idempotency_key: z.string().trim().min(1).max(120),
 });
-const desktopApprovalNotificationQuerySchema = z
-  .strictObject({
-    conversation_id: z.string().uuid().optional(),
-    request_id: z.string().uuid().optional(),
-  })
-  .refine(
-    (query) =>
-      (query.conversation_id === undefined) ===
-      (query.request_id === undefined),
-    "conversation_and_request_pair_required",
-  );
-
 const priorityIds = priorityCapabilityIdsSchema.default([]);
 const inputText = z.string().max(1_000_000);
 const planReviewActionBodySchema = z.discriminatedUnion("action", [
@@ -226,22 +211,9 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    // Retire the target before strict validation: a bare local request is a
-    // retired capability, not a malformed cloud request.
-    if ((request.body as { execution_target?: unknown } | null)?.execution_target === "local") {
-      request.log.warn({
-        event: "desktop_local_execution_denied",
-        target: "local",
-        reason_code: "desktop_local_target_retired",
-      });
-      throw new AppError("DESKTOP_LOCAL_TARGET_RETIRED");
-    }
     const body = conversationCreateInputSchema.parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
-      executionTarget: body.execution_target,
-      desktopDeviceId: body.desktop_device_id,
-      ...(body.desktop_tools_enabled ? { desktopToolsEnabled: true } : {}),
       ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
       ...(body.prewarmed_conversation_id
         ? { prewarmedConversationId: body.prewarmed_conversation_id }
@@ -281,22 +253,6 @@ export const conversationRoutes: FastifyPluginAsync<{
         request.id,
       ),
     );
-  });
-
-  app.get("/desktop-approval-notifications", async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    const query = desktopApprovalNotificationQuerySchema.parse(request.query);
-    // A click checks the same read again, so no cache may answer with stale rows.
-    reply.header("cache-control", "no-store");
-    const snapshot = services.config.desktopNativeApprovalsEnabled
-      ? await services.conversations.listDesktopApprovalNotifications(user.id, {
-          ...(query.conversation_id
-            ? { conversationId: query.conversation_id }
-            : {}),
-          ...(query.request_id ? { requestId: query.request_id } : {}),
-        })
-      : desktopApprovalNotificationSnapshotSchema.parse({ items: [] });
-    return reply.send(ok(snapshot, request.id));
   });
 
   app.get("/:id", async (request, reply) => {
@@ -609,25 +565,6 @@ export const conversationRoutes: FastifyPluginAsync<{
           request.id,
         ),
       );
-  });
-
-  app.post("/:id/turn-start/interrupt", async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    const { id } = uuidParamsSchema.parse(request.params);
-    const { idempotency_key } = z.strictObject({ idempotency_key: z.uuid() }).parse(request.body);
-    const result = await services.conversations.interruptDesktopTurnSubmission(
-      user.id, id, idempotency_key, auditContext(request),
-    );
-    return reply.code(202).send(ok(result, request.id));
-  });
-
-  app.post("/:id/approvals/:requestId", { bodyLimit: 1024 }, async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    const { id, requestId } = userInputParamsSchema.parse(request.params);
-    const body = desktopApprovalResponseSchema.parse(request.body);
-    return reply.send(ok(await services.conversations.respondToDesktopApprovalRequest(
-      user.id, id, requestId, body, auditContext(request),
-    ), request.id));
   });
 
   app.post(

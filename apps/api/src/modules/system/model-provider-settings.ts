@@ -49,7 +49,6 @@ import {
   type TestModelProviderConnectionInput,
   type DiscoverModelProviderResult,
   type TestModelProviderConnectionResult,
-  type DesktopModelPurpose,
 } from "@linksense/shared"
 import { z } from "zod"
 
@@ -1177,44 +1176,6 @@ export class ModelProviderSettingsService
       const runtime = findManagedRuntime(stored, id, expectedKind)
       return runtime ? [runtime] : []
     })
-  }
-
-  async resolveDesktopProxyProvider(input: {
-    model: string
-    revision: number
-    protocolMode: ModelProviderProtocolMode
-    purpose: DesktopModelPurpose
-  }): Promise<{
-    baseUrl: string
-    apiKey: string
-    supportsImageInput: boolean
-    provider: ModelServiceProvider
-    pricing: ModelTokenPricing
-  }> {
-    const stored = await this.readStoredSettings()
-    if (!stored || stored.revision !== input.revision) throw new AppError("MODEL_SELECTION_INVALID")
-    const resolved = findManagedRuntime(stored, input.model, "chat")
-    if (!resolved) throw new AppError("MODEL_SELECTION_INVALID")
-    const { channel, model } = resolved
-    if (!channel.apiKey || channel.protocolMode !== input.protocolMode ||
-      (input.purpose === "primary" && !model.enabled) ||
-      (input.purpose === "memory_extraction" && stored.memoryExtractionModel !== null && stored.memoryExtractionModel !== input.model)) {
-      throw new AppError("MODEL_SELECTION_INVALID")
-    }
-    if (model.kind !== "chat") throw new AppError("MODEL_SELECTION_INVALID")
-    return {
-      baseUrl: channel.baseUrl,
-      apiKey: channel.apiKey,
-      supportsImageInput: model.supports_image_input,
-      provider: channel.provider,
-      // Capture pricing from the same stored revision that authorizes the run.
-      // Never re-read a newer catalog after the provider stream.
-      pricing: {
-        input_price_per_million: model.input_price_per_million,
-        cached_input_price_per_million: model.cached_input_price_per_million,
-        output_price_per_million: model.output_price_per_million,
-      },
-    }
   }
 
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {

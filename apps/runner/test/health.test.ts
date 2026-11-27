@@ -1083,69 +1083,6 @@ describe("runner health", () => {
     await server.close();
   });
 
-  it("relays one negotiated computer execute through its turn-scoped token", async () => {
-    const userDataRoot = join(directory, "users");
-    const workspaceManager = new WorkspaceManager(userDataRoot);
-    const computerExecute = vi
-      .fn()
-      .mockResolvedValueOnce({
-        kind: "status",
-        result: {
-          available: true,
-          permissions: { accessibility: "granted" },
-          active_grant: true,
-        },
-      })
-      .mockRejectedValueOnce(new Error("private backend stack"));
-    const pool = { computerExecute } as unknown as AppServerProcessPool;
-    const config = parseRunnerConfig({
-      LINKSENSE_USER_DATA_ROOT: userDataRoot,
-      LINKSENSE_RUNNER_SHARED_SECRET: "runner-555555555555555555555555555555",
-      LINKSENSE_API_INTERNAL_URL: "http://127.0.0.1:4000/internal",
-    });
-    const server = buildRunnerServer(config, pool, workspaceManager);
-    const conversationId = "01900000-0000-7000-8000-000000000001";
-    const url = `/mcp-current-user/${conversationId}/computer-execute`;
-    const headers = { authorization: "Bearer computer-relay-token-value" };
-
-    const unauthorized = await server.inject({
-      method: "POST", url, payload: { input: { kind: "status" } },
-    });
-    expect(unauthorized.statusCode).toBe(401);
-    expect(unauthorized.json()).toEqual({ error_code: "COMPUTER_ACCESS_DENIED" });
-
-    const target = await server.inject({
-      method: "POST",
-      url,
-      headers,
-      payload: { input: { kind: "status", bundle_id: "com.example.secret" } },
-    });
-    expect(target.statusCode).toBe(400);
-    expect(target.json()).toEqual({ error_code: "COMPUTER_INVALID" });
-    expect(computerExecute).not.toHaveBeenCalled();
-
-    const success = await server.inject({
-      method: "POST", url, headers, payload: { input: { kind: "status" } },
-    });
-    expect(success.statusCode).toBe(200);
-    expect(success.json()).toMatchObject({ kind: "status", result: { available: true } });
-    expect(computerExecute).toHaveBeenCalledWith(
-      conversationId,
-      "computer-relay-token-value",
-      { kind: "status" },
-      expect.any(AbortSignal),
-      undefined,
-    );
-
-    const unavailable = await server.inject({
-      method: "POST", url, headers, payload: { input: { kind: "status" } },
-    });
-    expect(unavailable.statusCode).toBe(503);
-    expect(unavailable.json()).toEqual({ error_code: "COMPUTER_UNAVAILABLE" });
-    expect(unavailable.body).not.toContain("private backend stack");
-    await server.close();
-  });
-
   it("accepts a blocking interactive form through its turn-scoped token", async () => {
     const userDataRoot = join(directory, "users");
     const workspaceManager = new WorkspaceManager(userDataRoot);

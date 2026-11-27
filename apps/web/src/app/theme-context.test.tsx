@@ -331,32 +331,6 @@ describe("theme preferences", () => {
     expect(screen.getByText("dark", { selector: "output" })).toBeVisible()
   })
 
-  it("keeps the Mac UI at the default and ignores its saved font size and setter", async () => {
-    installMatchMedia(false)
-    vi.stubGlobal("mygo", { platform: "darwin" })
-    window.localStorage.setItem("linksense.uiFontSize", "18")
-    const interaction = userEvent.setup()
-    render(
-      <ThemeProvider>
-        <ThemeProbe />
-      </ThemeProvider>
-    )
-
-    expect(screen.getByTestId("ui-font-size")).toHaveTextContent("14")
-    expect(document.documentElement.dataset.uiFontSize).toBe("14")
-    expect(
-      document.documentElement.style.getPropertyValue("--app-ui-font-size")
-    ).toBe("14px")
-
-    await interaction.click(screen.getByRole("button", { name: "font-18" }))
-    expect(screen.getByTestId("ui-font-size")).toHaveTextContent("14")
-    expect(window.localStorage.getItem("linksense.uiFontSize")).toBe("18")
-    expect(document.documentElement.dataset.uiFontSize).toBe("14")
-    expect(
-      document.documentElement.style.getPropertyValue("--app-ui-font-size")
-    ).toBe("14px")
-  })
-
   it("restores, applies, and persists the UI font size", async () => {
     installMatchMedia(false)
     window.localStorage.setItem("linksense.uiFontSize", "12")

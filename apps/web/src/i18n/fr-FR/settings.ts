@@ -416,23 +416,6 @@ export const settingsResources = {
       "Les notifications sont connectées. Vous serez averti ici lorsqu’une tâche ou une automatisation produira un résultat.",
     testSent:
       "Une notification de test a été envoyée au système. Si vous ne l’avez pas vue, vérifiez les paramètres de notification du système pour ce navigateur.",
-    desktopTitle: "Notifications macOS",
-    desktopDescription:
-      "Recevez une notification quand une tâche ou une automatisation se termine, ou qu’une mise à jour signée est disponible, pendant que LinkSense est en arrière-plan.",
-    desktopEnable: "Activer les notifications macOS",
-    desktopUnsupported:
-      "Les notifications ne sont pas disponibles dans cette version de l’application. Utilisez une application de bureau LinkSense empaquetée pour recevoir les notifications de fin de tâche.",
-    desktopPermissionDenied:
-      "macOS bloque les notifications de {{productName}}. Autorisez-les dans Réglages Système > Notifications, puis réessayez.",
-    desktopDeliveryError:
-      "Le système n’a pas pu afficher la notification. Vérifiez les réglages de notifications de {{productName}} dans Réglages Système de macOS, puis réessayez.",
-    desktopTestSent:
-      "Une notification de test a été envoyée au système. Si vous ne l’avez pas vue, vérifiez les réglages de notifications de {{productName}} dans Réglages Système de macOS.",
-    approvalEnable: "Rappels d’approbation",
-    approvalDescription:
-      "Affiche une notification lorsqu’une tâche locale attend votre approbation pendant que LinkSense est en arrière-plan. Un clic ouvre la tâche, sans jamais répondre à l’approbation.",
-    approvalPaused:
-      "Les rappels d’approbation sont en pause tant que les notifications macOS sont désactivées.",
     notificationTitle: "{{productName}} · {{taskTitle}}",
     statusCompletedBody: "Traitement réussi",
     statusFailedBody: "Échec du traitement",

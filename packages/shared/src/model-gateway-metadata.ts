@@ -1,7 +1,6 @@
 /**
- * Codex turn metadata shared by the runner model gateway and the desktop
- * model proxy. Keep the accepted compaction shapes in one place so the two
- * authorization paths cannot drift.
+ * Codex turn metadata shared by the runner model gateway. Keep the accepted
+ * compaction shapes in one place so the authorization paths cannot drift.
  */
 
 export const codexTurnMetadataKey = "x-codex-turn-metadata";

@@ -1,6 +1,5 @@
 import { createRandomUuid } from "@/lib/random-uuid"
 import { LoadingState } from "@/components/feedback/page-state"
-import { getDesktopServerUrl } from "@/adapters/desktop/desktop-adapter"
 import {
   useInteractiveTaskState,
   refreshesInteractiveTaskState,
@@ -214,12 +213,7 @@ function InteractiveApplicationRuntime({
     source: string
     packageId: string
   } | null>(null)
-  const desktopServer = getDesktopServerUrl()
   const runtimeSource = runtimeToken.data?.runtime_url
-    ? desktopServer
-      ? new URL(runtimeToken.data.runtime_url, desktopServer).href
-      : runtimeToken.data.runtime_url
-    : undefined
   const frameSource = annotationSession?.source ?? runtimeSource
   const onAnnotationActiveChange = annotation?.onActiveChange
   const annotationRuntime = useRef({

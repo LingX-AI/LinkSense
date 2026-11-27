@@ -41,15 +41,7 @@ import {
 } from "@/features/conversations/office-annotation-batch-tray"
 import { buildHtmlAnnotation } from "@/features/conversations/conversation-office-annotation"
 import { installApplicationAnnotationRuntime } from "./application-annotation-runtime"
-import {
-  installApplicationAnnotationNativeRuntime,
-  type ApplicationAnnotationNativeRuntime,
-} from "./application-annotation-native-runtime"
 import type { ApplicationAnnotationSubmit } from "./application-annotation-submission"
-import {
-  getDesktopServerUrl,
-  isMacDesktopHost,
-} from "@/adapters/desktop/desktop-adapter"
 import { useProductName } from "@/app/product-branding"
 
 export type ApplicationAnnotationOptions = {
@@ -85,20 +77,6 @@ export function ApplicationAnnotationPreview({
   const [frames, setFrames] = useState<HtmlAnnotationFrame[]>([])
   const [drafts, setDrafts] = useState<OfficeAnnotationDraft[]>([])
   const [draftPage, setDraftPage] = useState<string | null>(null)
-  const nativeRuntime = useRef<ApplicationAnnotationNativeRuntime | null>(null)
-  // The packaged host origin is fixed for this page's lifetime.
-  const [nativeOptions] = useState(() => {
-    if (!isMacDesktopHost()) return null
-    try {
-      const server = getDesktopServerUrl()
-      if (!server) return null
-      const frameOrigin = new URL(server).origin
-      if (frameOrigin === "null") return null
-      return { frameOrigin, parentOrigin: window.location.origin }
-    } catch {
-      return null
-    }
-  })
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,24 +123,6 @@ export function ApplicationAnnotationPreview({
   useEffect(() => {
     const frame = frameRef.current
     if (!frame || !load) return
-    if (nativeOptions) {
-      const runtime = installApplicationAnnotationNativeRuntime(
-        frame,
-        source,
-        nativeOptions,
-        {
-          onReady: (path) => applyRuntimePage(path),
-          onLocation: (path) => applyRuntimePage(path),
-          onError: () => onRuntimeError(),
-          onMessage: (message) => receive(message),
-        }
-      )
-      nativeRuntime.current = runtime
-      return () => {
-        if (nativeRuntime.current === runtime) nativeRuntime.current = null
-        runtime.cleanup()
-      }
-    }
     return installApplicationAnnotationRuntime(
       frame,
       source,
@@ -170,16 +130,13 @@ export function ApplicationAnnotationPreview({
       () => onRuntimeError(),
       (message) => receive(message)
     )
-  }, [frameRef, source, load, nativeOptions])
+  }, [frameRef, source, load])
 
   useEffect(() => {
     const frame = frameRef.current
     if (!frame || !readyPath) return
-    const runtime = nativeRuntime.current
-    const native = nativeOptions !== null
     const enabled = mode && pageMatches
-    const sync = () =>
-      native ? runtime?.setMode(enabled) : postHtmlPreviewAnnotationMode(frame, enabled)
+    const sync = () => postHtmlPreviewAnnotationMode(frame, enabled)
     sync()
     const observer = new MutationObserver(sync)
     observer.observe(document.documentElement, {
@@ -188,10 +145,9 @@ export function ApplicationAnnotationPreview({
     })
     return () => {
       observer.disconnect()
-      if (native) runtime?.setMode(false)
-      else postHtmlPreviewAnnotationMode(frame, false)
+      postHtmlPreviewAnnotationMode(frame, false)
     }
-  }, [frameRef, readyPath, mode, pageMatches, nativeOptions])
+  }, [frameRef, readyPath, mode, pageMatches])
   useEffect(() => {
     const frame = frameRef.current
     if (!frame) return
@@ -211,9 +167,8 @@ export function ApplicationAnnotationPreview({
               : []
           )
         : []
-    if (nativeOptions) nativeRuntime.current?.setMarkers(markers)
-    else if (readyPath) postHtmlPreviewAnnotations(frame, markers)
-  }, [drafts, frameRef, readyPath, pageMatches, nativeOptions])
+    if (readyPath) postHtmlPreviewAnnotations(frame, markers)
+  }, [drafts, frameRef, readyPath, pageMatches])
   const canAnnotate =
     readyPath &&
     pageMatches &&
@@ -231,23 +186,6 @@ export function ApplicationAnnotationPreview({
     setSending(true)
     setError(null)
     try {
-      if (nativeOptions) {
-        // Same-document routes can change between the last report and this
-        // click; read the live route back over the port before releasing it.
-        const livePath = (await nativeRuntime.current?.confirmPage()) ?? null
-        if (livePath !== readyPath) {
-          setReadyPath(livePath)
-          if (draftPage !== null && draftPage !== livePath) {
-            setSelection(null)
-            setFrames([])
-            setMode(false)
-          }
-          throw new ApiError({
-            status: 409,
-            errorCode: "APPLICATION_DEVELOPMENT_SOURCE_CHANGED",
-          })
-        }
-      }
       const annotation = applicationAnnotationInputSchema.parse({
         kind: "application_annotation",
         development_id: project.id,
@@ -331,15 +269,10 @@ export function ApplicationAnnotationPreview({
                         draft.officeSelection.kind !== "html"
                       )
                         return
-                      if (nativeOptions)
-                        nativeRuntime.current?.focus(
-                          draft.officeSelection.selection
-                        )
-                      else
-                        postHtmlPreviewAnnotationFocus(
-                          frameRef.current,
-                          draft.officeSelection.selection
-                        )
+                      postHtmlPreviewAnnotationFocus(
+                        frameRef.current,
+                        draft.officeSelection.selection
+                      )
                     }
                   : undefined
               }
@@ -357,8 +290,6 @@ export function ApplicationAnnotationPreview({
           className="absolute inset-0 size-full border-0 bg-background"
           onLoad={() => {
             // A new document cannot report into the previous navigation.
-            nativeRuntime.current?.cleanup()
-            nativeRuntime.current = null
             setReadyPath(null)
             setSelection(null)
             setFrames([])
@@ -433,9 +364,7 @@ export function ApplicationAnnotationPreview({
                   },
                 ])
                 if (frameRef.current) {
-                  if (nativeOptions)
-                    nativeRuntime.current?.clearSelection(selected)
-                  else postHtmlPreviewSelectionClear(frameRef.current, selected)
+                  postHtmlPreviewSelectionClear(frameRef.current, selected)
                 }
                 setSelection(null)
               },

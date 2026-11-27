@@ -1,13 +1,5 @@
 # Third-party deployment components
 
-Desktop packages additionally bundle Node.js 24.22.1 (MIT and its bundled
-third-party notices), OpenAI Codex 0.170.0 (Apache-2.0), and
-vercel-labs/agent-desktop 1.3.1 (Apache-2.0). Their license texts are shipped
-with the desktop runtime. The exact upstream release URLs and archive SHA-256
-checksums are pinned in `apps/desktop/desktop-resources.json`; the generated
-runtime manifest also records the extracted executable checksums. Windows
-packages include Codex's native command runner and sandbox setup helpers.
-
 LinkSense-owned source code is licensed under [CPAL-1.0](./LICENSE). The
 standalone images below are developed by third parties and retain their own
 licenses. LinkSense does not relicense them under CPAL-1.0. The release installer

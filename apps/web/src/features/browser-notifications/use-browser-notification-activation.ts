@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { DEFAULT_ORGANIZATION_DISPLAY_NAME } from "@linksense/shared"
 
 import { apiRequest } from "@/api/client"
-import {
-  isMacDesktopHost,
-  showDesktopTestNotification,
-} from "@/adapters/desktop/desktop-adapter"
 import { completionNotificationFeedSchema } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
 import {
   clearBrowserNotificationFeedCursor,
-  recordMacNotificationDenial,
   saveBrowserNotificationFeedCursor,
   showBrowserNotification,
 } from "@/features/browser-notifications/browser-notification-preference"
@@ -31,7 +25,6 @@ export type BrowserNotificationActivationFeedback =
 export function useBrowserNotificationActivation(userId: string | undefined) {
   const { t } = useTranslation()
   const productName = useProductName()
-  const desktop = isMacDesktopHost()
   const preference = useBrowserNotificationPreference(userId)
   const request = useRef<AbortController | null>(null)
   const [requestPending, setRequestPending] = useState(false)
@@ -42,24 +35,16 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
     feedback &&
     {
       storageError: "browserNotifications.storageError",
-      deliveryError: desktop
-        ? "browserNotifications.desktopDeliveryError"
-        : "browserNotifications.deliveryError",
+      deliveryError: "browserNotifications.deliveryError",
       feedError: "browserNotifications.feedError",
       error: "browserNotifications.permissionError",
       dismissed: "browserNotifications.permissionDismissed",
-      denied: "browserNotifications.desktopPermissionDenied",
-      unsupported: desktop
-        ? "browserNotifications.desktopUnsupported"
-        : "browserNotifications.unsupported",
-      testSent: desktop
-        ? "browserNotifications.desktopTestSent"
-        : "browserNotifications.testSent",
+      denied: "browserNotifications.permissionDenied",
+      unsupported: "browserNotifications.unsupported",
+      testSent: "browserNotifications.testSent",
     }[feedback]
   const feedbackMessage = feedbackKey
-    ? t(feedbackKey, {
-        productName: desktop ? DEFAULT_ORGANIZATION_DISPLAY_NAME : productName,
-      })
+    ? t(feedbackKey, { productName })
     : null
 
   const reportDeliveryFailure = () => {
@@ -78,46 +63,31 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
     setFeedback(null)
     setRequestPending(true)
     void (async () => {
-      if (!desktop) {
-        const result = await preference.requestPermission()
-        if (signal.aborted) return
-        if (result === "default") {
-          setFeedback("dismissed")
-          return
-        }
-        if (result === "error") {
-          setFeedback("error")
-          return
-        }
-        if (result === "unsupported") {
-          setFeedback("unsupported")
-          return
-        }
-        if (result !== "granted") return
-      }
-
-      const body = t("browserNotifications.testBody")
-      const delivery = desktop
-        ? await showDesktopTestNotification(body, signal)
-        : (await showBrowserNotification({
-              title: t("browserNotifications.testTitle", { productName }),
-              body,
-              tag: `browser-notification-test:${userId}:${Date.now()}`,
-              onClick: () => undefined,
-            }))
-          ? "shown"
-          : "failed"
-      if (signal.aborted || delivery === "cancelled") return
-      if (delivery === "denied") {
-        recordMacNotificationDenial(userId)
-        setFeedback("denied")
+      const result = await preference.requestPermission()
+      if (signal.aborted) return
+      if (result === "default") {
+        setFeedback("dismissed")
         return
       }
-      if (delivery === "unsupported") {
+      if (result === "error") {
+        setFeedback("error")
+        return
+      }
+      if (result === "unsupported") {
         setFeedback("unsupported")
         return
       }
-      if (delivery !== "shown") {
+      if (result !== "granted") return
+
+      const body = t("browserNotifications.testBody")
+      const delivered = await showBrowserNotification({
+        title: t("browserNotifications.testTitle", { productName }),
+        body,
+        tag: `browser-notification-test:${userId}:${Date.now()}`,
+        onClick: () => undefined,
+      })
+      if (signal.aborted) return
+      if (!delivered) {
         reportDeliveryFailure()
         return
       }
@@ -126,7 +96,6 @@ export function useBrowserNotificationActivation(userId: string | undefined) {
         const feed = await apiRequest("/completion-notifications", {
           schema: completionNotificationFeedSchema,
           query: { limit: 100 },
-          ...(desktop ? { signal } : {}),
         })
         if (signal.aborted) return
         saveBrowserNotificationFeedCursor(userId, feed.next_cursor)
