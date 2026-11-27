@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +54,7 @@ type titleBarSurface struct {
 	ActionsWidth         float64          `json:"actionsWidth"`
 	TopBarRegion         string           `json:"topBarRegion"`
 	TopBarPadding        float64          `json:"topBarPadding"`
+	TopBarHeight         float64          `json:"topBarHeight"`
 	TriggerDisplay       string           `json:"triggerDisplay"`
 	TriggerLeft          float64          `json:"triggerLeft"`
 	CollapseLeft         float64          `json:"collapseLeft"`
@@ -148,6 +148,7 @@ const nativeTitleBarProbe = `(() => {
 		actionsWidth: ar ? ar.width : -1,
 		topBarRegion: region(topBar),
 		topBarPadding: topBar ? parseFloat(getComputedStyle(topBar).paddingLeft) : -1,
+		topBarHeight: box(topBar) ? box(topBar).height : -1,
 		triggerDisplay: trigger ? getComputedStyle(trigger).display : "absent",
 		triggerLeft: tr ? tr.left : -1,
 		collapseLeft: cr ? cr.left : -1,
@@ -210,26 +211,21 @@ func waitForNativeFullScreen(t *testing.T, win *mygo.Window, done <-chan struct{
 	t.Fatalf("the native full-screen notification did not arrive (wanted full screen=%t; appActive=%t windowFocused=%t styleMaskFullScreen=%t); macOS may have aborted the transition, which needs an active, unlocked session", wantFullScreen, mygo.App.IsActive(), win.IsFocused(), win.IsFullScreen())
 }
 
-// The link carries the standard 2px focus ring plus its 2px offset, so its
-// top must clear the native controls by at least this much. The icon keeps
-// its compact clearance at the standard page scale.
+// An action carries the standard 2px focus ring plus its 2px offset, so its
+// top must clear the native controls by at least this much.
 const (
 	titleBarFocusClearance       = 4.0
-	titleBarLogoClearance        = 6.0
-	titleBarLogoMaxHeight        = 18.0
-	titleBarLockupAspect         = 348.0 / 94.0
 	titleBarSidebarWidth         = 200.0
 	titleBarWideSidebarWidth     = 440.0
 	titleBarDefaultSidebarWidth  = 272.0
 	titleBarSettingsSidebarWidth = 272.0
 	titleBarBrandInset           = 16.0
-	titleBarBrandHit             = 24.0
 	titleBarActionButtonWidth    = 28.0
 	titleBarActionsWidth         = 99.0
 	// The native window applies TrafficLightPosition {X: 14, Y: 14}: the top
 	// inset moves the controls down and widens the close-button x-range from
 	// the recorded 61px room. The spacer uses the native title-bar height, so
-	// the 40px brand/action group centers on the traffic lights at 100%.
+	// the action row centers on the traffic lights at 100%.
 	titleBarRecordedDefaultInset = 61.0
 	titleBarTrafficLightTopInset = 14.0
 	titleBarAlignmentSlop        = 1.25
@@ -239,7 +235,7 @@ const titleBarGeometrySlop = 0.5
 
 // assertTitleBarNativePosition checks the native position contract: the
 // traffic lights moved down by the 14pt top inset, the close-button x-range
-// grew from its recorded default, and the brand/actions share the native
+// grew from its recorded default, and the sidebar actions share the native
 // midpoint on a single line.
 func assertTitleBarNativePosition(t *testing.T, label string, surface titleBarSurface) {
 	t.Helper()
@@ -254,12 +250,10 @@ func assertTitleBarNativePosition(t *testing.T, label string, surface titleBarSu
 		t.Fatalf("%s: the compact row is not taller than the native controls: %+v", label, surface)
 	}
 	nativeCenter := surface.TitleBarHeight / 2
-	brandCenter := (surface.BrandTop + surface.BrandBottom) / 2
 	actionsCenter := (surface.ActionsTop + surface.ActionsBottom) / 2
-	if math.Abs(brandCenter-nativeCenter) > titleBarAlignmentSlop ||
-		math.Abs(actionsCenter-nativeCenter) > titleBarAlignmentSlop {
-		t.Fatalf("%s: the brand/actions are not centered on the native traffic lights (brand %.2f, actions %.2f, native %.2f): %+v",
-			label, brandCenter, actionsCenter, nativeCenter, surface)
+	if math.Abs(actionsCenter-nativeCenter) > titleBarAlignmentSlop {
+		t.Fatalf("%s: the actions are not centered on the native traffic lights (actions %.2f, native %.2f): %+v",
+			label, actionsCenter, nativeCenter, surface)
 	}
 }
 
@@ -295,19 +289,23 @@ func waitTitleBarSidebarSettled(t *testing.T, page *mygo.Page, selector, route s
 	}
 }
 
-func waitTitleBarIcon(t *testing.T, page *mygo.Page) {
+// waitTitleBarReady waits for the Mac sidebar header to settle without a brand
+// mark and with its action row laid out.
+func waitTitleBarReady(t *testing.T, page *mygo.Page) {
 	t.Helper()
 	whiteboxWait(t, page, `(() => {
-		const logo = document.querySelector(".sidebar-brand-link img")
-		return !!logo && logo.complete && logo.naturalWidth > 0 && logo.naturalHeight > 0
+		const bar = document.querySelector(".sidebar-brand-bar")
+		const actions = bar?.querySelector(".sidebar-header-actions")
+		return !!actions && actions.getClientRects().length > 0 &&
+			bar.querySelector(".sidebar-brand-link") === null &&
+			bar.querySelector("img") === null
 	})()`)
 }
 
-// assertTitleBarDesktopSidebarLayout checks the Mac desktop brand row at the
-// standard page scale: the 24px focus link, the square 18px app icon, the
-// three 28px actions, and focus envelopes clear of the native controls. It
-// accepts one shared line when it fits and a wrapped group when the stored
-// sidebar is physically too narrow.
+// assertTitleBarDesktopSidebarLayout checks the Mac desktop sidebar header at
+// the standard page scale: no brand mark, the three 28px actions right-aligned
+// on the native traffic-light centerline, and the same height as the
+// conversation top bar beside it.
 func assertTitleBarDesktopSidebarLayout(t *testing.T, label string, surface titleBarSurface, wantSidebarWidth float64) {
 	t.Helper()
 	if !surface.SidebarVisible || surface.SidebarWidth <= 1 {
@@ -316,36 +314,11 @@ func assertTitleBarDesktopSidebarLayout(t *testing.T, label string, surface titl
 	if math.Abs(surface.SidebarWidth-wantSidebarWidth) > 1 {
 		t.Fatalf("%s: the stored sidebar width changed: %+v", label, surface)
 	}
-	brandWidth := surface.BrandRight - surface.BrandLeft
-	brandHeight := surface.BrandBottom - surface.BrandTop
-	if brandWidth < titleBarBrandHit-titleBarGeometrySlop || brandHeight < titleBarBrandHit-titleBarGeometrySlop ||
-		surface.BrandLogoWidth <= 1 || surface.BrandLogoHeight <= 1 ||
-		surface.BarRight-surface.BarLeft <= 1 {
-		t.Fatalf("%s: the sidebar logo, its 24px focus link, or the brand bar collapsed: %+v", label, surface)
+	if surface.BrandLeft >= 0 || surface.BrandLogoWidth > 0 {
+		t.Fatalf("%s: the Mac sidebar header still shows a brand mark: %+v", label, surface)
 	}
-	// A nonempty box is not proof of a loaded icon: WebKit reports the natural
-	// size only after the image resource decodes.
-	if !surface.BrandLogoComplete || surface.BrandLogoNaturalW <= 0 || surface.BrandLogoNaturalH <= 0 {
-		t.Fatalf("%s: the sidebar icon has no loaded intrinsic size: %+v", label, surface)
-	}
-	if surface.BrandLogoAlt == "" {
-		t.Fatalf("%s: the sidebar icon lost its accessible product name: %+v", label, surface)
-	}
-	if !strings.HasSuffix(surface.BrandLogoCurrentSrc, "/linksense-appicon.svg") {
-		t.Fatalf("%s: the Mac brand is not the packaged app icon: %+v", label, surface)
-	}
-	if math.Abs(surface.BrandLogoWidth/surface.BrandLogoHeight-1) > 0.05 ||
-		math.Abs(surface.BrandLogoNaturalW/surface.BrandLogoNaturalH-1) > 0.05 {
-		t.Fatalf("%s: the Mac app icon is no longer square: %+v", label, surface)
-	}
-	if surface.BrandLogoHeight > titleBarLogoMaxHeight+titleBarGeometrySlop {
-		t.Fatalf("%s: the app icon grew past the 18px cap: %+v", label, surface)
-	}
-	if surface.BrandLogoLeft < surface.BrandLeft-titleBarGeometrySlop ||
-		surface.BrandLogoRight > surface.BrandRight+titleBarGeometrySlop ||
-		surface.BrandLogoTop < surface.BrandTop-titleBarGeometrySlop ||
-		surface.BrandLogoBottom > surface.BrandBottom+titleBarGeometrySlop {
-		t.Fatalf("%s: the app icon escaped its focus link: %+v", label, surface)
+	if surface.BarRight-surface.BarLeft <= 1 {
+		t.Fatalf("%s: the sidebar header collapsed: %+v", label, surface)
 	}
 	if math.Abs(surface.ActionsWidth-titleBarActionsWidth) > 1 ||
 		math.Abs(surface.ActionButtonWidth-titleBarActionButtonWidth) > 0.5 {
@@ -356,44 +329,34 @@ func assertTitleBarDesktopSidebarLayout(t *testing.T, label string, surface titl
 	}
 	if surface.BarRight > surface.SidebarWidth+titleBarGeometrySlop ||
 		surface.BarRight < surface.SidebarWidth-5 {
-		t.Fatalf("%s: the brand bar does not span the stored sidebar width: %+v", label, surface)
+		t.Fatalf("%s: the sidebar header does not span the stored sidebar width: %+v", label, surface)
 	}
-	if surface.BrandRight > surface.ActionsLeft+titleBarGeometrySlop {
-		t.Fatalf("%s: the brand overlaps its adjacent actions: %+v", label, surface)
+	if math.Abs(surface.ActionsLeft+surface.ActionsWidth-(surface.BarRight-titleBarBrandInset)) > 1 {
+		t.Fatalf("%s: the actions are not right-aligned in the sidebar header: %+v", label, surface)
 	}
-	if math.Abs((surface.BrandTop+surface.BrandBottom)/2-(surface.ActionsTop+surface.ActionsBottom)/2) > titleBarGeometrySlop {
-		t.Fatalf("%s: the icon and actions are not optically centered on one row: %+v", label, surface)
-	}
-	if surface.BrandTop-titleBarFocusClearance < surface.ControlsBottom-titleBarGeometrySlop &&
-		surface.BrandLeft-titleBarFocusClearance < surface.InsetLeft-titleBarGeometrySlop {
-		t.Fatalf("%s: the brand row and its focus ring overlap the native controls: %+v", label, surface)
-	}
-	if surface.BrandBottom+titleBarFocusClearance > surface.BarHeight+titleBarGeometrySlop {
-		t.Fatalf("%s: the brand focus ring escaped the compact bar: %+v", label, surface)
-	}
-	rowBelowNative := surface.ControlsBottom > 0 &&
-		surface.BrandTop-titleBarFocusClearance >= surface.ControlsBottom-titleBarGeometrySlop
-	if rowBelowNative {
-		if surface.ActionsTop-titleBarFocusClearance < surface.ControlsBottom-titleBarGeometrySlop {
-			t.Fatalf("%s: the action group did not wrap below the native controls with the brand: %+v", label, surface)
-		}
-		if surface.BarHeight < surface.TitleBarHeight+titleBarBrandHit {
-			t.Fatalf("%s: the wrapped bar does not hold both flex lines: %+v", label, surface)
+	wrapped := surface.ControlsBottom > 0 &&
+		surface.ActionsTop-titleBarFocusClearance >= surface.ControlsBottom-titleBarGeometrySlop
+	if surface.ControlsBottom > 0 && !wrapped {
+		nativeCenter := surface.TitleBarHeight / 2
+		if math.Abs((surface.ActionsTop+surface.ActionsBottom)/2-nativeCenter) > titleBarAlignmentSlop {
+			t.Fatalf("%s: the actions are not centered on the native traffic lights: %+v", label, surface)
 		}
 	}
-	// The brand and actions own the native clearance through their actual
-	// focus envelope; the spacer only implements it, so assert the geometry
-	// rather than the spacer's internal width expression.
+	if surface.TopBarHeight > 0 &&
+		math.Abs(surface.TopBarHeight-surface.BarHeight) > titleBarGeometrySlop {
+		t.Fatalf("%s: the top bar (%.2f) differs from the sidebar header (%.2f): %+v",
+			label, surface.TopBarHeight, surface.BarHeight, surface)
+	}
+	// The actions own the native clearance through their actual focus
+	// envelope; the spacer only implements it, so assert the geometry rather
+	// than the spacer's internal width expression.
 	for _, action := range surface.ActionButtons {
 		if action.Label == "" || action.Right-action.Left <= 1 || action.Bottom-action.Top <= 1 {
 			t.Fatalf("%s: action %q is missing or collapsed: %+v", label, action.Label, surface)
 		}
 		if action.Top < -titleBarGeometrySlop || action.Bottom > surface.BarHeight+titleBarGeometrySlop ||
 			action.Right > surface.BarRight+titleBarGeometrySlop {
-			t.Fatalf("%s: action %q escaped the brand bar: %+v", label, action.Label, surface)
-		}
-		if action.Left < surface.BrandRight-titleBarGeometrySlop {
-			t.Fatalf("%s: action %q overlaps the brand: %+v", label, action.Label, surface)
+			t.Fatalf("%s: action %q escaped the sidebar header: %+v", label, action.Label, surface)
 		}
 		// An action may sit level with the native controls only when its focus
 		// ring is entirely to their right; otherwise both the button and its
@@ -404,13 +367,13 @@ func assertTitleBarDesktopSidebarLayout(t *testing.T, label string, surface titl
 			t.Fatalf("%s: action %q and its focus ring overlap the native controls: %+v", label, action.Label, surface)
 		}
 		if action.Bottom+titleBarFocusClearance > surface.BarHeight+titleBarGeometrySlop {
-			t.Fatalf("%s: action %q focus ring escaped the brand bar: %+v", label, action.Label, surface)
+			t.Fatalf("%s: action %q focus ring escaped the sidebar header: %+v", label, action.Label, surface)
 		}
 	}
 }
 
-// assertTitleBarSettingsLayout checks the settings lockup, which keeps the
-// shared adaptive bar because it has no adjacent actions.
+// assertTitleBarSettingsLayout checks the settings header: no brand mark on
+// the Mac, and the same height as the page top bar beside it.
 func assertTitleBarSettingsLayout(t *testing.T, label string, surface titleBarSurface) {
 	t.Helper()
 	if !surface.SettingsSidebarShown || surface.SettingsSidebarWidth <= 1 {
@@ -419,18 +382,16 @@ func assertTitleBarSettingsLayout(t *testing.T, label string, surface titleBarSu
 	if math.Abs(surface.SettingsSidebarWidth-titleBarSettingsSidebarWidth) > 1 {
 		t.Fatalf("%s: the settings sidebar width changed: %+v", label, surface)
 	}
-	if surface.LogoWidth <= 1 || surface.LogoHeight <= 1 || surface.BarHeight <= 1 {
-		t.Fatalf("%s: the settings logo or its brand bar collapsed: %+v", label, surface)
+	if surface.LogoWidth > 0 || surface.LogoHeight > 0 {
+		t.Fatalf("%s: the settings sidebar still shows a brand mark: %+v", label, surface)
 	}
-	if surface.LogoTop < surface.ControlsBottom+titleBarLogoClearance-titleBarGeometrySlop {
-		t.Fatalf("%s: the settings logo is not under the native controls: %+v", label, surface)
+	if surface.BarHeight <= 1 {
+		t.Fatalf("%s: the settings header collapsed: %+v", label, surface)
 	}
-	if surface.LogoBottom > surface.BarHeight+titleBarGeometrySlop ||
-		surface.LogoHeight > titleBarLogoMaxHeight+titleBarGeometrySlop {
-		t.Fatalf("%s: the settings logo escaped the brand bar: %+v", label, surface)
-	}
-	if math.Abs(surface.LogoWidth/surface.LogoHeight-titleBarLockupAspect) > 0.12 {
-		t.Fatalf("%s: the settings lockup lost its aspect ratio: %+v", label, surface)
+	if surface.TopBarHeight > 0 &&
+		math.Abs(surface.TopBarHeight-surface.BarHeight) > titleBarGeometrySlop {
+		t.Fatalf("%s: the settings top bar (%.2f) differs from its sidebar header (%.2f): %+v",
+			label, surface.TopBarHeight, surface.BarHeight, surface)
 	}
 }
 
@@ -445,14 +406,12 @@ type titleBarFocusTarget struct {
 	Hit       string  `json:"hit"`
 }
 
-// nativeTitleBarFocusProbe reads only the sidebar brand link and its three
-// sibling action buttons. It does not focus them, synthesize key input, or
-// inspect pseudo-class paint.
+// nativeTitleBarFocusProbe reads only the three sidebar action buttons. It does
+// not focus them, synthesize key input, or inspect pseudo-class paint.
 const nativeTitleBarFocusProbe = `(() => {
 	const bar = document.querySelector(".sidebar-brand-bar")
-	const link = bar?.querySelector(".sidebar-brand-link")
 	const buttons = Array.from(bar?.querySelectorAll(".sidebar-header-actions button") ?? [])
-	return [link, ...buttons].filter(Boolean).map(element => {
+	return buttons.map(element => {
 		const rect = element.getBoundingClientRect()
 		const center = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
 		const label = element.getAttribute("aria-label") || element.textContent.trim() || element.getAttribute("href") || element.tagName.toLowerCase()
@@ -477,10 +436,10 @@ func assertTitleBarFocusTargets(t *testing.T, label string, page *mygo.Page) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(targets) != 4 {
-		t.Fatalf("%s: expected the brand link and three sidebar actions, got %d: %+v", label, len(targets), targets)
+	if len(targets) != 3 {
+		t.Fatalf("%s: expected the three sidebar actions, got %d: %+v", label, len(targets), targets)
 	}
-	for index, target := range targets {
+	for _, target := range targets {
 		if target.TabIndex < 0 {
 			t.Fatalf("%s: %q is not in the tab order (tabIndex=%d)", label, target.Label, target.TabIndex)
 		}
@@ -493,10 +452,6 @@ func assertTitleBarFocusTargets(t *testing.T, label string, page *mygo.Page) {
 		if target.Width <= 1 || target.Height <= 1 {
 			t.Fatalf("%s: %q has no hit area", label, target.Label)
 		}
-		if index == 0 && (target.Width < titleBarBrandHit-titleBarGeometrySlop ||
-			target.Height < titleBarBrandHit-titleBarGeometrySlop) {
-			t.Fatalf("%s: the brand icon link lost its 24px hit area: %+v", label, target)
-		}
 		if !target.CenterHit {
 			t.Fatalf("%s: %q center hit %s", label, target.Label, target.Hit)
 		}
@@ -504,10 +459,9 @@ func assertTitleBarFocusTargets(t *testing.T, label string, page *mygo.Page) {
 }
 
 // TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar runs on its own and
-// covers the default 272px same-row layout, a persisted 200px sidebar that
-// must wrap its icon/action group below the native controls, and a 440px
-// sidebar with room to stay on one line. Every reading is at the standard
-// page scale in a real WKWebView.
+// covers the default 272px header, a persisted 200px sidebar that must keep
+// its action row clear of the native controls, and a 440px sidebar. Every
+// reading is at the standard page scale in a real WKWebView.
 func TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar(t *testing.T) {
 	nativeWhiteboxSession(t, true)
 	desktop := nativeWhitebox.desktop
@@ -526,9 +480,8 @@ func TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar(t *testing.T) {
 	}
 	whiteboxReload(t, page)
 	waitTitleBarSidebarSettled(t, page, "#app-sidebar", "/conversations/new", titleBarDefaultSidebarWidth)
-	waitTitleBarIcon(t, page)
-	// The Mac workspace never requests the shared wordmark lockup; the small
-	// packaged app icon is its only brand resource.
+	waitTitleBarReady(t, page)
+	// The Mac workspace never requests the shared wordmark lockup either.
 	lockups, err := mygo.EvalAs[[]string](page, `performance.getEntriesByType("resource")
 		.map(entry => entry.name)
 		.filter(name => name.includes("linksense-lockup"))`)
@@ -539,21 +492,16 @@ func TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar(t *testing.T) {
 		t.Fatalf("the Mac workspace loaded a wordmark lockup: %v", lockups)
 	}
 	defaultBaseline := titleBarProbe(t, page)
-	t.Logf("default sidebar: bar=%.2f controls=%.2f inset=%.2f brand=%.2f..%.2f top=%.2f bottom=%.2f icon=%.2fx%.2f actions=%.2f..%.2f top=%.2f",
+	t.Logf("default sidebar: bar=%.2f controls=%.2f inset=%.2f topbar=%.2f actions=%.2f..%.2f top=%.2f",
 		defaultBaseline.BarHeight, defaultBaseline.ControlsBottom, defaultBaseline.InsetLeft,
-		defaultBaseline.BrandLeft, defaultBaseline.BrandRight, defaultBaseline.BrandTop, defaultBaseline.BrandBottom,
-		defaultBaseline.BrandLogoWidth, defaultBaseline.BrandLogoHeight,
+		defaultBaseline.TopBarHeight,
 		defaultBaseline.ActionsLeft, defaultBaseline.ActionsLeft+defaultBaseline.ActionsWidth, defaultBaseline.ActionsTop)
 	if defaultBaseline.InsetLeft <= 0 || defaultBaseline.ControlsBottom <= 0 {
 		t.Fatalf("the default width did not report native control room: %+v", defaultBaseline)
 	}
 	assertTitleBarNativePosition(t, "default sidebar", defaultBaseline)
-	if defaultBaseline.BrandTop-titleBarFocusClearance >= defaultBaseline.ControlsBottom-titleBarGeometrySlop {
+	if defaultBaseline.ActionsTop-titleBarFocusClearance >= defaultBaseline.ControlsBottom-titleBarGeometrySlop {
 		t.Fatalf("the default-width header wrapped instead of sharing one row: %+v", defaultBaseline)
-	}
-	if defaultBaseline.ActionsLeft <= defaultBaseline.BrandRight ||
-		defaultBaseline.BrandLeft-titleBarFocusClearance < defaultBaseline.InsetLeft-titleBarGeometrySlop {
-		t.Fatalf("the default-width brand is not the compact row beside and right of the traffic lights: %+v", defaultBaseline)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "default sidebar", defaultBaseline, titleBarDefaultSidebarWidth)
 	assertTitleBarFocusTargets(t, "default sidebar", page)
@@ -563,15 +511,11 @@ func TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar(t *testing.T) {
 	}
 	whiteboxReload(t, page)
 	waitTitleBarSidebarSettled(t, page, "#app-sidebar", "/conversations/new", titleBarSidebarWidth)
-	waitTitleBarIcon(t, page)
+	waitTitleBarReady(t, page)
 	narrow := titleBarProbe(t, page)
-	t.Logf("narrow sidebar: bar=%.2f controls=%.2f brand top=%.2f actions top=%.2f", narrow.BarHeight, narrow.ControlsBottom, narrow.BrandTop, narrow.ActionsTop)
+	t.Logf("narrow sidebar: bar=%.2f controls=%.2f actions top=%.2f topbar=%.2f", narrow.BarHeight, narrow.ControlsBottom, narrow.ActionsTop, narrow.TopBarHeight)
 	if narrow.InsetLeft <= 0 || narrow.ControlsBottom <= 0 {
 		t.Fatalf("the narrow sidebar did not report native control room: %+v", narrow)
-	}
-	if narrow.BrandTop-titleBarFocusClearance < narrow.ControlsBottom-titleBarGeometrySlop ||
-		narrow.ActionsTop-titleBarFocusClearance < narrow.ControlsBottom-titleBarGeometrySlop {
-		t.Fatalf("the narrow sidebar did not wrap the group below the traffic lights: %+v", narrow)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "narrow sidebar", narrow, titleBarSidebarWidth)
 	assertTitleBarFocusTargets(t, "narrow sidebar", page)
@@ -581,17 +525,13 @@ func TestNativeImmersiveTitleBarKeepsBrandInNarrowSidebar(t *testing.T) {
 	}
 	whiteboxReload(t, page)
 	waitTitleBarSidebarSettled(t, page, "#app-sidebar", "/conversations/new", titleBarWideSidebarWidth)
-	waitTitleBarIcon(t, page)
+	waitTitleBarReady(t, page)
 	wide := titleBarProbe(t, page)
-	t.Logf("wide sidebar: bar=%.2f controls=%.2f inset=%.2f brand=%.2f..%.2f top=%.2f actions=%.2f..%.2f top=%.2f",
-		wide.BarHeight, wide.ControlsBottom, wide.InsetLeft,
-		wide.BrandLeft, wide.BrandRight, wide.BrandTop,
+	t.Logf("wide sidebar: bar=%.2f controls=%.2f inset=%.2f topbar=%.2f actions=%.2f..%.2f top=%.2f",
+		wide.BarHeight, wide.ControlsBottom, wide.InsetLeft, wide.TopBarHeight,
 		wide.ActionsLeft, wide.ActionsLeft+wide.ActionsWidth, wide.ActionsTop)
-	if wide.BrandTop-titleBarFocusClearance >= wide.ControlsBottom-titleBarGeometrySlop {
+	if wide.ActionsTop-titleBarFocusClearance >= wide.ControlsBottom-titleBarGeometrySlop {
 		t.Fatalf("the wide sidebar wrapped the group despite horizontal room: %+v", wide)
-	}
-	if wide.BrandLeft-titleBarFocusClearance < wide.InsetLeft-titleBarGeometrySlop {
-		t.Fatalf("the wide sidebar brand focus envelope overlaps the native x-range: %+v", wide)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "wide sidebar", wide, titleBarWideSidebarWidth)
 
@@ -624,7 +564,7 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	}
 	whiteboxReload(t, page)
 	waitTitleBarSidebarSettled(t, page, "#app-sidebar", "/conversations/new", titleBarDefaultSidebarWidth)
-	waitTitleBarIcon(t, page)
+	waitTitleBarReady(t, page)
 
 	frame, content := win.Bounds(), win.ContentBounds()
 	t.Logf("window frame=%+v page content=%+v", frame, content)
@@ -634,51 +574,34 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	}
 
 	surface := titleBarProbe(t, page)
-	t.Logf("native surface: bar=%.2f controls=%.2f inset=%.2f brand=%.2f..%.2f actions=%.2f..%.2f",
-		surface.BarHeight, surface.ControlsBottom, surface.InsetLeft,
-		surface.BrandLeft, surface.BrandRight, surface.ActionsLeft, surface.ActionsLeft+surface.ActionsWidth)
+	t.Logf("native surface: bar=%.2f controls=%.2f inset=%.2f topbar=%.2f actions=%.2f..%.2f",
+		surface.BarHeight, surface.ControlsBottom, surface.InsetLeft, surface.TopBarHeight,
+		surface.ActionsLeft, surface.ActionsLeft+surface.ActionsWidth)
 	if surface.InsetLeft <= 0 || surface.ControlsBottom <= 0 || surface.TitleBarHeight <= 0 {
 		t.Fatalf("MyGo did not report the native traffic lights: %+v", surface)
 	}
 	if surface.BrandBarRegion != "drag" {
-		t.Fatalf("the sidebar brand is not a drag surface: %+v", surface)
+		t.Fatalf("the sidebar header is not a drag surface: %+v", surface)
 	}
 	assertTitleBarNativePosition(t, "native default-width", surface)
-	if !surface.SidebarVisible || surface.BrandTop-titleBarFocusClearance >= surface.ControlsBottom-titleBarGeometrySlop {
+	if !surface.SidebarVisible || surface.ActionsTop-titleBarFocusClearance >= surface.ControlsBottom-titleBarGeometrySlop {
 		t.Fatalf("the default-width sidebar did not keep the compact same row: %+v", surface)
-	}
-	if surface.BrandRight > surface.ActionsLeft {
-		t.Fatalf("sidebar brand content overlaps its actions: %+v", surface)
 	}
 	if surface.CollapseLeft < surface.InsetLeft {
 		t.Fatalf("the sidebar collapse control is under the traffic lights: %+v", surface)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "native default-width", surface, titleBarDefaultSidebarWidth)
 
-	// Focusing the link must not move the content inside its ring buffer, and
-	// both themes must keep the same icon and compact geometry.
-	if _, err := page.Eval(`document.querySelector(".sidebar-brand-link")?.focus()`); err != nil {
-		t.Fatal(err)
-	}
-	focused := titleBarProbe(t, page)
-	if math.Abs(focused.BrandTop-surface.BrandTop) > 0.5 ||
-		math.Abs(focused.BrandLogoTop-surface.BrandLogoTop) > 0.5 ||
-		math.Abs(focused.BrandLogoHeight-surface.BrandLogoHeight) > 0.5 {
-		t.Fatalf("focus moved the sidebar brand inside its ring buffer: %+v", focused)
-	}
-	if _, err := page.Eval(`document.activeElement?.blur()`); err != nil {
-		t.Fatal(err)
-	}
+	// Both themes must keep the same header geometry.
 	if _, err := page.Eval(`document.documentElement.dataset.theme = "dark"; document.documentElement.classList.add("dark")`); err != nil {
 		t.Fatal(err)
 	}
 	whiteboxWait(t, page, `document.documentElement.classList.contains("dark")`)
 	darkBrand := titleBarProbe(t, page)
-	if darkBrand.BrandLogoCurrentSrc != surface.BrandLogoCurrentSrc ||
-		math.Abs(darkBrand.BrandTop-surface.BrandTop) > 0.5 ||
-		math.Abs(darkBrand.BrandLogoTop-surface.BrandLogoTop) > 0.5 ||
-		math.Abs(darkBrand.BrandLogoHeight-surface.BrandLogoHeight) > 0.5 {
-		t.Fatalf("dark mode changed the sidebar app icon or its geometry: %+v", darkBrand)
+	if math.Abs(darkBrand.ActionsTop-surface.ActionsTop) > 0.5 ||
+		math.Abs(darkBrand.ActionsWidth-surface.ActionsWidth) > 0.5 ||
+		math.Abs(darkBrand.BarHeight-surface.BarHeight) > 0.5 {
+		t.Fatalf("dark mode changed the sidebar header geometry: %+v", darkBrand)
 	}
 	darkLockups, err := mygo.EvalAs[[]string](page, `performance.getEntriesByType("resource")
 		.map(entry => entry.name)
@@ -713,13 +636,12 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	setDesktopMarker(t, page, "")
 	plainExpanded := titleBarProbe(t, page)
 	if windowsExpanded.TopBarRegion != "" || plainExpanded.TopBarRegion != "" ||
-		math.Abs(windowsExpanded.BrandTop-plainExpanded.BrandTop) > 0.5 {
+		math.Abs(windowsExpanded.ActionsTop-plainExpanded.ActionsTop) > 0.5 {
 		t.Fatalf("a non-darwin marker activated the macOS title-bar rules: %+v / %+v", windowsExpanded, plainExpanded)
 	}
 	setDesktopMarker(t, page, "darwin")
 	darwinExpanded := titleBarProbe(t, page)
-	if darwinExpanded.TopBarRegion != "drag" ||
-		darwinExpanded.BrandLeft-titleBarFocusClearance < darwinExpanded.InsetLeft-titleBarGeometrySlop {
+	if darwinExpanded.TopBarRegion != "drag" {
 		t.Fatalf("the darwin marker did not restore the compact macOS title-bar layout: %+v", darwinExpanded)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "darwin-restored", darwinExpanded, titleBarDefaultSidebarWidth)
@@ -807,20 +729,16 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	whiteboxWait(t, page, `document.querySelector(".mobile-navigation-sheet .sidebar-brand-bar") !== null`)
 	whiteboxWait(t, page, `(document.querySelector(".mobile-navigation-sheet")?.getAnimations() ?? []).every(animation => animation.playState === "finished")`)
 	whiteboxWait(t, page, `(() => {
-		const logo = document.querySelector(".mobile-navigation-sheet .sidebar-brand-link img")
-		return !!logo && logo.complete && logo.naturalWidth > 0 && logo.naturalHeight > 0
+		const bar = document.querySelector(".mobile-navigation-sheet .sidebar-brand-bar")
+		return !!bar?.querySelector(".sidebar-header-actions") && bar.querySelector(".sidebar-brand-link") === null
 	})()`)
 	sheet := titleBarProbe(t, page)
-	if sheet.BrandTop >= 0 && (sheet.BrandTop < sheet.ControlsBottom+titleBarFocusClearance-0.5 ||
-		sheet.BrandLogoTop < sheet.ControlsBottom+titleBarLogoClearance-0.5 ||
-		sheet.BrandRight > sheet.ActionsLeft ||
-		sheet.BrandRight-sheet.BrandLeft < titleBarBrandHit-titleBarGeometrySlop ||
-		sheet.BrandBottom-sheet.BrandTop < titleBarBrandHit-titleBarGeometrySlop ||
-		sheet.BrandLogoAlt == "" ||
-		sheet.BrandLogoHeight > titleBarLogoMaxHeight+0.5 ||
-		math.Abs(sheet.BrandLogoWidth/sheet.BrandLogoHeight-1) > 0.05 ||
-		!strings.HasSuffix(sheet.BrandLogoCurrentSrc, "/linksense-appicon.svg")) {
-		t.Fatalf("mobile navigation content is under the traffic lights or lost its app icon: %+v", sheet)
+	if sheet.BrandLeft >= 0 || sheet.BrandLogoWidth > 0 {
+		t.Fatalf("the mobile navigation sheet still shows a brand mark: %+v", sheet)
+	}
+	if sheet.ActionsTop-titleBarFocusClearance < sheet.ControlsBottom-titleBarGeometrySlop &&
+		sheet.ActionsLeft-titleBarFocusClearance < sheet.InsetLeft-titleBarGeometrySlop {
+		t.Fatalf("mobile navigation actions are under the traffic lights: %+v", sheet)
 	}
 	if !sheet.MobileCloseVisible || sheet.MobileCloseWidth <= 1 || sheet.MobileCloseHeight <= 1 ||
 		sheet.MobileCloseLeft < sheet.InsetLeft+titleBarFocusClearance-titleBarGeometrySlop {
@@ -834,24 +752,16 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	win.SetSize(1200, 800)
 	whiteboxWait(t, page, `window.innerWidth > 767`)
 
-	// A user-narrowed sidebar must still keep its brand and actions apart.
+	// A user-narrowed sidebar must still keep its actions clear of the lights.
 	if _, err := page.Eval(`localStorage.setItem("linksense.sidebarWidth", "200")`); err != nil {
 		t.Fatal(err)
 	}
 	whiteboxReload(t, page)
 	waitTitleBarSidebarSettled(t, page, "#app-sidebar", "/capabilities", titleBarSidebarWidth)
-	waitTitleBarIcon(t, page)
+	waitTitleBarReady(t, page)
 	narrow := titleBarProbe(t, page)
 	if narrow.TopBarRegion != "drag" || narrow.ActionsLeft < narrow.InsetLeft {
 		t.Fatalf("the narrow sidebar top area is not usable: %+v", narrow)
-	}
-	if narrow.BrandTop-titleBarFocusClearance < narrow.ControlsBottom-titleBarGeometrySlop ||
-		narrow.ActionsTop-titleBarFocusClearance < narrow.ControlsBottom-titleBarGeometrySlop {
-		t.Fatalf("the narrow sidebar group did not wrap below the traffic lights: %+v", narrow)
-	}
-	if narrow.BrandLogoWidth > 0 && narrow.BrandLogoHeight > 0 &&
-		math.Abs(narrow.BrandLogoWidth/narrow.BrandLogoHeight-1) > 0.05 {
-		t.Fatalf("the narrow sidebar app icon is distorted: %+v", narrow)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "narrow sidebar capabilities", narrow, titleBarSidebarWidth)
 	if _, err := page.Eval(`localStorage.removeItem("linksense.sidebarWidth")`); err != nil {
@@ -882,15 +792,15 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	waitForNativeFullScreen(t, win, entered, true)
 	whiteboxWait(t, page, `(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--mygo-titlebar-inset-left")) || 0) === 0`)
 	fullscreen := titleBarProbe(t, page)
-	t.Logf("full-screen bar=%.2f brand left=%.2f actions=%.2f..%.2f", fullscreen.BarHeight, fullscreen.BrandLeft, fullscreen.ActionsLeft, fullscreen.ActionsLeft+fullscreen.ActionsWidth)
+	t.Logf("full-screen bar=%.2f actions=%.2f..%.2f", fullscreen.BarHeight, fullscreen.ActionsLeft, fullscreen.ActionsLeft+fullscreen.ActionsWidth)
 	if fullscreen.InsetLeft != 0 || fullscreen.ControlsBottom != 0 || fullscreen.TitleBarHeight != 0 {
 		t.Fatalf("full screen retained phantom native control room: %+v", fullscreen)
 	}
 	if fullscreen.TopBarPadding < 27 || fullscreen.TopBarPadding > 29 {
 		t.Fatalf("full screen retained phantom top-bar padding: %+v", fullscreen)
 	}
-	if math.Abs(fullscreen.BrandLeft-titleBarBrandInset) > 1 {
-		t.Fatalf("full screen retained a phantom native-controls lane: %+v", fullscreen)
+	if math.Abs(fullscreen.BarHeight-40) > titleBarGeometrySlop {
+		t.Fatalf("full screen kept the phantom title-bar lane height: %+v", fullscreen)
 	}
 	assertTitleBarDesktopSidebarLayout(t, "full screen", fullscreen, narrow.SidebarWidth)
 	left := make(chan struct{}, 1)
@@ -924,13 +834,14 @@ func TestNativeImmersiveTitleBarKeepsControlsAndTopAreaUsable(t *testing.T) {
 	setDesktopMarker(t, page, "")
 	plainSettingsDesktop := titleBarProbe(t, page)
 	if windowsSettingsDesktop.HeaderRegion != "" || plainSettingsDesktop.HeaderRegion != "" ||
-		math.Abs(windowsSettingsDesktop.LogoTop-plainSettingsDesktop.LogoTop) > 0.5 {
+		math.Abs(windowsSettingsDesktop.BarHeight-66) > 0.6 ||
+		math.Abs(plainSettingsDesktop.BarHeight-66) > 0.6 {
 		t.Fatalf("a non-darwin marker activated the settings title-bar rules: %+v / %+v", windowsSettingsDesktop, plainSettingsDesktop)
 	}
 	setDesktopMarker(t, page, "darwin")
 	restoredSettingsDesktop := titleBarProbe(t, page)
 	if restoredSettingsDesktop.HeaderRegion != "drag" ||
-		restoredSettingsDesktop.LogoTop < restoredSettingsDesktop.ControlsBottom+titleBarLogoClearance-0.5 {
+		math.Abs(restoredSettingsDesktop.BarHeight-restoredSettingsDesktop.TopBarHeight) > 1 {
 		t.Fatalf("the darwin marker did not restore the settings title-bar layout: %+v", restoredSettingsDesktop)
 	}
 

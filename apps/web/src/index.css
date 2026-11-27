@@ -1136,6 +1136,13 @@
 
 /* macOS hidden title bar only. MyGo processes --app-region: drag on every
    host, so the shared Web and Windows layouts stay out of this block. */
+html[data-desktop-platform="darwin"] {
+  /* One header height across the Mac window: the native title-bar lane the
+     sidebar actions center on, and the 40px action row once full screen hides
+     that lane. */
+  --mac-header-height: max(40px, var(--mygo-titlebar-height, 0px));
+}
+
 html[data-desktop-platform="darwin"] .sidebar-brand-bar,
 html[data-desktop-platform="darwin"] .conversation-top-bar,
 html[data-desktop-platform="darwin"] .app-top-bar,
@@ -1162,10 +1169,8 @@ html[data-desktop-platform="darwin"] .account-access-top-row {
   --app-region: drag;
 }
 
-/* Settings and the mobile workspace drawer keep the shared adaptive bar: the
-   lockup clears the native controls' bottom plus its focus envelope, and the
-   drawer keeps its close control. */
-html[data-desktop-platform="darwin"] .settings-brand-bar,
+/* The mobile workspace drawer keeps the shared adaptive bar so its actions
+   clear the native controls. */
 html[data-desktop-platform="darwin"]
   .mobile-navigation-sheet
   .sidebar-brand-bar {
@@ -1174,19 +1179,30 @@ html[data-desktop-platform="darwin"]
     calc(var(--mygo-titlebar-controls-bottom, 0px) + 33px)
   );
   --mac-brand-hit-height: 24px;
-  --mac-brand-logo-height: 18px;
   --mac-brand-top: max(
     calc(
       (var(--conversation-top-bar-height) - var(--mac-brand-hit-height)) / 2
     ),
     calc(var(--mygo-titlebar-controls-bottom, 0px) + 4px)
   );
-  --mac-brand-logo-top: calc(
-    var(--mac-brand-top) +
-      (var(--mac-brand-hit-height) - var(--mac-brand-logo-height)) / 2
-  );
   height: var(--mac-brand-bar-height);
   min-height: var(--mac-brand-bar-height);
+}
+
+/* Settings carries no brand mark on the Mac; its header is the same height as
+   the page top bar beside it. */
+html[data-desktop-platform="darwin"] .settings-brand-bar,
+html[data-desktop-platform="darwin"] [data-slot="page-top-bar"] {
+  height: var(--mac-header-height);
+  min-height: var(--mac-header-height);
+}
+
+/* The drawer has no brand link on the Mac either; keep its actions on the
+   trailing edge instead of letting space-between drop them to the left. */
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar {
+  justify-content: flex-end;
 }
 
 html[data-desktop-platform="darwin"]
@@ -1202,28 +1218,13 @@ html[data-desktop-platform="darwin"]
   margin-top: var(--mac-brand-top);
 }
 
-html[data-desktop-platform="darwin"] .settings-brand-bar > .sidebar-brand-logo {
-  align-self: flex-start;
-  width: auto;
-  height: auto;
-  max-height: var(--mac-brand-logo-height);
-  margin-top: var(--mac-brand-logo-top);
-}
-
-html[data-desktop-platform="darwin"] .sidebar-brand-mac-icon {
-  width: var(--mac-brand-logo-height);
-  height: var(--mac-brand-logo-height);
-}
-
-/* The expanded Mac workspace reserves the native control lane with a spacer
-   as tall as the title bar, so the L and its actions share the traffic-light
-   centerline and wrap below it only when the stored sidebar is too narrow. */
+/* The expanded Mac workspace reserves the native control lane with a spacer in
+   front of the actions, so they clear the traffic lights, and keeps the header
+   exactly as tall as the top bar beside it. */
 html[data-desktop-platform="darwin"]
   .app-shell
   > .app-sidebar
   .sidebar-brand-bar {
-  --mac-brand-hit-height: 24px;
-  --mac-brand-logo-height: 18px;
   --mac-brand-spacer-width: clamp(
     0px,
     calc(var(--mygo-titlebar-inset-left, 0px) + 5px - 1rem),
@@ -1235,7 +1236,7 @@ html[data-desktop-platform="darwin"]
   align-items: center;
   gap: 0;
   width: auto;
-  height: auto;
+  height: var(--mac-header-height);
 }
 
 html[data-desktop-platform="darwin"]
@@ -1260,20 +1261,18 @@ html[data-desktop-platform="darwin"]
   max-width: 100%;
   min-height: 40px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
-html[data-desktop-platform="darwin"]
-  .app-shell
-  > .app-sidebar
-  .sidebar-brand-bar
-  .sidebar-brand-link {
-  display: grid;
-  align-items: center;
-  justify-items: center;
-  width: var(--mac-brand-hit-height);
-  min-width: var(--mac-brand-hit-height);
-  height: var(--mac-brand-hit-height);
+/* The Mac workspace gives the conversation top bar, its triggers, and the
+   sidebar header one shared height. */
+html[data-desktop-platform="darwin"] .app-shell,
+html[data-desktop-platform="darwin"] .app-shell .conversation-workspace {
+  --conversation-top-bar-height: var(--mac-header-height);
+}
+
+html[data-desktop-platform="darwin"] .app-shell .conversation-top-bar {
+  padding-inline: 18px;
 }
 
 .sidebar-resize-handle {
