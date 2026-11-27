@@ -60,7 +60,10 @@ function looksLikeHeaderValue(value: string): boolean {
     return true;
   }
   // Cookie jars carry `name=value` pairs.
-  if (/[^\s=]+=[^\s;]+/u.test(trimmed) && /[;]/u.test(trimmed)) return true;
+  const equals = trimmed.indexOf("=");
+  if (equals > 0 && equals < trimmed.length - 1 &&
+    !/\s/u.test(trimmed[equals - 1]!) && !/\s/u.test(trimmed[equals + 1]!) &&
+    trimmed.includes(";")) return true;
   // Opaque session values are long and have no spaces.
   return trimmed.length >= 16 && !/\s/u.test(trimmed);
 }
