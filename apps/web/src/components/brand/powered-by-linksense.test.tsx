@@ -20,7 +20,7 @@ describe("PoweredByLinkSense", () => {
   it("links the phrase and full mark to LinkSense without link decoration", () => {
     render(<PoweredByLinkSense />)
 
-    const badge = screen.getByRole("link", { name: "由 LinkSense 提供支持" })
+    const badge = screen.getByRole("link", { name: "Powered by LinkSense" })
     const logo = badge.querySelector("img")
     expect(badge).toHaveClass("h-5", "text-xs")
     expect(badge.tagName).toBe("A")
@@ -46,7 +46,7 @@ describe("PoweredByLinkSense", () => {
 
     expect(
       screen
-        .getByRole("link", { name: "由 LinkSense 提供支持" })
+        .getByRole("link", { name: "Powered by LinkSense" })
         .querySelector("img")
     ).toHaveAttribute("src", "/attribution/linksense-mark-light.svg")
   })
@@ -57,7 +57,7 @@ describe("PoweredByLinkSense", () => {
       render(<PoweredByLinkSense placement={placement} />)
 
       const attribution = screen.getByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
       const frame = attribution.parentElement
       expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")
@@ -125,12 +125,12 @@ describe("PoweredByLinkSense", () => {
   )
 
   it.each([
-    ["zh-CN", "Powered by", "由 LinkSense 提供支持"],
+    ["zh-CN", "Powered by", "Powered by LinkSense"],
     ["en-US", "Powered by", "Powered by LinkSense"],
-    ["es-ES", "Powered by", "Con tecnología de LinkSense"],
-    ["pt-BR", "Powered by", "Tecnologia de LinkSense"],
-    ["fr-FR", "Powered by", "Propulsé par LinkSense"],
-    ["ja-JP", "Powered by", "LinkSense が提供"],
+    ["es-ES", "Powered by", "Powered by LinkSense"],
+    ["pt-BR", "Powered by", "Powered by LinkSense"],
+    ["fr-FR", "Powered by", "Powered by LinkSense"],
+    ["ja-JP", "Powered by", "Powered by LinkSense"],
   ])(
     "keeps the licensed notice visible in %s",
     async (locale, label, accessibleName) => {

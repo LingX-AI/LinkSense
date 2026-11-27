@@ -147,7 +147,7 @@ describe("SettingsShell administrator navigation", () => {
     const main = screen.getByRole("main")
     const footer = screen.getByRole("contentinfo")
     const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     })
 
     expect(main).toHaveClass("min-h-0", "flex-1")

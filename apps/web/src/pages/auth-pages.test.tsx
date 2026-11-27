@@ -287,7 +287,7 @@ describe("LoginPage session restoration", () => {
   it("uses the shared attribution placement outside the login form", () => {
     renderLoginPageWithAuthStatus("anonymous")
     const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     })
     const frame = attribution.parentElement
     expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")

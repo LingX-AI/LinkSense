@@ -431,7 +431,7 @@ describe("archived conversation pagination", () => {
     renderPrewarmPage()
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     await interaction.click(
       screen.getByRole("button", { name: "测试切换已有任务" })
@@ -439,7 +439,7 @@ describe("archived conversation pagination", () => {
 
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
   })
 
@@ -1246,7 +1246,7 @@ describe("conversation knowledge base snapshots", () => {
       }
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       client.clear()
     }
@@ -1554,7 +1554,7 @@ describe("conversation knowledge base snapshots", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
@@ -4135,7 +4135,7 @@ describe("conversation knowledge base snapshots", () => {
 
       expect(await screen.findByText(expectedLabel)).toBeVisible()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       const managedLabel = "此任务由应用“AISG学校政策问答助手”管理"
       expect(screen.queryByText(managedLabel)).toBeNull()

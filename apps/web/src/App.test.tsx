@@ -154,7 +154,7 @@ describe("LinkSense application", () => {
     for (const path of ["/login", "/register", "/forgot-password"]) {
       const view = renderApp(path)
       const badge = await screen.findByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
       expect(badge).toBeVisible()
       expect(badge.parentElement).toHaveAttribute("data-placement", "page")

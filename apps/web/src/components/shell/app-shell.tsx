@@ -1390,7 +1390,7 @@ function AppSidebarContent({
                 />
               }
             >
-              <Avatar className="sidebar-account-avatar size-7 border-0">
+              <Avatar aria-hidden="true" className="sidebar-account-avatar size-7 border-0">
                 {user?.avatar_url && (
                   <AvatarImage src={user.avatar_url} alt="" />
                 )}

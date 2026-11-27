@@ -26,7 +26,7 @@ describe("application attribution footer", () => {
       const main = await screen.findByRole("main")
       const footer = screen.getByRole("contentinfo")
       const attribution = screen.getByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
       const sidebar = screen.getByRole("complementary", {
         name: "LinkSense 导航",
@@ -72,7 +72,7 @@ describe("application attribution footer", () => {
     renderApp("/conversations/new")
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
   })
@@ -86,7 +86,7 @@ describe("application attribution footer", () => {
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
       expect(input.closest(".conversation-bottom-stack")).not.toBeNull()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     }
@@ -118,7 +118,7 @@ describe("application attribution footer", () => {
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     expect(
       within(screen.getByRole("main")).queryByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
     ).not.toBeInTheDocument()
   })
@@ -132,7 +132,7 @@ describe("application attribution footer", () => {
     const workspace = composer.closest(".conversation-workspace")
     const expectNoAttribution = () => {
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
     }
 

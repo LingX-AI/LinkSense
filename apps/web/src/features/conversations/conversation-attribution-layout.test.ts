@@ -15,7 +15,7 @@ describe("conversation attribution layout", () => {
     await i18n.changeLanguage("zh-CN")
     render(createElement(PoweredByLinkSense, { placement: "conversation" }))
     const frame = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     }).parentElement
     if (!frame) throw new Error("Attribution frame is missing")
     const compiler = await compile(`${tailwindTheme}\n@tailwind utilities;`)

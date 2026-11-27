@@ -385,7 +385,7 @@ for (const [width, theme] of [
       [],
       [citation]
     )
-    await page.getByRole("button", { name: "关闭任务概览" }).click()
+    await page.getByRole("button", { name: "关闭会话侧栏" }).click()
 
     const result = page.getByTestId("assistant-rich-output")
     const disclosure = result.getByRole("button", { name: "查看试点依据" })
@@ -4703,7 +4703,7 @@ test("long task follows new content without interrupting historical reading", as
   await expect(scrollToBottom).toBeHidden()
 
   await page.setViewportSize({ width: 320, height: 568 })
-  await page.getByRole("button", { name: "关闭任务概览" }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏" }).click()
   await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
   await wheelUp()
   await expect.poll(distanceFromBottom).toBeGreaterThan(500)
@@ -4795,7 +4795,7 @@ test("user message editor uses a shorter borderless light surface", async ({
   await mockEditableConversation(page, conversationId)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/conversations/${conversationId}`)
-  await page.getByRole("button", { name: "关闭任务概览" }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏" }).click()
 
   const userMessage = page.getByRole("article", { name: "用户消息" })
   const editAction = userMessage.getByRole("button", { name: "编辑消息" })

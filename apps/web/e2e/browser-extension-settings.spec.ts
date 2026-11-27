@@ -402,9 +402,9 @@ test("local browser snapshots drag to all four corners, stay reachable and activ
   await mockConversation(page, conversationId)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(`/conversations/${conversationId}`)
-  await page.getByRole("button", { name: "关闭任务概览", exact: true }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏", exact: true }).click()
   await expect(
-    page.getByRole("region", { name: "任务概览", exact: true })
+    page.getByRole("region", { name: "会话侧栏", exact: true })
   ).toBeHidden()
   const panel = page.getByRole("complementary", {
     name: "Browser Use",
@@ -563,7 +563,7 @@ test("browser preview avoids task overview and uses a reachable compact control 
     name: "Browser Use",
     exact: true,
   })
-  const overview = page.getByRole("region", { name: "任务概览", exact: true })
+  const overview = page.getByRole("region", { name: "会话侧栏", exact: true })
   await expect(panel).toBeVisible()
   await expect(overview).toBeVisible()
   const clear = async () => {
@@ -589,7 +589,7 @@ test("browser preview avoids task overview and uses a reachable compact control 
       page.evaluate((key) => localStorage.getItem(key), preferenceKey)
     )
     .toBe("top-right")
-  await page.getByRole("button", { name: "关闭任务概览", exact: true }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏", exact: true }).click()
   await expect(overview).toBeHidden()
   const bounds = page.locator("[data-browser-use-preview-boundary]")
   await expect
@@ -613,7 +613,7 @@ test("browser preview avoids task overview and uses a reachable compact control 
     if (viewport.width === 800)
       await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
     await page
-      .getByRole("button", { name: "打开任务概览", exact: true })
+      .getByRole("button", { name: "打开会话侧栏", exact: true })
       .click()
     const expand = page.getByRole("button", {
       name: "展开浏览器预览：Reference workspace",
@@ -715,7 +715,7 @@ test("task overview action icons remain visible in forced colors", async ({
   )
   await page.emulateMedia({ forcedColors: "active" })
   await page.goto(`/conversations/${conversationId}`)
-  const overview = page.getByRole("region", { name: "任务概览", exact: true })
+  const overview = page.getByRole("region", { name: "会话侧栏", exact: true })
   await expect(overview).toBeVisible()
   for (const name of ["download", "open-source"]) {
     const icon = overview.locator(`[data-design-icon="${name}"]`)
@@ -843,7 +843,7 @@ test("the real extension automatically supplies and updates the chat picture in 
       .toBe(true)
     const initial = await image.getAttribute("src")
     await page
-      .getByRole("button", { name: "关闭任务概览", exact: true })
+      .getByRole("button", { name: "关闭会话侧栏", exact: true })
       .click()
     await page.getByRole("button", { name: "暂时不用", exact: true }).click()
 
