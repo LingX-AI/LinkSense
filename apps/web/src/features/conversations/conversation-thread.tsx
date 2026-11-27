@@ -7,6 +7,11 @@ import {
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
+import AssistantRichOutput from "@/features/conversations/assistant-rich-output"
+import { FileTile } from "@/features/conversations/conversation-file-tile"
+import { useRichOutputResources } from "@/features/conversations/rich-output-resource-context"
+import { RichOutputResourceProvider } from "@/features/conversations/rich-output-resource-provider"
+import { ConversationSiteCard } from "@/features/web-sites/conversation-site-card"
 import { responseLatency } from "./response-latency"
 import {
   Children,
@@ -29,7 +34,10 @@ import {
 import {
   coreMcpServerKey,
   officeAnnotationDisplaySchema,
+  richOutputLanguage,
+  richOutputMarkdownToText,
   type ApplicationEmbedPresentation,
+  type ConversationWebSite,
   type OfficeAnnotationDisplay,
 } from "@linksense/shared"
 import type { TFunction } from "i18next"
@@ -43,7 +51,6 @@ import {
   CircleAlertIcon,
   CodeIcon,
   CopyIcon,
-  DownloadIcon,
   EyeIcon,
   ImageOffIcon,
   LoaderCircleIcon,
@@ -74,7 +81,7 @@ import type {
   ConversationFile,
   ConversationMessage,
   ConversationTurn,
-  ConversationUserInputRequest,
+  ConversationUserInputRequestView,
   ModelPreference,
   NativeCodexItem,
   NativeSubAgentSummary,
@@ -242,11 +249,16 @@ import {
 } from "@/features/conversations/reasoning-activity-content"
 import { ReasoningActivity } from "@/features/conversations/reasoning-activity"
 import { normalizeLanguage } from "@/i18n"
+import { selectContextCompactionSavedTokens } from "@/features/conversations/conversation-context-usage"
+import {
+  insertConversationCompactionCommandMessages,
+  isConversationCompactionCommandMessage,
+} from "@/features/conversations/conversation-compaction-command"
+import { formatCompactTokenCount } from "@/lib/usage-number"
 import { getPublicRuntimeMessage } from "@/lib/public-copy"
 import {
   formatCompactDuration,
   formatDateTime,
-  formatFileSize,
   formatMessageTime,
 } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -277,66 +289,6 @@ function ConversationEmptyNotice({
       <CircleAlertIcon aria-hidden="true" />
       <span>{children}</span>
     </div>
-  )
-}
-
-function FileTile({
-  file,
-  artifact,
-  onDownload,
-  downloading,
-}: {
-  file: ConversationFile
-  artifact?: boolean
-  onDownload?: (file: ConversationFile) => void
-  downloading?: boolean
-}) {
-  const { t, i18n } = useTranslation()
-  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const label = artifact
-    ? t("conversation.downloadArtifact", { name: file.name })
-    : file.name
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className={
-        artifact ? "artifact-tile file-tile" : "attachment-tile file-tile"
-      }
-      aria-label={label}
-      aria-busy={downloading || undefined}
-      disabled={artifact && (!file.download_available || downloading)}
-      onClick={() => artifact && onDownload?.(file)}
-    >
-      <span className="file-icon">
-        <FileTypeIcon filename={file.name} mimeType={file.mime_type} />
-      </span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="file-tile-name block truncate font-medium">
-          {file.name}
-        </span>
-        <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
-          {[
-            formatFileSize(file.size, language),
-            artifact ? null : formatDateTime(file.created_at, language),
-          ]
-            .filter((value) => value && value !== "—")
-            .join(" · ")}
-        </span>
-      </span>
-      {artifact &&
-        (downloading ? (
-          <LoaderCircleIcon
-            className="size-4 animate-spin text-[var(--app-muted)]"
-            aria-hidden="true"
-          />
-        ) : (
-          <DownloadIcon
-            className="size-4 text-[var(--app-muted)]"
-            aria-hidden="true"
-          />
-        ))}
-    </Button>
   )
 }
 
@@ -605,11 +557,15 @@ function ArtifactFiles({
   onDownload: (file: ConversationFile) => void
   downloadingFileId?: string
 }) {
-  if (!files?.length) return null
+  const { renderedFileIds } = useRichOutputResources()
+  const visibleFiles = files?.filter(
+    (file) => !renderedFileIds.has(file.id.toLowerCase())
+  )
+  if (!visibleFiles?.length) return null
 
   return (
     <ConversationArtifactFiles
-      files={files}
+      files={visibleFiles}
       loadPreview={loadPreview}
       onPreviewOfficeDocument={onPreviewOfficeDocument}
       onDownload={onDownload}
@@ -731,8 +687,12 @@ function MarkdownCodeBlock({
   ...props
 }: ComponentPropsWithoutRef<"pre">) {
   const { t } = useTranslation()
-  const { textOnly } = useContext(ConversationContentPolicyContext)
-  const { streaming } = useContext(AssistantMarkdownAssetContext)
+  const { textOnly, richOutputTextOnly } = useContext(
+    ConversationContentPolicyContext
+  )
+  const { streaming, citationsByNumber, knowledgeAssetScope } = useContext(
+    AssistantMarkdownAssetContext
+  )
   const preRef = useRef<HTMLPreElement>(null)
   const [htmlCodeView, setHtmlCodeView] = useState<
     Readonly<{ source: string | null; mode: "code" | "preview" }>
@@ -743,6 +703,23 @@ function MarkdownCodeBlock({
   const htmlCodeMode =
     htmlCodeView.source === htmlCodeSource ? htmlCodeView.mode : "code"
   const showHtmlCodePreview = canPreviewHtmlCode && htmlCodeMode === "preview"
+  const richSource = getMarkdownCodeTextForLanguages(children, [
+    richOutputLanguage,
+  ])
+  if (richSource !== null) {
+    return (
+      <AssistantRichOutput
+        source={richSource}
+        streaming={streaming}
+        textOnly={textOnly || richOutputTextOnly}
+        turnId={knowledgeAssetScope?.turnId}
+        renderCitation={(number) => {
+          const citation = citationsByNumber?.get(number)
+          return citation ? <EvidenceCitationLink citation={citation} /> : null
+        }}
+      />
+    )
+  }
 
   const mermaidSource = getMarkdownCodeTextForLanguages(children, ["mermaid"])
   if (!textOnly && mermaidSource !== null) {
@@ -1274,6 +1251,7 @@ type AssistantMarkdownProps = Readonly<{
 
 type ConversationContentPolicy = Readonly<{
   textOnly: boolean
+  richOutputTextOnly?: boolean
   textCitations?: Readonly<{
     visible: boolean
     sourcesByTurn: ReadonlyMap<string, readonly TextCitationSource[]>
@@ -1284,15 +1262,17 @@ const ConversationContentPolicyContext =
     textOnly: false,
   })
 export function ConversationContentPolicyProvider({
-  textOnly,
+  textOnly = false,
+  richOutputTextOnly,
   textCitations,
   children,
-}: ConversationContentPolicy & {
+}: Omit<ConversationContentPolicy, "textOnly"> & {
+  textOnly?: boolean
   children: ReactNode
 }) {
   const policy = useMemo(
-    () => ({ textOnly, textCitations }),
-    [textOnly, textCitations]
+    () => ({ textOnly, richOutputTextOnly, textCitations }),
+    [textOnly, richOutputTextOnly, textCitations]
   )
   return (
     <ConversationContentPolicyContext.Provider value={policy}>
@@ -1875,6 +1855,53 @@ function formatInlineKnowledgeCitationLocation(
     parts.push(t("knowledge.citation.documentLevel"))
   }
   return parts.join(" · ")
+}
+
+function EvidenceCitationLink({
+  citation,
+}: {
+  citation: AssistantKnowledgeCitation
+}) {
+  const { t } = useTranslation()
+  const id = useId()
+  const { document_name, knowledge_base_name } = citation.summary
+  return (
+    <Link
+      to={getKnowledgeCitationPreviewPath(citation)}
+      aria-labelledby={`${id}-document ${id}-source ${id}-location`}
+      aria-describedby={`${id}-location`}
+      className="group/source flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 no-underline! hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      <BookOpenIcon
+        className="size-4 shrink-0 self-start text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 wrap-anywhere">
+        <span
+          id={`${id}-document`}
+          className="font-medium text-foreground group-hover/source:underline"
+        >
+          {document_name}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          <span id={`${id}-source`}>
+            {t("knowledge.citation.source", {
+              knowledgeBase: knowledge_base_name,
+              number: citation.citation_no,
+            })}
+          </span>
+          {" · "}
+          <span id={`${id}-location`}>
+            {formatInlineKnowledgeCitationLocation(citation.summary, t)}
+          </span>
+        </span>
+      </span>
+      <ArrowRightIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+    </Link>
+  )
 }
 
 function KnowledgeCitationInlineLink({
@@ -2553,11 +2580,14 @@ const Message = memo(function Message({
     !user && !proposedPlan
       ? parseAssistantProposedPlanSourceSegments(safeAssistantContent)
       : null
-  const assistantCopyContent = embeddedProposedPlan
-    ? embeddedProposedPlan.before.content +
-      embeddedProposedPlan.plan.content +
-      embeddedProposedPlan.after.content
-    : safeAssistantContent
+  const assistantCopyContent = richOutputMarkdownToText(
+    embeddedProposedPlan
+      ? embeddedProposedPlan.before.content +
+          embeddedProposedPlan.plan.content +
+          embeddedProposedPlan.after.content
+      : safeAssistantContent,
+    "text"
+  )
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle"
   )
@@ -2704,14 +2734,14 @@ const Message = memo(function Message({
     >
       {copyState === "copied" ? (
         <CheckIcon
-          className="size-[var(--app-ui-font-size)]"
-          strokeWidth={2}
+          className="size-3"
+          strokeWidth={1.5}
           aria-hidden="true"
         />
       ) : (
         <CopyIcon
-          className="size-[var(--app-ui-font-size)]"
-          strokeWidth={2}
+          className="size-3"
+          strokeWidth={1.5}
           aria-hidden="true"
         />
       )}
@@ -2730,14 +2760,14 @@ const Message = memo(function Message({
       >
         {forkState === "forking" ? (
           <LoaderCircleIcon
-            className="size-[var(--app-ui-font-size)] animate-spin"
-            strokeWidth={2}
+            className="size-3 animate-spin"
+            strokeWidth={1.5}
             aria-hidden="true"
           />
         ) : (
           <GitForkIcon
-            className="size-[var(--app-ui-font-size)]"
-            strokeWidth={2}
+            className="size-3"
+            strokeWidth={1.5}
             aria-hidden="true"
           />
         )}
@@ -2789,14 +2819,14 @@ const Message = memo(function Message({
             >
               {messageReferenceAction.mode === "ask" ? (
                 <MessagesSquareIcon
-                  className="size-[var(--app-ui-font-size)]"
-                  strokeWidth={2}
+                  className="size-3"
+                  strokeWidth={1.5}
                   aria-hidden="true"
                 />
               ) : (
                 <CornerUpLeftIcon
-                  className="size-[var(--app-ui-font-size)]"
-                  strokeWidth={2}
+                  className="size-3"
+                  strokeWidth={1.5}
                   aria-hidden="true"
                 />
               )}
@@ -2950,7 +2980,8 @@ const Message = memo(function Message({
           <div
             className={cn(
               "message-content",
-              !user && "has-[[data-assistant-diagram]]:w-full",
+              !user &&
+                "has-[[data-assistant-diagram]]:w-full has-[[data-slot=rich-output]]:w-full",
               user && "user-message",
               (proposedPlan || embeddedProposedPlan) && "w-full",
               !user &&
@@ -3194,8 +3225,8 @@ const Message = memo(function Message({
                       onClick={startEditing}
                     >
                       <PencilIcon
-                        className="size-[var(--app-ui-font-size)]"
-                        strokeWidth={2}
+                        className="size-3"
+                        strokeWidth={1.5}
                         aria-hidden="true"
                       />
                     </Button>
@@ -3288,12 +3319,18 @@ type NativeLifecycleEntry = {
   sequence: number
   createdAt: string
   stopped: boolean
+  artifactIdsByChange?: Readonly<Record<string, string>>
 }
 
 function collapseNativeLifecycle(events: ConversationEvent[]) {
-  const uniqueEvents = [
-    ...new Map(events.map((event) => [event.id, event])).values(),
-  ].sort((left, right) => left.sequence_no - right.sequence_no)
+  const byId = new Map<string, ConversationEvent>()
+  for (const event of events) {
+    // Only the detail snapshot carries file links. The replayed native event is identical.
+    if (!byId.get(event.id)?.file_change_artifact_ids) byId.set(event.id, event)
+  }
+  const uniqueEvents = [...byId.values()].sort(
+    (left, right) => left.sequence_no - right.sequence_no
+  )
   const latestByItemId = new Map<string, NativeLifecycleEntry>()
   const stoppedTurns = new Set(
     uniqueEvents.flatMap((event) => {
@@ -3322,6 +3359,10 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
       event,
       item: native.params.item,
       method: native.method,
+      artifactIdsByChange:
+        native.method === "item/completed" && native.params.item.type === "fileChange"
+          ? event.file_change_artifact_ids
+          : undefined,
       sequence: previous?.sequence ?? event.sequence_no,
       createdAt: previous?.createdAt ?? event.created_at,
       stopped:
@@ -3502,7 +3543,7 @@ type TurnTimelineEntry =
   | {
       id: string
       kind: "user_input_request"
-      request: ConversationUserInputRequest
+      request: ConversationUserInputRequestView
       sequence?: number
       createdAt: string
       fallbackOrder: number
@@ -3649,6 +3690,7 @@ function TurnSummary({
   conversationId,
   running,
   startingTask,
+  runningTurnAccessory,
   activityOpen,
   activityCollapseAvailable,
   onActivityOpenChange,
@@ -3656,6 +3698,7 @@ function TurnSummary({
   onNativeActivityOpenChange,
   activities,
   nativeEvents,
+  contextEvents,
   subAgentSummaries,
   intermediateMessages,
   guidedMessages,
@@ -3695,6 +3738,7 @@ function TurnSummary({
   conversationId: string
   running: boolean
   startingTask: boolean
+  runningTurnAccessory?: ReactNode
   activityOpen: boolean
   activityCollapseAvailable: boolean
   onActivityOpenChange: (open: boolean) => void
@@ -3702,10 +3746,11 @@ function TurnSummary({
   onNativeActivityOpenChange: (itemId: string, open: boolean) => void
   activities: ConversationActivity[]
   nativeEvents: ConversationEvent[]
+  contextEvents: ConversationEvent[]
   subAgentSummaries?: readonly NativeSubAgentSummary[]
   intermediateMessages: ConversationMessage[]
   guidedMessages: ConversationMessage[]
-  userInputRequests: ConversationUserInputRequest[]
+  userInputRequests: ConversationUserInputRequestView[]
   renderGuidedMessage: (message: ConversationMessage) => ReactNode
   finalAnswerConfirmed: boolean
   finalAnswerVisible: boolean
@@ -3737,7 +3782,7 @@ function TurnSummary({
   onActivityDisclosureToggle?: () => void
   activityPresentation: ApplicationEmbedPresentation
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const productName = useProductName()
   const rawRunning = turn.status === "running"
   const interruptRequestedAt = turn.interrupt_requested_at ?? null
@@ -3758,6 +3803,16 @@ function TurnSummary({
   const nativeActivities = collapseNativeLifecycle(nativeEvents).filter(
     isVisibleNativeLifecycleEntry
   )
+  // Compaction is what this turn is, so its single summary line reports the
+  // compaction instead of the generic processing states.
+  const completedContextCompaction =
+    turn.task_kind === "compact"
+      ? nativeActivities.findLast(
+          (activity) =>
+            activity.item.type === "contextCompaction" &&
+            activity.method === "item/completed"
+        )
+      : undefined
   const nativeSubAgentActivities = buildNativeSubAgentActivityViewModels(
     nativeActivities,
     {
@@ -3797,6 +3852,7 @@ function TurnSummary({
     nativeReconnectState?.phase === "reconnecting" ? nativeReconnectState : null
   const nativeReconnectFailed = nativeReconnectState?.phase === "failed"
   const visuallyRunning = running && !nativeReconnectFailed
+  const interruptPending = Boolean(running && interruptRequestedAt)
   const interruptedForDisplay =
     nativeReconnectFailed ||
     (Boolean(interruptRequestedAt) && !running) ||
@@ -3811,6 +3867,49 @@ function TurnSummary({
         activity.method === "item/started" &&
         !activity.stopped
     )
+  const isContextCompactionTurn = turn.task_kind === "compact"
+  const contextCompactionInProgress =
+    rawRunning &&
+    !interruptedForDisplay &&
+    !nativeReconnectFailed &&
+    !terminalErrorActivity &&
+    completedContextCompaction === undefined &&
+    (isContextCompactionTurn || contextCompactionRunning)
+  // The compaction result replaces the heading as soon as the native item
+  // completes, before the turn row catches up with its own completion. An
+  // exhausted stream cannot confirm that: neither claim the compaction
+  // finished nor keep reporting it as in progress while the turn may still run.
+  const contextCompactionSettled =
+    completedContextCompaction !== undefined &&
+    !interruptedForDisplay &&
+    !nativeReconnectFailed &&
+    !terminalErrorActivity &&
+    (rawRunning || turn.status === "completed")
+  const savedTokens = contextCompactionSettled
+    ? selectContextCompactionSavedTokens(
+        contextEvents,
+        completedContextCompaction.item.id
+      )
+    : null
+  const completedContextCompactionLabel = contextCompactionSettled
+    ? savedTokens === null
+      ? t("conversation.nativeActivities.contextCompactionCompleted")
+      : t(
+          "conversation.nativeActivities.contextCompactionCompletedSavedTokens",
+          {
+            tokens: formatCompactTokenCount(
+              savedTokens,
+              normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+            ),
+          }
+        )
+    : null
+  const contextCompactionLabel = contextCompactionInProgress
+    ? t("conversation.nativeActivities.contextCompactionRunning")
+    : completedContextCompactionLabel
+  // A compaction turn has nothing to expand: the status line is the whole result.
+  const compactionOwnsSummary =
+    isContextCompactionTurn && Boolean(contextCompactionLabel)
   const visibleIntermediateMessages = intermediateMessages.filter(
     (message) => message.content.trim().length > 0
   )
@@ -3897,9 +3996,18 @@ function TurnSummary({
     Boolean(usedCapabilities?.length) ||
     Boolean(plan?.total) ||
     Boolean(nativeReconnectState) ||
-    timeline.length > 0
+    // Reasoning only fills the panel when the reader asked to see it; otherwise
+    // a reasoning-only turn would offer an expansion that reveals nothing.
+    timeline.some(
+      (entry) =>
+        entry.kind !== "reasoning" ||
+        (showReasoning && entry.activity.content.trim().length > 0)
+    )
   const canCollapseActivity =
-    hasActivityDetails && activityCollapseAvailable && !nativeReconnectFailed
+    hasActivityDetails &&
+    activityCollapseAvailable &&
+    !nativeReconnectFailed &&
+    !compactionOwnsSummary
   const progressAllowed =
     visuallyRunning &&
     hasProcessedContent &&
@@ -3935,7 +4043,8 @@ function TurnSummary({
           { id: "thinking", kind: "thinking", fallbackOrder: fallbackOrder++ },
         ]
       : timeline
-  const showActivityPanel = hasActivityDetails || showThinkingActivity
+  const showActivityPanel =
+    (hasActivityDetails || showThinkingActivity) && !compactionOwnsSummary
 
   const endedAt = nativeReconnectFailed
     ? new Date(nativeReconnectState.stoppedAtMs ?? nowMs).toISOString()
@@ -4044,10 +4153,10 @@ function TurnSummary({
       ? t("conversation.elapsed")
       : null
   const statusLabel =
-    running && interruptRequestedAt
+    interruptPending
       ? t("conversation.interrupting")
-      : contextCompactionRunning
-        ? t("conversation.processing")
+      : contextCompactionLabel
+        ? contextCompactionLabel
         : initialThinking || thinkingAfterCompaction
           ? t(
               initialThinking && startingTask
@@ -4097,7 +4206,9 @@ function TurnSummary({
       completedWithoutOutput ||
       Boolean(terminalErrorActivity)
     let simpleStatus = t(`statuses.${turn.status}`)
-    if (running && interruptRequestedAt)
+    // A stale pending request must not mask a local terminal label; cloud
+    // keeps its historical user-input heading.
+    if (interruptPending)
       simpleStatus = t("conversation.interrupting")
     else if (nativeReconnectFailed)
       simpleStatus = t("conversation.streamDisconnectedBeforeCompletion")
@@ -4164,13 +4275,15 @@ function TurnSummary({
     !nativeReconnectState &&
     !hasBlockingRequest &&
     !terminalErrorActivity &&
-    !finalAnswerVisible
+    !finalAnswerVisible &&
+    !contextCompactionLabel
   const summaryHeading = (
     <Marker
       render={<span />}
       variant="border"
       className="turn-summary-heading"
       data-initial-thinking={initialThinking || undefined}
+      data-context-compaction={compactionOwnsSummary || undefined}
       aria-busy={visuallyRunning || undefined}
       role={visuallyRunning ? "status" : undefined}
     >
@@ -4182,7 +4295,7 @@ function TurnSummary({
         )}
       >
         <span className="turn-status">{statusLabel}</span>
-        {duration && (
+        {duration && !completedContextCompactionLabel && (
           <span
             className="turn-duration"
             aria-label={
@@ -4367,8 +4480,11 @@ function TurnSummary({
                           entries.every((activity) => activity.stopped))
                       }
                       artifactFilesById={artifactFilesById}
+                      turnId={turn.id}
                       loadArtifactPreview={loadArtifactPreview}
                       onPreviewImage={onPreviewImage}
+                      onDownload={onDownload}
+                      downloadingFileId={downloadingFileId}
                       open={
                         firstActivity
                           ? nativeActivityOpen(firstActivity.item.id)
@@ -4543,6 +4659,9 @@ function TurnSummary({
             {renderGuidedMessage(message)}
           </div>
         ))}
+      {runningTurnAccessory ? (
+        <div className="pt-2">{runningTurnAccessory}</div>
+      ) : null}
       <ArtifactFiles
         files={artifacts}
         loadPreview={loadArtifactPreview}
@@ -4556,7 +4675,9 @@ function TurnSummary({
 
 export function ConversationThread({
   conversation,
+  siteDeliveries,
   startingTaskTurnId,
+  runningTurnAccessory,
   knowledgeBases = emptyKnowledgeBases,
   applicationKnowledgeBases = emptyApplicationKnowledgeBases,
   modelCatalog = emptyModelCatalog,
@@ -4605,8 +4726,14 @@ export function ConversationThread({
   history,
 }: {
   conversation: Conversation
+  siteDeliveries?: readonly ConversationWebSite[]
   messageReferenceAction?: MessageReferenceAction
   startingTaskTurnId?: string
+  /**
+   * A small accessory anchored to the current running turn. The page supplies
+   * it only for eligible local turns; the thread never invents one.
+   */
+  runningTurnAccessory?: ReactNode
   knowledgeBases?: KnowledgeBase[]
   applicationKnowledgeBases?: readonly ApplicationKnowledgeBase[]
   modelCatalog?: ModelPreference["models"]
@@ -4687,9 +4814,12 @@ export function ConversationThread({
       ?.focus({ preventScroll: true })
   }, [blockingPanelKey, onBlockingPanelReveal])
 
-  const messages = recoverAssistantMessageTurnIds(
-    conversation.messages ?? [],
-    conversation.events ?? []
+  const messages = insertConversationCompactionCommandMessages(
+    recoverAssistantMessageTurnIds(
+      conversation.messages ?? [],
+      conversation.events ?? []
+    ),
+    conversation.turns ?? []
   )
   const planMessageIds = new Set(
     (conversation.plan_reviews ?? []).map((review) => review.plan_message_id)
@@ -4845,9 +4975,21 @@ export function ConversationThread({
       activityImageArtifactIds.add(native.params.item.fileId.toLowerCase())
     }
   }
+  const siteDeliveriesByTurn = new Map<
+    string,
+    Map<string, ConversationWebSite>
+  >()
+  const deliveredSiteFileIds = new Set<string>()
+  for (const site of siteDeliveries ?? []) {
+    const sites = siteDeliveriesByTurn.get(site.turn_id) ?? new Map()
+    sites.set(site.id, site)
+    siteDeliveriesByTurn.set(site.turn_id, sites)
+    deliveredSiteFileIds.add(site.source_file_id.toLowerCase())
+  }
   const visibleArtifacts = (files: ConversationFile[] | undefined) => {
     const isHiddenArtifact = (file: ConversationFile) =>
       inlineArtifactIds.has(file.id.toLowerCase()) ||
+      deliveredSiteFileIds.has(file.id.toLowerCase()) ||
       activityImageArtifactIds.has(file.id.toLowerCase())
     if (!files?.some(isHiddenArtifact)) {
       return files
@@ -4862,7 +5004,8 @@ export function ConversationThread({
             !isHiddenPlanImplementationMessage(message) &&
             message.turn_id === latestTurn.id &&
             message.usage_type !== "steer_current_turn" &&
-            !isStructuredUserMessage(message)
+            !isStructuredUserMessage(message) &&
+            !isConversationCompactionCommandMessage(message)
         )?.id
       : undefined
   const assistantMessagesByTurn = new Map<string, ConversationMessage[]>()
@@ -4999,7 +5142,9 @@ export function ConversationThread({
     }
   }
   const artifactsByTurn = selectConversationArtifactCards({
-    files: [...conversationFilesById.values()],
+    files: [...conversationFilesById.values()].filter(
+      (file) => !deliveredSiteFileIds.has(file.id.toLowerCase())
+    ),
     turns,
     finalMessagesByTurn: finalMessageByTurn,
     inlineArtifactIds,
@@ -5189,7 +5334,8 @@ export function ConversationThread({
     const turnTerminalFormRequests = conversation.user_input_requests.filter(
       (request) =>
         request.turn_id === turn.id &&
-        (request.kind === "form" || request.kind === "async_questions") &&
+        (request.kind === "form" ||
+          request.kind === "async_questions") &&
         request.status !== "pending" &&
         request.status !== "answering"
     )
@@ -5362,6 +5508,7 @@ export function ConversationThread({
         }}
         activities={turnActivities}
         nativeEvents={turnNativeEvents}
+        contextEvents={conversation.events ?? []}
         subAgentSummaries={subAgentSummariesByTurnId?.get(turn.id)}
         nativeReconnectStateOverride={
           turnRunning ||
@@ -5372,6 +5519,11 @@ export function ConversationThread({
         }
         hasProcessedContent={hasProcessedContent}
         startingTask={startingTaskTurnId === turn.id}
+        runningTurnAccessory={
+          turn.id === activeRunningTurnId
+            ? runningTurnAccessory
+            : undefined
+        }
         hasActiveProcessing={hasActiveProcessing}
         reasoningActivities={reasoningActivities}
         reasoningSummary={reasoningSummary?.text}
@@ -5487,10 +5639,14 @@ export function ConversationThread({
       turn && firstUserMessageByTurn.get(turn.id) === message.id
         ? modelChangeByTurnId.get(turn.id)
         : undefined
-    const showSummary =
-      message.role === "assistant" &&
-      turn &&
-      firstAssistantMessageByTurn.get(turn.id) === message.id
+    // A compaction turn has no assistant message, so its status line follows
+    // the command that started it.
+    const isCompactionCommand = isConversationCompactionCommandMessage(message)
+    const showSummary = turn
+      ? isCompactionCommand ||
+        (message.role === "assistant" &&
+          firstAssistantMessageByTurn.get(turn.id) === message.id)
+      : false
     const isFinal =
       message.role === "assistant" &&
       turn &&
@@ -5535,7 +5691,8 @@ export function ConversationThread({
         </Marker>
       )
     }
-    if (showSummary) nodes.push(summaryFor(turn))
+    if (showSummary && turn && !isCompactionCommand)
+      nodes.push(summaryFor(turn))
     if (
       message.role === "assistant" &&
       turn &&
@@ -5548,6 +5705,7 @@ export function ConversationThread({
 
     if (rendersMessage) {
       nodes.push(renderConversationMessage(message, isFinal))
+      if (isCompactionCommand && turn) nodes.push(summaryFor(turn))
       if (renderMessageFooter)
         nodes.push(
           <Fragment key={`footer-${message.id}`}>
@@ -5611,7 +5769,11 @@ export function ConversationThread({
       turn?.id
     )
   }
-  if (recentTurn && !firstAssistantMessageByTurn.has(recentTurn.id)) {
+  if (
+    recentTurn &&
+    recentTurn.task_kind !== "compact" &&
+    !firstAssistantMessageByTurn.has(recentTurn.id)
+  ) {
     addRow(
       getTurnRenderKey(recentTurn),
       () => summaryFor(recentTurn),
@@ -5629,6 +5791,13 @@ export function ConversationThread({
         const turn = row.turnId ? turnById.get(row.turnId) : undefined
         if (turn && !finalMessageByTurn.has(turn.id)) {
           nodes.push(renderGeneratedImages(turn))
+        }
+        for (const site of siteDeliveriesByTurn
+          .get(row.turnId ?? "")
+          ?.values() ?? []) {
+          nodes.push(
+            <ConversationSiteCard key={`${site.id}:${site.url}`} site={site} />
+          )
         }
         return nodes
       },
@@ -5725,30 +5894,38 @@ export function ConversationThread({
               </div>
             )
           ))}
-        <GeneratedImageArtifactContext.Provider value={generatedImageFileIds}>
-          <ConversationMessageList
-            pinnedMessageId={editingMessageId}
-            rows={messageRows}
-            navigationRef={navigationRef}
-            onVisibleMessageChange={onVisibleMessageChange}
-            history={history}
-          />
-        </GeneratedImageArtifactContext.Provider>
-        {messages.length > 0 && emptyNotice && (
-          <div className="conversation-inline-notice-row">
-            <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
-          </div>
-        )}
-
-        <ArtifactFiles
-          files={visibleArtifacts(conversation.artifacts)?.filter(
-            (file) => !file.turn_id || !turnById.has(file.turn_id)
-          )}
+        <RichOutputResourceProvider
+          filesById={conversationFilesById}
           loadPreview={loadArtifactPreview}
-          onPreviewOfficeDocument={openOfficeDocument}
+          onPreviewFile={openOfficeDocument}
           onDownload={onDownload}
           downloadingFileId={downloadingFileId}
-        />
+        >
+          <GeneratedImageArtifactContext.Provider value={generatedImageFileIds}>
+            <ConversationMessageList
+              pinnedMessageId={editingMessageId}
+              rows={messageRows}
+              navigationRef={navigationRef}
+              onVisibleMessageChange={onVisibleMessageChange}
+              history={history}
+            />
+          </GeneratedImageArtifactContext.Provider>
+          {messages.length > 0 && emptyNotice && (
+            <div className="conversation-inline-notice-row">
+              <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
+            </div>
+          )}
+
+          <ArtifactFiles
+            files={visibleArtifacts(conversation.artifacts)?.filter(
+              (file) => !file.turn_id || !turnById.has(file.turn_id)
+            )}
+            loadPreview={loadArtifactPreview}
+            onPreviewOfficeDocument={openOfficeDocument}
+            onDownload={onDownload}
+            downloadingFileId={downloadingFileId}
+          />
+        </RichOutputResourceProvider>
         {blockingPanel && (
           <div
             ref={blockingPanelContainerRef}

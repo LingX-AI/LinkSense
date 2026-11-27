@@ -19,10 +19,11 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-function install() {
+function install(acceptEvent?: (event: MessageEvent<unknown>) => boolean) {
   vi.useFakeTimers()
   controller = installHtmlPreviewAnnotationsController(window, {
     reportMessage: (message) => window.parent.postMessage(message, "*"),
+    acceptEvent,
     markersMessageType: htmlPreviewAnnotationsMessageType,
     framesMessageType: htmlPreviewAnnotationFramesMessageType,
     focusMessageType: htmlPreviewAnnotationFocusMessageType,
@@ -51,6 +52,22 @@ function setMarkers(selectors: string[]) {
 }
 
 describe("HTML annotation live geometry", () => {
+  it("uses an injected host transport guard for marker messages", () => {
+    document.body.innerHTML = '<h1 id="heading">Heading</h1>'
+    const heading = document.getElementById("heading")
+    if (!heading) throw new Error("Missing annotation fixture")
+    heading.getBoundingClientRect = () => new DOMRect(0, 0, 100, 20)
+    let accept = false
+    const guard = vi.fn(() => accept)
+    install(guard)
+    setMarkers(["#heading"])
+    expect(guard).toHaveBeenCalled()
+    expect(heading).not.toHaveAttribute(htmlAnnotatedAttribute)
+    accept = true
+    setMarkers(["#heading"])
+    expect(heading).toHaveAttribute(htmlAnnotatedAttribute)
+  })
+
   it("emits one enclosing frame per annotation and follows each group's visible elements", () => {
     document.body.innerHTML =
       '<h1 id="heading">Heading</h1><svg id="scene"></svg><p id="caption">Caption</p><p id="other">Another annotation</p>'

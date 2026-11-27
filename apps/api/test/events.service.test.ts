@@ -1210,11 +1210,11 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
   });
 
   it.each([
-    ["pending", null, "expired", "cancel"],
-    ["answering", "accept", "answered", "accept"],
+    { status: "pending", resolvedAction: null, transition: { status: "expired", resolvedAction: "cancel" } },
+    { status: "answering", resolvedAction: "accept", transition: { status: "answered", resolvedAction: "accept" } },
   ] as const)(
-    "resolves a native user-input request from %s to %s",
-    async (status, resolvedAction, expectedStatus, expectedAction) => {
+    "records native request closure for a request in $status with action $resolvedAction",
+    async ({ status, resolvedAction, transition }) => {
       const fixture = eventFixture();
       const storedRequest = {
         id: "72000000-0000-4000-8000-000000000001",
@@ -1245,30 +1245,30 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         storedRequest,
       );
 
-      const result = await fixture.service.ingest(CONVERSATION_ID, {
+      const event = {
         method: "serverRequest/resolved",
         visibility: "user_visible",
         params: { threadId: "codex-thread-1", requestId: 17 },
-      });
+      } as const;
+      const deliveryId = "73000000-0000-4000-8000-000000000001";
+      await expect(fixture.service.ingest(CONVERSATION_ID, event, deliveryId))
+        .resolves.toMatchObject({ accepted: true });
 
       expect(fixture.tx.conversationUserInputRequest.update).toHaveBeenCalledWith(
         {
           where: { id: storedRequest.id },
           data: {
-            status: expectedStatus,
-            resolvedAction: expectedAction,
+            ...transition,
             resolvedAt: expect.any(Date),
           },
         },
       );
-      expect(result).toMatchObject({
-        accepted: true,
-        event: {
-          payload: {
-            local: { user_input_request_id: storedRequest.id },
-          },
+      expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(CONVERSATION_ID, expect.objectContaining({
+        payload: {
+          schema_version: 2, source: "codex_app_server", method: event.method,
+          params: event.params, local: { user_input_request_id: storedRequest.id },
         },
-      });
+      }));
     },
   );
 
@@ -4786,6 +4786,8 @@ describe("ConversationEventService SSE replay privacy", () => {
     });
     const confirmRecovery = vi.fn();
     const auditCreate = vi.fn().mockResolvedValue(undefined);
+    const releaseTurnSlot = vi.fn().mockResolvedValue(undefined);
+    const startPending = vi.fn().mockResolvedValue(undefined);
     const service = new ConversationEventService(
       {
         conversation: {
@@ -4811,7 +4813,7 @@ describe("ConversationEventService SSE replay privacy", () => {
         },
         auditLog: { create: auditCreate },
       } as never,
-      {} as never,
+      { releaseTurnSlot } as never,
       {
         resolveRecoveryRuntime: vi.fn().mockResolvedValue({
           capabilities: [],
@@ -4820,6 +4822,7 @@ describe("ConversationEventService SSE replay privacy", () => {
           modelRuntime: TEST_MODEL_RUNTIME,
         }),
         runnerForRecovery: () => ({ reconcile, confirmRecovery }),
+        startPending,
       } as never,
     );
 
@@ -4830,6 +4833,8 @@ describe("ConversationEventService SSE replay privacy", () => {
       reasonCode: "RUNNING_TURN_RECOVERY_RUNNER_UNAVAILABLE",
     });
     expect(confirmRecovery).not.toHaveBeenCalled();
+    expect(releaseTurnSlot).not.toHaveBeenCalled();
+    expect(startPending).not.toHaveBeenCalled();
     expect(auditCreate).toHaveBeenCalledOnce();
   });
 

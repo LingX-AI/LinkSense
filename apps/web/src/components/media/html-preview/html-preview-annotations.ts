@@ -36,21 +36,31 @@ export function parseHtmlPreviewAnnotationFrames(
   return result.success ? result.data.frames : null
 }
 
+export function htmlPreviewAnnotationsMessage(
+  markers: readonly HtmlAnnotationMarker[]
+) {
+  return {
+    type: htmlPreviewAnnotationsMessageType,
+    markers: markers.map(({ id, index, selection }) => ({
+      id,
+      index,
+      selectors: selection.elements.map((element) => element.selector),
+    })),
+  }
+}
+
+export function htmlPreviewAnnotationFocusMessage(selection: HtmlSelection) {
+  return {
+    type: htmlPreviewAnnotationFocusMessageType,
+    selectors: selection.elements.map((element) => element.selector),
+  }
+}
+
 export function postHtmlPreviewAnnotations(
   frame: HTMLIFrameElement,
   markers: readonly HtmlAnnotationMarker[]
 ): void {
-  frame.contentWindow?.postMessage(
-    {
-      type: htmlPreviewAnnotationsMessageType,
-      markers: markers.map(({ id, index, selection }) => ({
-        id,
-        index,
-        selectors: selection.elements.map((element) => element.selector),
-      })),
-    },
-    "*"
-  )
+  frame.contentWindow?.postMessage(htmlPreviewAnnotationsMessage(markers), "*")
 }
 
 export function postHtmlPreviewAnnotationFocus(
@@ -58,10 +68,7 @@ export function postHtmlPreviewAnnotationFocus(
   selection: HtmlSelection
 ): void {
   frame.contentWindow?.postMessage(
-    {
-      type: htmlPreviewAnnotationFocusMessageType,
-      selectors: selection.elements.map((element) => element.selector),
-    },
+    htmlPreviewAnnotationFocusMessage(selection),
     "*"
   )
 }
@@ -73,6 +80,9 @@ export function installHtmlPreviewAnnotationsController(
     markersMessageType: string
     framesMessageType: string
     reportMessage: (message: unknown) => void
+    /** Stricter transport guard for injected hosts; defaults to the parent. */
+    acceptEvent?: (event: MessageEvent<unknown>) => boolean
+    messagePort?: MessagePort
     focusMessageType: string
     maximumMarkers: number
     maximumElements: number
@@ -187,12 +197,12 @@ export function installHtmlPreviewAnnotationsController(
         selector.length > 0 &&
         selector.length <= 1000
     )
+  const acceptsEvent =
+    config.acceptEvent ??
+    ((messageEvent: MessageEvent<unknown>) =>
+      messageEvent.source === targetWindow.parent)
   const handleMessage = (event: MessageEvent<unknown>) => {
-    if (
-      event.source !== targetWindow.parent ||
-      !event.data ||
-      typeof event.data !== "object"
-    )
+    if (!acceptsEvent(event) || !event.data || typeof event.data !== "object")
       return
     const message = event.data as Record<string, unknown>
     if (
@@ -246,7 +256,8 @@ export function installHtmlPreviewAnnotationsController(
       ? targetWindow.requestAnimationFrame(track)
       : null
   }
-  targetWindow.addEventListener("message", handleMessage)
+  if (config.messagePort) config.messagePort.addEventListener("message", handleMessage)
+  else targetWindow.addEventListener("message", handleMessage)
   return {
     refresh,
     destroy: () => {
@@ -257,7 +268,8 @@ export function installHtmlPreviewAnnotationsController(
       for (const element of markedElements)
         element.removeAttribute(config.annotatedAttribute)
       markedElements.clear()
-      targetWindow.removeEventListener("message", handleMessage)
+      if (config.messagePort) config.messagePort.removeEventListener("message", handleMessage)
+      else targetWindow.removeEventListener("message", handleMessage)
     },
   }
 }

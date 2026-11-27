@@ -149,7 +149,7 @@ export const ptBR = {
   webSites: {
     title: "Meus sites",
     description:
-      "Gerencie seus sites publicados, atualize seu conteúdo ou retire-os do ar a qualquer momento.",
+      "Gerencie páginas e aplicativos web publicados, seus links, serviços de dados e estado de publicação.",
     share: "Publicar como site",
     dialog: {
       share: "Publicar como site",
@@ -159,14 +159,29 @@ export const ptBR = {
     },
     shareDescription:
       "Qualquer pessoa com o link poderá visitar este site após a publicação.",
+    editDescription:
+      "Edite o nome, a descrição ou o link personalizado. O link de origem e os dados do aplicativo permanecem os mesmos.",
     deleteDescription:
       "O site e suas versões publicadas serão excluídos permanentemente. Qualquer pessoa poderá reutilizar o endereço. A tarefa e os arquivos originais serão mantidos.",
     name: "Nome do site",
     summary: "Descrição",
-    slug: "Nome do link",
+    slug: "Slug personalizado",
+    slugPlaceholderEdit: "Deixe em branco para manter o link atual",
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
-    slugHelp: "Use de 3 a 80 letras, números ou hífens.",
-    slugChanged: "Esta alteração desativa o link antigo imediatamente.",
+    slugHelp:
+      "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link de origem não muda.",
+    passcode: "Código de acesso",
+    passcodePlaceholder: "Definir um código",
+    passcodeHelp:
+      "Os visitantes precisam informar este código para abrir o site. Deixe em branco para manter o acesso público.",
+    invalidPasscode: "Use pelo menos 4 caracteres.",
+    passcodeRemove: "Remover o código",
+    passcodeKeep: "Manter o código",
+    analytics: "Estatísticas de visitas",
+    analyticsHelp:
+      "Registra as visitas do site e vincula o painel de estatísticas nos detalhes. Disponível apenas para sites publicados.",
+    analyticsDisabledHelp:
+      "Publique o site novamente antes de ativar as estatísticas de visitas.",
     url: "Link do site",
     publishMode: "Modo de publicação",
     updateExisting: "Atualizar site existente",
@@ -220,13 +235,19 @@ export const ptBR = {
     },
     empty: "Nenhum site publicado ainda",
     emptyDescription:
-      "Abra uma página da Web gerada em uma tarefa e selecione Publicar como site para gerenciá-la aqui.",
+      "Descreva uma página ou aplicativo em qualquer conversa e confirme a publicação para gerenciá-lo aqui. Você também pode selecionar Publicar como site em uma página existente.",
     noResults: "Nenhum site correspondente",
-    sourceTask: "Origem: {{title}}",
     sourceDeleted: "Tarefa de origem excluída",
     publishedAt: "Publicado em {{date}}",
     resources: "{{count}} arquivos · {{size}}",
     visit: "Visitar",
+    openSite: "Abrir site",
+    localOnly: "Acessível apenas neste dispositivo",
+    pageOnly: "Aplicativo web · sem serviço de dados",
+    dataConnected: "Aplicativo web · serviço de dados conectado",
+    dataCapabilityTitle: "Aplicativo web",
+    dataServiceDisconnected: "Sem serviço de dados",
+    dataServiceConnected: "Serviço de dados conectado",
     copyNamed: "Copiar link de {{name}}",
     actions: "Gerenciar {{name}}",
     edit: "Editar",
@@ -235,6 +256,31 @@ export const ptBR = {
     enable: "Republicar",
     download: "Baixar site",
     loadMore: "Carregar mais",
+    details: {
+      open: "Detalhes",
+      description:
+        "Veja os links de acesso, os recursos do aplicativo e os detalhes da publicação atual.",
+      links: "Acesso e compartilhamento",
+      alias: "Link personalizado",
+      stable: "Link de origem",
+      copyAlias: "Copiar link personalizado",
+      copyStable: "Copiar link de origem",
+      openAlias: "Abrir link personalizado",
+      openStable: "Abrir link de origem",
+      publication: "Detalhes da publicação",
+      passcode: "Código de acesso",
+      passcodeOn: "Ativado",
+      passcodeOff: "Desativado",
+      analytics: "Estatísticas de visitas",
+      analyticsOn: "Ativado",
+      analyticsOff: "Desativado",
+      openAnalytics: "Abrir o painel de estatísticas",
+      source: "Conversa de origem",
+      files: "Recursos web",
+      publishedAt: "Publicação da versão atual",
+      updatedAt: "Última atualização",
+      createdAt: "Criação",
+    },
     invalidSlug:
       "Insira de 3 a 80 letras, números ou hífens, sem hífen no início ou no fim.",
   },
@@ -404,7 +450,7 @@ export const ptBR = {
     automations: "Automações",
     conversations: "Tarefas",
     archived: "Tarefas arquivadas",
-    capabilities: "Central de plugins",
+    capabilities: "Apps e ferramentas",
     knowledgeBases: "Biblioteca de recursos",
     pinned: "Fixados",
     projects: "Projetos",
@@ -685,8 +731,7 @@ export const ptBR = {
     channelAccess: "Canais de mensagens",
     channelAccessDescription:
       "Gerencie Weixin, WeCom, DingTalk, Teams, Feishu e outros canais",
-    capabilitiesDescription:
-      "Explore a Central de plugins e gerencie seus plugins e habilidades pessoais",
+    capabilitiesDescription: "Explore e gerencie apps, sites e ferramentas",
     archivedDescription: "Ver tarefas arquivadas",
     usersDescription: "Gerencie contas, funções e status dos usuários",
     rolesDescription: "Consulte as funções fixas e seus limites de permissão",
@@ -765,6 +810,77 @@ export const ptBR = {
       "Esta ação não pode ser desfeita. Suas tarefas, instruções personalizadas, plugins e habilidades serão mantidos.",
     resettingMemories: "Redefinindo memórias…",
     memoriesReset: "Memórias redefinidas",
+    privacyMasking: "Mascaramento de privacidade",
+    privacyMaskingDescription:
+      "Substitui segredos por marcadores antes de enviar ao provedor do modelo e os restaura antes que a resposta chegue ao ambiente de execução.",
+    privacyMaskingEnabled: "Ativar o mascaramento de privacidade",
+    privacyMaskingEnabledDescription:
+      "Mascara o texto enviado pelo gateway de modelos das tarefas. Não protege os títulos automáticos, as pesquisas na web, a geração de imagens nem a vetorização da base de conhecimento. O histórico e os eventos mantêm o texto original.",
+    privacyMaskingSecrets: "Segredos e credenciais",
+    privacyMaskingSecretsDescription:
+      "Chaves de API, tokens, chaves privadas, senhas e valores dos cabeçalhos Authorization ou Cookie.",
+    privacyMaskingWords: "Palavras personalizadas",
+    privacyMaskingWordsDescription:
+      "Uma palavra ou frase por linha: nomes de projetos, codinomes internos ou nomes que você não quer enviar ao provedor.",
+    privacyMaskingWordsPlaceholder: "Projeto Nightjar\nInterno da Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Ignorar maiúsculas e minúsculas",
+    privacyMaskingAnyCaseDescription:
+      "Trata nightjar, Nightjar e NIGHTJAR como a mesma palavra.",
+    privacyMaskingWholeWord: "Somente palavras inteiras",
+    privacyMaskingWholeWordDescription:
+      "Não mascara uma palavra dentro de outra palavra ou identificador maior.",
+    privacyMaskingAllow: "Valores permitidos",
+    privacyMaskingAllowDescription:
+      "Um valor por linha. Um valor detectado só é enviado como está se corresponder por inteiro, distinguindo maiúsculas de minúsculas. A opção de maiúsculas e minúsculas das palavras personalizadas não afeta esta lista.",
+    privacyMaskingAllowPlaceholder: "exemplo@exemplo.test",
+    privacyMaskingSaved: "Configurações de mascaramento salvas.",
+    privacyMaskingSave: "Salvar mascaramento",
+    privacyMaskingBehaviorNote:
+      "O modelo vê marcadores em vez dos valores reais. Tarefas que precisam inspecionar um segredo podem não funcionar até que você adicione esse valor à lista permitida.",
+    privacyMaskingPageDescription:
+      "Escolha o que nunca chega ao provedor do modelo e teste as regras com um texto de exemplo antes de iniciar uma tarefa.",
+    privacyMaskingWhatToMask: "O que mascarar",
+    privacyMaskingTryIt: "Experimentar",
+    privacyMaskingTryItDescription:
+      "Cole um texto que um agente poderia enviar. Ele é mascarado aqui como em uma solicitação real, e nada é armazenado.",
+    privacyMaskingTryItPlaceholder:
+      "Implante com a chave sk-proj-… e chame a API de homologação",
+    privacyMaskingTryItOutput: "Prévia do texto com as regras do rascunho",
+    privacyMaskingTryItEmpty: "Nada neste texto seria mascarado.",
+    privacyMaskingTryItOffNote:
+      "O mascaramento está desativado. Esta prévia mostra o que seria substituído quando você o ativar.",
+    privacyMaskingKindPrivateKey: "Chave privada",
+    privacyMaskingKindApiKey: "Chave de API",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Segredo",
+    privacyMaskingKindPassword: "Senha",
+    privacyMaskingKindTerm: "Palavra personalizada",
+    privacyMaskingKindEmail: "Endereço de e-mail",
+    privacyMaskingKindPhone: "Número de telefone",
+    privacyMaskingKindIdCard: "Número do documento de identidade",
+    privacyMaskingKindBankCard: "Número do cartão bancário",
+    privacyMaskingActivity: "Atividade de mascaramento",
+    privacyMaskingActivityDescription:
+      "Veja as solicitações com substituições nos últimos 30 dias. Os registros mostram tipos, comprimentos, locais e contagens, nunca os valores originais.",
+    privacyMaskingSections: "Configurações e atividade",
+    privacyMaskingSectionSettings: "Configurações",
+    privacyMaskingSectionActivity: "Atividade",
+    privacyMaskingActivityPeriod: "Período",
+    privacyMaskingActivity7Days: "7 dias",
+    privacyMaskingActivity30Days: "30 dias",
+    privacyMaskingActivityMasked: "valores substituídos",
+    privacyMaskingActivityRequests: "solicitações",
+    privacyMaskingActivityEmpty:
+      "Ainda não há solicitações mascaradas neste período.",
+    privacyMaskingActivityLoadMore: "Carregar mais",
+    privacyMaskingActivityHintLength: "{{length}} caracteres",
+    privacyMaskingActivityLocationPrompt: "Prompt",
+    privacyMaskingActivityLocationInstructions: "Instruções",
+    privacyMaskingActivityLocationToolArguments: "Argumentos da ferramenta",
+    privacyMaskingActivityLocationToolOutput: "Saída da ferramenta",
+    privacyMaskingActivityLocationTools: "Definições de ferramentas",
+    privacyMaskingActivityLocationOther: "Outro",
     appearancePageDescription:
       "Defina o tema da interface e o tamanho da fonte base do {{productName}}.",
     theme: "Tema",
@@ -2165,8 +2281,10 @@ export const ptBR = {
     dragSaving: "Salvando ordem dos projetos.",
     dragSaveFailed:
       "Não foi possível salvar a ordem dos projetos. Tente novamente.",
-    delete: "Remover projeto",
+    delete: "Remover",
+    newTaskNamed: "Nova tarefa no projeto “{{title}}”",
     move: "Mover para projeto",
+    moveToPublicWorkspace: "Mover para o espaço de trabalho comum",
     moveNamed: "Mover “{{title}}” para um projeto",
     name: "Nome do projeto",
     namePlaceholder: "Insira um nome de projeto",
@@ -2331,12 +2449,12 @@ export const ptBR = {
     resetReasoningEffort: "Redefinir esforço de raciocínio para o padrão",
     modelNotConfigured: "Serviço de modelos não configurado",
     reasoningEffort: "Esforço de raciocínio",
-    modelContextUsageUnknown: "Nenhum uso ainda",
-    modelContextBadgeLabel: "Janela de contexto em segundo plano: {{value}}",
-    modelContextTitle: "Janela de contexto em segundo plano:",
     modelContextUsagePercent: "{{percent}}% usados",
-    modelContextUsageDetail: "{{used}} usados, {{total}} no total",
-    modelContextUnavailable: "Nenhum uso de contexto ainda",
+    modelContextUsageLabel: "Contexto {{used}} / {{total}} ({{percent}}%)",
+    modelContextUsageSummary: "{{used}} / {{total}} ({{percent}}%)",
+    modelContextWindowTitle: "Janela de contexto",
+    modelContextWindowOption: "Janela de contexto de {{size}}",
+    modelContextDetailedBreakdown: "Ver detalhamento completo",
     stop: "Parar",
     interrupting: "Interrompendo…",
     attach: "Anexar arquivo",
@@ -2392,6 +2510,8 @@ export const ptBR = {
     voiceDemoTranscript:
       "[Demonstração de voz] Resuma os pontos principais da reunião de hoje e crie uma lista de ações.",
     voiceNotConfigured: "A transcrição de voz não foi configurada",
+    voiceNotConfiguredHint:
+      "<configure>Configurar</configure> a transcrição de voz",
     voiceServiceUnavailable:
       "A transcrição de voz está temporariamente indisponível. Tente novamente mais tarde.",
     voiceStop: "Parar entrada por voz",
@@ -2603,6 +2723,7 @@ export const ptBR = {
       submit: "Enviar respostas",
       submitting: "Enviando",
       cancel: "Cancelar",
+      dismissRequest: "Fechar solicitação",
       selectPlaceholder: "Selecione uma opção",
       datePlaceholder: "Selecionar data",
       clearDate: "Limpar data",
@@ -2837,15 +2958,32 @@ export const ptBR = {
       sources: "Fontes",
       noSources: "Nenhuma fonte ainda",
       sourcesError: "Não foi possível carregar as fontes. Tente novamente.",
-      open: "Abrir visão geral da tarefa",
-      close: "Fechar visão geral da tarefa",
-      title: "Visão geral da tarefa",
+      open: "Abrir rail de sessão",
+      close: "Fechar rail de sessão",
+      title: "Rail de sessão",
       subagents: "Subagentes",
       subagentsUsed: "{{count}} subagentes usados",
       subagentsCompleted: "{{count}} concluídos",
       subagentsProgress: "{{completed}} / {{count}} concluídos",
       outputFiles: "Arquivos de saída",
       noOutputFiles: "Nenhum arquivo de saída ainda",
+      context: "Contexto",
+      contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}} ({{percent}}%)",
+      tokenInput: "Entrada",
+      tokenCachedInput: "Entrada em cache",
+      tokenOutput: "Saída",
+      tokenReasoning: "Raciocínio",
+      freeSpace: "Espaço livre",
+      untilAutoCompact: "{{tokens}} até a compactação automática",
+      readyToCompact: "Pronto para a compactação automática",
+      compactSession: "Compactar sessão",
+      compacting: "Compactando…",
+      changes: "Alterações",
+      changedFiles_one: "{{count}} arquivo alterado",
+      changedFiles_other: "{{count}} arquivos alterados",
+      noChanges: "Nenhuma alteração ainda",
+      backgroundTasks: "Tarefas em segundo plano",
     },
     capabilitiesUsed: "Plugins/habilidades do turno",
     loaded: "Carregados",
@@ -2929,6 +3067,8 @@ export const ptBR = {
       exitedReviewMode: "Saiu do modo de revisão",
       contextCompactionRunning: "Compactando contexto",
       contextCompactionCompleted: "Contexto compactado",
+      contextCompactionCompletedSavedTokens:
+        "Contexto compactado · {{tokens}} tokens economizados",
       contextCompactionIncomplete:
         "A compactação do contexto não foi concluída",
       collabAgentRunning: "Coordenando subagentes",
@@ -3180,10 +3320,41 @@ export const ptBR = {
     createTypeDescription: "Escolha como criar seu aplicativo.",
     creation: {
       recommended: "Recomendado",
-      interactiveTitle: "Criar um aplicativo interativo por conversa",
+      interactiveTitle: "Criar um aplicativo por conversa",
       interactiveDescription:
         "Compartilhe sua ideia e deixe o LinkSense dar vida a ela.",
+      publicSiteTitle: "Criar um aplicativo web",
+      publicSiteDescription:
+        "Crie um site ou aplicativo público e receba um link para abrir ou copiar.",
       start: "Começar a criar",
+    },
+    conversationCreation: {
+      title: "Criar um aplicativo por conversa",
+      description:
+        "Descreva seu objetivo. Vamos esclarecer acesso, dados e lembretes apenas quando necessário.",
+      goal: "O que você quer realizar?",
+      goalPlaceholder:
+        "Por exemplo: um assistente para beber água. Quero ver a página primeiro e decidir os lembretes depois.",
+      defaultGoal: "Esclareça apenas os requisitos que mudam o resultado.",
+      start: "Iniciar conversa",
+      prompt:
+        "Ajude-me a realizar este objetivo: {{goal}}. Reutilize as informações que já forneci e pergunte apenas sobre requisitos pendentes que mudem o resultado. Comece com um rascunho funcional; não publique nem ative tarefas agendadas por padrão.",
+    },
+    publicSiteCreation: {
+      title: "Criar um aplicativo web",
+      description:
+        "Crie um site público ou aplicativo dinâmico. Acrescente os requisitos de contas, dados e negócio na conversa.",
+      name: "Nome do site",
+      goal: "O que o site deve fazer? (opcional)",
+      goalPlaceholder:
+        "Por exemplo: crie uma programação de eventos com filtro por data",
+      defaultGoal: "Pergunte-me quais conteúdos e interações o site precisa.",
+      start: "Criar e publicar",
+      openLocally: "Abrir no meu navegador após publicar",
+      openInstruction:
+        "Depois de publicar, use o Browser Use para abrir o site uma vez no meu navegador local.",
+      prompt:
+        "Crie um site ou aplicativo público para mim. Nome: {{name}}. Requisitos: {{goal}}. Escolha um site estático ou um backend dinâmico auto-hospedado conforme necessário, publique o resultado e me envie o link.",
     },
     createStandardApp: "Criar aplicativo padrão",
     createStandardAppDescription:
@@ -3526,6 +3697,7 @@ export const ptBR = {
     identifierHint:
       "O identificador da habilidade permanece o mesmo durante a atualização.",
     content: "Instruções da habilidade",
+    descriptionRequired: "Insira uma descrição da habilidade.",
     contentRequired: "Insira as instruções da habilidade.",
     contentTooLarge:
       "Estas instruções são longas demais para editar online. Baixe o pacote completo da habilidade, edite-o e envie-o novamente.",
@@ -3548,7 +3720,7 @@ export const ptBR = {
     confirmDeletions: "Confirmo a exclusão destes {{count}} arquivos",
   },
   marketplace: {
-    title: "Central de plugins",
+    title: "Apps e ferramentas",
     description:
       "Explore plugins e habilidades públicos e gerencie conteúdos instalados, conteúdos pessoais e conexões MCP em um só lugar.",
     personalAccountDescription:
@@ -3564,7 +3736,7 @@ export const ptBR = {
       reviews: "Revisões de listagem",
       listings: "Todas as listagens",
     },
-    catalogTabsLabel: "Categorias de conteúdo da Central de plugins",
+    catalogTabsLabel: "Categorias de Apps e ferramentas",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Habilidades",
@@ -3705,6 +3877,7 @@ export const ptBR = {
     skillMarkdown: "Conteúdo do SKILL.md",
     skillIdentifier: "Identificador da habilidade",
     skillNameRequired: "Insira um identificador de habilidade.",
+    skillDescriptionRequired: "Insira uma descrição da habilidade.",
     skillNameTooLong:
       "O identificador da habilidade não pode exceder 64 caracteres.",
     skillNameInvalid:
@@ -3725,7 +3898,7 @@ export const ptBR = {
       "O plugin ou habilidade pessoal atual é copiado para uma versão imutável e enviado para revisão do administrador.",
     sourceCapability: "Origem do plugin/habilidade pessoal",
     noPublishableSource:
-      "Nenhum plugin ou habilidade pessoal publicável tem o mesmo nome e tipo desta listagem. Importe ou atualize a origem na Central de plugins primeiro.",
+      "Nenhum plugin ou habilidade pessoal publicável tem o mesmo nome e tipo desta listagem. Primeiro, importe ou atualize a origem em Apps e ferramentas.",
     immutableSnapshotNotice:
       "A revisão se aplica a uma versão imutável independente. Edições posteriores no seu plugin ou habilidade pessoal não alteram esta versão pendente.",
     submitForReview: "Enviar para revisão",
@@ -3738,7 +3911,7 @@ export const ptBR = {
       "Você ainda não enviou aplicativos, plugins ou habilidades.",
     publicationsDescription:
       "Gerencie seus aplicativos, plugins e habilidades enviados, acompanhe as revisões e publique atualizações.",
-    backToCenter: "Voltar à Central de plugins",
+    backToCenter: "Voltar para Apps e ferramentas",
     manageApplicationListing: "Gerenciar listagem",
     selectApplication: "Selecionar um aplicativo para listar",
     selectApplicationDescription:
@@ -4081,6 +4254,11 @@ export const ptBR = {
         name: "Desenvolvimento de aplicativos interativos do {{productName}}",
         description:
           "Crie e edite aplicativos por conversa, com visualização em tempo real, depuração e instalação.",
+      },
+      publicSite: {
+        name: "Desenvolvimento de sites públicos do {{productName}}",
+        description:
+          "Crie sites públicos ou aplicativos dinâmicos auto-hospedados e entregue seus links.",
       },
       skillCreator: {
         name: "Criador de habilidades do {{productName}}",
@@ -5121,7 +5299,8 @@ export const ptBR = {
       cachedInputPrice: "Preço de entrada em cache",
       outputPrice: "Preço de saída",
       contextWindow: "Comprimento do contexto do modelo",
-      contextWindowPlaceholder: "Detectar automaticamente",
+      contextWindowPlaceholder: "Deixe vazio para detectar automaticamente",
+      contextWindowShortcuts: "Valores rápidos de comprimento do contexto",
       contextWindowInvalid:
         "Insira um número inteiro maior que 0 ou deixe em branco para detectar automaticamente.",
       priceUnit: "USD / 1 milhão de tokens",
@@ -5134,6 +5313,8 @@ export const ptBR = {
         "O modelo será excluído imediatamente após a confirmação. Tarefas e registros de uso históricos não são afetados.",
       modelDeleted: "Modelo excluído.",
       supportedEfforts: "Esforços de raciocínio compatíveis",
+      reasoningEffortsAutoHint:
+        "Ajustado automaticamente ao modelo; altere apenas se necessário.",
       selectedEfforts: "{{count}} selecionados",
       defaultEffort: "Esforço de raciocínio padrão",
       defaultModel: "Modelo padrão de conversa",
@@ -5742,15 +5923,27 @@ export const ptBR = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "pt-BR"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "pt-BR"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "pt-BR"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "pt-BR"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "pt-BR"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "pt-BR"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "pt-BR"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "pt-BR"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "pt-BR"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "pt-BR"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "pt-BR"),
+    },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "pt-BR"
+      ),
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
@@ -5787,6 +5980,12 @@ export const ptBR = {
         "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",
       bundleInvalid:
         "O pacote da página está incompleto ou contém arquivos não compatíveis. Atualize-o na tarefa de origem e tente novamente",
+      analyticsNotConfigured:
+        "Um administrador precisa configurar o serviço de estatísticas do site",
+      analyticsUnavailable:
+        "O serviço de estatísticas está temporariamente indisponível. Tente novamente mais tarde",
+      analyticsUnpublished:
+        "Somente um site publicado pode ativar as estatísticas de visitas",
     },
     feishu: {
       connectionNotFound:
@@ -6077,6 +6276,10 @@ export const ptBR = {
       "Você não tem permissão para baixar este arquivo gerado.",
     runnerUnavailable:
       "O serviço de execução está indisponível. Tente novamente mais tarde.",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "pt-BR"
+    ),
     turnStartClosed:
       "O envio anterior foi encerrado. Esta solicitação não foi executada. Envie-a novamente.",
     deploymentStopped:

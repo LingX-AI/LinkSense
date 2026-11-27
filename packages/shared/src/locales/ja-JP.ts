@@ -1,6 +1,14 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: "動的アプリのバックエンド数が上限に達しました。保持中のリソースを管理者に確認してください。",
+  WEB_SITE_BACKEND_NOT_CONFIGURED: "管理者がセルフホスト型の動的アプリサービスを設定する必要があります。",
+  WEB_SITE_BACKEND_UNAVAILABLE: "アプリのバックエンドを一時的に利用できません。後でもう一度お試しください。",
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: "このアドレスは別の動的アプリで使用されています。別のアドレスを指定してください。",
+  WEB_SITE_BACKEND_PENDING: "バックエンドのリソースまたは関数の準備が完了していません。ビルド状況を確認してから公開してください。",
+  WEB_SITE_ANALYTICS_NOT_CONFIGURED: "管理者がサイト統計サービスを設定する必要があります。",
+  WEB_SITE_ANALYTICS_UNAVAILABLE: "統計サービスは一時的に利用できません。しばらくしてから再試行してください。",
+  WEB_SITE_ANALYTICS_UNPUBLISHED: "公開中のサイトのみアクセス統計を有効にできます。",
   AUTOMATION_EXPIRATION_IN_PAST: "有効期限に自動化のタイムゾーンで今日より前の日付は指定できません。別の日付を選択してください。",
   BROWSER_USE_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
@@ -17,6 +25,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RATE_LIMITED: "検索リクエストが多すぎます。しばらくしてから再試行してください。",
   WEB_SEARCH_RESPONSE_INVALID: "検索結果を利用できません。管理者にお問い合わせください。",
   WEB_SEARCH_TIMEOUT: "検索がタイムアウトしました。しばらくしてから再試行してください。",
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "プライバシーマスキング設定を一時的に読み取れません。マスクされていない内容を送信しないため、しばらくしてから再試行するか管理者に連絡してください。",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",
@@ -50,6 +59,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SITE_RESOURCES_MISSING: "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",
   WEB_SITE_BUNDLE_INVALID: "ウェブページのパッケージが不完全か、未対応のファイルを含んでいます。作成元のタスクで更新して再試行してください",
   CLIENT_UPDATE_REQUIRED: "システムが更新されました。このページを更新して続行してください。",
+
   SERVICE_TEMPORARILY_UNAVAILABLE: "システムを一時的に利用できません。少し待ってから再試行してください。",
   APPLICATION_VERSION_TOO_LOW: "既存の最新バージョン v{{version}} より高いバージョンを指定してください。",
   APPLICATION_RUNTIME_BUSY: "このアプリケーションには実行中の通常タスクがあるため、保存・更新できません。停止するか完了を待ってから再試行してください。",
@@ -220,6 +230,8 @@ export const errorMessages: Record<ErrorCode, string> = {
   EXTERNAL_IMAGE_DOWNLOAD_FAILED: "外部の画像をダウンロードできませんでした。画像 URL を確認して再試行してください。",
   TURN_START_CLOSED: "前の送信は終了しています。このリクエストは実行されていません。再送信してください。",
   RUNNER_UNAVAILABLE: "実行サービスを利用できません。しばらくしてから再試行してください。",
+  RUNNER_OPERATION_UNCERTAIN: "Macでこの操作が実行されたかはまだ確認できていません。再送信する前に、状態が更新されるまでお待ちください。",
+
   DEPLOYMENT_STOPPED: "システム更新のため、このタスクを停止しました。既存の内容は保持されています。進行状況を確認してから手動で続行してください。",
   EXECUTION_SERVICE_INCOMPATIBLE: "実行サービスのバージョンに互換性がありません。しばらくしてから再試行し、問題が続く場合は管理者にお問い合わせください。",
   AUTH_INVALID_CREDENTIALS: "メールアドレスまたはパスワードが正しくありません。",
@@ -352,6 +364,7 @@ export const auditMessages = {
     conversation_artifact_registered: "タスクの成果物を登録",
     conversation_attachment_uploaded: "タスクの添付ファイルをアップロード",
     conversation_context_compaction_started: "タスクのコンテキスト圧縮を開始",
+    conversation_continued: "タスクを継続",
     conversation_created: "タスクを作成",
     conversation_deleted: "タスクを削除",
     conversation_forked: "タスクを分岐",

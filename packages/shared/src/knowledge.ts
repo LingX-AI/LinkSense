@@ -583,6 +583,7 @@ export const knowledgeDocumentEventSchema = z.strictObject({
 });
 
 export const KNOWLEDGE_SEARCH_MAX_NUM_CANDIDATES = 10_000;
+export const DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS = 200_000;
 
 export const searchKnowledgeBaseInputSchema = z.strictObject({
   query: z.string().trim().min(1).max(32_000),
@@ -623,6 +624,28 @@ export const getKnowledgeDocumentMarkdownInputSchema = z.strictObject({
   cursor: knowledgeDocumentCursorSchema.optional(),
 });
 
+const internalKnowledgeTurnSchema = z.strictObject({
+  conversationId: uuidSchema,
+  turnId: uuidSchema,
+});
+
+export const internalKnowledgeSearchRequestSchema = internalKnowledgeTurnSchema.extend({
+  query: searchKnowledgeBaseInputSchema.shape.query,
+  finalTopK: searchKnowledgeBaseInputSchema.shape.final_top_k,
+  candidateMultiplier: searchKnowledgeBaseInputSchema.shape.candidate_multiplier,
+  numCandidates: searchKnowledgeBaseInputSchema.shape.num_candidates,
+  minScore: searchKnowledgeBaseInputSchema.shape.min_score,
+});
+
+export const internalKnowledgeDocumentListRequestSchema = internalKnowledgeTurnSchema.extend(
+  listKnowledgeDocumentsInputSchema.shape,
+);
+
+export const internalKnowledgeDocumentMarkdownRequestSchema = internalKnowledgeTurnSchema.extend({
+  documentRef: getKnowledgeDocumentMarkdownInputSchema.shape.document_ref,
+  cursor: getKnowledgeDocumentMarkdownInputSchema.shape.cursor,
+});
+
 export const knowledgeDocumentMarkdownSuccessSchema = z.strictObject({
   success: z.literal(true),
   document_ref: knowledgeDocumentReferenceSchema,
@@ -639,6 +662,7 @@ export const knowledgeDocumentMarkdownSuccessSchema = z.strictObject({
 });
 
 export const knowledgeDocumentToolFailureCodeSchema = z.enum([
+  "RUNNER_OPERATION_UNCERTAIN",
   "KNOWLEDGE_DOCUMENT_LIST_INVALID",
   "KNOWLEDGE_DOCUMENT_LIST_FORBIDDEN",
   "KNOWLEDGE_DOCUMENT_LIST_UNAVAILABLE",
@@ -674,6 +698,7 @@ export const knowledgeSearchSuccessSchema = z.strictObject({
 });
 
 export const knowledgeSearchFailureCodeSchema = z.enum([
+  "RUNNER_OPERATION_UNCERTAIN",
   "KNOWLEDGE_SEARCH_INVALID",
   "KNOWLEDGE_SEARCH_FORBIDDEN",
   "KNOWLEDGE_SEARCH_UNAVAILABLE",

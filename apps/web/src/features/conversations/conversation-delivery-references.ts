@@ -1,4 +1,9 @@
 import { fromMarkdown } from "mdast-util-from-markdown"
+import {
+  parseRichOutput,
+  richOutputFileIds,
+  richOutputLanguage,
+} from "@linksense/shared"
 
 import type { ConversationFile } from "@/api/contracts"
 import { getInlineArtifactId } from "@/features/conversations/assistant-markdown-image-utils"
@@ -29,6 +34,16 @@ function collectDeliveryUrls(content: string, imagesOnly: boolean): string[] {
       ) {
         const url = definitions.get(node.identifier)
         if (url) urls.push(url)
+      } else if (
+        !imagesOnly &&
+        node.type === "code" &&
+        node.lang?.toLowerCase() === richOutputLanguage
+      ) {
+        const output = parseRichOutput(node.value)
+        if (output)
+          urls.push(
+            ...richOutputFileIds(output).map((id) => `linksense-artifact:${id}`)
+          )
       }
       if ("children" in node) {
         visit(node.children)

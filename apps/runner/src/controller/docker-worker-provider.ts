@@ -33,7 +33,7 @@ import type {
   WorkerInstance,
   WorkerOwnerPaths,
   WorkerProvider,
-  WorkerProviderCapabilities,
+  PosixWorkerProviderCapabilities,
 } from "./worker-provider.js"
 import {
   isNodeError,
@@ -144,7 +144,7 @@ type ResourceAccumulator = {
 export class DockerWorkerProvider implements WorkerProvider {
   private readonly diskUsage: DiskUsageMonitor
   readonly kind = "docker" as const
-  readonly capabilities: WorkerProviderCapabilities = {
+  readonly capabilities: PosixWorkerProviderCapabilities = {
     isolation: "container",
     persistentWorkers: true,
     workspaceIdentity: {

@@ -31,7 +31,7 @@ export function siteFixture() {
   objects.set("original/index.html", html);
   const manifest: WebBundleManifest = { entry_path: "index.html", files: [{ path: "index.html", object_key: "original/index.html", mime_type: "text/html", size_bytes: html.length, checksum_sha256: sha256(html) }] };
   const row: SiteAndRelease = {
-    site: { id: siteId, ownerId, conversationId: taskId, sourceTaskTitle: "Source", originFileId: fileId, sourceFileId: fileId, name: "Sample", description: "", slug: "sample", status: "published", currentReleaseId: releaseId, createdAt: now, updatedAt: now },
+    site: { id: siteId, ownerId, conversationId: taskId, sourceTaskTitle: "Source", originFileId: fileId, sourceFileId: fileId, name: "Sample", description: "", slug: "sample", status: "published", passcodeHash: null, analyticsEnabled: false, analyticsSiteId: null, analyticsDomain: null, currentReleaseId: releaseId, createdAt: now, updatedAt: now },
     release: { id: releaseId, siteId, sourceFileId: fileId, manifestJson: manifest, createdAt: now },
   };
   const source: Awaited<ReturnType<WebSiteStore["source"]>> = {
@@ -40,9 +40,13 @@ export function siteFixture() {
     bundle: null,
   };
   const store = {
+    assertActor: vi.fn<WebSiteStore["assertActor"]>(async () => {}),
+    assertActiveTurn: vi.fn<WebSiteStore["assertActiveTurn"]>(async () => {}),
+    conversationDeliveries: vi.fn<WebSiteStore["conversationDeliveries"]>(async () => []),
     list: vi.fn<WebSiteStore["list"]>(async () => [row]),
     owned: vi.fn<WebSiteStore["owned"]>(async () => row),
     publicSite: vi.fn<WebSiteStore["publicSite"]>(async () => row),
+    publicSiteById: vi.fn<WebSiteStore["publicSiteById"]>(async () => row),
     source: vi.fn<WebSiteStore["source"]>(async () => source),
     sources: vi.fn<WebSiteStore["sources"]>(async () => [{ id: fileId, filename: "index.html", created_at: now.toISOString() }]),
     taskSources: vi.fn<WebSiteStore["taskSources"]>(async () => [{ id: fileId, filename: "index.html", created_at: now.toISOString() }]),

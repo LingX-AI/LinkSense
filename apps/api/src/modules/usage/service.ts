@@ -158,7 +158,9 @@ type ModelCatalogSnapshot = {
   pricing: Map<string, ModelTokenPricing>;
 };
 
-export class UsageAnalyticsService implements ModelUsageRecorder {
+export class UsageAnalyticsService
+  implements ModelUsageRecorder
+{
   private readonly now: () => Date;
   private readonly modelCatalog: ModelCatalogReader | undefined;
 

@@ -1418,6 +1418,7 @@ export class KnowledgeService {
       byteOffset: number;
       maxBytes: number;
       verifyIntegrity: boolean;
+      signal?: AbortSignal;
     },
   ): Promise<{
     markdown: string;
@@ -1441,6 +1442,7 @@ export class KnowledgeService {
       byteOffset: input.byteOffset,
       maxBytes: input.maxBytes,
       verifyIntegrity: input.verifyIntegrity,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
   }
 
@@ -1452,6 +1454,7 @@ export class KnowledgeService {
       byteOffset: number;
       maxBytes: number;
       verifyIntegrity: boolean;
+      signal?: AbortSignal;
     },
   ) {
     const current = await this.#requireReadyDocument(
@@ -1468,6 +1471,7 @@ export class KnowledgeService {
       byteOffset: input.byteOffset,
       maxBytes: input.maxBytes,
       verifyIntegrity: input.verifyIntegrity,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
   }
 

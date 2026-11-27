@@ -2,6 +2,7 @@ export const BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX =
   "linksense.browserNotifications.enabled"
 export const BROWSER_NOTIFICATION_DELIVERY_STORAGE_KEY_PREFIX =
   "linksense.browserNotifications.delivered"
+export const BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS = 5_000
 export const BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT = 5_000
 export const BROWSER_NOTIFICATION_DISPLAY_CONFIRMATION_TIMEOUT_MS = 500
 
@@ -12,7 +13,7 @@ const transientDeliveryHistory = new Map<string, string[]>()
 const transientFeedCursors = new Map<string, string>()
 
 export type BrowserNotificationPermission =
-  NotificationPermission | "unsupported"
+  NotificationPermission | "unsupported" | "unknown"
 
 export type BrowserNotificationEnableResult =
   NotificationPermission | "unsupported" | "error"
@@ -23,6 +24,14 @@ export type BrowserNotificationPreference = Readonly<{
   permission: BrowserNotificationPermission
   supported: boolean
 }>
+
+/**
+ * A visible, focused app is already showing its own in-app result or notice.
+ * Hidden and visible-but-unfocused windows are treated as background.
+ */
+export function isLinkSenseActivelyUsed(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus()
+}
 
 export function browserNotificationStorageKey(userId: string) {
   return `${BROWSER_NOTIFICATION_STORAGE_KEY_PREFIX}:${userId}`
@@ -50,8 +59,9 @@ function resolveLocalStorage(): Storage | null {
 }
 
 function readEnabled(userId: string): boolean {
-  if (transientDisabledPreferences.has(userId)) return false
   try {
+    if (transientDisabledPreferences.has(userId))
+      return false
     const stored = resolveLocalStorage()?.getItem(
       browserNotificationStorageKey(userId)
     )
@@ -67,6 +77,7 @@ export function readBrowserNotificationPreference(
   userId: string
 ): BrowserNotificationPreference {
   const notificationApi = resolveNotificationApi()
+  const supported = notificationApi !== null
   const permission = notificationApi?.permission ?? "unsupported"
   const enabled = readEnabled(userId)
 
@@ -74,7 +85,7 @@ export function readBrowserNotificationPreference(
     enabled,
     effectiveEnabled: enabled && permission === "granted",
     permission,
-    supported: notificationApi !== null,
+    supported,
   }
 }
 
@@ -128,7 +139,7 @@ function removeBrowserNotificationPreference(
 }
 
 export function disableBrowserNotifications(userId: string) {
-  transientFeedCursors.delete(userId)
+  clearBrowserNotificationFeedCursor(userId)
   return persistBrowserNotificationPreference(userId, false)
 }
 
@@ -247,6 +258,31 @@ function waitForBrowserNotificationDisplay(
   })
 }
 
+/**
+ * Serialize one notification id across tabs/windows that share this origin.
+ * Falls back to local delivery when the lock manager is unavailable.
+ */
+export async function withBrowserNotificationLock<T>(
+  userId: string,
+  notificationId: string,
+  deliver: () => Promise<T>
+): Promise<T> {
+  if (!navigator.locks) return deliver()
+  let started = false
+  return navigator.locks
+    .request(
+      `linksense-browser-notification:${userId}:${notificationId}`,
+      () => {
+        started = true
+        return deliver()
+      }
+    )
+    .catch((error) => {
+      if (started) throw error
+      return deliver()
+    })
+}
+
 export function claimBrowserNotificationDelivery(
   userId: string,
   notificationId: string
@@ -269,7 +305,7 @@ export function hasBrowserNotificationDelivery(
 
 function readBrowserNotificationDeliveryHistory(userId: string): string[] {
   const storageKey = browserNotificationDeliveryStorageKey(userId)
-  const fallback = transientDeliveryHistory.get(userId) ?? []
+  const fallback = transientDeliveryHistory.get(storageKey) ?? []
   try {
     const stored = window.localStorage?.getItem(storageKey)
     let parsed: unknown = []
@@ -284,7 +320,7 @@ function readBrowserNotificationDeliveryHistory(userId: string): string[] {
     const merged = [...new Set([...delivered, ...fallback])].slice(
       -BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT
     )
-    transientDeliveryHistory.set(userId, merged)
+    transientDeliveryHistory.set(storageKey, merged)
     return merged
   } catch {
     return fallback
@@ -296,12 +332,10 @@ function writeBrowserNotificationDeliveryHistory(
   delivered: string[]
 ) {
   const bounded = delivered.slice(-BROWSER_NOTIFICATION_DELIVERY_HISTORY_LIMIT)
-  transientDeliveryHistory.set(userId, bounded)
+  const storageKey = browserNotificationDeliveryStorageKey(userId)
+  transientDeliveryHistory.set(storageKey, bounded)
   try {
-    window.localStorage?.setItem(
-      browserNotificationDeliveryStorageKey(userId),
-      JSON.stringify(bounded)
-    )
+    window.localStorage?.setItem(storageKey, JSON.stringify(bounded))
   } catch {
     // The bounded in-memory history still prevents duplicate delivery in-page.
   }

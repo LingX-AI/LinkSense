@@ -713,6 +713,135 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("acknowledges a turn that completes while its task is open", async () => {
+    const startedAt = "2026-09-22T08:00:00.000Z"
+    const completedAt = "2026-09-22T10:00:00.000Z"
+    const turnId = "30000000-0000-4000-8000-000000000093"
+    let completed = false
+    let acknowledged = false
+    let releaseCompletion!: () => void
+    const completion = new Promise<void>((resolve) => {
+      releaseCompletion = resolve
+    })
+    const runningTask = {
+      ...conversations[0]!,
+      updated_at: startedAt,
+      execution_status: "running" as const,
+      last_turn_status: "running" as const,
+    }
+    const completedTask = {
+      ...runningTask,
+      updated_at: completedAt,
+      execution_status: "completed" as const,
+      last_turn_status: "completed" as const,
+      has_unread_completion: true,
+    }
+    const { requests } = installApiMock({
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: [
+              completed
+                ? {
+                    ...completedTask,
+                    has_unread_completion: !acknowledged,
+                  }
+                : runningTask,
+              conversations[1]!,
+            ],
+            next_cursor: null,
+          },
+        }),
+      conversationGetResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            ...(completed ? completedTask : runningTask),
+            turns: [
+              {
+                id: turnId,
+                status: completed
+                  ? ("completed" as const)
+                  : ("running" as const),
+              },
+            ],
+            running_turn: completed
+              ? null
+              : { id: turnId, status: "running" as const },
+          },
+        }),
+      conversationPatchResponse: (_conversationId, body) => {
+        if (body.completion_read) acknowledged = true
+        return json({
+          success: true,
+          data: {
+            ...conversation,
+            ...completedTask,
+            has_unread_completion: false,
+            turns: [{ id: turnId, status: "completed" as const }],
+            running_turn: null,
+          },
+        })
+      },
+      eventStreamStart: completion,
+      eventStreamBody: `id: c1:93\nevent: turn/completed\ndata: ${JSON.stringify(
+        {
+          id: "61000000-0000-4000-8000-000000000093",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: turnId,
+          sequence_no: 93,
+          event_type: "turn/completed",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/completed",
+            params: {
+              threadId: "native-thread",
+              turn: { id: "native-turn", status: "completed" },
+            },
+          },
+          sse_event_id: "c1:93",
+          created_at: completedAt,
+        }
+      )}\n\n`,
+    })
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) => request.path === "/api/v1/conversations/c1/events"
+        )
+      ).toBe(true)
+    )
+    await act(async () => {
+      completed = true
+      releaseCompletion()
+    })
+    await waitFor(() => {
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/c1",
+          method: "PATCH",
+          body: { completion_read: true },
+        })
+      )
+    })
+    await userEvent.setup().click(
+      within(sidebar).getByRole("link", {
+        name: conversations[1]!.title,
+      })
+    )
+    expect(
+      within(sidebar).queryByRole("status", { name: "任务已完成，尚未查看" })
+    ).not.toBeInTheDocument()
+  })
+
   it("shows an unread failure icon until the user opens the failed task", async () => {
     const interaction = userEvent.setup()
     const failedConversation = {

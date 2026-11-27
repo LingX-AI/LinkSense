@@ -6,7 +6,11 @@ import {
   parseSseFrame,
   type ConversationEventHandlers,
 } from "@/api/sse"
-import { getAccessToken, setAccessToken } from "@/api/session"
+import {
+  beginLoginSession,
+  getAccessToken,
+  setAccessToken,
+} from "@/api/session"
 
 const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001"
 const TURN_ID = "30000000-0000-4000-8000-000000000001"
@@ -403,6 +407,62 @@ describe("conversation SSE", () => {
     disconnect()
   })
 
+  it("does not persist a deferred or queued cursor after the login is replaced", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            [43, 44]
+              .map(
+                (sequence) =>
+                  `data: ${JSON.stringify(completedEvent(sequence))}\n\n`
+              )
+              .join("")
+          )
+        )
+      },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(stream, { status: 200 }))
+    )
+    const commits: Array<() => void> = []
+    const onEvent: ConversationEventHandlers["onEvent"] = vi.fn(
+      (_event, commit) => {
+        if (commit) commits.push(commit)
+        return false as const
+      }
+    )
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+    try {
+      await vi.waitFor(() => expect(commits).toHaveLength(2))
+
+      // The first commit happens while A is current and schedules its storage
+      // microtask. A replacement login must discard that queued write.
+      commits[0]?.()
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      // A callback retained by the old event consumer is stale now.
+      commits[1]?.()
+      await Promise.resolve()
+
+      expect(
+        window.sessionStorage.getItem(
+          `linksense.sse.${CONVERSATION_ID}.lastEventId`
+        )
+      ).toBeNull()
+      expect(getAccessToken()).toBe(accountBToken)
+    } finally {
+      disconnect()
+    }
+    expect(
+      window.sessionStorage.getItem(
+        `linksense.sse.${CONVERSATION_ID}.lastEventId`
+      )
+    ).toBeNull()
+  })
+
   it("coalesces cursor writes and never skips an unconsumed event", async () => {
     const commits: Array<() => void> = []
     const write = vi.spyOn(window.sessionStorage, "setItem")
@@ -722,7 +782,472 @@ describe("conversation SSE", () => {
     ).toBeNull()
     disconnect()
   })
+
+  it("keeps a verified replacement login when a queued refresh is released after sign-out", async () => {
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    const requestedPaths: string[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      requestedPaths.push(
+        new URL(String(input), window.location.origin).pathname
+      )
+      return new Response(
+        JSON.stringify({ success: false, error_code: "AUTH_SESSION_EXPIRED" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    let releaseLock!: () => void
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    const lockRequest = vi.fn(
+      (_name: string, callback: () => Promise<unknown>) =>
+        lockGate.then(() => callback())
+    )
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    })
+    try {
+      const onEvent = vi.fn()
+      const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+      await vi.waitFor(() => expect(lockRequest).toHaveBeenCalledOnce())
+
+      // The disconnect abandons the stream while its renewal is still queued
+      // for the cross-tab refresh lock. Signing out A and accepting verified B
+      // must survive that abandoned refresh.
+      disconnect()
+      beginLoginSession()
+      setAccessToken(null)
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+
+      const queuedRefresh = (
+        lockRequest.mock.results[0]?.value as Promise<unknown>
+      ).catch((error: unknown) => error)
+      releaseLock()
+      // Drain the superseded refresh continuation before inspecting the session.
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+      expect(getAccessToken()).toBe(accountBToken)
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("linksense.auth.access-session") ?? "null"
+        )
+      ).toMatchObject({ access_token: accountBToken })
+      // No /auth/refresh POST and no stream replay with the replacement login.
+      expect(requestedPaths).toEqual([
+        `/api/v1/conversations/${CONVERSATION_ID}/events`,
+      ])
+      expect(onEvent).not.toHaveBeenCalled()
+      await expect(queuedRefresh).resolves.toMatchObject({
+        name: "AbortError",
+      })
+    } finally {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: undefined,
+      })
+    }
+  })
+
+  it("stops an abandoned stream without refreshing, replaying, or clearing the replacement login when its initial 401 arrives after sign-in", async () => {
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    let resolveInitial!: (response: Response) => void
+    const initial = new Promise<Response>((resolve) => {
+      resolveInitial = resolve
+    })
+    let eventRequests = 0
+    const eventAuthorizations: Array<string | null> = []
+    const requestedPaths: string[] = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        requestedPaths.push(path)
+        if (path === "/api/v1/auth/refresh") {
+          return Promise.resolve(
+            authSessionResponse("account-a-refreshed".padEnd(48, "x"))
+          )
+        }
+        if (path === `/api/v1/conversations/${CONVERSATION_ID}/events`) {
+          eventRequests += 1
+          eventAuthorizations.push(
+            new Headers(init?.headers).get("Authorization")
+          )
+          return eventRequests === 1
+            ? initial
+            : Promise.resolve(authFailureResponse())
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    installImmediateWebLock()
+    try {
+      const onEvent = vi.fn()
+      const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+      await vi.waitFor(() => expect(eventRequests).toBe(1))
+
+      // The initial attempt belongs to login A. Its 401 settles only after the
+      // replacement login B owns the session.
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      resolveInitial(authFailureResponse())
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+      expect(requestedPaths).toEqual([
+        `/api/v1/conversations/${CONVERSATION_ID}/events`,
+      ])
+      expect(eventAuthorizations).toEqual([`Bearer ${accountAToken}`])
+      expect(getAccessToken()).toBe(accountBToken)
+      expect(onEvent).not.toHaveBeenCalled()
+      disconnect()
+    } finally {
+      restoreWebLocks()
+    }
+  })
+
+  it("does not clear a replacement login when the previous login's replayed stream is rejected after sign-in", async () => {
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    const rotatedAToken = "account-a-rotated-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    let resolveRetry!: (response: Response) => void
+    const retry = new Promise<Response>((resolve) => {
+      resolveRetry = resolve
+    })
+    let eventRequests = 0
+    const eventAuthorizations: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/auth/refresh") {
+          return Promise.resolve(authSessionResponse(rotatedAToken))
+        }
+        if (path === `/api/v1/conversations/${CONVERSATION_ID}/events`) {
+          eventRequests += 1
+          eventAuthorizations.push(
+            new Headers(init?.headers).get("Authorization")
+          )
+          return eventRequests === 1
+            ? Promise.resolve(authFailureResponse())
+            : retry
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    installImmediateWebLock()
+    try {
+      const disconnect = connectConversationEvents(CONVERSATION_ID, {
+        onEvent: vi.fn(),
+      })
+      // The same-login refresh has already rotated A's token and the replay
+      // was sent before the replacement login B appeared.
+      await vi.waitFor(() => expect(eventRequests).toBe(2))
+      expect(eventAuthorizations).toEqual([
+        `Bearer ${accountAToken}`,
+        `Bearer ${rotatedAToken}`,
+      ])
+
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      resolveRetry(authFailureResponse())
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+      expect(getAccessToken()).toBe(accountBToken)
+      expect(eventRequests).toBe(2)
+      disconnect()
+    } finally {
+      restoreWebLocks()
+    }
+  })
+
+  it("does not deliver events from a stream response accepted for a previous login", async () => {
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    let resolveInitial!: (response: Response) => void
+    const initial = new Promise<Response>((resolve) => {
+      resolveInitial = resolve
+    })
+    let eventRequests = 0
+    const fetchMock = vi.fn(() => {
+      eventRequests += 1
+      return initial
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const onEvent = vi.fn()
+    const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+    try {
+      await vi.waitFor(() => expect(eventRequests).toBe(1))
+
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      resolveInitial(
+        new Response(
+          `data: ${JSON.stringify(completedEvent(7))}\n\n`,
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        )
+      )
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+      expect(onEvent).not.toHaveBeenCalled()
+      expect(eventRequests).toBe(1)
+      expect(getAccessToken()).toBe(accountBToken)
+    } finally {
+      disconnect()
+    }
+  })
+
+  it("stops a connected authenticated stream that ends after sign-in without notifying or replaying", async () => {
+    vi.useFakeTimers()
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+      },
+    })
+    const authorizations: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        authorizations.push(new Headers(init?.headers).get("Authorization"))
+        return Promise.resolve(
+          new Response(stream, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          })
+        )
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    let signalConnected!: () => void
+    const connected = new Promise<void>((resolve) => {
+      signalConnected = resolve
+    })
+    const onConnectionChange = vi.fn((state: "connected" | "reconnecting") => {
+      if (state === "connected") signalConnected()
+    })
+    const onEvent = vi.fn()
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent,
+      onConnectionChange,
+    })
+    try {
+      await connected
+
+      // The connected stream still belongs to login A. Login B replaces it
+      // while the connector is waiting for the next chunk, without the caller
+      // disconnecting anything.
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      streamController.close()
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(authorizations).toEqual([`Bearer ${accountAToken}`])
+      expect(onConnectionChange).not.toHaveBeenCalledWith("reconnecting")
+      expect(onEvent).not.toHaveBeenCalled()
+      expect(getAccessToken()).toBe(accountBToken)
+    } finally {
+      disconnect()
+    }
+  })
+
+  it("stops a connected authenticated stream whose transport fails after sign-in without reconnecting", async () => {
+    vi.useFakeTimers()
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+      },
+    })
+    const authorizations: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        authorizations.push(new Headers(init?.headers).get("Authorization"))
+        return Promise.resolve(
+          new Response(stream, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          })
+        )
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    let signalConnected!: () => void
+    const connected = new Promise<void>((resolve) => {
+      signalConnected = resolve
+    })
+    const onConnectionChange = vi.fn((state: "connected" | "reconnecting") => {
+      if (state === "connected") signalConnected()
+    })
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent: vi.fn(),
+      onConnectionChange,
+    })
+    try {
+      await connected
+
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      streamController.error(new Error("transport reset"))
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(authorizations).toEqual([`Bearer ${accountAToken}`])
+      expect(onConnectionChange).not.toHaveBeenCalledWith("reconnecting")
+      expect(getAccessToken()).toBe(accountBToken)
+    } finally {
+      disconnect()
+    }
+  })
+
+  it("does not replay with a replacement login after the reconnect delay", async () => {
+    vi.useFakeTimers()
+    const accountAToken = "account-a-access-token".padEnd(48, "x")
+    const accountBToken = "account-b-access-token".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    const authorizations: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        authorizations.push(new Headers(init?.headers).get("Authorization"))
+        return Promise.resolve(
+          new Response("", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          })
+        )
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    let signalReconnecting!: () => void
+    const reconnecting = new Promise<void>((resolve) => {
+      signalReconnecting = resolve
+    })
+    const onConnectionChange = vi.fn((state: "connected" | "reconnecting") => {
+      if (state === "reconnecting") signalReconnecting()
+    })
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent: vi.fn(),
+      onConnectionChange,
+    })
+    try {
+      await reconnecting
+
+      // The stream already closed for login A, so the connector is waiting to
+      // reconnect. Login B must not inherit A's cursor or request.
+      beginLoginSession()
+      setAccessToken(accountBToken, Date.now() + 60_000)
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(authorizations).toEqual([`Bearer ${accountAToken}`])
+      expect(getAccessToken()).toBe(accountBToken)
+    } finally {
+      disconnect()
+    }
+  })
+
+  it("clears the session when a same-login refresh is definitively rejected", async () => {
+    const requestedPaths: string[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      requestedPaths.push(
+        new URL(String(input), window.location.origin).pathname
+      )
+      return new Response(
+        JSON.stringify({ success: false, error_code: "AUTH_SESSION_EXPIRED" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const lockRequest = vi.fn(
+      (_name: string, callback: () => Promise<unknown>) => callback()
+    )
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    })
+    try {
+      const disconnect = connectConversationEvents(CONVERSATION_ID, {
+        onEvent: vi.fn(),
+      })
+      await vi.waitFor(() => expect(getAccessToken()).toBeNull())
+      expect(requestedPaths).toEqual([
+        `/api/v1/conversations/${CONVERSATION_ID}/events`,
+        "/api/v1/auth/refresh",
+      ])
+      disconnect()
+    } finally {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: undefined,
+      })
+    }
+  })
 })
+
+function authSessionResponse(accessToken: string) {
+  return new Response(
+    JSON.stringify({
+      success: true,
+      data: {
+        access_token: accessToken,
+        access_token_expires_at: "2099-01-01T00:00:00.000Z",
+        refresh_session_expires_at: "2099-03-01T00:00:00.000Z",
+        user: {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: "person@example.com",
+          name: "Person",
+          avatar_object_key: null,
+          role: "admin",
+          status: "active",
+          preferred_locale: "zh-CN",
+          running_message_action: "queue",
+          last_login_at: "2026-08-31T08:00:00.000Z",
+          last_login_method: "password",
+          password_updated_at: "2026-08-01T08:00:00.000Z",
+          created_at: "2026-08-01T08:00:00.000Z",
+          updated_at: "2026-08-31T08:00:00.000Z",
+        },
+      },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  )
+}
+
+function authFailureResponse() {
+  return new Response(
+    JSON.stringify({ success: false, error_code: "AUTH_SESSION_EXPIRED" }),
+    { status: 401, headers: { "content-type": "application/json" } }
+  )
+}
+
+function installImmediateWebLock() {
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (_name: string, callback: () => Promise<unknown>) => callback(),
+    },
+  })
+}
+
+function restoreWebLocks() {
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: undefined,
+  })
+}
 
 function completedEvent(sequence: number) {
   return {

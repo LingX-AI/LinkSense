@@ -132,10 +132,42 @@ export const applicationsMessages = {
     createTypeDescription: "Elige cómo crear tu aplicación.",
     creation: {
       recommended: "Recomendado",
-      interactiveTitle: "Crear una aplicación interactiva por chat",
+      interactiveTitle: "Crear una aplicación por chat",
       interactiveDescription:
         "Comparte tu idea y deja que LinkSense la haga realidad.",
+      publicSiteTitle: "Crear una aplicación web",
+      publicSiteDescription:
+        "Crea un sitio o una aplicación pública y recibe un enlace para abrir o copiar.",
       start: "Empezar a crear",
+    },
+    conversationCreation: {
+      title: "Crear una aplicación por chat",
+      description:
+        "Describe tu objetivo. Aclararemos el acceso, los datos y los recordatorios solo cuando sea necesario.",
+      goal: "¿Qué quieres conseguir?",
+      goalPlaceholder:
+        "Por ejemplo: un asistente para beber agua. Primero quiero ver la página y decidir los recordatorios después.",
+      defaultGoal: "Aclara solo los requisitos que cambien el resultado.",
+      start: "Iniciar conversación",
+      prompt:
+        "Ayúdame a conseguir este objetivo: {{goal}}. Reutiliza la información que ya he dado y pregunta solo por requisitos pendientes que cambien el resultado. Empieza con un borrador funcional; no publiques ni actives tareas programadas de forma predeterminada.",
+    },
+    publicSiteCreation: {
+      title: "Crear una aplicación web",
+      description:
+        "Crea un sitio público o una aplicación dinámica. Añade los requisitos de cuentas, datos y negocio en la conversación.",
+      name: "Nombre del sitio",
+      goal: "¿Qué debe hacer el sitio? (opcional)",
+      goalPlaceholder:
+        "Por ejemplo: crea un programa de eventos con un filtro por fecha",
+      defaultGoal:
+        "Pregúntame qué contenido e interacciones necesita el sitio.",
+      start: "Crear y publicar",
+      openLocally: "Abrir en mi navegador después de publicar",
+      openInstruction:
+        "Después de publicar, usa Browser Use para abrir el sitio una sola vez en mi navegador local.",
+      prompt:
+        "Crea un sitio o una aplicación pública para mí. Nombre: {{name}}. Requisitos: {{goal}}. Elige un sitio estático o un backend dinámico autoalojado según sea necesario, publica el resultado y dame su enlace.",
     },
     createStandardApp: "Crear aplicación estándar",
     createStandardAppDescription:

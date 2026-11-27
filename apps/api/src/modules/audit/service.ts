@@ -129,6 +129,10 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "pending_request_ids",
   ],
   conversation_pending_request_steered: ["conversation_id", "turn_id"],
+  conversation_continued: [
+    "source_conversation_id",
+    "source_target",
+  ],
   conversation_turn_completed: ["conversation_id"],
   conversation_turn_failed: ["conversation_id"],
   conversation_turn_interrupted: ["conversation_id"],
@@ -363,7 +367,7 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 
 export class AuditService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: Pick<PrismaClient, "auditLog">) {}
 
   async write(entry: AuditEntry): Promise<void> {
     const metadata = sanitizeAuditMetadata(entry.action, entry.metadata ?? {});

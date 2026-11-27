@@ -878,8 +878,9 @@ describe("ApplicationService runtime resolution", () => {
       1,
       "gpt-5.6-terra",
       "medium",
+      "persisted",
     );
-    expect(modelResolution).toHaveBeenNthCalledWith(2, "gpt-5.6-terra", "medium");
+    expect(modelResolution).toHaveBeenNthCalledWith(2, "gpt-5.6-terra", "medium", "persisted");
   });
 
   it.each([false, true])("checks required plugin credentials before selecting a new debug snapshot (available: %s)", async (available) => {

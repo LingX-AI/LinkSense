@@ -1,31 +1,49 @@
 import { z } from "zod";
+import { webSiteBackendConfigureSchema, webSiteBackendInspectSchema, webSiteBackendPrepareSchema } from "./web-site-backends.js";
 
 export const webSiteSlugSchema = z.string().trim().toLowerCase().min(3).max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
 export const webSiteStatusSchema = z.enum(["published", "disabled"]);
+/** Stable application identity, independent of aliases and optional backend. */
+export const webApplicationPath = (id: string): string => `/app/s/${z.uuid().parse(id)}`;
+/** Optional per-site visitor passcode. `null` removes it. */
+export const webSitePasscodeSchema = z.string().min(4).max(128).nullable();
 export const webSiteCreateSchema = z.strictObject({
   conversation_id: z.uuid(),
   file_id: z.uuid(),
   name: z.string().trim().min(1).max(240),
   description: z.string().trim().max(1_000).default(""),
   slug: webSiteSlugSchema.optional(),
+  backend_id: z.uuid().optional(),
+  passcode: webSitePasscodeSchema.optional(),
 });
 export const webSiteMetadataFields = {
   name: z.string().trim().min(1).max(240).optional(),
   description: z.string().trim().max(1_000).optional(),
   slug: webSiteSlugSchema.optional(),
 };
+
 export const webSiteUpdateSchema = z.strictObject({
-  ...webSiteMetadataFields,
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
   status: webSiteStatusSchema.optional(),
+  passcode: webSitePasscodeSchema.optional(),
+  /** Visitor analytics; only a published site may enable it. */
+  analytics: z.boolean().optional(),
 }).refine(value => Object.keys(value).length > 0);
-export const webSitePublishSchema = z.strictObject({ file_id: z.uuid() });
+export const webSitePublishSchema = z.strictObject({ file_id: z.uuid(), backend_id: z.uuid().optional() });
 export const webSiteSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   description: z.string(),
   slug: webSiteSlugSchema,
   status: webSiteStatusSchema,
+  /** The hash itself never leaves the server. */
+  passcode_protected: z.boolean().default(false),
+  analytics_enabled: z.boolean().default(false),
+  /** Owner-facing dashboard; present only while analytics is enabled and configured. */
+  analytics_url: z.url({ protocol: /^https?$/u }).optional(),
   url_path: z.string(),
   conversation_id: z.uuid().nullable(),
   source_task_title: z.string(),
@@ -36,6 +54,9 @@ export const webSiteSchema = z.object({
   published_at: z.iso.datetime(),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
+  backend_id: z.uuid().nullable().optional(),
+  url: z.url({ protocol: /^https?$/u }).optional(),
+  alias_url: z.url({ protocol: /^https?$/u }).optional(),
 });
 export const webSitePageSchema = z.object({
   items: z.array(webSiteSchema),
@@ -45,16 +66,82 @@ export const webSiteSourceSchema = z.object({
   id: z.uuid(), filename: z.string(), created_at: z.iso.datetime(),
 });
 export const webSiteSourcesSchema = z.array(webSiteSourceSchema);
+export const conversationWebSiteSchema = webSiteSchema.pick({
+  id: true, name: true, slug: true, status: true, source_file_id: true, backend_id: true,
+}).extend({ turn_id: z.uuid(), url: z.url({ protocol: /^https?$/u }) });
+export const conversationWebSitesSchema = z.array(conversationWebSiteSchema);
+export type ConversationWebSite = z.infer<typeof conversationWebSiteSchema>;
+
+export const webSiteCursorSchema = z.string().max(100).refine(value => {
+  const parts = value.split("|");
+  return parts.length === 2 && z.iso.datetime().safeParse(parts[0]).success && z.uuid().safeParse(parts[1]).success;
+});
+
+/** Agent-facing site publishing tools. The conversation and turn scope come from the runtime. */
+export const webSitePublishToolSchema = z.strictObject({
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
+  file_id: z.uuid(),
+  site_id: z.uuid().optional(),
+  backend_id: z.uuid().optional(),
+});
+export const webSiteListToolSchema = z.strictObject({
+  search: z.string().trim().max(240).optional(),
+  status: webSiteStatusSchema.optional(),
+  cursor: webSiteCursorSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+export const webSiteUpdateToolSchema = z.strictObject({
+  site_id: z.uuid(),
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
+  status: webSiteStatusSchema.optional(),
+  passcode: webSitePasscodeSchema.optional(),
+  analytics: z.boolean().optional(),
+});
+export const webSiteDeleteToolSchema = z.strictObject({ site_id: z.uuid() });
+export const webSiteLegacyToolRequestSchema = z.discriminatedUnion("operation", [
+  webSitePublishToolSchema.extend({ operation: z.literal("publish") }),
+  webSiteListToolSchema.extend({ operation: z.literal("list") }),
+  webSiteUpdateToolSchema.extend({ operation: z.literal("update") }),
+  webSiteDeleteToolSchema.extend({ operation: z.literal("delete") }),
+  webSiteBackendPrepareSchema.extend({ operation: z.literal("prepare_backend") }),
+  webSiteBackendConfigureSchema.extend({ operation: z.literal("configure_backend") }),
+  webSiteBackendInspectSchema.extend({ operation: z.literal("inspect_backend") }),
+]);
+export const webSiteWithUrlSchema = webSiteSchema.extend({ url: z.url() });
+export const webSiteToolPageSchema = z.object({
+  items: z.array(webSiteWithUrlSchema),
+  next_cursor: z.string().nullable(),
+});
 export type WebSite = z.infer<typeof webSiteSchema>;
 export type WebSiteCreate = z.infer<typeof webSiteCreateSchema>;
 export type WebSiteUpdate = z.infer<typeof webSiteUpdateSchema>;
 export type WebSiteStatus = z.infer<typeof webSiteStatusSchema>;
 export type WebSiteSource = z.infer<typeof webSiteSourceSchema>;
+export type WebSitePublishTool = z.infer<typeof webSitePublishToolSchema>;
+export type WebSiteListTool = z.infer<typeof webSiteListToolSchema>;
+export type WebSiteUpdateTool = z.infer<typeof webSiteUpdateToolSchema>;
+export type WebSiteLegacyToolRequest = z.infer<typeof webSiteLegacyToolRequestSchema>;
+export type WebSiteWithUrl = z.infer<typeof webSiteWithUrlSchema>;
+export type WebSiteToolPage = z.infer<typeof webSiteToolPageSchema>;
 
-export const webBundleLimits = { files: 500, fileBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024 } as const;
+export const webBundleLimits = {
+  files: 500, entries: 1_000, depth: 20, fileBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024,
+} as const;
 export const webBundlePathSchema = z.string().min(1).max(1_000).refine(value =>
   !value.startsWith("/") && !value.includes("\\") && !/[\u0000-\u001f\u007f?#%]/u.test(value) &&
   value.split("/").every(part => part.length > 0 && !part.startsWith(".") && part !== "node_modules"),
+);
+const webBundleResourceExtensions = new Set([
+  ".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg", ".png", ".jpg", ".jpeg", ".gif",
+  ".webp", ".avif", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".webm",
+  ".ogg", ".wav", ".wasm", ".txt", ".csv", ".pdf",
+]);
+export const webBundleResourcePathSchema = webBundlePathSchema.refine(path =>
+  webBundleResourceExtensions.has(path.slice(path.lastIndexOf(".")).toLowerCase()),
 );
 export const webBundleManifestSchema = z.strictObject({
   entry_path: webBundlePathSchema,

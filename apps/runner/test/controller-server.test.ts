@@ -85,6 +85,25 @@ describe("published service routing", () => {
       expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
     } finally { await server.close(); }
   });
+  it("relays cloud local-tool calls to the API with the owner identity", async () => {
+    const { server } = await createServer();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, operation: "file.read", input: { path: "hello.txt" } };
+    const url = "/internal/local-tools/execute";
+    try {
+      expect((await server.inject({ method: "POST", url, payload })).statusCode).toBe(401);
+      const accepted = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
+      } });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json()).toEqual({ ok: true });
+      const [destination, init] = fetchMock.mock.calls[0]!;
+      expect(String(destination)).toBe("http://api:4000/internal/local-tools/execute");
+      expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId);
+      expect(JSON.parse(String(init?.body))).toEqual(payload);
+    } finally { await server.close(); }
+  });
   it("relays personal Microsoft connections with the owner identity and blocks external service credentials", async () => {
     const { server } = await createServer();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "connections", items: [] }));
@@ -162,6 +181,47 @@ describe("published service routing", () => {
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-linksense-service-session")).toBe(session)
     await server.close()
   })
+
+  it.each(["/internal/web-sites", "/internal/web-sites?trace=1"])(
+    "keeps the site management callback private from published service sessions (%s)",
+    async (url) => {
+      const { server } = await createServer()
+      const session = "01900000-0000-7000-8000-000000000011"
+      const receipt = { items: [], next_cursor: null }
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(receipt))
+      vi.stubGlobal("fetch", fetchMock)
+      const payload = { conversationId: ownerId, turnId: otherOwnerId, request: { operation: "list" } }
+      try {
+        const denied = await server.inject({
+          method: "POST",
+          url,
+          payload,
+          headers: {
+            authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`,
+            "x-linksense-owner-id": ownerId,
+            "x-linksense-service-session": session,
+          },
+        })
+        expect(denied.statusCode).toBe(403)
+        expect(denied.json()).toEqual({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
+        expect(fetchMock).not.toHaveBeenCalled()
+        const allowed = await server.inject({
+          method: "POST",
+          url,
+          payload,
+          headers: {
+            authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`,
+            "x-linksense-owner-id": ownerId,
+          },
+        })
+        expect(allowed.statusCode).toBe(200)
+        expect(allowed.json()).toEqual(receipt)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+      } finally {
+        await server.close()
+      }
+    },
+  )
 })
 describe("controller authentication and routing", () => {
   it.each(["GET", "PUT"] as const)("does not expose the removed environment settings endpoint (%s)", async (method) => {

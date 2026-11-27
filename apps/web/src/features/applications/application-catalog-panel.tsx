@@ -16,7 +16,7 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { FilePicker } from "@/components/forms/file-picker"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
 import { ApplicationSetupDialog } from "./application-setup-dialog"
-import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
+import { ApplicationPublicSiteCreateDialog } from "./application-public-site-create-dialog"
 import {
   ApplicationCreateDialog,
   type ApplicationCreationMethod,
@@ -112,6 +112,7 @@ import {
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { catalogResourceListClassName } from "@/components/ui/catalog-resource-row"
 import { Spinner } from "@/components/ui/spinner"
 import { ResourceMultiSelect } from "./application-resource-multi-select"
 import { ApplicationInstallationAction } from "./application-installation-action"
@@ -675,7 +676,13 @@ export function ApplicationCatalogPanel({
         />
       )}
       {catalogItems.length > 0 && (
-        <div className="flex min-w-0 flex-col">
+        <div
+          className={
+            scope === "owned"
+              ? catalogResourceListClassName
+              : "flex min-w-0 flex-col"
+          }
+        >
           {catalogItems.map((entry) => {
             if (entry.type === "development") {
               return (
@@ -691,6 +698,7 @@ export function ApplicationCatalogPanel({
                 <PublicKnowledgeApplicationCard
                   key={application.id}
                   application={application}
+                  managed={scope === "owned"}
                   onDelete={setDeleteTarget}
                   onFeedback={onFeedback}
                 />
@@ -715,7 +723,7 @@ export function ApplicationCatalogPanel({
               organizationSharingEnabled && Boolean(shareTargetSummary)
             return (
               <ApplicationCard
-                layout="row"
+                layout={scope === "owned" ? "managed" : "row"}
                 key={application.id}
                 id={application.id}
                 name={application.name}
@@ -1041,6 +1049,7 @@ export function ApplicationCatalogPanel({
                   knowledge_base_count={application.knowledge_base_count}
                   mcp_server_count={application.mcp_server_count}
                   hasNewDevelopment={draft?.has_changes ?? false}
+                  hideEmpty={scope === "owned"}
                 />
                 <ApplicationCardModel model={application.model} />
                 {unavailable &&
@@ -1287,7 +1296,13 @@ export function ApplicationCreateButton({
         onChoose={choose}
       />
       {step === "development" && (
-        <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
+        <ApplicationPublicSiteCreateDialog
+          mode="auto"
+          onClose={() => setStep(null)}
+        />
+      )}
+      {step === "public_site" && (
+        <ApplicationPublicSiteCreateDialog onClose={() => setStep(null)} />
       )}
       {step === "public_knowledge" && (
         <PublicKnowledgeCreateDialog

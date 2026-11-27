@@ -220,7 +220,7 @@ export const settingsResources = {
     channelAccessDescription:
       "Gérer Weixin, WeCom, DingTalk, Teams, Feishu et les autres canaux",
     capabilitiesDescription:
-      "Parcourir le Centre de plugins et gérer les plugins et compétences personnels",
+      "Parcourez et gérez les applications, les sites et les outils",
     archivedDescription: "Consulter les tâches archivées",
     usersDescription:
       "Gérer les comptes, les rôles et les états des utilisateurs",
@@ -301,6 +301,77 @@ export const settingsResources = {
       "Cette action est irréversible. Vos tâches, instructions personnalisées, plugins et compétences seront conservés.",
     resettingMemories: "Réinitialisation de la mémoire…",
     memoriesReset: "Mémoire réinitialisée",
+    privacyMasking: "Masquage de confidentialité",
+    privacyMaskingDescription:
+      "Remplace les secrets par des jetons avant l’envoi au fournisseur du modèle et les restaure avant que la réponse n’atteigne l’environnement d’exécution.",
+    privacyMaskingEnabled: "Activer le masquage de confidentialité",
+    privacyMaskingEnabledDescription:
+      "Masque le texte envoyé par la passerelle de modèles des tâches. Il ne protège pas les titres automatiques, les recherches web, la génération d’images ni la vectorisation de la base de connaissances. L’historique et les événements conservent le texte d’origine.",
+    privacyMaskingSecrets: "Secrets et identifiants",
+    privacyMaskingSecretsDescription:
+      "Clés d’API, jetons, clés privées, mots de passe et valeurs des en-têtes Authorization ou Cookie.",
+    privacyMaskingWords: "Mots personnalisés",
+    privacyMaskingWordsDescription:
+      "Un mot ou une expression par ligne : noms de projets, noms internes ou noms que vous ne voulez pas envoyer au fournisseur.",
+    privacyMaskingWordsPlaceholder: "Projet Nightjar\nInterne Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Ignorer la casse",
+    privacyMaskingAnyCaseDescription:
+      "Traite nightjar, Nightjar et NIGHTJAR comme le même mot.",
+    privacyMaskingWholeWord: "Mots entiers uniquement",
+    privacyMaskingWholeWordDescription:
+      "Ne masque pas un mot à l’intérieur d’un mot ou d’un identifiant plus long.",
+    privacyMaskingAllow: "Valeurs autorisées",
+    privacyMaskingAllowDescription:
+      "Une valeur par ligne. Une valeur détectée n’est envoyée telle quelle que si elle correspond en entier et respecte la casse. Le réglage de casse des mots personnalisés n’affecte pas cette liste.",
+    privacyMaskingAllowPlaceholder: "exemple@exemple.test",
+    privacyMaskingSaved: "Paramètres de masquage enregistrés.",
+    privacyMaskingSave: "Enregistrer le masquage",
+    privacyMaskingPageDescription:
+      "Choisissez ce qui ne part jamais vers le fournisseur du modèle et testez les règles sur un texte d'exemple avant de lancer une tâche.",
+    privacyMaskingWhatToMask: "Quoi masquer",
+    privacyMaskingTryIt: "Essayer",
+    privacyMaskingTryItDescription:
+      "Collez un texte qu'un agent pourrait envoyer. Il est masqué ici comme dans une vraie requête, et rien n'est conservé.",
+    privacyMaskingTryItPlaceholder:
+      "Déployez avec la clé sk-proj-… puis appelez l'API de préproduction",
+    privacyMaskingTryItOutput: "Aperçu du texte avec les règles du brouillon",
+    privacyMaskingTryItEmpty: "Rien dans ce texte ne serait masqué.",
+    privacyMaskingTryItOffNote:
+      "Le masquage est désactivé. Cet aperçu montre ce qui serait remplacé une fois activé.",
+    privacyMaskingKindPrivateKey: "Clé privée",
+    privacyMaskingKindApiKey: "Clé d'API",
+    privacyMaskingKindToken: "Jeton",
+    privacyMaskingKindSecret: "Secret",
+    privacyMaskingKindPassword: "Mot de passe",
+    privacyMaskingKindTerm: "Mot personnalisé",
+    privacyMaskingKindEmail: "Adresse e-mail",
+    privacyMaskingKindPhone: "Numéro de téléphone",
+    privacyMaskingKindIdCard: "Numéro de pièce d'identité",
+    privacyMaskingKindBankCard: "Numéro de carte bancaire",
+    privacyMaskingActivity: "Activité de masquage",
+    privacyMaskingActivityDescription:
+      "Consultez les requêtes avec des remplacements des 30 derniers jours. L’activité indique les types, les longueurs, les emplacements et les nombres de remplacements, jamais les valeurs d’origine.",
+    privacyMaskingSections: "Configuration et activité",
+    privacyMaskingSectionSettings: "Configuration",
+    privacyMaskingSectionActivity: "Activité",
+    privacyMaskingActivityPeriod: "Période",
+    privacyMaskingActivity7Days: "7 jours",
+    privacyMaskingActivity30Days: "30 jours",
+    privacyMaskingActivityMasked: "valeurs remplacées",
+    privacyMaskingActivityRequests: "requêtes",
+    privacyMaskingActivityEmpty:
+      "Aucune requête masquée sur cette période pour l'instant.",
+    privacyMaskingActivityLoadMore: "Charger plus",
+    privacyMaskingActivityHintLength: "{{length}} caractères",
+    privacyMaskingActivityLocationPrompt: "Invite",
+    privacyMaskingActivityLocationInstructions: "Instructions",
+    privacyMaskingActivityLocationToolArguments: "Arguments d’outil",
+    privacyMaskingActivityLocationToolOutput: "Sortie d’outil",
+    privacyMaskingActivityLocationTools: "Définitions d’outils",
+    privacyMaskingActivityLocationOther: "Autre",
+    privacyMaskingBehaviorNote:
+      "Le modèle voit des jetons au lieu des valeurs réelles. Les tâches qui doivent examiner un secret peuvent échouer tant que vous n’ajoutez pas cette valeur à la liste autorisée.",
     appearancePageDescription:
       "Choisissez le thème de {{productName}} et la taille de police de base.",
     theme: "Thème",

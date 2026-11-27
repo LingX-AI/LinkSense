@@ -20,6 +20,38 @@ const browserUsePairRateLimitError = {
 } as const satisfies ErrorCatalogEntry;
 
 export const errorCatalog = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: {
+    message_key: "errors.webSites.backendLimitReached", http_status: 409,
+    messages: { "zh-CN": "动态应用后端数量已达上限，请联系管理员处理保留资源。", "en-US": "The dynamic application backend limit has been reached. Ask an administrator to review retained resources." },
+  },
+  WEB_SITE_BACKEND_NOT_CONFIGURED: {
+    message_key: "errors.webSites.backendNotConfigured", http_status: 503,
+    messages: { "zh-CN": "管理员尚未配置自部署动态应用服务。", "en-US": "An administrator must configure the self-hosted dynamic application service." },
+  },
+  WEB_SITE_BACKEND_UNAVAILABLE: {
+    message_key: "errors.webSites.backendUnavailable", http_status: 503,
+    messages: { "zh-CN": "动态应用后端暂时不可用，请稍后重试。", "en-US": "The application backend is temporarily unavailable. Try again later." },
+  },
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: {
+    message_key: "errors.webSites.backendAddressTaken", http_status: 409,
+    messages: { "zh-CN": "这个地址已被其他动态应用使用，请换一个。", "en-US": "Another dynamic application already uses this address. Choose a different one." },
+  },
+  WEB_SITE_BACKEND_PENDING: {
+    message_key: "errors.webSites.backendPending", http_status: 409,
+    messages: { "zh-CN": "后端资源或函数尚未准备完成，请检查构建状态后再发布。", "en-US": "Backend resources or functions are not ready. Check their build status before publishing." },
+  },
+  WEB_SITE_ANALYTICS_NOT_CONFIGURED: {
+    message_key: "errors.webSites.analyticsNotConfigured", http_status: 503,
+    messages: { "zh-CN": "管理员尚未配置站点统计服务。", "en-US": "An administrator must configure the site analytics service." },
+  },
+  WEB_SITE_ANALYTICS_UNAVAILABLE: {
+    message_key: "errors.webSites.analyticsUnavailable", http_status: 502,
+    messages: { "zh-CN": "统计服务暂时不可用，请稍后重试。", "en-US": "The analytics service is temporarily unavailable. Try again later." },
+  },
+  WEB_SITE_ANALYTICS_UNPUBLISHED: {
+    message_key: "errors.webSites.analyticsUnpublished", http_status: 409,
+    messages: { "zh-CN": "只有已发布的站点才能开启访问统计。", "en-US": "Only a published site can enable visitor analytics." },
+  },
   AUTOMATION_RUN_LIMIT_REACHED: {"message_key": "monitoring.runLimitReached", "http_status": 409, "messages": {"zh-CN": "自动运行次数已用尽，请先提高或取消次数上限。", "en-US": "The automatic run limit is exhausted. Increase or remove the limit before resuming."}},
   BROWSER_PANEL_UNAVAILABLE: {"message_key": "browserPanel.unavailable", "http_status": 409, "messages": {"zh-CN": "当前任务没有可查看的浏览器会话。", "en-US": "This task has no available browser session."}},
   BROWSER_CONTROL_BUSY: {"message_key": "browserPanel.busy", "http_status": 409, "messages": {"zh-CN": "浏览器正在执行操作，请稍后重试。", "en-US": "The browser is performing an action. Try again shortly."}},
@@ -35,7 +67,14 @@ export const errorCatalog = {
   WEB_SEARCH_RATE_LIMITED: { message_key: "errors.webSearch.rateLimited", http_status: 429, messages: { "zh-CN": "搜索请求过于频繁，请稍后重试。", "en-US": "Too many search requests. Try again later." } },
   WEB_SEARCH_RESPONSE_INVALID: { message_key: "errors.webSearch.responseInvalid", http_status: 502, messages: { "zh-CN": "搜索服务返回的结果无法使用，请联系管理员。", "en-US": "The search service returned unusable results. Contact an administrator." } },
   WEB_SEARCH_TIMEOUT: { message_key: "errors.webSearch.timeout", http_status: 504, messages: { "zh-CN": "搜索超时，请稍后重试。", "en-US": "The search timed out. Try again later." } },
-
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: {
+    message_key: "errors.privacyMasking.unavailable",
+    http_status: 503,
+    messages: {
+      "zh-CN": "隐私脱敏设置暂时无法读取。为避免明文发送，请稍后重试或联系管理员。",
+      "en-US": "Privacy masking settings are temporarily unavailable. To avoid sending unmasked content, try again later or contact an administrator.",
+    },
+  },
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,
     messages: {
@@ -1575,6 +1614,14 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "执行服务暂不可用，请稍后重试。",
       "en-US": "The execution service is unavailable. Try again later.",
+    },
+  },
+  RUNNER_OPERATION_UNCERTAIN: {
+    message_key: "errors.runnerOperationUncertain",
+    http_status: 503,
+    messages: {
+      "zh-CN": "尚未确认 Mac 是否已执行此操作。请等待状态更新，暂勿重新提交。",
+      "en-US": "It’s not yet confirmed whether your Mac ran this operation. Wait for a status update before submitting again.",
     },
   },
   DEPLOYMENT_STOPPED: {

@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { runInNewContext } from "node:vm";
 import { setImmediate } from "node:timers/promises";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import type { BrowserUseRequest } from "@linksense/shared";
+import type { BrowserUseExtensionRequest } from "@linksense/shared";
 import { controlMessageSchema } from "../browser-extension/control-protocol.js";
 
 const task = "20000000-0000-4000-8000-000000000001";
@@ -96,7 +96,7 @@ async function fixture(userAgent = "Chrome", endpoint = "https://linksense.examp
       sendCommand: vi.fn<(target: { tabId: number }, method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>>().mockResolvedValue({}),
       onDetach: { addListener: vi.fn() },
     },
-    windows: { update: vi.fn(async () => ({})) },
+    windows: { update: vi.fn(async () => ({})), create: vi.fn(async () => ({ id: 4 })) },
     scripting: { executeScript: vi.fn(async () => []) },
     action: { setBadgeText: vi.fn(async () => {}), openPopup: vi.fn(async () => {}) },
     runtime: {
@@ -157,7 +157,7 @@ async function fixture(userAgent = "Chrome", endpoint = "https://linksense.examp
   socket.onopen?.();
   socket.receive({ type: "ready", connection_id: connection });
   await setImmediate();
-  const execute = (request: BrowserUseRequest, id = commandId) =>
+  const execute = (request: BrowserUseExtensionRequest, id = commandId) =>
     socket.receive({
       id,
       connection_id: connection,
@@ -169,6 +169,31 @@ async function fixture(userAgent = "Chrome", endpoint = "https://linksense.examp
     new Promise<unknown>((resolve) => messageHandler?.(raw, { url, tab: { id: tab }, frameId }, resolve));
   return { chrome, socket, sockets, execute, popup, pageMessage, stored, local, session, fetchPairing };
 }
+
+it("opens an owned site on the paired origin in a new window without sharing its tab", async () => {
+  const { chrome, socket, execute, stored } = await fixture();
+  expect(socket.url.searchParams.get("capability")).toBe("open-site-window");
+  const initialGrants = structuredClone(stored.grants);
+  execute({ action: "open_site_window", slug: "sample-site" });
+  await vi.waitFor(() => expect(JSON.parse(String(socket.send.mock.lastCall?.[0]))).toEqual({
+    id: commandId, result: { ok: true, browser: "local", data: { url: "https://linksense.example/web/sample-site" } },
+  }));
+  expect(chrome.windows.create).toHaveBeenCalledExactlyOnceWith({ url: "https://linksense.example/web/sample-site", focused: true, type: "normal" });
+  expect(stored.grants).toEqual(initialGrants);
+  expect(chrome.debugger.attach).not.toHaveBeenCalled();
+});
+
+it("keeps generic same-origin opens blocked and honors the new-tab preference for site windows", async () => {
+  const { chrome, socket, execute, session } = await fixture();
+  execute({ action: "open", url: "https://linksense.example/web/sample-site" });
+  await vi.waitFor(() => expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("LOCAL_BROWSER_ACCESS_DENIED")));
+  socket.send.mockClear();
+  session.new_tabs = false;
+  execute({ action: "open_site_window", slug: "sample-site" });
+  await vi.waitFor(() => expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("LOCAL_BROWSER_ACCESS_DENIED")));
+  expect(chrome.tabs.create).not.toHaveBeenCalled();
+  expect(chrome.windows.create).not.toHaveBeenCalled();
+});
 
 it("reconnects a pre-rename stored endpoint and uses failure codes understood by installed servers", async () => {
   const { socket, execute } = await fixture("Chrome", "https://linksense.example/api/v1/local-browser");
@@ -421,7 +446,7 @@ it.each(["http://192.168.2.210:19090", "http://linksense.example:19090"])(
     expect(fetchPairing).toHaveBeenCalledWith(`${endpoint}/pair`, expect.objectContaining({
       method: "POST", credentials: "omit", redirect: "error",
     }));
-    expect(String(sockets.at(-1)?.url)).toBe(`${endpoint.replace("http:", "ws:")}/socket`);
+    expect(String(sockets.at(-1)?.url)).toBe(`${endpoint.replace("http:", "ws:")}/socket?capability=open-site-window`);
   },
 );
 

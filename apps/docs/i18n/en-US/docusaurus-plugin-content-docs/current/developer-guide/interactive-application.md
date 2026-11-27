@@ -434,7 +434,7 @@ Hiding the panel never stops the task. Ask the user to reopen it when a LinkSens
 
 ## Import and update
 
-Open **Plugin Center → Applications → Create application → Import interactive app**. After import, enable, disable, and share it like a standard application. Use **Update application package** to import a new version.
+Open **Apps & Tools → Applications → Create application → Import interactive app**. After import, enable, disable, and share it like a standard application. Use **Update application package** to import a new version.
 
 Build the first version in this order:
 

@@ -347,26 +347,6 @@ async function chooseProject(
   await interaction.click(await screen.findByRole("option", { name }))
 }
 
-async function openMoveProjectMenu(
-  interaction: ReturnType<typeof userEvent.setup>
-) {
-  const trigger = await screen.findByRole("menuitem", {
-    name: "移动到项目",
-  })
-  await waitFor(() =>
-    expect(trigger).not.toHaveAttribute("aria-disabled", "true")
-  )
-  await interaction.hover(trigger)
-  await waitFor(() => expect(trigger).toHaveAttribute("data-popup-open"))
-  return waitFor(() => {
-    const submenu = document.querySelector<HTMLElement>(
-      '[data-slot="dropdown-menu-sub-content"][data-open]'
-    )
-    expect(submenu).not.toBeNull()
-    return submenu!
-  })
-}
-
 async function dragFirstTaskToPersonalProject() {
   const sidebar = await screen.findByRole("complementary", {
     name: "LinkSense 导航",
@@ -1106,7 +1086,7 @@ describe("task projects", () => {
   )
 
   it.each([false, true])(
-    "hides project moves for development tasks while retaining pin actions, pinned=%s",
+    "retains direct pin actions for development tasks, pinned=%s",
     async (pinned) => {
       const { actions } = installProjectApi({ pinned, development: true })
       const interaction = userEvent.setup()
@@ -1118,14 +1098,9 @@ describe("task projects", () => {
       await interaction.hover(
         await within(sidebar).findByText(conversations[0].title)
       )
-      await interaction.click(
-        within(sidebar).getByRole("button", {
-          name: `${conversations[0].title}的更多操作`,
-        })
-      )
       expect(
-        await screen.findByRole("menuitem", {
-          name: pinned ? "取消置顶" : "置顶任务",
+        within(sidebar).getByRole("button", {
+          name: `${pinned ? "取消置顶" : "置顶"}任务“${conversations[0].title}”`,
         })
       ).toBeVisible()
       expect(
@@ -1137,15 +1112,12 @@ describe("task projects", () => {
     }
   )
 
-  it("blocks moving a pinned automation task from its actions menu", async () => {
+  it("blocks unpinning an automation task from the direct pin action", async () => {
     const { actions } = installProjectApi({ pinned: true, automation: true })
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
     const sidebar = await screen.findByRole("complementary", {
       name: "LinkSense 导航",
-    })
-    const personalProject = await within(sidebar).findByRole("region", {
-      name: "生活",
     })
 
     await interaction.hover(
@@ -1153,11 +1125,9 @@ describe("task projects", () => {
     )
     await interaction.click(
       within(sidebar).getByRole("button", {
-        name: `${conversations[0].title}的更多操作`,
+        name: `取消置顶任务“${conversations[0].title}”`,
       })
     )
-    const submenu = await openMoveProjectMenu(interaction)
-    fireEvent.click(within(submenu).getByRole("menuitem", { name: "生活" }))
 
     const dialog = await screen.findByRole("dialog", {
       name: "无法取消置顶",
@@ -1173,11 +1143,8 @@ describe("task projects", () => {
             action.method === "PATCH"
         )
         .map((action) => action.body)
-    ).toEqual([{ pinned: false, project_id: personalId }])
+    ).toEqual([{ pinned: false }])
     expect(within(sidebar).getByText(conversations[0].title)).toBeVisible()
-    expect(
-      within(personalProject).queryByText(conversations[0].title)
-    ).not.toBeInTheDocument()
   })
 
   it("shows a failed drag's API error and keeps the task in its original project", async () => {
@@ -1345,12 +1312,12 @@ describe("task projects", () => {
       await screen.findByRole("button", { name: "工作的更多操作" })
     )
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "移除项目" })
+      await screen.findByRole("menuitem", { name: "移除" })
     )
-    const dialog = await screen.findByRole("dialog", { name: "移除项目" })
+    const dialog = await screen.findByRole("dialog", { name: "移除" })
     expect(dialog).toHaveTextContent("消息记录和原项目文件都会保留")
     await interaction.click(
-      within(dialog).getByRole("button", { name: "移除项目" })
+      within(dialog).getByRole("button", { name: "移除" })
     )
     await waitFor(() =>
       expect(
@@ -1371,81 +1338,6 @@ describe("task projects", () => {
     expect(actions.filter((action) => action.method === "DELETE")).toHaveLength(
       1
     )
-  })
-
-  it("atomically unpins and moves a task from its actions menu", async () => {
-    const { actions } = installProjectApi({ pinned: true })
-    const interaction = userEvent.setup()
-    renderApp()
-    const sidebar = await screen.findByRole("complementary", {
-      name: "LinkSense 导航",
-    })
-    await interaction.hover(
-      await within(sidebar).findByText(conversations[0].title)
-    )
-    await interaction.click(
-      await screen.findByRole("button", {
-        name: `${conversations[0].title}的更多操作`,
-      })
-    )
-    const workSubmenu = await openMoveProjectMenu(interaction)
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(
-      within(workSubmenu).getByRole("menuitem", { name: "工作" })
-    ).toHaveAttribute("aria-disabled", "true")
-    fireEvent.click(within(workSubmenu).getByRole("menuitem", { name: "生活" }))
-    const folder = screen.getByRole("region", { name: "生活" })
-    expect(
-      await within(folder).findByText(conversations[0].title)
-    ).toBeVisible()
-    await interaction.hover(within(folder).getByText(conversations[0].title))
-    await interaction.click(
-      screen.getByRole("button", {
-        name: `${conversations[0].title}的更多操作`,
-      })
-    )
-    const personalSubmenu = await openMoveProjectMenu(interaction)
-    fireEvent.click(
-      within(personalSubmenu).getByRole("menuitem", { name: "公共空间" })
-    )
-    await waitFor(() =>
-      expect(
-        actions
-          .filter((action) => action.method === "PATCH")
-          .map((action) => action.body)
-      ).toEqual([
-        { pinned: false, project_id: personalId },
-        { project_id: null },
-      ])
-    )
-    await waitFor(() =>
-      expect(
-        within(folder).queryByText(conversations[0].title)
-      ).not.toBeInTheDocument()
-    )
-  })
-
-  it("preserves the original group when moving fails", async () => {
-    installProjectApi({ moveFailure: true })
-    const interaction = userEvent.setup()
-    renderApp()
-    const sourceFolder = await screen.findByRole("region", { name: "工作" })
-    await interaction.hover(
-      await within(sourceFolder).findByText(conversations[0].title)
-    )
-    await interaction.click(
-      await screen.findByRole("button", {
-        name: `${conversations[0].title}的更多操作`,
-      })
-    )
-    const submenu = await openMoveProjectMenu(interaction)
-    fireEvent.click(within(submenu).getByRole("menuitem", { name: "生活" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "该项目不存在或你无权访问"
-    )
-    expect(
-      within(sourceFolder).getByText(conversations[0].title)
-    ).toBeInTheDocument()
   })
 
   it.each([false, true])(

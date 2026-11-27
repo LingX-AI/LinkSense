@@ -1291,8 +1291,8 @@ model TokenUsageRecord {
   applicationId                    String?  @map("application_id") @db.Uuid
   applicationNameSnapshot          String?  @map("application_name_snapshot") @db.VarChar(160)
   turnId                           String   @map("turn_id") @db.Uuid
-  codexThreadId                    String   @map("codex_thread_id") @db.Text
-  codexTurnId                      String   @map("codex_turn_id") @db.Text
+  codexThreadId                    String?  @map("codex_thread_id") @db.Text
+  codexTurnId                      String?  @map("codex_turn_id") @db.Text
   model                            String   @db.VarChar(240)
   totalTokens                      BigInt   @map("total_tokens") @db.BigInt
   inputTokens                      BigInt   @map("input_tokens") @db.BigInt
@@ -1470,7 +1470,12 @@ model WebSite {
   description      String    @default("") @db.VarChar(1000)
   slug             String    @unique(map: "web_sites_slug_key") @db.VarChar(80)
   status           String    @db.VarChar(32)
+  passcodeHash     String?   @map("passcode_hash") @db.VarChar(255)
+  analyticsEnabled Boolean   @default(false) @map("analytics_enabled")
+  analyticsSiteId  Int?      @map("analytics_site_id")
+  analyticsDomain  String?   @map("analytics_domain") @db.VarChar(255)
   currentReleaseId String    @map("current_release_id") @db.Uuid
+  backendId        String?   @unique(map: "web_sites_backend_key") @map("backend_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1478,6 +1483,36 @@ model WebSite {
   @@index([conversationId], map: "web_sites_conversation_idx")
   @@index([originFileId], map: "web_sites_origin_file_idx")
   @@map("web_sites")
+}
+
+model WebSiteBackend {
+  id                  String    @id @default(uuid()) @db.Uuid
+  ownerId             String    @map("owner_id") @db.Uuid
+  conversationId      String    @map("conversation_id") @db.Uuid
+  name                String    @db.VarChar(128)
+  hostLabel           String?   @unique(map: "web_site_backends_host_label_key") @map("host_label") @db.VarChar(30)
+  hostResolved        Boolean   @default(false) @map("host_resolved")
+  runtimeMode         String?   @map("runtime_mode") @db.VarChar(16)
+  projectId           String    @unique(map: "web_site_backends_project_key") @map("project_id") @db.VarChar(36)
+  status              String    @default("preparing") @db.VarChar(16)
+  encryptedCredential String?   @map("encrypted_credential") @db.Text
+  leaseUntil          DateTime? @map("lease_until") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, conversationId, name], map: "web_site_backends_source_name_key")
+  @@index([ownerId, updatedAt], map: "web_site_backends_owner_idx")
+  @@map("web_site_backends")
+}
+
+// Browser storage survives an address change, so an old origin must never move
+// to another backend, even after its site is deleted.
+model WebSiteBackendAddress {
+  label     String @id @db.VarChar(30)
+  backendId String @map("backend_id") @db.Uuid
+
+  @@index([backendId], map: "web_site_backend_addresses_backend_idx")
+  @@map("web_site_backend_addresses")
 }
 
 // Reserve retired addresses while a site exists. Deleting the site releases
@@ -2381,6 +2416,40 @@ model SystemSetting {
 
   @@index([updatedBy], map: "system_settings_updated_by_idx")
   @@map("system_settings")
+}
+
+// One row per user that enabled or changed privacy masking; no row means
+// the defaults. The settings are encrypted because custom words and the
+// allowlist may name internal projects or values.
+model UserPrivacyMaskingSetting {
+  userId            String   @id @map("user_id") @db.Uuid
+  encryptedSettings String   @map("encrypted_settings") @db.Text
+  encryptionKeyId   String   @map("encryption_key_id") @db.VarChar(120)
+  revision          Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("user_privacy_masking_settings")
+}
+
+// One row per model-provider request where privacy masking replaced values.
+// Counts and ids only: no placeholder, no original value. Rows are deleted
+// after the retention window when the next row is written.
+model UserPrivacyMaskingRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  turnId         String?  @map("turn_id") @db.VarChar(120)
+  requestId      String   @map("request_id") @db.VarChar(120)
+  model          String   @db.VarChar(200)
+  maskedCount    Int      @map("masked_count")
+  kinds          Json     @db.JsonB
+  hints          Json     @default("[]") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("user_privacy_masking_records")
 }
 
 model BotChannelConnection {

@@ -81,8 +81,9 @@ describe.each(["file", "inline"] as const)(
       return { target, readyMessages }
     }
 
-    it("reveals only after CSS and initial layout, keeping the same document", async () => {
+    it("fits and reveals the same document after CSS even without animation frames", async () => {
       const f = setup()
+      vi.spyOn(f.target, "requestAnimationFrame").mockReturnValue(1)
       const button = f.target.document.querySelector("button")!
       button.dataset.state = "preserved"
       await vi.advanceTimersByTimeAsync(2_000)

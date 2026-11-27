@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
-import { runnerEventBatchSchema } from "@linksense/shared";
+import {
+  runnerEventBatchSchema,
+} from "@linksense/shared";
 import pino, { type Logger } from "pino";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -236,7 +238,8 @@ describe("AppServerProcessPool", () => {
     expect(parts.map(([, part]) => part.value.split("\n").slice(1).join("\n")).join("")).toContain(instructions);
     for (const [, part] of parts) {
       expect(part.kind).toBe("application");
-      expect(Buffer.byteLength(part.value)).toBeLessThanOrEqual(3_000);
+      // Codex truncates each value at 1,000 approximate tokens (4,000 bytes).
+      expect(Buffer.byteLength(part.value)).toBeLessThanOrEqual(4_000);
     }
     await pool.closeAll();
   });
@@ -304,6 +307,7 @@ describe("AppServerProcessPool", () => {
     const controlled = createControlledAppServer({
       threadReadTurns: [previousTurn],
       compactTurn,
+      compactNotifications: "manual",
       threadResumeDefaultModel: "different-default-model",
     });
     const { pool, capabilityRuntimeManager, nativePluginManager } =
@@ -349,6 +353,195 @@ describe("AppServerProcessPool", () => {
     expect(nativePluginManager.verifyAfterStart).not.toHaveBeenCalled();
     await pool.closeAll();
   });
+
+  it.each(["before", "after"] as const)(
+    "registers an itemless native compaction starting %s the RPC reply and projects its failure",
+    async (timing) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-itemless-compact-"));
+      roots.push(root);
+      const threadId = "thread-native-1";
+      const compactTurn: CodexTurn = {
+        id: "turn-native-compact",
+        status: "inProgress",
+        items: [],
+        error: null,
+      };
+      const failedTurn: CodexTurn = {
+        ...compactTurn,
+        status: "failed",
+        error: {
+          message: "Model provider unavailable",
+          codexErrorInfo: "serverOverloaded",
+          additionalDetails: null,
+        },
+      };
+      const controlled = createControlledAppServer({
+        threadReadTurns: [],
+        ...(timing === "before" ? { compactTurn: failedTurn } : {}),
+      });
+      const { pool, eventSink } = createStartOperationPool(
+        root,
+        controlled.factory,
+        undefined,
+        { nativeTurnRegistrationTimeoutMs: 500 },
+      );
+      const input = startOperationInput();
+      input.operationKind = "compact";
+      input.codexThreadId = threadId;
+      input.context.userInput = "";
+
+      try {
+        await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
+          status: "starting",
+        });
+        if (timing === "after") {
+          await waitForFast(() =>
+            expect(controlled.methods.filter((method) => method === "thread/read").length)
+              .toBeGreaterThanOrEqual(2),
+          );
+          controlled.notify({
+            method: "turn/started",
+            params: { threadId: "another-thread", turn: { ...compactTurn, id: "unrelated-turn" } },
+          });
+          controlled.notify({
+            method: "turn/started",
+            params: { threadId, turn: compactTurn },
+          });
+        }
+        await waitForFast(() =>
+          expect(eventSink.reportStartSettled).toHaveBeenCalledOnce(),
+        );
+        await expect(
+          pool.getStartOperation(input.conversationId, input.projectionTurnId),
+        ).resolves.toMatchObject({
+          status: "succeeded",
+          result: { codexThreadId: threadId, codexTurnId: compactTurn.id },
+        });
+
+        if (timing === "after") {
+          expect(pool.runningCount).toBe(1);
+          controlled.notify({
+            method: "turn/completed",
+            params: { threadId, turn: failedTurn },
+          });
+        }
+        await waitForFast(() => {
+          expect(eventSink.publish).toHaveBeenCalledWith(
+            input.conversationId,
+            expect.objectContaining({
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: expect.objectContaining({
+                  id: compactTurn.id,
+                  status: "failed",
+                }),
+              },
+            }),
+          );
+          expect(pool.runningCount).toBe(0);
+        });
+        await expect(pool.closeConversation(input.conversationId)).resolves.toBeUndefined();
+        expect(
+          controlled.methods.filter((method) => method === "thread/compact/start"),
+        ).toHaveLength(1);
+        expect(controlled.methods).not.toContain("turn/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
+  it("does not register a compaction with competing new native turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-ambiguous-compact-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [] });
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      { nativeTurnRegistrationTimeoutMs: 500 },
+    );
+    const input = startOperationInput();
+    input.operationKind = "compact";
+    input.codexThreadId = "thread-native-1";
+    input.context.userInput = "";
+
+    try {
+      await pool.beginStartOperation(input);
+      await waitForFast(() => {
+        expect(controlled.methods).toContain("thread/compact/start");
+      });
+      for (const id of ["turn-native-first", "turn-native-second"]) {
+        controlled.notify({
+          method: "turn/started",
+          params: {
+            threadId: input.codexThreadId,
+            turn: { id, status: "inProgress", items: [], error: null },
+          },
+        });
+      }
+      await waitForFast(async () =>
+        expect(
+          await pool.getStartOperation(input.conversationId, input.projectionTurnId),
+        ).toMatchObject({
+          status: "uncertain",
+          errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+        }),
+      );
+      expect(
+        controlled.methods.filter((method) => method === "thread/compact/start"),
+      ).toHaveLength(1);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it.each([
+    ["running native turn", {
+      threadReadTurns: [{ id: "turn-native-running", status: "inProgress", items: [], error: null }],
+    }],
+    ["active native Goal", {
+      threadReadTurns: [],
+      initialGoal: {
+        threadId: "thread-native-1",
+        objective: "Complete the goal",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    }],
+    ["missing native thread", { threadResumeMissing: true }],
+  ] satisfies [string, NonNullable<Parameters<typeof createControlledAppServer>[0]>][])(
+    "does not submit compaction or replace the source with a %s",
+    async (condition, options) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-compact-admission-"));
+      roots.push(root);
+      const controlled = createControlledAppServer(options);
+      const { pool } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      input.operationKind = "compact";
+      input.codexThreadId = "thread-native-1";
+      input.context.userInput = "";
+
+      try {
+        await pool.beginStartOperation(input);
+        await waitForFast(async () =>
+          expect(
+            await pool.getStartOperation(input.conversationId, input.projectionTurnId),
+          ).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_FAILED" }),
+        );
+        expect(controlled.methods).not.toContain("thread/compact/start");
+        expect(controlled.methods).not.toContain("thread/start");
+        expect(controlled.methods).not.toContain("turn/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
 
   it("starts a native Goal turn with the selected Skill input before activating it", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-native-goal-"));
@@ -783,6 +976,9 @@ describe("AppServerProcessPool", () => {
         "mcp_servers.linksense_managed_browser.enabled=false",
         "mcp_servers.linksense_managed_browser.required=false",
       ]),
+    );
+    expect(controlled.args).not.toContain(
+      'mcp_servers.linksense_core.tools.computer_act.approval_mode="prompt"',
     );
 
     await pool.closeAll();
@@ -1608,6 +1804,7 @@ trust_level = "trusted"
           url: "https://example.test/web/guide", status: "published",
           conversation_id: input.conversationId, source_task_title: "Guide",
           source_file_id: fileId, release_id: fileId, file_count: 1, size_bytes: 200,
+          analytics_enabled: false, passcode_protected: false,
           published_at: "2026-11-26T08:00:00.000Z",
           created_at: "2026-11-26T08:00:00.000Z",
           updated_at: "2026-11-26T08:00:00.000Z",
@@ -1715,6 +1912,62 @@ trust_level = "trusted"
     await expect(plan.pool.applicationBuilder(input.conversationId, token, { operation: "inspect" })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_FORBIDDEN" });
     await plan.pool.closeAll();
   });
+
+  it.each([undefined, "existing-ordinary-thread"])(
+    "makes both application builders available in an ordinary conversation with native thread %s and no selected Skill",
+    async codexThreadId => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-ordinary-app-"));
+      roots.push(root);
+      const controlled = createControlledAppServer({
+        ...(codexThreadId ? { threadReadTurns: [{
+          id: "previous-ordinary-turn", status: "completed", items: [], error: null,
+        }] } : {}),
+      });
+      const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      input.context.userInput = "做一个喝水提醒小助手，先确认关掉页面后是否需要提醒。";
+      eventSink.webSite.mockResolvedValue({ id: "40000000-0000-4000-8000-000000000001" });
+      try {
+        await pool.startTurn({ ...input, ...(codexThreadId ? { codexThreadId } : {}) });
+        expect(input.context.prioritySkills).toEqual([]);
+        expect(input.capabilities).toEqual([]);
+        const start = controlled.requests.find(request => request.method === "turn/start");
+        const params = z.object({
+          input: z.array(z.object({ text: z.string() })),
+          additionalContext: z.record(z.string(), z.object({
+            kind: z.enum(["application", "untrusted"]), value: z.string(),
+          })),
+        }).parse(start?.params);
+        expect(params.input[0]?.text).toBe(input.context.userInput);
+        expect(params.additionalContext["linksense.deliverable-routing"]?.value)
+          .toContain("no creation page or Skill selection");
+        expect(params.additionalContext["linksense.deliverable-routing"]?.value)
+          .toContain("after the page closes");
+        const builderToken = controlled.environment?.LINKSENSE_APPLICATION_BUILDER_TOKEN;
+        const siteToken = controlled.environment?.LINKSENSE_WEB_SITE_TOKEN;
+        if (!builderToken || !siteToken) throw new Error("missing ordinary-conversation builder tools");
+        await pool.applicationBuilder(input.conversationId, builderToken, {
+          operation: "open", name: "Water assistant",
+        });
+        expect(eventSink.applicationBuilder).toHaveBeenCalledWith({
+          conversationId: input.conversationId, turnId: input.projectionTurnId,
+          request: { operation: "open", name: "Water assistant" },
+        });
+        const publication = {
+          operation: "publish" as const, file_id: "30000000-0000-4000-8000-000000000001", name: "Water assistant",
+        };
+        await pool.webSite(input.conversationId, siteToken, publication);
+        expect(eventSink.webSite).toHaveBeenCalledWith({
+          conversationId: input.conversationId, turnId: input.projectionTurnId, request: publication,
+        });
+        await expect(pool.webSite(input.conversationId, "wrong", publication))
+          .rejects.toMatchObject({ code: "WEB_SITE_FORBIDDEN" });
+        expect(controlled.methods).toContain(codexThreadId ? "thread/resume" : "thread/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
 
   it.each(["default", "plan"] as const)("binds Skill management to the logical turn and scoped token in %s mode", async collaborationMode => {
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-management-token-"));
@@ -2242,7 +2495,6 @@ trust_level = "trusted"
     ).toContain("LINKSENSE_COLLABORATION_MODE");
     for (const override of [
       "features.hooks=true",
-      "features.use_legacy_landlock=true",
       "mcp_servers.linksense_managed_browser.enabled=true",
       "mcp_servers.linksense_managed_browser.required=false",
     ]) {
@@ -2255,11 +2507,8 @@ trust_level = "trusted"
     expect(
       controlled.args?.indexOf("features.hooks=false"),
     ).toBeLessThan(controlled.args?.indexOf("features.hooks=true") ?? -1);
-    expect(
-      controlled.args?.indexOf("features.use_legacy_landlock=false"),
-    ).toBeLessThan(
-      controlled.args?.indexOf("features.use_legacy_landlock=true") ?? -1,
-    );
+    expect(controlled.args).toContain("features.use_legacy_landlock=false");
+    expect(controlled.args).not.toContain("features.use_legacy_landlock=true");
     expect(
       controlled.args?.filter((argument) =>
         argument.startsWith("memories.generate_memories="),
@@ -2374,11 +2623,9 @@ trust_level = "trusted"
     });
 
     expect(controlled.args).toEqual(
-      expect.arrayContaining([
-        "features.hooks=true",
-        "features.use_legacy_landlock=true",
-      ]),
+      expect.arrayContaining(["features.hooks=true"]),
     );
+    expect(controlled.args).not.toContain("features.use_legacy_landlock=true");
     expect(controlled.args?.join("\n")).not.toContain(
       "mcp_servers.linksense_managed_browser",
     );
@@ -8628,6 +8875,73 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("writes the Codex model catalog with the configured context window", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-model-catalog-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const catalogPath = join(root, "codex", "linksense-models.json");
+    const ensure = vi.fn(async () => catalogPath);
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      {
+        modelCatalog: { ensure },
+      },
+    );
+    const input = startOperationInput();
+    try {
+      await pool.startTurn({
+        ...input,
+        modelProvider: {
+          ...input.modelProvider,
+          modelContextWindow: 1_000_000,
+        },
+      });
+      expect(ensure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: "codex",
+          codexHome: expect.any(String),
+          model: input.model,
+          modelContextWindow: 1_000_000,
+        }),
+      );
+      expect(controlled.args).toContain(
+        `model_catalog_json=${JSON.stringify(catalogPath)}`,
+      );
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("applies the configured context window to a fresh native thread", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-context-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    try {
+      await pool.startTurn({
+        ...startOperationInput(),
+        modelProvider: {
+          ...startOperationInput().modelProvider,
+          modelContextWindow: 1_000_000,
+        },
+      });
+      const threadStart = controlled.requests.find(
+        (request) => request.method === "thread/start",
+      );
+      expect(threadStart?.params).toMatchObject({
+        config: {
+          model_context_window: 1_000_000,
+          model_auto_compact_token_limit: 850_000,
+          model_auto_compact_token_limit_scope: "total",
+        },
+      });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it.each(["revision", "provider", "context"] as const)(
     "keeps an active turn running across %s changes during reconciliation and applies them to the next turn",
     async (change) => {
@@ -8661,7 +8975,10 @@ trust_level = "trusted"
             }
           : {}),
         ...(change === "context"
-          ? { modelAutoCompactTokenLimit: 200_000 }
+          ? {
+              modelContextWindow: 1_000_000,
+              modelAutoCompactTokenLimit: 200_000,
+            }
           : {}),
       };
       const recovery = {
@@ -8713,6 +9030,18 @@ trust_level = "trusted"
             apiKey: updatedProvider.apiKey,
           }),
         );
+        if (change === "context") {
+          const resume = controlled.requests.find(
+            (request) => request.method === "thread/resume",
+          );
+          expect(resume?.params).toMatchObject({
+            config: {
+              model_context_window: 1_000_000,
+              model_auto_compact_token_limit: 200_000,
+              model_auto_compact_token_limit_scope: "total",
+            },
+          });
+        }
         expect(
           controlled.methods.filter((method) => method === "turn/start"),
         ).toHaveLength(2);
@@ -10109,6 +10438,49 @@ trust_level = "trusted"
       controlled.methods.indexOf("thread/start"),
     );
     await pool.closeAll();
+  });
+
+  it("invokes the built-in public-site Skill and an existing same-named Skill by their distinct IDs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-site-skill-collision-"));
+    roots.push(root);
+    const name = "linksense-public-site";
+    const alias = "linksense-public-site-builtin-2";
+    const customId = "01900000-0000-7000-8000-000000000011";
+    const occupiedAlias = "linksense-public-site-builtin-1";
+    const skills = await Promise.all([name, occupiedAlias, alias].map(async (name) => {
+      const path = join(taskRuntimeHome(root), ".agents", "skills", name, "SKILL.md");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `---\nname: ${name}\n---\n`);
+      return { name, path, scope: "user" as const, enabled: true };
+    }));
+    const controlled = createControlledAppServer({ skills });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const base = startOperationInput();
+    try {
+      await pool.startTurn({
+        ...base,
+        capabilities: [
+          { id: customId, name, type: "skill", revision: capabilityRevision },
+          { id: "01900000-0000-7000-8000-000000000012", name: occupiedAlias, type: "skill", revision: capabilityRevision },
+        ],
+        context: {
+          ...base.context,
+          prioritySkills: [
+            { id: "builtin:capability:linksense-public-site", name },
+            { id: customId, name },
+          ],
+        },
+      });
+      const start = controlled.requests.find((request) => request.method === "turn/start");
+      expect(start?.params).toMatchObject({
+        input: [{
+          type: "text",
+          text: `[$${alias}](${join(taskRuntimeHome(root), ".agents", "skills", alias, "SKILL.md")}) [$${name}](${join(taskRuntimeHome(root), ".agents", "skills", name, "SKILL.md")}) ${base.context.userInput}`,
+        }],
+      });
+    } finally {
+      await pool.closeAll();
+    }
   });
 
   it("starts a turn with 129 valid skills and can select the last skill", async () => {
@@ -12034,6 +12406,14 @@ function createStartOperationPool(
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
     logger?: Logger;
+    modelCatalog?: {
+      ensure: (input: {
+        command: string;
+        codexHome: string;
+        model: string;
+        modelContextWindow?: number;
+      }) => Promise<string | null>;
+    };
   } = {},
 ) {
   const runtimeState = controlledWorkspaceRuntimeGeneration(workspaceManager);
@@ -12049,6 +12429,7 @@ function createStartOperationPool(
     registerImagePreview: vi.fn<RunnerEventSink["registerImagePreview"]>(async () => ({})),
     previewSkillZip: vi.fn(async () => ({})),
     applicationBuilder: vi.fn(async () => null),
+    webSite: vi.fn<NonNullable<RunnerEventSink["webSite"]>>(async () => ({})),
     confirmSkillInstall: vi.fn(async () => ({})),
     manageSkills: vi.fn(async () => ({})),
     searchKnowledge: vi.fn(async () => ({})),
@@ -12059,6 +12440,7 @@ function createStartOperationPool(
     manageAutomation: vi.fn(async () => ({})),
     manageWebSite: vi.fn<NonNullable<RunnerEventSink["manageWebSite"]>>(),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
+    browserUse: vi.fn<NonNullable<RunnerEventSink["browserUse"]>>(async () => ({ ok: true, browser: "local", data: {} })),
     alignConversationThread: vi.fn(async () => undefined),
   } satisfies RunnerEventSink;
   const capabilityRuntimeManager =
@@ -12069,6 +12451,7 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     command: "codex",
     model: "test-model",
+    modelCatalog: overrides.modelCatalog ?? { ensure: async () => null },
     processLimit: 2,
     idleTtlMs: overrides.idleTtlMs ?? 60_000,
     templateVersion: "test",
@@ -12366,12 +12749,14 @@ function createControlledAppServer(
     threadStartModelProvider?: string;
     forkThreadId?: string;
     forkThreadIds?: string[];
+    threadForkedFromId?: string;
     threadForkModel?: string;
     threadForkModelProvider?: string;
     threadForkTurns?: CodexTurn[];
     threadForkTurnsByCall?: CodexTurn[][];
     rejectUnmaterializedThreadRead?: boolean;
     ignoreKill?: boolean;
+    holdUserInputWrite?: (finish: (error?: Error) => void) => void;
   } = {},
 ): {
   factory: ChildProcessFactory;
@@ -12425,7 +12810,13 @@ function createControlledAppServer(
       state.args = [...args];
       const child = new EventEmitter() as EventEmitter &
         Partial<ChildProcessWithoutNullStreams>;
-      const stdin = new PassThrough();
+      const stdin = new PassThrough({
+        transform(chunk: Buffer, _encoding, done) {
+          if (options.holdUserInputWrite && chunk.includes('"result":{"answers":')) {
+            options.holdUserInputWrite(error => done(error, error ? undefined : chunk));
+          } else done(null, chunk);
+        },
+      });
       const stdout = new PassThrough();
       const stderr = new PassThrough();
       state.child = child;
@@ -12498,6 +12889,9 @@ function createControlledAppServer(
                                     inspect_application_development: {},
                                     inspect_application_tests: {},
                                     update_application_metadata: {},
+                                    publish_web_site: {},
+                                    list_web_sites: {},
+                                    update_web_site: {},
                                     generate_image: {},
                                     preview_skill_zip: {},
                                     install_skill: {},
@@ -12728,7 +13122,7 @@ function createControlledAppServer(
                 ? sourceTurns.slice(0, lastTurnIndex + 1)
                 : sourceTurns);
             stdout.write(
-              `${JSON.stringify({ id: message.id, result: { thread: { id: forkThreadId, modelProvider, turns: forkTurns }, model, modelProvider } })}\n`,
+              `${JSON.stringify({ id: message.id, result: { thread: { id: forkThreadId, ...(options.threadForkedFromId ? { forkedFromId: options.threadForkedFromId } : {}), modelProvider, turns: forkTurns }, model, modelProvider } })}\n`,
             );
           } else if (message.method === "turn/steer") {
             if (options.turnSteer === "exit") {

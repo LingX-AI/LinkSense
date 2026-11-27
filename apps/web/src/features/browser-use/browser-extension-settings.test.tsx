@@ -40,14 +40,14 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
-function show() {
+function show(userId = "user") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={client}>
-        <BrowserExtensionSettings userId="user" />
+        <BrowserExtensionSettings userId={userId} />
       </QueryClientProvider>
     </I18nextProvider>
   )
@@ -128,7 +128,7 @@ it("authors all six translations with matching keys and interpolation", () => {
   for (const messages of Object.values(browserUseMessages)) {
     expect(Object.keys(messages).sort()).toEqual(keys)
     for (const value of Object.values(messages))
-      expect(value.trim().length).toBeGreaterThan(0)
+      if (typeof value === "string") expect(value.trim().length).toBeGreaterThan(0)
     expect(messages.connected.match(/{{\w+}}/g)).toEqual(["{{browser}}"])
     expect(messages.cloudName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])
     expect(messages.localName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])

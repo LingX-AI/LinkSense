@@ -27,7 +27,7 @@ describe("SettingsCard", () => {
       card
     )
     expect(input.parentElement).toHaveClass("px-4", "sm:px-5")
-    expect(card).toHaveClass("py-4", "sm:py-5")
+    expect(card).toHaveClass("h-fit", "py-4", "sm:py-5")
     expect(heading.closest('[data-slot="settings-card"]')).toHaveClass("gap-3")
   })
 })

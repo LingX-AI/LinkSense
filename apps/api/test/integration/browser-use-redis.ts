@@ -100,7 +100,7 @@ try {
   assert.deepEqual(await first.status(owner), { connected: false });
   assert.equal(await first.authenticate(credential), null);
   process.stdout.write(
-    "PASS: two API instances share pairing, single-delivery commands, locks, connection generations and revocation through real Redis\n",
+    "PASS: two API instances share browser jobs with single delivery, lock enforcement and revocation through real Redis\n",
   );
 } finally {
   await Promise.all(clients.map((client) => client.quit()));

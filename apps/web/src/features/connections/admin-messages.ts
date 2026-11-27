@@ -39,7 +39,7 @@ export const adminConnectionMessages = {
   "zh-CN": {
     title: "连接器",
     description:
-      "配置外部服务的应用信息。完成配置后，用户可在插件中心连接自己的账号。",
+      "配置外部服务的应用信息。完成配置后，用户可在“应用与工具”中连接自己的账号。",
     configure: "配置",
     configureProvider: "配置 {{provider}}",
     configured: "已配置",
@@ -90,7 +90,7 @@ export const adminConnectionMessages = {
   "en-US": {
     title: "Connectors",
     description:
-      "Configure external service apps so users can connect their own accounts in Plugin Center.",
+      "Configure external service apps so users can connect their own accounts in Apps & Tools.",
     configure: "Configure",
     configureProvider: "Configure {{provider}}",
     configured: "Configured",
@@ -146,7 +146,7 @@ export const adminConnectionMessages = {
   "es-ES": {
     title: "Conectores",
     description:
-      "Configura las aplicaciones de servicios externos para que los usuarios conecten sus cuentas en el Centro de complementos.",
+      "Configura las aplicaciones de servicios externos para que los usuarios conecten sus cuentas en Apps y herramientas.",
     configure: "Configurar",
     configureProvider: "Configurar {{provider}}",
     configured: "Configurado",
@@ -202,7 +202,7 @@ export const adminConnectionMessages = {
   "pt-BR": {
     title: "Conectores",
     description:
-      "Configure os aplicativos de serviços externos para que os usuários conectem suas contas na Central de plugins.",
+      "Configure os aplicativos de serviços externos para que os usuários conectem suas contas em Apps e ferramentas.",
     configure: "Configurar",
     configureProvider: "Configurar {{provider}}",
     configured: "Configurado",
@@ -258,7 +258,7 @@ export const adminConnectionMessages = {
   "fr-FR": {
     title: "Connecteurs",
     description:
-      "Configurez les applications des services externes pour permettre aux utilisateurs de connecter leurs comptes dans le Centre de plugins.",
+      "Configurez les applications des services externes pour permettre aux utilisateurs de connecter leurs comptes dans la rubrique « Applications et outils ».",
     configure: "Configurer",
     configureProvider: "Configurer {{provider}}",
     configured: "Configuré",
@@ -314,7 +314,7 @@ export const adminConnectionMessages = {
   "ja-JP": {
     title: "コネクタ",
     description:
-      "外部サービスのアプリを設定すると、ユーザーがプラグインセンターで自分のアカウントを接続できます。",
+      "外部サービスのアプリを設定すると、ユーザーが「アプリとツール」で自分のアカウントを接続できます。",
     configure: "設定",
     configureProvider: "{{provider}} を設定",
     configured: "設定済み",

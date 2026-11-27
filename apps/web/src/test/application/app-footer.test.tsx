@@ -10,7 +10,7 @@ import {
 
 const sections = [
   { path: "/automations", label: "自动化" },
-  { path: "/capabilities", label: "插件中心" },
+  { path: "/capabilities", label: "应用与工具" },
   { path: "/knowledge-bases", label: "资料库" },
 ]
 
@@ -26,7 +26,7 @@ describe("application attribution footer", () => {
       const main = await screen.findByRole("main")
       const footer = screen.getByRole("contentinfo")
       const attribution = screen.getByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
       const sidebar = screen.getByRole("complementary", {
         name: "LinkSense 导航",
@@ -72,7 +72,7 @@ describe("application attribution footer", () => {
     renderApp("/conversations/new")
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
   })
@@ -86,7 +86,7 @@ describe("application attribution footer", () => {
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
       expect(input.closest(".conversation-bottom-stack")).not.toBeNull()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     }
@@ -118,7 +118,7 @@ describe("application attribution footer", () => {
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     expect(
       within(screen.getByRole("main")).queryByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
     ).not.toBeInTheDocument()
   })
@@ -132,24 +132,24 @@ describe("application attribution footer", () => {
     const workspace = composer.closest(".conversation-workspace")
     const expectNoAttribution = () => {
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
     }
 
-    await screen.findByRole("region", { name: "任务概览" })
+    await screen.findByRole("region", { name: "会话侧栏" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
     expectNoAttribution()
 
     await interaction.click(
-      screen.getByRole("button", { name: "关闭任务概览" })
+      screen.getByRole("button", { name: "关闭会话侧栏" })
     )
     expect(workspace).not.toHaveAttribute("data-task-overview-open")
     expectNoAttribution()
 
     await interaction.click(
-      screen.getByRole("button", { name: "打开任务概览" })
+      screen.getByRole("button", { name: "打开会话侧栏" })
     )
-    await screen.findByRole("region", { name: "任务概览" })
+    await screen.findByRole("region", { name: "会话侧栏" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
     expectNoAttribution()
   })

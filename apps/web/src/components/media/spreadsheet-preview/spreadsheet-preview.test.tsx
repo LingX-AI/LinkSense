@@ -912,7 +912,7 @@ describe("spreadsheet preview", () => {
       "px-2.5",
       "py-0.5",
       "text-xs",
-      "data-active:text-foreground"
+      "data-active:text-link-foreground"
     )
 
     await userEvent.click(screen.getByRole("tab", { name: "明细" }))
@@ -928,7 +928,7 @@ describe("spreadsheet preview", () => {
       "px-2.5",
       "py-0.5",
       "text-xs",
-      "data-active:text-foreground"
+      "data-active:text-link-foreground"
     )
     expect(
       document.querySelector(".office-preview-location-count")

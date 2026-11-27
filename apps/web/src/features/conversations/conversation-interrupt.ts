@@ -9,7 +9,7 @@ export const conversationInterruptPollIntervalMs = 1_000
 
 export type ConversationInterruptTarget = Readonly<{
   conversationId: string
-  turnId?: string
+  turnId: string
 }>
 
 export async function interruptConversationTurn(

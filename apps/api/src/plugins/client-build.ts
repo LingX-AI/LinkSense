@@ -1,4 +1,6 @@
-import { buildIdSchema, CLIENT_BUILD_HEADER, SERVER_BUILD_HEADER } from "@linksense/shared";
+import {
+  buildIdSchema, CLIENT_BUILD_HEADER, SERVER_BUILD_HEADER,
+} from "@linksense/shared";
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../lib/errors.js";
 

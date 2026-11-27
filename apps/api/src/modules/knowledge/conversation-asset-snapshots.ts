@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { addAbortSignal } from "node:stream";
 import { fileTypeFromBuffer } from "file-type";
 import pLimit from "p-limit";
 import { z } from "zod";
 
 import type { ObjectStorage } from "../../adapters/object-storage.js";
-import type { PrismaClient } from "../../generated/prisma/client.js";
+import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import type { FileCleanupScheduler } from "../files/service.js";
 import { ConversationAssetRepository } from "./conversation-asset-repository.js";
@@ -21,18 +22,25 @@ const sourceSchema = z.strictObject({
   assetReferenceIds: z.array(z.uuid()).max(1_000),
 });
 export type ConversationAssetSource = z.infer<typeof sourceSchema>;
+export type CheckKnowledgeAssetPublication = (
+  tx: Prisma.TransactionClient,
+  source: ConversationAssetSource,
+) => Promise<void>;
 export interface ConversationAssetSnapshotWriter {
   capture(input: {
     actor: KnowledgeActor;
     conversationId: string;
     turnId: string;
     sources: readonly ConversationAssetSource[];
+    signal?: AbortSignal;
+    checkPublication?: CheckKnowledgeAssetPublication;
   }): Promise<void>;
 }
 
 const MAX_IMAGES_PER_RESULT = 256;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 const IMAGE_READ_TIMEOUT_MS = 30_000;
+const IMAGE_CLEANUP_TIMEOUT_MS = 5_000;
 const IMAGE_MIMES = new Set([
   "image/png",
   "image/jpeg",
@@ -110,6 +118,8 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
     source: ConversationAssetSource,
     assetId: string,
   ): Promise<void> {
+    const { signal, checkPublication } = input;
+    signal?.throwIfAborted();
     if (
       await this.repository.exists({
         conversationId: input.conversationId,
@@ -117,28 +127,27 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
       })
     )
       return;
+    signal?.throwIfAborted();
+    const readTimeout = AbortSignal.timeout(IMAGE_READ_TIMEOUT_MS);
+    const readSignal = signal ? AbortSignal.any([signal, readTimeout]) : readTimeout;
     const original = await this.originals.getAsset({
       actorId: input.actor.id,
       knowledgeBaseId: source.knowledgeBaseId,
       documentId: source.documentId,
       documentVersionId: source.documentVersionId,
       assetReferenceId: assetId,
+      signal: readSignal,
     });
     let data: Buffer;
-    const timer = setTimeout(
-      () =>
-        original.stream.destroy(
-          new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE"),
-        ),
-      IMAGE_READ_TIMEOUT_MS,
-    );
     try {
+      readSignal.throwIfAborted();
       if (
         original.sizeBytes <= 0n ||
         original.sizeBytes > BigInt(MAX_IMAGE_BYTES)
       ) {
         throw new AppError("FILE_LIMIT_EXCEEDED");
       }
+      addAbortSignal(readSignal, original.stream);
       const chunks: Buffer[] = [];
       let bytes = 0;
       for await (const raw of original.stream) {
@@ -152,8 +161,10 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
       if (BigInt(bytes) !== original.sizeBytes)
         throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
       data = Buffer.concat(chunks);
+    } catch (error) {
+      if (readTimeout.aborted && !signal?.aborted) throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
+      throw error;
     } finally {
-      clearTimeout(timer);
       original.stream.destroy();
     }
     const detected = await fileTypeFromBuffer(data);
@@ -167,6 +178,7 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
     const id = randomUUID();
     const filename = `${assetId}.${detected.ext}`;
     const objectKey = `conversations/${input.conversationId}/artifacts/${id}/${filename}`;
+    signal?.throwIfAborted();
     let retained = false;
     try {
       await this.storage.putObject(objectKey, data, {
@@ -175,12 +187,13 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
         "knowledge-document-id": source.documentId,
         "knowledge-document-version-id": source.documentVersionId,
         "knowledge-asset-id": assetId,
-      });
+      }, signal);
       const scope = await this.scopes.getTurnRetrievalScope(input.actor, {
         turnId: input.turnId,
       });
       if (!scope.usable_ids.includes(source.knowledgeBaseId))
         throw new AppError("FORBIDDEN");
+        signal?.throwIfAborted();
       retained = await this.repository.publish({
         id,
         actorId: input.actor.id,
@@ -192,13 +205,16 @@ export class ConversationAssetSnapshots implements ConversationAssetSnapshotWrit
         sizeBytes: BigInt(data.byteLength),
         checksumSha256: createHash("sha256").update(data).digest("hex"),
         objectKey,
+      }, {
+        ...(signal ? { signal } : {}),
+        ...(checkPublication ? { check: tx => checkPublication(tx, source) } : {}),
       });
     } finally {
       if (!retained) {
         // Each attempt has a unique object key; a duplicate request must never
         // remove the winning snapshot. Queue failures are propagated, not hidden.
         await this.storage
-          .removeObject(objectKey)
+          .removeObject(objectKey, AbortSignal.timeout(IMAGE_CLEANUP_TIMEOUT_MS))
           .catch(() => this.cleanup.enqueueObjectDelete(objectKey));
       }
     }

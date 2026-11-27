@@ -143,6 +143,61 @@ describe("assistant tool-call history conversion", () => {
     expect(source).toEqual(original);
   });
 
+  it.each([false, true])("moves tool-result images into a follow-up user message when streaming is %s", (stream) => {
+    const image = {
+      type: "input_image",
+      image_url: "data:image/png;base64,AAAA",
+    };
+    expect(buildChatCompletionRequest({ input: [
+      call("call-a"),
+      { type: "function_call_output", call_id: "call-a", output: [
+        { type: "input_text", text: "Script completed" },
+        image,
+      ] },
+    ] }, stream).messages).toEqual([
+      { role: "assistant", content: "", tool_calls: [{ id: "call-a", type: "function", function: { name: "inspect_workspace", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "call-a", content: "Script completed" },
+      { role: "user", content: [
+        { type: "text", text: 'Images returned by tool call "call-a":' },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      ] },
+    ]);
+  });
+
+  it("keeps image-only results associated with their calls across consecutive tool batches", () => {
+    const imageResult = (id: string, url: string) => ({
+      type: "function_call_output",
+      call_id: id,
+      output: [{ type: "input_image", image_url: url }],
+    });
+    const first = "https://files.example.test/first.png";
+    const second = "https://files.example.test/second.png";
+    const third = "https://files.example.test/third.png";
+    const request = buildChatCompletionRequest({ input: [
+      call("call-a"), call("call-b"),
+      imageResult("call-b", second), { type: "reasoning", summary: [] }, imageResult("call-a", first),
+      call("call-c"), imageResult("call-c", third),
+    ] }, true);
+
+    expect(request.messages).toMatchObject([
+      { role: "assistant", tool_calls: [{ id: "call-a" }, { id: "call-b" }] },
+      { role: "tool", tool_call_id: "call-b", content: "(see attached image)" },
+      { role: "tool", tool_call_id: "call-a", content: "(see attached image)" },
+      { role: "user", content: [
+        { type: "text", text: 'Images returned by tool call "call-b":' },
+        { type: "image_url", image_url: { url: second } },
+        { type: "text", text: 'Images returned by tool call "call-a":' },
+        { type: "image_url", image_url: { url: first } },
+      ] },
+      { role: "assistant", tool_calls: [{ id: "call-c" }] },
+      { role: "tool", tool_call_id: "call-c", content: "(see attached image)" },
+      { role: "user", content: [
+        { type: "text", text: 'Images returned by tool call "call-c":' },
+        { type: "image_url", image_url: { url: third } },
+      ] },
+    ]);
+  });
+
   it.each([false, true])("preserves a tool-only history with stored item IDs and object arguments when streaming is %s", (stream) => {
     expect(buildChatCompletionRequest({ input: [
       { type: "function_call", id: "stored-call", name: "inspect_workspace", arguments: { path: "README.md" } },

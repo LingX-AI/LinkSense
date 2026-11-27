@@ -112,7 +112,13 @@ async function startStatelessMcpServer(
         transport.onmessage = (message) => serverTransport.onmessage?.(message)
         await transport.start()
       },
-      send: (message, options) => transport.send(message, options),
+      send: (message, options) =>
+        transport.send(
+          message,
+          options?.relatedRequestId === undefined
+            ? undefined
+            : { relatedRequestId: options.relatedRequestId }
+        ),
       close: () => transport.close(),
     }
     await mcp.connect(serverTransport)
@@ -141,7 +147,13 @@ function adaptClientTransport(
       transport.onmessage = (message) => adapted.onmessage?.(message)
       await transport.start()
     },
-    send: (message, options) => transport.send(message, options),
+    send: (message, options) => {
+      const { resumptionToken, onresumptiontoken } = options ?? {}
+      return transport.send(message, {
+        ...(resumptionToken === undefined ? {} : { resumptionToken }),
+        ...(onresumptiontoken === undefined ? {} : { onresumptiontoken }),
+      })
+    },
     close: () => transport.close(),
     setProtocolVersion: (version) => transport.setProtocolVersion(version),
   }

@@ -16,6 +16,7 @@ export async function prepareLocalProcessRuntimeTools(input: {
   launcherCommand: string
   launcherArgs: readonly string[]
   connectionLauncherArgs: readonly string[]
+  platform?: NodeJS.Platform
 }): Promise<string> {
   if (!input.launcherCommand.trim()) {
     throw new Error("local STDIO launcher command is required")
@@ -33,18 +34,19 @@ export async function prepareLocalProcessRuntimeTools(input: {
     ["linksense-plugin-stdio", input.launcherArgs],
     ["linksense-connection-mcp", input.connectionLauncherArgs],
   ] as const) {
-  const launcher = path.join(bin, name)
+  const windows = (input.platform ?? process.platform) === "win32"
+  const launcher = path.join(bin, windows ? `${name}.cmd` : name)
   const temporaryLauncher = path.join(
     bin,
     `.${name}-${randomUUID()}.tmp`,
   )
   const invocation = [input.launcherCommand, ...args]
-    .map(quoteShellArgument)
+    .map(windows ? quoteBatchArgument : quoteShellArgument)
     .join(" ")
   try {
     await writeFile(
       temporaryLauncher,
-      `#!/bin/sh\nset -eu\nexec ${invocation} "$@"\n`,
+      windows ? `@echo off\r\n${invocation} %*\r\n` : `#!/bin/sh\nset -eu\nexec ${invocation} "$@"\n`,
       { encoding: "utf8", flag: "wx", mode: 0o700 },
     )
     await rename(temporaryLauncher, launcher)
@@ -94,4 +96,9 @@ function quoteShellArgument(value: string): string {
     throw new Error("local STDIO launcher argument contains a NUL byte")
   }
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function quoteBatchArgument(value: string): string {
+  if (/[\0\r\n"]/u.test(value)) throw new Error("Windows STDIO launcher argument is invalid")
+  return `"${value.replaceAll("%", "%%")}"`
 }

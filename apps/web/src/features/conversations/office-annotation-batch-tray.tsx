@@ -69,6 +69,7 @@ export function OfficeAnnotationDraftLocation({
 export function OfficeAnnotationBatchTray({
   drafts,
   submitting,
+  submitDisabled = false,
   onRemove,
   onClear,
   onLocate,
@@ -76,9 +77,10 @@ export function OfficeAnnotationBatchTray({
 }: Readonly<{
   drafts: readonly OfficeAnnotationDraft[]
   submitting: boolean
+  submitDisabled?: boolean
   onRemove: (id: string) => void
   onClear: () => void
-  onLocate: (draft: OfficeAnnotationDraft) => void
+  onLocate?: (draft: OfficeAnnotationDraft) => void
   onSend: () => Promise<void>
 }>) {
   const { t } = useTranslation()
@@ -90,7 +92,7 @@ export function OfficeAnnotationBatchTray({
   if (drafts.length === 0) return null
 
   const submit = async () => {
-    if (submitting || sendingRef.current) return
+    if (submitDisabled || submitting || sendingRef.current) return
     sendingRef.current = true
     setErrorMessage(null)
     setSending(true)
@@ -161,9 +163,10 @@ export function OfficeAnnotationBatchTray({
                   aria-label={t("officePreview.annotationBatch.locate", {
                     index: index + 1,
                   })}
+                  disabled={!onLocate}
                   onClick={() => {
                     setOpen(false)
-                    onLocate(draft)
+                    onLocate?.(draft)
                   }}
                 >
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-background text-xs font-medium text-muted-foreground">
@@ -224,7 +227,7 @@ export function OfficeAnnotationBatchTray({
               size="xs"
               className="office-annotation-batch-send"
               aria-busy={busy}
-              disabled={busy}
+              disabled={busy || submitDisabled}
               onClick={() => void submit()}
             >
               {busy && (

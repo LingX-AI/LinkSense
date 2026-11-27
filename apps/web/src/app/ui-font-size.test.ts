@@ -21,6 +21,7 @@ describe("UI font-size preferences", () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
     document.documentElement.style.removeProperty("--app-ui-font-size")
     delete document.documentElement.dataset.uiFontSize
@@ -59,6 +60,12 @@ describe("UI font-size preferences", () => {
       throw new Error("storage blocked")
     })
     expect(readStoredUiFontSize()).toBe(DEFAULT_UI_FONT_SIZE)
+  })
+
+  it("keeps the saved font size in a browser", () => {
+    window.localStorage.setItem(UI_FONT_SIZE_STORAGE_KEY, "18")
+    expect(initializeUiFontSize()).toBe(18)
+    expect(document.documentElement.dataset.uiFontSize).toBe("18")
   })
 
   it("initializes and applies the saved value to the document root", () => {

@@ -2,6 +2,7 @@ import {
   cleanup,
   render as renderComponent,
   screen,
+  waitFor,
 } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -46,6 +47,15 @@ const settings: ModelProviderSettings = {
   default_model: "model-a",
   memory_extraction_model: null,
   title_model: "model-a",
+}
+
+async function expandAdvanced(user: ReturnType<typeof userEvent.setup>) {
+  const button = screen.getByRole("button", {
+    name: i18n.t("modelSetup.advanced"),
+  })
+  if (button.getAttribute("aria-expanded") === "false") {
+    await user.click(button)
+  }
 }
 
 beforeEach(() => {
@@ -187,6 +197,11 @@ describe("model editor conflict feedback", () => {
     expectRequiredLabel(screen.getByRole("textbox", { name: "Model ID" }))
     expectRequiredLabel(screen.getByRole("textbox", { name: "Display name" }))
     expectRequiredLabel(screen.getByRole("combobox", { name: "Model type" }))
+    await userEvent
+      .setup()
+      .click(
+        screen.getByRole("button", { name: i18n.t("modelSetup.advanced") })
+      )
     for (const key of ["inputPrice", "cachedInputPrice", "outputPrice"]) {
       expectRequiredLabel(
         screen.getByRole("textbox", {
@@ -201,7 +216,7 @@ describe("model editor conflict feedback", () => {
       false
     )
     expectRequiredLabel(
-      screen.getByRole("button", {
+      screen.getByRole("group", {
         name: i18n.t("admin.modelProvider.supportedEfforts"),
       })
     )
@@ -227,9 +242,9 @@ describe("model editor conflict feedback", () => {
     for (const label of ["Channel name", "Base URL", "API_KEY"]) {
       expect(screen.getByLabelText(formLabelPattern(label))).toBeDisabled()
     }
-    for (const name of ["Model provider", "Protocol compatibility mode"]) {
-      expect(screen.getByRole("combobox", { name })).toBeDisabled()
-    }
+    expect(
+      screen.getByRole("combobox", { name: "Model provider" })
+    ).toBeDisabled()
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled()
     expect(
       screen.getByRole("button", { name: "Save model channel Primary" })
@@ -274,6 +289,7 @@ describe("model editor conflict feedback", () => {
       expectRequiredLabel(key)
       await user.type(name, "New channel")
       await user.type(key, "test-key")
+      await expandAdvanced(user)
 
       for (const provider of previousProvider
         ? [previousProvider, selectedProvider]
@@ -368,12 +384,13 @@ describe("model editor conflict feedback", () => {
       />
     )
     expect(screen.getByLabelText(formLabelPattern("Base URL"))).toHaveValue("")
+    await expandAdvanced(user)
     expect(
       screen.getByRole("combobox", { name: "Protocol compatibility mode" })
     ).toBeVisible()
     expect(
-      screen.queryByRole("button", { name: "Advanced settings" })
-    ).not.toBeInTheDocument()
+      screen.getByRole("button", { name: "Advanced settings" })
+    ).toHaveAttribute("aria-expanded", "true")
     await user.click(screen.getByRole("combobox", { name: "Model provider" }))
     await user.click(await screen.findByRole("option", { name: "OpenAI" }))
     expect(screen.getByLabelText(formLabelPattern("Base URL"))).toHaveValue(
@@ -402,6 +419,7 @@ describe("model editor conflict feedback", () => {
     expect(screen.getByLabelText(formLabelPattern("Base URL"))).toHaveValue(
       channel.base_url
     )
+    await expandAdvanced(user)
     expect(
       screen.getByRole("combobox", { name: "Protocol compatibility mode" })
     ).toHaveTextContent(
@@ -599,6 +617,13 @@ describe("model editor conflict feedback", () => {
         onClose={vi.fn()}
         onSave={vi.fn()}
       />
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toContainElement(
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+      )
     )
     const name = screen.getByLabelText(formLabelPattern("Channel name"))
     expect(name).not.toHaveAttribute("aria-describedby")

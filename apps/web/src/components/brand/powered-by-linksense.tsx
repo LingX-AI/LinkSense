@@ -41,10 +41,9 @@ export function PoweredByLinkSense({
         href="https://linksense.org"
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={t("common.poweredByLinkSense")}
         className="pointer-events-auto inline-flex h-5 shrink-0 items-center gap-1.5 text-xs leading-none whitespace-nowrap text-foreground no-underline visited:text-foreground hover:text-foreground hover:no-underline"
       >
-        <span>{t("common.poweredBy")}</span>
+        <span>{t("common.poweredBy")}</span>{" "}
         <img
           src={
             resolvedTheme === "dark"

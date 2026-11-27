@@ -11,10 +11,53 @@ import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { StrictMode } from "react"
 import { MemoryRouter } from "react-router-dom"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+
+  it("opens a legacy site bookmark with its filters for a personal account", async () => {
+    const { fetchMock } = installApiMock({
+      userOverride: { registration_source: "self_registration" },
+    })
+    const siteRequests: URL[] = []
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin)
+      if (url.pathname !== "/api/v1/web-sites") return fetchMock(input, init)
+      siteRequests.push(url)
+      return Promise.resolve(
+        json({ success: true, data: { items: [], next_cursor: null } })
+      )
+    })
+
+    renderApp(
+      "/knowledge-bases?tab=sites&site_search=water&site_status=disabled"
+    )
+
+    expect(
+      await screen.findByRole("tab", { name: "我的站点" })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.getByRole("heading", { name: "应用", level: 1 })
+    ).toBeVisible()
+    expect(screen.getByRole("tab", { name: "我的应用" })).toBeVisible()
+    expect(
+      screen.queryByRole("tab", { name: "共享我的" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("tab", { name: "应用中心" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "创建应用" })).toBeVisible()
+    expect(await screen.findByText("没有找到匹配的站点")).toBeVisible()
+    expect(siteRequests).toHaveLength(1)
+    expect(
+      Object.fromEntries(siteRequests[0]?.searchParams ?? [])
+    ).toMatchObject({
+      search: "water",
+      status: "disabled",
+    })
+  })
+
   it("redirects an uninitialized system to the first-administrator wizard", async () => {
     installApiMock({ initialized: false, refreshFails: true })
     renderApp("/login")
@@ -111,7 +154,7 @@ describe("LinkSense application", () => {
     for (const path of ["/login", "/register", "/forgot-password"]) {
       const view = renderApp(path)
       const badge = await screen.findByRole("link", {
-        name: "由 LinkSense 提供支持",
+        name: "Powered by LinkSense",
       })
       expect(badge).toBeVisible()
       expect(badge.parentElement).toHaveAttribute("data-placement", "page")
@@ -485,6 +528,49 @@ describe("LinkSense application", () => {
           (request) => request.path === `/api/v1/auth/${protocol}/callback`
         )
       ).toBe(false)
+    }
+  )
+
+  it("focuses Browser Use setup after password sign-in from its deep link", async () => {
+    installApiMock({ refreshFails: true })
+    const interaction = userEvent.setup()
+    renderApp("/settings/general#browser-extension")
+
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "邮箱" }),
+      "person@example.com"
+    )
+    await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "Password1!")
+    await interaction.click(screen.getByRole("button", { name: "登录" }))
+
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Browser Use" })).toHaveFocus()
+    )
+  })
+
+  it.each(["oidc", "saml", "social"])(
+    "restores Browser Use setup once after %s sign-in returns in the same tab",
+    async (protocol) => {
+      installApiMock({ refreshFails: true })
+      const login = renderApp("/settings/general#browser-extension")
+      await screen.findByRole("textbox", { name: "邮箱" })
+      login.unmount()
+
+      installApiMock()
+      const callbackPath = `/auth/${protocol}/callback?result=success`
+      window.history.replaceState({}, "", callbackPath)
+      const callback = renderApp(callbackPath)
+      await waitFor(() =>
+        expect(screen.getByRole("region", { name: "Browser Use" })).toHaveFocus()
+      )
+      expect(window.location.search).toBe("")
+      callback.unmount()
+
+      window.history.replaceState({}, "", callbackPath)
+      renderApp(callbackPath)
+      expect(
+        await screen.findByRole("form", { name: "任务输入框" })
+      ).toBeVisible()
     }
   )
 

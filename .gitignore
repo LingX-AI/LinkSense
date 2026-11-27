@@ -38,3 +38,13 @@ apps/web/dummy-non-existing-folder/
 **/.venv/
 apps/runner/store
 apps/docs/.public-docs/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Local design mockups (not part of the repo)
+/docs/design/
+
+# Local Claude Code session config (launch.json etc.)
+.claude/
+

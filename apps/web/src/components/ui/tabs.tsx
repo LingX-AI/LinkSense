@@ -1,5 +1,4 @@
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
-import { cva } from "class-variance-authority"
 import { motion, useReducedMotion } from "framer-motion"
 import { useState } from "react"
 
@@ -24,10 +23,6 @@ function Tabs({
   )
 }
 
-const tabsListVariants = cva(
-  "group/tabs-list relative isolate inline-flex w-fit max-w-full [scrollbar-width:none] items-center justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-xl bg-muted p-1 text-muted-foreground group-data-horizontal/tabs:min-h-10 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col [&::-webkit-scrollbar]:hidden"
-)
-
 function TabsList({
   className,
   children,
@@ -35,8 +30,9 @@ function TabsList({
   variant = "segmented",
   ...props
 }: TabsPrimitive.List.Props & {
-  variant?: "segmented" | "catalog" | "navigation" | "pills"
+  variant?: "segmented" | "navigation"
 }) {
+  const navigation = variant === "navigation"
   const reducedMotion = useReducedMotion()
   const [initialBackground] = useState<
     false | { x: number; y: number; width: number; height: number }
@@ -70,15 +66,10 @@ function TabsList({
       data-slot="tabs-list"
       data-variant={variant}
       className={cn(
-        tabsListVariants(),
-        (variant === "navigation" || variant === "pills") &&
-          "[&_[data-slot=tabs-trigger]:hover]:bg-transparent",
-        variant === "catalog" &&
-          "rounded-lg [&_[data-slot=tabs-trigger]]:min-h-8 [&_[data-slot=tabs-trigger]]:rounded-md [&_[data-slot=tabs-trigger]]:py-1 [&_[data-slot=tabs-trigger]]:leading-[var(--app-line-22)] [&_[data-slot=tabs-trigger]:focus-visible]:border-ring! [&_[data-slot=tabs-trigger]:focus-visible]:ring-0 [&_[data-slot=tabs-trigger]:focus-visible]:outline-none",
-        variant === "pills" &&
-          "gap-2 rounded-none bg-transparent p-0 group-data-horizontal/tabs:min-h-9 [&_[data-active]]:text-link-foreground [&_[data-slot=tabs-trigger]]:min-h-9 [&_[data-slot=tabs-trigger]]:font-normal",
-        variant === "navigation" &&
-          "w-full gap-4 rounded-none border-b border-border bg-transparent p-0 group-data-horizontal/tabs:min-h-11 [&_[data-active]]:text-link-foreground [&_[data-slot=tabs-trigger]]:h-11 [&_[data-slot=tabs-trigger]]:flex-none [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:font-normal",
+        "group/tabs-list relative isolate inline-flex w-fit max-w-full items-center justify-start gap-2 overflow-x-auto overflow-y-hidden bg-transparent text-muted-foreground [scrollbar-width:none] group-data-horizontal/tabs:min-h-9 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col [&::-webkit-scrollbar]:hidden",
+        !navigation && "rounded-xl p-1",
+        navigation &&
+          "w-full gap-4 border-b border-border group-data-horizontal/tabs:min-h-11",
         className
       )}
       render={
@@ -103,22 +94,17 @@ function TabsList({
                   data-slot="tabs-indicator"
                   aria-hidden="true"
                   className={cn(
-                    "pointer-events-none absolute top-0 left-0 z-0 rounded-lg bg-background shadow-sm",
-                    variant === "catalog" &&
-                      "rounded-md bg-card shadow-segmented-active",
-                    variant === "pills" && "bg-accent shadow-none",
-                    variant === "navigation" &&
-                      "rounded-none bg-primary shadow-none"
+                    "pointer-events-none absolute top-0 left-0 z-0",
+                    navigation ? "bg-primary" : "rounded-md bg-card"
                   )}
                   initial={initialBackground}
                   animate={{
                     x: activeTabPosition.left,
-                    y:
-                      variant === "navigation"
-                        ? activeTabPosition.top + activeTabSize.height - 2
-                        : activeTabPosition.top,
+                    y: navigation
+                      ? activeTabPosition.top + activeTabSize.height - 2
+                      : activeTabPosition.top,
                     width: activeTabSize.width,
-                    height: variant === "navigation" ? 2 : activeTabSize.height,
+                    height: navigation ? 2 : activeTabSize.height,
                   }}
                   transition={
                     reducedMotion
@@ -139,7 +125,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative z-10 inline-flex h-auto min-h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-transparent! px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground not-data-active:hover:bg-hover focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-active:text-foreground forced-colors:data-active:border-[Highlight]! [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative z-10 inline-flex h-auto min-h-9 flex-none items-center justify-center gap-1.5 rounded-lg border border-transparent! px-3 py-1.5 text-sm font-normal whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-[variant=navigation]/tabs-list:h-11 group-data-[variant=navigation]/tabs-list:rounded-none hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-active:text-link-foreground forced-colors:data-active:border-[Highlight]! [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -157,4 +143,4 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   )
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+export { Tabs, TabsList, TabsTrigger, TabsContent }

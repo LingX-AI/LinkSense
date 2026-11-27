@@ -1,4 +1,5 @@
 import {
+  conversationWebSitesSchema,
   webSitePageSchema,
   webSiteSchema,
   webSiteSourcesSchema,
@@ -18,6 +19,19 @@ export const webSiteKeys = {
     originFileId?: string
   }) => ["web-sites", "list", input] as const,
   sources: (id: string) => ["web-sites", "sources", id] as const,
+  deliveries: (
+    ownerId: string | undefined,
+    conversationId: string | undefined
+  ) => ["web-sites", "deliveries", ownerId, conversationId] as const,
+}
+export function listConversationWebSites(
+  conversationId: string,
+  signal: AbortSignal
+) {
+  return apiRequest(`/web-sites/by-conversation/${conversationId}`, {
+    schema: conversationWebSitesSchema,
+    signal,
+  })
 }
 export function listWebSites(input: {
   search?: string

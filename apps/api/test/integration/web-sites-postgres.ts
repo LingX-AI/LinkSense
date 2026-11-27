@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { webSiteSchema, htmlPreviewSourceSchema, webSiteToolApprovalSchema, webSiteToolResultSchema } from "@linksense/shared";
+import { conversationWebSitesSchema, webSiteSchema, htmlPreviewSourceSchema, webApplicationPath, webSiteToolApprovalSchema, webSiteToolResultSchema } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { testConfig } from "../test-config.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -16,6 +16,7 @@ import { RunnerClient } from "../../src/adapters/runner.js";
 import { createObjectStorage } from "../../src/adapters/object-storage.js";
 import { createServices } from "../../src/services.js";
 import { buildApi } from "../../src/app.js";
+import { createHistoricalSiteFile, createHistoricalSiteTask } from "./historical-web-site-fixtures.js";
 
 // All infrastructure and accounts in this test are disposable and test-owned.
 // No application .env or existing database is read. --serve keeps the actual
@@ -34,7 +35,9 @@ try {
   const password = randomUUID();
   const postgres = `linksense-web-pg-${randomUUID()}`;
   const redisName = `linksense-web-redis-${randomUUID()}`;
-  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=web_sites_test", "postgres:16-alpine");
+  const postgresEnvironment = join(root, "postgres.env");
+  await writeFile(postgresEnvironment, `POSTGRES_PASSWORD=${password}\nPOSTGRES_DB=web_sites_test\n`, { mode: 0o600 });
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--env-file", postgresEnvironment, "postgres:16-alpine");
   containers.push(postgres);
   await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine");
   containers.push(redisName);
@@ -52,22 +55,25 @@ try {
   for (const entry of await readdir(migrations, { withFileTypes: true })) {
     if (entry.name === hardDeleteMigration) continue;
     await cp(join(migrations, entry.name), join(beforeHardDelete, entry.name), { recursive: true });
-    if (entry.name !== "20260917180000_add_web_sites") await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
+    if (entry.name !== "20260917180000_add_web_sites" &&
+        (entry.name < "20261115000000_add_web_site_backends" || entry.name === "migration_lock.toml")) {
+      await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
+    }
   }
   const migrate = async (path: string) => { await execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], { cwd: repo, timeout: 120_000, env: { ...process.env, DATABASE_URL: databaseUrl, LINKSENSE_TEST_MIGRATIONS_PATH: path }, maxBuffer: 4_000_000 }); };
   await migrate(before);
   db = createPrismaClient(databaseUrl);
   const owner = await db.user.create({ data: { email: "web-owner@example.test", name: "站点测试", role: "admin", status: "active", preferredLocale: "zh-CN" } });
   const other = await db.user.create({ data: { email: "web-other@example.test", name: "Other", role: "user", status: "active" } });
-  const task = await db.conversation.create({ data: { ownerId: owner.id, title: "网页分享功能验证", titleSource: "manual", archiveStatus: "active", workspaceRelPath: `${owner.id}/home/workspace`, runtimeGeneration: randomUUID() } });
+  const task = await createHistoricalSiteTask(db, owner.id, "网页分享功能验证");
   const legacyHtml = Buffer.from('<!doctype html><title>Existing webpage</title><button onclick="this.textContent=42">Run</button>');
-  const legacy = await db.conversationFile.create({ data: { conversationId: task.id, kind: "artifact", source: "agent_generated", status: "registered", filename: "existing.html", mimeType: "text/html", sizeBytes: legacyHtml.length, storageBackend: "minio", minioObjectKey: "legacy/index.html", downloadable: true, downloadCardEventId: randomUUID() } });
+  const legacy = await createHistoricalSiteFile(db, task.id, "existing.html", legacyHtml.length);
   const oldTask = await db.$queryRaw`SELECT to_jsonb(c) AS row FROM conversations c WHERE id=${task.id}::uuid`;
   const oldFile = await db.$queryRaw`SELECT to_jsonb(f) AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`;
   await migrate(beforeHardDelete);
   const upgradeSites = [];
   for (const status of ["published", "disabled", "deleted"]) {
-    const upgradeSite = await db.webSite.create({ data: { ownerId: owner.id, conversationId: task.id, sourceTaskTitle: task.title, originFileId: randomUUID(), sourceFileId: legacy.id, name: status, slug: `upgrade-${status}`, status: status === "published" ? "published" : "disabled", currentReleaseId: randomUUID() } });
+    const upgradeSite = await db.webSite.create({ data: { ownerId: owner.id, conversationId: task.id, sourceTaskTitle: task.title, originFileId: randomUUID(), sourceFileId: legacy.id, name: status, slug: status === "published" ? randomUUID() : `upgrade-${status}`, status: status === "published" ? "published" : "disabled", currentReleaseId: randomUUID() } });
     await db.webSiteAddress.createMany({ data: [upgradeSite.slug, `${upgradeSite.slug}-old`].map(slug => ({ slug, siteId: upgradeSite.id })) });
     await db.webSiteRelease.create({ data: { id: upgradeSite.currentReleaseId, siteId: upgradeSite.id, sourceFileId: legacy.id, manifestJson: { entry_path: "index.html", files: [{ path: "index.html", object_key: "legacy/index.html", mime_type: "text/html", size_bytes: legacyHtml.length, checksum_sha256: createHash("sha256").update(legacyHtml).digest("hex") }] } } });
     if (status === "deleted") await db.$executeRaw`UPDATE web_sites SET deleted_at = CURRENT_TIMESTAMP WHERE id = ${upgradeSite.id}::uuid`;
@@ -86,8 +92,8 @@ try {
     }
   }
   assert.equal((await db.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM information_schema.columns WHERE table_name='web_sites' AND column_name='deleted_at'`)[0]?.count, 0n);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(c) AS row FROM conversations c WHERE id=${task.id}::uuid`, oldTask);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(f) AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`, oldFile);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(c)-ARRAY['execution_target','desktop_device_id'] AS row FROM conversations c WHERE id=${task.id}::uuid`, oldTask);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(f)-'workspace_path_digest' AS row FROM conversation_files f WHERE id=${legacy.id}::uuid`, oldFile);
   assert.equal((await db.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_name IN ('web_sites','web_site_addresses','web_site_releases','web_artifact_bundles')`)[0]?.count, 0n);
 
   const publicBaseUrl = "http://localhost:19542";
@@ -109,10 +115,23 @@ try {
   const otherToken = api.jwt.sign({ sub: other.id, email: other.email, role: other.role, auth_valid_after: other.authValidAfter.toISOString() });
   const headers = { authorization: `Bearer ${token}` };
   const prefix = "/api/v1/web-sites";
+  const publicRequest = (url: string) => api.inject({ url, headers: { host: new URL(publicBaseUrl).host } });
+  const framePath = async (url: string): Promise<string> => {
+    const shell = await publicRequest(url);
+    assert.equal(shell.statusCode, 200);
+    const path = /<iframe[^>]+src="([^"]+)"/u.exec(shell.body)?.[1];
+    assert(path, "The public page must include its release document");
+    return path;
+  };
+  const releaseEntryPath = async (slug: string): Promise<string> => {
+    const page = await services!.webSites.publicEntry({ slug });
+    return `/web/${slug}/_releases/${page.releaseId}/${page.entryPath}`;
+  };
   for (const { site: upgradeSite, deleted } of upgradeSites) {
     if (deleted) continue;
     assert.equal((await api.inject(`/web/${upgradeSite.slug}`)).statusCode, upgradeSite.status === "published" ? 200 : 404);
     assert.equal((await api.inject(`/web/${upgradeSite.slug}/_releases/${upgradeSite.currentReleaseId}/index.html`)).statusCode, upgradeSite.status === "published" ? 200 : 404);
+    if (upgradeSite.status === "published") assert.equal((await publicRequest(await framePath(webApplicationPath(upgradeSite.id)))).statusCode, 200);
     assert.equal((await api.inject({ url: `${prefix}/${upgradeSite.id}/download`, headers })).statusCode, 200);
     assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${upgradeSite.id}`, headers, payload: { name: "Upgraded site" } })).statusCode, 200);
     assert.equal((await api.inject({ method: "DELETE", url: `${prefix}/${upgradeSite.id}`, headers })).statusCode, 204);
@@ -125,7 +144,8 @@ try {
   };
   const legacySite = await createSite(legacy.id);
   assert.match(legacySite.slug, /^[a-f0-9-]{36}$/u);
-  assert.equal((await api.inject(legacySite.url_path)).statusCode, 200);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 200);
+  assert.equal((await publicRequest(await framePath(legacySite.url_path))).statusCode, 200);
 
   const workspace = join(config.userDataRoot, task.workspaceRelPath);
   const publicDirectory = join(workspace, "artifacts/site");
@@ -141,12 +161,21 @@ try {
   await writeFile(join(publicDirectory, "data.json"), JSON.stringify({ message: "配套 JSON 数据加载成功" }));
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第一版";');
   await writeFile(join(publicDirectory, "assets/main.js"), `import {label} from "/assets/counter.js";document.querySelector('#version').textContent=label;let count=0;document.querySelector('#counter').onclick=()=>{document.querySelector('#counter').textContent='点击 '+(++count)};const data=await fetch('./data.json').then(r=>r.json());document.querySelector('#data').textContent=data.message;let protectedCount=0;try{void parent.document.body}catch{protectedCount++}try{if(localStorage.getItem('linksense.auth.access-session')===null)protectedCount++}catch{protectedCount++}document.querySelector('#isolation').textContent='隔离检查 '+protectedCount+'/2';await document.fonts.ready;document.querySelector('#fonts').textContent=document.fonts.check('16px Demo')?'配套字体加载成功':'字体加载失败';`);
+  await db.conversation.update({ where: { id: task.id }, data: { codexThreadId: "qa-thread" } });
   const siteTurn = await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
+  const sourceTurn = siteTurn;
   const register = () => services!.files.registerArtifact({ ownerId: owner.id, conversationId: task.id, codexTurnId: "qa-turn", workspaceRelativePath: "artifacts/site/index.html", displayName: "山海集.html", mimeType: "text/html", webRootRelativePath: "artifacts/site" });
   const first = await register();
   const site = await createSite(first.file_id, "shanhai-demo");
-  const initialEntry = await services.webSites.publicEntry(site.slug);
-  const firstContent = await api.inject(initialEntry.path);
+  const deliveryUrl = `${prefix}/by-conversation/${task.id}`;
+  const deliveries = async () => conversationWebSitesSchema.parse((await api.inject({ url: deliveryUrl, headers })).json().data);
+  assert.deepEqual(await deliveries(), [{
+    id: site.id, turn_id: sourceTurn.id, source_file_id: first.file_id,
+    name: site.name, slug: site.slug, status: "published", url: `${publicBaseUrl}${site.url_path}`,
+  }]);
+  assert.deepEqual((await api.inject({ url: deliveryUrl, headers: { authorization: `Bearer ${otherToken}` } })).json().data, []);
+  const initialEntry = await framePath(site.url_path);
+  const firstContent = await api.inject(initialEntry);
   assert.equal(firstContent.statusCode, 200, firstContent.body);
   assert.match(firstContent.headers["content-security-policy"]!, /sandbox allow-scripts/u);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers: { authorization: `Bearer ${otherToken}` } })).statusCode, 404);
@@ -157,31 +186,34 @@ try {
   assert.equal(await db.webSite.count({ where: { originFileId: first.file_id } }), 1);
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第二版";');
   const second = await register();
-  const originalModule = initialEntry.path.replace("index.html", "assets/counter.js");
+  const originalModule = initialEntry.replace("index.html", "assets/counter.js");
   assert.match((await api.inject(originalModule)).body, /第一版/u);
   const published = await api.inject({ method: "POST", url: `${prefix}/${site.id}/releases`, headers, payload: { file_id: second.file_id } });
   assert.equal(published.statusCode, 201, published.body);
   assert.equal(published.json().data.url_path, site.url_path);
   assert.notEqual(published.json().data.release_id, site.release_id);
   assert.match((await api.inject(originalModule)).body, /第一版/u);
-  const currentEntry = await services.webSites.publicEntry(site.slug);
-  assert.match((await api.inject(currentEntry.path.replace("index.html", "assets/counter.js"))).body, /第二版/u);
+  const currentEntry = await framePath(site.url_path);
+  assert.match((await api.inject(currentEntry.replace("index.html", "assets/counter.js"))).body, /第二版/u);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { slug: legacySite.slug } })).statusCode, 409);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "disabled" } })).statusCode, 200);
-  assert.equal((await api.inject(site.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(site.url_path)).statusCode, 404);
   assert.equal((await api.inject(originalModule)).statusCode, 404);
-  assert.equal((await api.inject(currentEntry.path)).statusCode, 404);
+  assert.equal((await api.inject(currentEntry)).statusCode, 404);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers })).statusCode, 200);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "published", slug: "shanhai-published" } })).statusCode, 200);
-  assert.equal((await api.inject(site.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(site.url_path)).statusCode, 200);
+  assert.equal((await publicRequest("/web/shanhai-demo")).statusCode, 200);
   assert.equal((await api.inject("/web/shanhai-published")).statusCode, 200);
   assert.equal((await api.inject({ method: "DELETE", url: `${prefix}/${legacySite.id}`, headers })).statusCode, 204);
-  assert.equal((await api.inject(legacySite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 404);
   assert(await db.conversationFile.findUnique({ where: { id: legacy.id } }));
   const recreated = await createSite(legacy.id, legacySite.slug);
   assert.equal(recreated.status, "published");
   assert.notEqual(recreated.id, legacySite.id);
-  assert.equal(recreated.url_path, legacySite.url_path);
+  assert.notEqual(recreated.url_path, legacySite.url_path);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(`/web/${legacySite.slug}`)).statusCode, 200);
   assert.equal(await db.webSite.count({ where: { id: legacySite.id } }), 0);
   assert.equal(await db.webSiteAddress.count({ where: { siteId: legacySite.id } }), 0);
   assert.equal(await db.webSiteRelease.count({ where: { siteId: legacySite.id } }), 0);
@@ -269,14 +301,14 @@ try {
   assert.equal(updated.site.url, renamed.site.url);
   const updatedPath = new URL(updated.site.url).pathname;
   assert.notEqual(updated.site.release_id, toolSite.release_id);
-  const updatedEntry = await services.webSites.publicEntry(updated.site.slug);
-  assert.match((await api.inject(updatedEntry.path.replace("index.html", "assets/counter.js"))).body, /第一版/u);
+  const updatedEntry = await releaseEntryPath(updated.site.slug);
+  assert.match((await api.inject(updatedEntry.replace("index.html", "assets/counter.js"))).body, /第一版/u);
   const unpublish = webSiteToolResultSchema.parse(await runSiteTool({ tool: "unpublish_site", site_id: toolSite.id }));
   assert(unpublish.tool === "unpublish_site");
   assert.equal(unpublish.site.status, "disabled");
   assert.equal(unpublish.site.release_id, updated.site.release_id);
   assert.equal((await api.inject(updatedPath)).statusCode, 404);
-  assert.equal((await api.inject(updatedEntry.path)).statusCode, 404);
+  assert.equal((await api.inject(updatedEntry)).statusCode, 404);
   const unpublishedUpdate = webSiteToolResultSchema.parse(await runSiteTool({ ...replacement, changes: { file_id: second.file_id } }));
   assert(unpublishedUpdate.tool === "update_site" && "site" in unpublishedUpdate && unpublishedUpdate.site.status === "disabled");
   assert.notEqual(unpublishedUpdate.site.release_id, updated.site.release_id);
@@ -376,19 +408,23 @@ try {
   assert.equal(crossTaskUpdate.statusCode, 201, crossTaskUpdate.body);
   const updatedSite = webSiteSchema.parse(crossTaskUpdate.json().data);
   assert.equal(updatedSite.id, site.id);
-  assert.equal(updatedSite.url_path, `/web/${targetBefore.slug}`);
+  assert.equal(updatedSite.url_path, webApplicationPath(site.id));
   assert.equal(updatedSite.name, targetBefore.name);
   assert.equal(updatedSite.description, targetBefore.description);
   assert.equal(updatedSite.conversation_id, newTask.id);
   assert.equal(updatedSite.source_task_title, newTask.title);
   assert.equal(updatedSite.source_file_id, redesigned.file_id);
   assert.equal(await db.webSite.count({ where: { sourceFileId: redesigned.file_id } }), 1);
-  const crossEntry = await services.webSites.publicEntry(updatedSite.slug);
-  assert.match((await api.inject(crossEntry.path.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
-  assert.equal((await api.inject(crossEntry.path.replace("index.html", "assets/style.css"))).statusCode, 200);
-  assert.equal((await api.inject(crossEntry.path.replace("index.html", "assets/logo.svg"))).statusCode, 200);
+  const crossEntry = await framePath(updatedSite.url_path);
+  assert.match((await api.inject(crossEntry.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
+  assert.equal((await api.inject(crossEntry.replace("index.html", "assets/style.css"))).statusCode, 200);
+  assert.equal((await api.inject(crossEntry.replace("index.html", "assets/logo.svg"))).statusCode, 200);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/sources`, headers })).json().data.some((file: { id: string }) => file.id === redesigned.file_id), true);
   assert.equal((await api.inject({ url: `${prefix}?conversation_id=${newTask.id}`, headers })).json().data.items[0].id, site.id);
+  assert((await deliveries()).some(delivery => delivery.source_file_id === first.file_id));
+  assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "disabled" } })).statusCode, 200);
+  assert((await deliveries()).every(delivery => delivery.status === "disabled"));
+  assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "published" } })).statusCode, 200);
 
   const remainingSites = await db.webSite.findMany({ where: { conversationId: task.id } });
   await services.conversations.delete(owner.id, task.id, {});
@@ -399,8 +435,8 @@ try {
     assert.equal(record.status, "disabled");
     assert.equal((await api.inject({ url: `${prefix}/${remaining.id}/download`, headers })).statusCode, 200);
   }
-  assert.equal((await api.inject(updatedSite.url_path)).statusCode, 200);
-  assert.match((await api.inject(crossEntry.path.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
+  assert.equal((await publicRequest(updatedSite.url_path)).statusCode, 200);
+  assert.match((await api.inject(crossEntry.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
   const retained = remainingSites[0];
   assert(retained, "A retained site from the deleted original task must be available");
   const restoreSource = await api.inject({ method: "POST", url: `${prefix}/${retained.id}/releases`, headers, payload: { file_id: redesigned.file_id } });
@@ -409,7 +445,7 @@ try {
   assert.equal(restoreSource.json().data.conversation_id, newTask.id);
   assert.equal((await api.inject(`/web/${retained.slug}`)).statusCode, 404);
   await services.conversations.delete(owner.id, newTask.id, {});
-  assert.equal((await api.inject(updatedSite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(updatedSite.url_path)).statusCode, 404);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers })).statusCode, 200);
   console.log("PASS: cross-task replacement preserves URLs and metadata; denies foreign sites/files; failed updates preserve the live release; source lists follow the new task; old task deletion does not disable moved sites; retained sites can receive new content without republishing.");
   console.log("PASS: deleting the source task stops all shares and retains owner downloads.");

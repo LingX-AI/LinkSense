@@ -294,6 +294,24 @@ describe("personal Microsoft connections", () => {
       "rotated-refresh",
     );
   });
+  it("returns a cloud write already committed by the provider when the administrator changes client settings", async () => {
+    const f = fixture();
+    f.protocol.complete.mockResolvedValue({
+      token: { ...f.token, scopes: ["Files.ReadWrite"] },
+      accountName: "member@example.test",
+    });
+    await f.connect();
+    f.graph.execute.mockImplementationOnce(async () => {
+      f.settings.resolve.mockResolvedValue({
+        revision: 2, client_id: "replacement-client", client_secret: "fixture-secret",
+      });
+      return { result: { kind: "page", items: [], next_cursor: null }, nextLink: null };
+    });
+    await expect(f.service.execute(owner, conversation, turn, {
+      operation: "create_folder", provider: "onedrive", drive_id: "drive", name: "Reports",
+    })).resolves.toMatchObject({ kind: "page" });
+    expect(f.graph.execute).toHaveBeenCalledOnce();
+  });
   it("marks revoked grants for reconnect but preserves a connection after transient refresh failure", async () => {
     const f = fixture();
     await f.connect();
@@ -560,7 +578,8 @@ describe("connector-specific application credentials", () => {
     } else {
       await f.service.execute(owner, conversation, turn, { operation: "search_mail", provider, query: "report" });
     }
-    expect(f.protocol.refresh).toHaveBeenCalledWith(provider, configuration, expect.objectContaining({ clientId: configuration.client_id }));
+    expect(f.protocol.refresh).toHaveBeenCalledWith(provider, configuration,
+      expect.objectContaining({ clientId: configuration.client_id }), undefined);
   });
   it("marks only the connector whose application changed as requiring reauthorization", async () => {
     const f = fixture();

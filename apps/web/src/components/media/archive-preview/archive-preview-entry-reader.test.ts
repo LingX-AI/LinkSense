@@ -1,4 +1,5 @@
 import JSZip from "jszip"
+import { ERR_UNSAFE_FILENAME } from "@zip.js/zip.js"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -129,18 +130,18 @@ describe("archive preview entry reader security", () => {
     ).rejects.toMatchObject({ code: "entry_not_found" })
   })
 
-  it("does not extract a path-traversal entry even when its raw path is requested", async () => {
+  it("rejects a path-traversal archive before listing or extracting its entries", async () => {
     const unsafePath = "../escape.txt"
     const bytes = await createArchive("safe-file.txt", "not reachable")
     replaceSingleEntryFilename(bytes, unsafePath)
 
-    const manifest = await readArchivePreviewManifest(asZipBlob(bytes))
-    expect(manifest.entries).toEqual([])
-    expect(manifest.skippedEntryCount).toBe(1)
+    await expect(readArchivePreviewManifest(asZipBlob(bytes))).rejects.toThrow(
+      ERR_UNSAFE_FILENAME
+    )
 
     await expect(
       readArchivePreviewEntry(asZipBlob(bytes), fileItem(unsafePath))
-    ).rejects.toMatchObject({ code: "entry_not_found" })
+    ).rejects.toThrow(ERR_UNSAFE_FILENAME)
   })
 
   it("rejects an entry whose declared uncompressed size exceeds the preview cap before extraction", async () => {

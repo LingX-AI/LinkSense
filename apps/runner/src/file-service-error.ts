@@ -20,12 +20,14 @@ export type FileServiceErrorCode =
   | "FILE_LIMIT_EXCEEDED"
   | "FILE_SERVICE_FORBIDDEN"
   | "FILE_SERVICE_TURN_INACTIVE"
+  | "RUNNER_OPERATION_UNCERTAIN"
 
 export class FileServiceRequestError extends Error {
   constructor(
     readonly code: FileServiceErrorCode,
     readonly retryable: boolean,
     readonly statusCode: number,
+    readonly artifactId?: string,
   ) {
     super(code)
     this.name = "FileServiceRequestError"

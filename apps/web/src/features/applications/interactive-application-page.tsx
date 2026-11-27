@@ -213,22 +213,22 @@ function InteractiveApplicationRuntime({
     source: string
     packageId: string
   } | null>(null)
-  const frameSource =
-    annotationSession?.source ?? runtimeToken.data?.runtime_url
+  const runtimeSource = runtimeToken.data?.runtime_url
+  const frameSource = annotationSession?.source ?? runtimeSource
   const onAnnotationActiveChange = annotation?.onActiveChange
   const annotationRuntime = useRef({
-    source: runtimeToken.data?.runtime_url,
+    source: runtimeSource,
     packageId: runtimePackageId,
     onActiveChange: onAnnotationActiveChange,
   })
   useLayoutEffect(() => {
     annotationRuntime.current = {
-      source: runtimeToken.data?.runtime_url,
+      source: runtimeSource,
       packageId: runtimePackageId,
       onActiveChange: onAnnotationActiveChange,
     }
   }, [
-    runtimeToken.data?.runtime_url,
+    runtimeSource,
     runtimePackageId,
     onAnnotationActiveChange,
   ])

@@ -117,8 +117,9 @@ export function SettingsGeneralPage() {
   const location = useLocation()
   const { user, refreshUser } = useAuth()
   useEffect(() => {
-    if (location.hash !== "#browser-extension") return
-    const target = document.getElementById("browser-extension")
+    const anchor = location.hash.slice(1)
+    if (anchor !== "browser-extension") return
+    const target = document.getElementById(anchor)
     target?.scrollIntoView({ block: "start", behavior: "instant" })
     target?.focus({ preventScroll: true })
   }, [location.key, location.hash])
@@ -172,10 +173,7 @@ export function SettingsGeneralPage() {
             />
           }
         >
-          <section
-            className="py-4 sm:py-5"
-            aria-labelledby="interface-language-heading"
-          >
+          <section aria-labelledby="interface-language-heading">
             <SettingsSectionHeader
               id="interface-language-heading"
               title={t("settings.interfaceLanguage")}
@@ -212,11 +210,8 @@ export function SettingsGeneralPage() {
               }
             />
           </section>
-          <Separator className="bg-[var(--app-divider)]" />
-          <section
-            className="py-4 sm:py-5"
-            aria-labelledby="running-message-action-heading"
-          >
+          <Separator className="my-4 bg-[var(--app-divider)] sm:my-5" />
+          <section aria-labelledby="running-message-action-heading">
             <SettingsSectionHeader
               id="running-message-action-heading"
               title={t("settings.runningMessageAction")}
@@ -263,7 +258,7 @@ export function SettingsGeneralPage() {
             />
           </section>
         </SettingsCard>
-        <BrowserNotificationSettings userId={user?.id} />
+        <BrowserNotificationSettings key={user?.id} userId={user?.id} />
         <BrowserExtensionSettings userId={user?.id} />
       </div>
     </SettingsPageFrame>
@@ -456,6 +451,7 @@ export function SettingsProfilePage() {
 
 export function SettingsPersonalizationPage() {
   const { t } = useTranslation()
+  const location = useLocation()
   const [customInstructionsDraft, setCustomInstructions] = useState<
     string | null
   >(null)
@@ -797,7 +793,9 @@ export function SettingsPersonalizationPage() {
       <AlertDialog
         open={blocker.state === "blocked"}
         onOpenChange={(open) => {
-          if (!open && blocker.state === "blocked") blocker.reset()
+          if (!open && blocker.state === "blocked") {
+            blocker.reset()
+          }
         }}
       >
         <AlertDialogContent>
@@ -814,7 +812,12 @@ export function SettingsPersonalizationPage() {
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (blocker.state === "blocked") blocker.proceed()
+                if (blocker.state !== "blocked") return
+                // A search/hash-only navigation keeps this route mounted, so
+                // the confirmed discard must also drop the in-memory draft.
+                if (blocker.location.pathname === location.pathname)
+                  setCustomInstructions(savedCustomInstructionsOverride)
+                blocker.proceed()
               }}
             >
               {t("settings.discardChanges")}
@@ -936,8 +939,7 @@ export function SettingsAppearancePage() {
           <p className="border-t border-divider py-4 text-sm text-foreground">
             {t("workspaceHome.description")}
           </p>
-        </SettingsCard>
-      </div>
+        </SettingsCard>      </div>
     </SettingsPageFrame>
   )
 }
@@ -1153,7 +1155,7 @@ function SettingsPageFrame({
   children,
 }: {
   title: string
-  description: string
+  description?: string
   className?: string
   children: React.ReactNode
 }) {
@@ -1161,7 +1163,7 @@ function SettingsPageFrame({
     <div className={cn("settings-page", className)}>
       <header className="settings-page-header">
         <h1 className="text-pretty">{title}</h1>
-        <p className="text-pretty">{description}</p>
+        {description && <p className="text-pretty">{description}</p>}
       </header>
       {children}
     </div>

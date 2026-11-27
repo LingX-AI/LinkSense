@@ -25,6 +25,10 @@ export function normalizeUiFontSize(value: string | number | null | undefined) {
   return parsed
 }
 
+export function readEffectiveUiFontSize() {
+  return readStoredUiFontSize()
+}
+
 export function readStoredUiFontSize() {
   try {
     return (
@@ -45,7 +49,7 @@ export function applyUiFontSize(value: number) {
 }
 
 export function initializeUiFontSize() {
-  const fontSize = readStoredUiFontSize()
+  const fontSize = readEffectiveUiFontSize()
   applyUiFontSize(fontSize)
   return fontSize
 }

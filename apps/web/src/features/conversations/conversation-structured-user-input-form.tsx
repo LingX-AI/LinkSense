@@ -30,6 +30,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  RadioGroup,
+  RadioGroupItem,
+  RadioGroupOption,
+} from "@/components/ui/radio-group"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -124,7 +129,7 @@ export function ConversationStructuredUserInputForm({
       aria-readonly={terminal || savedAnswer || undefined}
     >
       <CardContent className="pb-(--card-spacing)">
-        <FieldGroup className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+        <FieldGroup>
           {Object.entries(request.requested_schema.properties).map(
             ([fieldId, field], index) => {
               const inputId = `${formId}-field-${index}`
@@ -237,15 +242,19 @@ function StructuredField({
     .filter(Boolean)
     .join(" ")
   const label = field.title ?? fieldId
+  const singleSelect = "enum" in field || "oneOf" in field
+  const radio = singleSelect && uiHint?.control === "radio"
+  const labelId = radio ? `${inputId}-label` : undefined
 
   return (
     <Field
-      className={cn("min-w-0 gap-1.5", structuredFieldColumnClass(field))}
+      className="min-w-0 gap-1.5"
       data-invalid={invalid || undefined}
       data-disabled={disabled || undefined}
     >
       <FieldLabel
-        htmlFor={inputId}
+        id={labelId}
+        htmlFor={radio ? undefined : inputId}
         className="text-sm font-medium"
         required={required}
       >
@@ -267,6 +276,9 @@ function StructuredField({
         field,
         inputId,
         label,
+        labelId,
+        required,
+        radio,
         value,
         disabled,
         invalid,
@@ -291,6 +303,9 @@ function renderControl(input: {
   field: ConversationFormPrimitive
   inputId: string
   label: string
+  labelId?: string
+  required: boolean
+  radio: boolean
   value: FormValue | undefined
   disabled: boolean
   invalid: boolean
@@ -371,14 +386,21 @@ function renderControl(input: {
               disabled={input.disabled}
               nativeButton
               render={(checkboxProps) => (
-                <Label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-background/30 px-2.5 py-2 transition-colors has-data-[checked]:bg-muted/50">
+                <Label className="flex cursor-pointer items-start gap-2.5 rounded-lg bg-background/30 px-2.5 py-2 transition-colors has-data-[checked]:bg-muted/50">
                   <Button
                     {...checkboxProps}
                     type="button"
                     variant="ghost"
                     size="icon-xs"
                   />
-                  <span className="text-sm font-medium">{option.label}</span>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-medium">{option.label}</span>
+                    {option.description && (
+                      <span className="text-xs leading-4 text-muted-foreground">
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
                 </Label>
               )}
               onCheckedChange={(checked) =>
@@ -397,6 +419,43 @@ function renderControl(input: {
   if ("enum" in field || "oneOf" in field) {
     const options = enumOptions(field)
     const selected = typeof input.value === "string" ? input.value : ""
+    if (input.radio) {
+      return (
+        <RadioGroup
+          aria-labelledby={input.labelId}
+          aria-required={input.required || undefined}
+          aria-invalid={input.invalid || undefined}
+          aria-describedby={input.describedBy}
+          value={selected || null}
+          disabled={input.disabled}
+          onBlur={input.onBlur}
+          onValueChange={(value) => {
+            if (typeof value === "string") input.onChange(value)
+          }}
+        >
+          {options.map((option, index) => {
+            const optionId = `${input.inputId}-option-${index}`
+            return (
+              <RadioGroupOption
+                key={option.value}
+                htmlFor={optionId}
+                className="min-w-0 grow basis-56 items-start"
+              >
+                <RadioGroupItem id={optionId} value={option.value} />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm">{option.label}</span>
+                  {option.description && (
+                    <span className="text-xs leading-4 text-muted-foreground">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+              </RadioGroupOption>
+            )
+          })}
+        </RadioGroup>
+      )
+    }
     return (
       <Select
         modal={false}
@@ -420,7 +479,14 @@ function renderControl(input: {
           <SelectGroup>
             {options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span>{option.label}</span>
+                  {option.description && (
+                    <span className="text-xs leading-4 text-muted-foreground">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
               </SelectItem>
             ))}
           </SelectGroup>
@@ -521,23 +587,6 @@ function formatRecommendation(
     : typeof value === "string"
       ? label(value)
       : String(value)
-}
-
-function structuredFieldColumnClass(field: ConversationFormPrimitive): string {
-  if ("format" in field && field.format === "date-time") {
-    return "sm:col-span-2"
-  }
-  if (
-    field.type === "boolean" ||
-    field.type === "number" ||
-    field.type === "integer" ||
-    ("format" in field && field.format === "date") ||
-    "enum" in field ||
-    "oneOf" in field
-  ) {
-    return "sm:col-span-1"
-  }
-  return "sm:col-span-2"
 }
 
 function initialValues(request: StructuredRequest): Record<string, FormValue> {
@@ -741,19 +790,21 @@ function validateField(
 
 function enumOptions(
   field: Extract<ConversationFormPrimitive, { type: "string" | "array" }>
-): Array<{ value: string; label: string }> {
+): Array<{ value: string; label: string; description?: string }> {
   if (field.type === "array") {
     return "enum" in field.items
       ? field.items.enum.map((value) => ({ value, label: value }))
       : field.items.anyOf.map((option) => ({
           value: option.const,
           label: option.title,
+          ...(option.description ? { description: option.description } : {}),
         }))
   }
   if ("oneOf" in field) {
     return field.oneOf.map((option) => ({
       value: option.const,
       label: option.title,
+      ...(option.description ? { description: option.description } : {}),
     }))
   }
   if ("enum" in field) {

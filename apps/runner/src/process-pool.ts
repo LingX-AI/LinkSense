@@ -10,6 +10,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
+import { WebSiteRequestError } from "./web-site-error.js";
 import {
   chmod,
   mkdtemp,
@@ -33,15 +34,18 @@ import type {
   ConversationUserInputResponse,
   ImageGenerationRequest,
   MemoryExtractionRuntime,
+  NativeUserInputResponse,
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
+  PrivacyMaskingRuntime,
   RunnerCodexSubAgentDetail,
   RunnerCodexSubAgentSummaries,
   RunnerCodexSubAgentSummary,
   RuntimeMcpServer,
 } from "@linksense/shared";
 import {
+  builtInCapabilityId,
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
   conversationFormRecommendationDelayMs,
@@ -53,7 +57,10 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
+  modelAutoCompactTokenLimitFor,
   modelIdentifierSchema,
+  PUBLIC_SITE_SKILL_NAME,
+  publicSiteRuntimeSkillName,
   reasoningEffortSchema,
   runnerCodexPreviewLimits,
   RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
@@ -89,6 +96,7 @@ import {
 import {
   builtInMcpConfigOverrides,
   linkSenseModelProviderConfigOverrides,
+  linkSenseImageCapabilityConfigOverrides,
   linkSenseSkillConfigOverrides,
   linkSenseModelProviderId,
 } from "./codex/runtime-config-overrides.js";
@@ -96,6 +104,10 @@ import {
   NativePluginManager,
   type NativePluginActivation,
 } from "./codex/native-plugin-manager.js";
+import {
+  createCodexModelCatalogWriter,
+  type CodexModelCatalogWriter,
+} from "./codex/model-catalog.js";
 import { activePluginNames, connectionPluginConfigOverrides } from "./codex/connection-plugin-policy.js";
 import { isConnectionWrite } from "@linksense/shared";
 import {
@@ -169,7 +181,9 @@ import {
   type ModelGatewayRuntime,
 } from "./model-gateway/model-gateway.js";
 import {
+  correlateStartOperation,
   CorruptStartOperationError,
+  isSealedStartOperation,
   StartOperationInterruptedError,
   StartOperationStore,
   type StartOperationResult,
@@ -215,6 +229,8 @@ const PLAN_MUTATION_SERVICE_ENVIRONMENT_NAMES = new Set([
   "LINKSENSE_SKILL_CREATOR_TOKEN",
   "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
   "LINKSENSE_APPLICATION_BUILDER_TOKEN",
+  "LINKSENSE_WEB_SITE_ENDPOINT",
+  "LINKSENSE_WEB_SITE_TOKEN",
 ]);
 
 export type StartTurnInput = {
@@ -256,6 +272,7 @@ export type StartTurnInput = {
       pricing?: ModelTokenPricing;
       modelContextWindow?: number;
       modelAutoCompactTokenLimit?: number;
+      supportsImageInput?: boolean;
     };
   };
   reasoningEffort: ReasoningEffort;
@@ -267,7 +284,9 @@ export type StartTurnInput = {
     pricing?: ModelTokenPricing;
     modelContextWindow?: number;
     modelAutoCompactTokenLimit?: number;
+    supportsImageInput?: boolean;
     memoryExtraction?: MemoryExtractionRuntime;
+    privacyMasking?: PrivacyMaskingRuntime;
   };
 };
 
@@ -396,7 +415,7 @@ export type RespondUserInputRequestInput = {
   codexThreadId: string;
   codexTurnId: string;
   itemId: string;
-  response: ConversationUserInputResponse;
+  response: NativeUserInputResponse;
 };
 
 export type InteractiveFormRequestInput = {
@@ -513,15 +532,17 @@ function resolvePrioritySkills(
     authorizedSkills.map((skill) => [skill.name, skill] as const),
   );
   const seen = new Set<string>();
-  const skills = context.prioritySkills.map(({ name }) => {
-    const skill = byName.get(name);
+  const skills = context.prioritySkills.map(({ id, name }) => {
+    const skill = id === builtInCapabilityId(PUBLIC_SITE_SKILL_NAME)
+      ? authorizedSkills.find((entry) => entry.builtInPublicSite)
+      : byName.get(name);
     if (!skill) {
       throw new CodexProtocolError("priority skill is unavailable");
     }
-    if (seen.has(name)) {
+    if (seen.has(skill.name)) {
       throw new CodexProtocolError("priority skill is duplicated");
     }
-    seen.add(name);
+    seen.add(skill.name);
     return skill;
   });
   // Knowledge selection already carries a server-authorized scope. Reuse its
@@ -765,6 +786,7 @@ type ManagedProcess = {
   mcpProxyRuntimeId: string | null;
   runtimeFingerprint: string | null;
   modelGatewayLease: ModelGatewayLease;
+  modelProviderProtocolMode: ModelProviderProtocolMode;
   capabilityLeaseToken: TaskCapabilityLeaseToken | null;
   finalizationPromise: Promise<void> | null;
 };
@@ -786,6 +808,7 @@ type CachedSubAgentRuntime = {
 };
 
 type PendingUserInputRequestBase = {
+  requestId: number;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -869,9 +892,11 @@ export class AppServerProcessPool {
     Promise<Omit<CodexAppServerHealth, "cached">> | undefined;
   private modelCatalogCache:
     { expiresAt: number; catalog: CodexModelReasoningCatalog } | undefined;
+  private readonly codexModelCatalog: CodexModelCatalogWriter;
   constructor(
     private readonly options: {
       command: string;
+      modelCatalog?: CodexModelCatalogWriter;
       /** @deprecated Model selection is supplied per turn. */
       model?: string;
       processLimit: number;
@@ -927,6 +952,34 @@ export class AppServerProcessPool {
     this.steerOperationStore = new SteerOperationStore(
       this.options.workspaceManager,
     );
+    this.codexModelCatalog =
+      options.modelCatalog ?? createCodexModelCatalogWriter();
+  }
+
+  private async ensureModelCatalog(
+    input: StartTurnInput,
+    codexHome: string,
+  ): Promise<string | null> {
+    return this.codexModelCatalog
+      .ensure({
+        command: this.options.command,
+        codexHome,
+        model: input.model,
+        ...(input.modelProvider.modelContextWindow === undefined
+          ? {}
+          : {
+              modelContextWindow: input.modelProvider.modelContextWindow,
+            }),
+        ...(input.modelProvider.supportsImageInput === undefined
+          ? {}
+          : {
+              supportsImageInput: input.modelProvider.supportsImageInput,
+            }),
+        ...(this.options.codexProcessIdentity
+          ? { processIdentity: this.options.codexProcessIdentity }
+          : {}),
+      })
+      .catch(() => null);
   }
 
   get size(): number {
@@ -1678,7 +1731,7 @@ export class AppServerProcessPool {
             ...input,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: this.artifactRegistrationEndpoint(input.conversationId),
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -1722,6 +1775,7 @@ export class AppServerProcessPool {
             runtimeFingerprint: desiredRuntimeFingerprint,
             starting: true,
             reservedProcessSlot: transferredReservation,
+            ...(operationKind === "compact" ? { allowReplacementThread: false } : {}),
             capabilityLeaseToken: leaseToken,
           },
         );
@@ -1786,6 +1840,27 @@ export class AppServerProcessPool {
       }
       if (sourceThread) assertLinkSenseThreadProvider(sourceThread, "read");
       let sourceTurns = sourceThread?.turns ?? [];
+      if (operationKind === "compact") {
+        const { goal } = await managed.client.request<ThreadGoalGetResponse>(
+          "thread/goal/get",
+          { threadId: managed.codexThreadId },
+        ).catch((error: unknown) => {
+          if (error instanceof CodexProtocolError &&
+              error.code === -32600 && error.message === "goals feature is disabled") {
+            return { goal: null };
+          }
+          throw error;
+        });
+        if (
+          !sourceThread ||
+          sourceThread.status?.type === "active" ||
+          sourceTurns.some((turn) => turn.status === "inProgress") ||
+          goal?.status === "active" ||
+          managed.activeTurnId !== null
+        ) {
+          throw new CodexProtocolError("context compaction requires an idle native thread");
+        }
+      }
       for (const sourceTurn of sourceTurns) {
         managed.knownTurnIds.add(sourceTurn.id);
       }
@@ -1839,6 +1914,7 @@ export class AppServerProcessPool {
           managed,
           input.model,
           paths.workspace,
+          input.modelProvider,
         );
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
@@ -1856,7 +1932,13 @@ export class AppServerProcessPool {
           managed,
           isModelSwitch ? sourceThreadModel! : input.model,
           paths.workspace,
-          precedingTurnId,
+          {
+            lastTurnId: precedingTurnId,
+            modelConfig:
+              (isModelSwitch
+                ? input.modelTransitionSource?.provider
+                : undefined) ?? input.modelProvider,
+          },
         );
         baselineTurnIds = sourceFork.thread.turns?.map((turn) => turn.id) ?? [];
         if (!sameStringSequence(baselineTurnIds, expectedBaselineTurnIds)) {
@@ -1883,6 +1965,7 @@ export class AppServerProcessPool {
             managed,
             input.model,
             paths.workspace,
+            { modelConfig: input.modelProvider },
           );
           await this.options.eventSink.alignConversationThread?.(
             managed.conversationId,
@@ -1911,6 +1994,7 @@ export class AppServerProcessPool {
           managed,
           input.model,
           paths.workspace,
+          { modelConfig: input.modelProvider },
         );
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
@@ -1925,28 +2009,29 @@ export class AppServerProcessPool {
         managed.knownTurnIds = new Set(baselineTurnIds);
       }
 
-      await onPrepared?.({
-        codexThreadId: managed.codexThreadId,
+      const codexThreadId = managed.codexThreadId;
+      const prepareSubmission = () => onPrepared?.({
+        codexThreadId,
         baselineTurnIds,
         preparedAt: new Date().toISOString(),
         operationKind: input.goal ? "goal" : operationKind,
       });
+      await prepareSubmission();
       await this.startOperationStore.assertNotInterrupted(
         input.conversationId,
         input.projectionTurnId,
       );
 
       if (operationKind === "compact") {
+        if (managed.activeTurnId || hasContinuingGoal(managed)) {
+          throw new CodexProtocolError("context compaction requires an idle native thread");
+        }
         managed.activeProjectionTurnId = eventProjectionTurnIdFor(input);
         managed.activeCollaborationMode = input.collaborationMode;
         this.syncModelGatewayTurnCorrelation(managed);
         nativeRequestIssued = true;
         turnStartRequestIssued = true;
-        await managed.client.request<ThreadCompactStartResponse>(
-          "thread/compact/start",
-          { threadId: managed.codexThreadId } satisfies ThreadCompactStartParams,
-        );
-        const compactTurn = await this.confirmCompactTurnRegistration(
+        const compactTurn = await this.startManualCompaction(
           managed,
           baselineTurnIds,
         );
@@ -2054,10 +2139,9 @@ export class AppServerProcessPool {
             .workspace,
         ],
         approvalPolicy: LINKSENSE_APPROVAL_POLICY,
-        sandboxPolicy:
-          input.collaborationMode === "plan"
-            ? { type: "readOnly", networkAccess: false }
-            : { type: "dangerFullAccess" },
+        ...(input.collaborationMode === "plan"
+          ? { sandboxPolicy: { type: "readOnly", networkAccess: false } }
+          : { sandboxPolicy: { type: "dangerFullAccess" } }),
       };
       if (input.goal) {
         // Active Goals auto-start a continuation, so establish the Goal paused
@@ -2247,11 +2331,12 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     model: string,
     workspace: string,
+    modelConfig?: ThreadModelConfig,
   ): Promise<string> {
     const response = await managed.client.request<ThreadStartResponse>(
       "thread/start",
       {
-        ...linkSenseThreadRuntimeOverrides(model, workspace),
+        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig),
         ephemeral: false,
       },
     );
@@ -2272,7 +2357,10 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     model: string,
     workspace: string,
-    lastTurnId?: string,
+    options: {
+      lastTurnId?: string;
+      modelConfig?: ThreadModelConfig;
+    } = {},
   ): Promise<ThreadForkResponse> {
     const sourceThreadId = managed.codexThreadId;
     if (!sourceThreadId) {
@@ -2282,9 +2370,13 @@ export class AppServerProcessPool {
       "thread/fork",
       {
         threadId: sourceThreadId,
-        ...(lastTurnId ? { lastTurnId } : {}),
+        ...(options.lastTurnId ? { lastTurnId: options.lastTurnId } : {}),
         deferGoalContinuation: true,
-        ...linkSenseThreadRuntimeOverrides(model, workspace),
+        ...linkSenseThreadRuntimeOverrides(
+          model,
+          workspace,
+          options.modelConfig,
+        ),
       } satisfies ThreadForkParams,
     );
     if (!forked.thread.id || forked.thread.id === sourceThreadId) {
@@ -2392,50 +2484,72 @@ export class AppServerProcessPool {
     }
   }
 
-  private async confirmCompactTurnRegistration(
+  private async startManualCompaction(
     managed: ManagedProcess,
     baselineTurnIds: readonly string[],
-  ): Promise<CodexTurn> {
+  ): Promise<Pick<CodexTurn, "id" | "status">> {
     const threadId = managed.codexThreadId;
     if (!threadId) {
       throw new CodexProtocolError("conversation has no Codex thread");
     }
     const baseline = new Set(baselineTurnIds);
-    const deadline =
-      Date.now() +
-      (this.options.nativeTurnRegistrationTimeoutMs ??
-        NATIVE_TURN_REGISTRATION_TIMEOUT_MS);
+    const observed: { turn?: Pick<CodexTurn, "id" | "status">; ambiguous: boolean } = {
+      ambiguous: false,
+    };
+    const observedTurn = () => {
+      if (observed.ambiguous) throw new NativeTurnStartUncertainError();
+      return observed.turn;
+    };
+    const observe = (notification: JsonRpcNotification) => {
+      if (notification.method !== "turn/started" && notification.method !== "turn/completed") return;
+      const params = objectRecord(notification.params);
+      if (params.threadId !== threadId) return;
+      const turn = objectRecord(params.turn);
+      const id = boundedCorrelationId(turn.id, 240);
+      const status = parseCodexTurnStatus(turn.status);
+      if (!id || !status || baseline.has(id) ||
+          (notification.method === "turn/started") !== (status === "inProgress")) return;
+      if (status === "inProgress") {
+        if (!observed.turn) observed.turn = { id, status };
+        else if (observed.turn.id !== id) observed.ambiguous = true;
+      } else if (observed.turn?.id === id) {
+        observed.turn = { id, status };
+      }
+    };
 
-    do {
-      const response: ThreadReadResponse =
-        await managed.client.request<ThreadReadResponse>(
-        "thread/read",
-        { threadId, includeTurns: true } satisfies ThreadReadParams,
+    managed.client.on("notification", observe);
+    try {
+      await managed.client.request<ThreadCompactStartResponse>(
+        "thread/compact/start",
+        { threadId } satisfies ThreadCompactStartParams,
       );
-      if (response.thread.id !== threadId) {
-        throw new CodexProtocolError("Codex read an unexpected thread");
-      }
-      assertLinkSenseThreadProvider(response.thread, "read");
-      const newTurns: CodexTurn[] = (response.thread.turns ?? []).filter(
-        (turn) => !baseline.has(turn.id),
+      const deadline = Date.now() + (
+        this.options.nativeTurnRegistrationTimeoutMs ?? NATIVE_TURN_REGISTRATION_TIMEOUT_MS
       );
-      if (newTurns.length > 1) {
-        throw new CodexProtocolError(
-          "Codex started multiple turns during context compaction",
-        );
-      }
-      const compactTurn = newTurns.find((turn) =>
-        (turn.items ?? []).some((item) => item.type === "contextCompaction"),
-      );
-      if (compactTurn) return compactTurn;
-      if (Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
-      }
-    } while (Date.now() < deadline);
-
-    throw new CodexProtocolError(
-      "Codex did not register the context compaction turn",
-    );
+      do {
+        let registered = observedTurn();
+        if (registered) return registered;
+        const thread = await this.readManagedRecoveryThread(managed).catch(() => {
+          throw new NativeTurnStartUncertainError();
+        });
+        const newTurns = (thread.turns ?? []).filter((turn) => !baseline.has(turn.id));
+        const [turn] = newTurns;
+        registered = observedTurn();
+        if (newTurns.length > 1 || (registered && turn && registered.id !== turn.id)) {
+          throw new NativeTurnStartUncertainError();
+        }
+        if (registered) return turn && isTerminalTurn(turn) ? turn : registered;
+        if (turn?.items?.some((item) => item.type === "contextCompaction")) return turn;
+        if (Date.now() < deadline) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+      } while (Date.now() < deadline);
+      const registered = observedTurn();
+      if (registered) return registered;
+      throw new NativeTurnStartUncertainError();
+    } finally {
+      managed.client.off("notification", observe);
+    }
   }
 
   private waitForNativeTurnStarted(
@@ -2629,34 +2743,29 @@ export class AppServerProcessPool {
     ) {
       throw new UserInputRequestUnavailableError();
     }
+    const response = input.response;
     if (pending.kind === "questions") {
-      if (input.response.action !== "accept") {
-        pending.resolve({ answers: {} });
-        return { accepted: true as const };
-      }
-      const answers = Object.fromEntries(
-        Object.entries(input.response.content).map(([fieldId, value]) => [
+      const answers = response.action === "accept" ? validateUserInputAnswers(pending.questions, Object.fromEntries(
+        Object.entries(response.content).map(([fieldId, value]) => [
           fieldId,
           typeof value === "string" ? [value] : [],
         ]),
-      );
-      pending.resolve({
-        answers: validateUserInputAnswers(pending.questions, answers),
-      });
+      )) : {};
+      pending.resolve({ answers });
       return { accepted: true as const };
     }
     if (
-      input.response.action === "accept" &&
+      response.action === "accept" &&
       !conversationFormResponseMatchesSchema(
         pending.requestedSchema,
-        input.response.content,
+        response.content,
       )
     ) {
       throw new UserInputRequestUnavailableError(
         "form response does not match requested schema",
       );
     }
-    pending.resolve(input.response);
+    pending.resolve(response);
     return { accepted: true as const };
   }
 
@@ -2721,6 +2830,7 @@ export class AppServerProcessPool {
     const response = new Promise<ConversationUserInputResponse>((resolve) => {
       const createdPending: PendingUserInputRequest = {
         kind: "form",
+        requestId,
         threadId,
         turnId,
         itemId,
@@ -2948,7 +3058,7 @@ export class AppServerProcessPool {
             path: canonicalRollout,
             lastTurnId: input.throughCodexTurnId,
             deferGoalContinuation: true,
-            ...linkSenseThreadRuntimeOverrides(input.model, workspace),
+            ...linkSenseThreadRuntimeOverrides(input.model, workspace, undefined),
           } satisfies ThreadForkParams);
           if (!forked.thread.id || forked.thread.id === source.id) {
             throw new CodexProtocolError("Codex returned an invalid fork thread");
@@ -3431,7 +3541,7 @@ export class AppServerProcessPool {
       }
     }
 
-    // app-server 0.150.1 owns parent/child discovery. Direct references belong
+    // The pinned app-server owns parent/child discovery. Direct references belong
     // to this exact parent turn, so never union them with children from another
     // turn. The native parent filter is a restart fallback only when every
     // durable direct reference is absent.
@@ -3806,7 +3916,7 @@ export class AppServerProcessPool {
             ...recoveryStartInput,
             environment: {
               ...input.environment,
-              LINKSENSE_FILE_SERVICE_ENDPOINT: `${this.options.mcpEndpointBase}/${input.conversationId}/register-artifact`,
+              LINKSENSE_FILE_SERVICE_ENDPOINT: this.artifactRegistrationEndpoint(input.conversationId),
               LINKSENSE_IMAGE_GENERATION_ENDPOINT: `${this.imageGenerationMcpEndpointBase}/${input.conversationId}/generate`,
               LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: `${this.knowledgeMcpEndpointBase}/${input.conversationId}/search`,
               LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -3967,7 +4077,7 @@ export class AppServerProcessPool {
 
   private applyRecoveredTurnState(
     managed: ManagedProcess,
-    nativeTurn: CodexTurn,
+    nativeTurn: Pick<CodexTurn, "id" | "status">,
     projectionTurnId: string,
     collaborationMode?: "default" | "plan",
   ): void {
@@ -4179,8 +4289,9 @@ export class AppServerProcessPool {
       displayName: string;
       mimeType?: string;
       artifactKind?: string;
-    webRootRelativePath?: string;
+      webRootRelativePath?: string;
     },
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId) {
@@ -4196,6 +4307,14 @@ export class AppServerProcessPool {
     if (managed.activeCollaborationMode === "plan") {
       throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
     }
+    const turnId = managed.activeTurnId;
+    if (!turnId) {
+      throw new FileServiceRequestError(
+        "FILE_SERVICE_TURN_INACTIVE",
+        false,
+        409,
+      );
+    }
     try {
       this.options.workspaceManager.resolveWorkspacePath(
         conversationId,
@@ -4208,15 +4327,16 @@ export class AppServerProcessPool {
         400,
       );
     }
-    return this.options.eventSink.registerArtifact({
+    const artifact = {
       conversationId,
-      turnId: managed.activeTurnId,
+      turnId,
       workspaceRelativePath: input.workspaceRelativePath,
       displayName: input.displayName,
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.artifactKind ? { artifactKind: input.artifactKind } : {}),
       ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
-    });
+    };
+    return this.options.eventSink.registerArtifact(artifact, ...(signal ? [signal] : []));
   }
 
   async generateImage(
@@ -4312,6 +4432,14 @@ export class AppServerProcessPool {
     if (!safeTokenEqual(token, managed.skillCreatorToken) || managed.activeCollaborationMode === "plan") throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_FORBIDDEN", false, 403);
     if (!this.options.eventSink.applicationBuilder) throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_UNAVAILABLE", true, 503);
     return this.options.eventSink.applicationBuilder({ conversationId, turnId: managed.activeProjectionTurnId, request });
+  }
+
+  async webSite(conversationId: string, token: string, request: import("@linksense/shared").WebSiteLegacyToolRequest): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new WebSiteRequestError("WEB_SITE_TURN_INACTIVE", false, 409);
+    if (!safeTokenEqual(token, managed.webSiteToken) || managed.activeCollaborationMode === "plan") throw new WebSiteRequestError("WEB_SITE_FORBIDDEN", false, 403);
+    if (!this.options.eventSink.webSite) throw new WebSiteRequestError("WEB_SITE_UNAVAILABLE", true, 503);
+    return this.options.eventSink.webSite({ conversationId, turnId: managed.activeProjectionTurnId, request });
   }
 
   async confirmSkillInstall(
@@ -4604,11 +4732,20 @@ export class AppServerProcessPool {
     });
   }
 
-  async readConversationReference(conversationId: string, token: string, input: import("@linksense/shared").ReadConversationReferenceInput): Promise<unknown> {
+  async readConversationReference(
+    conversationId: string,
+    token: string,
+    input: import("@linksense/shared").ReadConversationReferenceInput,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     if (!this.options.eventSink.readConversationReference) throw new ConversationReferenceRequestError(503);
-    return this.options.eventSink.readConversationReference({ conversationId, turnId: managed.activeProjectionTurnId, input });
+    const result = await this.options.eventSink.readConversationReference({
+      conversationId, turnId: managed.activeProjectionTurnId, input, ...(signal ? { signal } : {}),
+    });
+    signal?.throwIfAborted();
+    return result;
   }
 
   async requestMonitoringStop(conversationId: string, token: string): Promise<unknown> {
@@ -4624,7 +4761,8 @@ export class AppServerProcessPool {
     const { browserUseReadOnly, browserUseFailure } = await import("@linksense/shared");
     if (managed.activeCollaborationMode === "plan" && !browserUseReadOnly(input)) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
     if (!this.options.eventSink.browserUse) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
-    return this.options.eventSink.browserUse({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
+    const turnId = managed.activeProjectionTurnId;
+    return this.options.eventSink.browserUse({ conversationId, turnId, input, signal });
   }
 
   async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
@@ -4664,6 +4802,10 @@ export class AppServerProcessPool {
     if (managed.activeProjectionTurnId !== turnId || !managed.activeTurnId)
       throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
     return result;
+  }
+
+  private artifactRegistrationEndpoint(conversationId: string): string {
+    return `${this.options.mcpEndpointBase}/${conversationId}/register-artifact`;
   }
 
   private get knowledgeMcpEndpointBase(): string {
@@ -4992,31 +5134,14 @@ export class AppServerProcessPool {
     eventProjectionTurnId = state.projectionTurnId,
     collaborationMode?: StartTurnInput["collaborationMode"],
   ): Promise<StartOperationState> {
-    const baseline = new Set(state.correlation!.baselineTurnIds);
-    const isGoal = state.correlation!.operationKind === "goal";
-    const isCompact = state.correlation!.operationKind === "compact";
-    const candidates = (thread.turns ?? []).filter((turn) => {
-      if (baseline.has(turn.id)) return false;
-      return (
-        isGoal ||
-        (turn.items ?? []).some((item) =>
-          isCompact
-            ? item.type === "contextCompaction"
-            : item.type === "userMessage" &&
-              item.clientId === state.projectionTurnId,
-        )
-      );
-    });
-    if (
-      (isGoal && candidates.length === 0) ||
-      (!isGoal && candidates.length !== 1)
-    ) {
-      return this.markStartOperationUncertain(state);
-    }
-    const startedTurn = candidates[0]!;
+    const { correlation } = state;
+    if (!correlation) return this.markStartOperationUncertain(state);
+    const match = correlateStartOperation(correlation, state.projectionTurnId, thread.turns);
+    if (!match) return this.markStartOperationUncertain(state);
+    const isGoal = correlation.operationKind === "goal";
     this.applyRecoveredTurnState(
       managed,
-      candidates.at(-1)!,
+      match.latest,
       eventProjectionTurnId,
       collaborationMode,
     );
@@ -5024,7 +5149,7 @@ export class AppServerProcessPool {
       ? (
           await managed.client.request<ThreadGoalGetResponse>(
             "thread/goal/get",
-            { threadId: state.correlation!.codexThreadId },
+            { threadId: correlation.codexThreadId },
           )
         ).goal
       : null;
@@ -5041,8 +5166,8 @@ export class AppServerProcessPool {
     return this.startOperationStore.update(state, {
       status: "succeeded",
       result: {
-        codexThreadId: state.correlation!.codexThreadId,
-        codexTurnId: startedTurn.id,
+        codexThreadId: correlation.codexThreadId,
+        codexTurnId: match.started.id,
         ...(goal && managed.activeGoal ? { goal: managed.activeGoal } : {}),
       },
     });
@@ -5571,8 +5696,14 @@ export class AppServerProcessPool {
         protocolMode: input.modelProvider.protocolMode,
         model: input.model,
         pricing: input.modelProvider.pricing ?? zeroModelTokenPricing,
+        ...(input.modelProvider.supportsImageInput === undefined
+          ? {}
+          : { supportsImageInput: input.modelProvider.supportsImageInput }),
         ...(input.modelProvider.memoryExtraction
           ? { memoryExtraction: input.modelProvider.memoryExtraction }
+          : {}),
+        ...(input.modelProvider.privacyMasking
+          ? { privacyMasking: input.modelProvider.privacyMasking }
           : {}),
       });
       let preparedMcpProxy: PreparedUserMcpProxyRuntime;
@@ -5588,6 +5719,10 @@ export class AppServerProcessPool {
           preparedMcpProxy.runtime,
         );
       }
+      const modelCatalogPath = await this.ensureModelCatalog(
+        input,
+        paths.codexHome,
+      );
       let client: CodexJsonRpcClient;
       const managedReference: { current: ManagedProcess | null } = {
         current: null,
@@ -5613,10 +5748,16 @@ export class AppServerProcessPool {
           configOverrides: [
             ...this.globalFeatureOverrides,
             ...linkSenseSkillConfigOverrides(input.collaborationMode),
+            ...linkSenseImageCapabilityConfigOverrides(
+              input.modelProvider.supportsImageInput,
+            ),
             ...linkSenseModelProviderConfigOverrides({
               baseUrl: this.options.modelGateway.baseUrl,
               protocolMode: input.modelProvider.protocolMode,
-              allowWebSockets: input.modelTransitionSource === undefined,
+              allowWebSockets:
+                input.modelTransitionSource === undefined &&
+                input.modelProvider.privacyMasking === undefined,
+              ...(modelCatalogPath === null ? {} : { modelCatalogPath }),
               ...(input.modelProvider.modelContextWindow === undefined
                 ? {}
                 : {
@@ -5757,6 +5898,7 @@ export class AppServerProcessPool {
         mcpProxyRuntimeId: preparedMcpProxy.runtime?.id ?? null,
         runtimeFingerprint: creationContext?.runtimeFingerprint ?? null,
         modelGatewayLease,
+        modelProviderProtocolMode: input.modelProvider.protocolMode,
         capabilityLeaseToken: creationContext?.capabilityLeaseToken ?? null,
         finalizationPromise: null,
       };
@@ -5922,7 +6064,12 @@ export class AppServerProcessPool {
                 pluginNames,
               });
         const startNativeThread = async (): Promise<void> => {
-          await this.startManagedThread(managed, input.model, paths.workspace);
+          await this.startManagedThread(
+            managed,
+            input.model,
+            paths.workspace,
+            input.modelProvider,
+          );
         };
 
         const ensureNativeThread = async (): Promise<void> => {
@@ -5940,6 +6087,8 @@ export class AppServerProcessPool {
                   ...linkSenseThreadRuntimeOverrides(
                     resumeModel,
                     paths.workspace,
+                    input.modelTransitionSource?.provider ??
+                      input.modelProvider,
                   ),
                   excludeTurns: true,
                 },
@@ -6128,6 +6277,7 @@ export class AppServerProcessPool {
     const enabledSkills = catalog.skills.filter((skill) => skill.enabled);
     const enabledStandaloneSkillNames = new Set<string>();
     const authorizedSkills: AuthorizedTurnSkill[] = [];
+    const publicSiteName = publicSiteRuntimeSkillName(authorizedStandaloneSkillNames);
     const canonicalSkillsRoot = capabilityRuntime
       ? await realpath(capabilityRuntime.skillsRoot).catch(() => null)
       : null;
@@ -6140,6 +6290,7 @@ export class AppServerProcessPool {
       if (
         isStandaloneSkillPath &&
         !RESERVED_LINKSENSE_SKILL_NAMES.has(skill.name) &&
+        skill.name !== publicSiteName &&
         !authorizedStandaloneSkillNames.has(skill.name)
       ) {
         throw new CodexProtocolError(
@@ -6207,6 +6358,7 @@ export class AppServerProcessPool {
           ? { description: skill.description }
           : {}),
         path: stablePath,
+        ...(isStandaloneSkillPath && skill.name === publicSiteName ? { builtInPublicSite: true } : {}),
       });
     }
     for (const skillName of authorizedStandaloneSkillNames) {
@@ -6677,7 +6829,7 @@ export class AppServerProcessPool {
 
   /**
    * A resumed Runner may not have observed the child's thread/started event,
-   * and Codex 0.150.1 can represent creation only as subAgentActivity. Read the
+   * and the pinned app-server can represent creation only as subAgentActivity. Read the
    * small thread header before projection so the durable chip receives the
    * semantic AgentPath label on both native shapes.
    */
@@ -6853,46 +7005,42 @@ export class AppServerProcessPool {
       throw new CodexProtocolError("stale user-input request", -32_602);
     }
 
-    let pending: PendingUserInputRequest | undefined;
+    let settle: (result: ToolRequestUserInputResponse) => void = () => undefined;
     const response = new Promise<ToolRequestUserInputResponse>((resolve) => {
-      const createdPending: PendingUserInputRequest = {
-        kind: "questions",
-        threadId: mapped.params.threadId,
-        turnId: mapped.params.turnId,
-        itemId,
-        questions: mapped.params.questions,
-        timer: null,
-        resolve: (result) => {
-          if (
-            managed.pendingUserInputRequests.get(request.id) !== createdPending
-          ) {
-            return;
-          }
-          managed.pendingUserInputRequests.delete(request.id);
-          if (createdPending.timer) clearTimeout(createdPending.timer);
-          resolve(result);
-        },
-      };
-      pending = createdPending;
-      managed.pendingUserInputRequests.set(request.id, createdPending);
+      settle = resolve;
     });
-    if (
-      pending &&
-      !mapped.params.isBlocking &&
-      mapped.params.autoResolutionMs !== null
-    ) {
+    const pending: PendingUserInputRequest = {
+      kind: "questions",
+      requestId: request.id,
+      threadId: mapped.params.threadId,
+      turnId: mapped.params.turnId,
+      itemId,
+      questions: mapped.params.questions,
+      timer: null,
+      resolve: (result) => {
+        if (managed.pendingUserInputRequests.get(request.id) !== pending) return;
+        managed.pendingUserInputRequests.delete(request.id);
+        if (pending.timer) clearTimeout(pending.timer);
+        settle(result);
+      },
+    };
+    managed.pendingUserInputRequests.set(request.id, pending);
+    const timeout = mapped.params.isBlocking
+      ? null
+      : mapped.params.autoResolutionMs;
+    if (timeout !== null) {
       pending.timer = setTimeout(
         () => {
-          if (pending) cancelPendingUserInputRequest(pending);
+          cancelPendingUserInputRequest(pending);
         },
-        mapped.params.autoResolutionMs,
+        timeout,
       );
       pending.timer.unref();
     }
     try {
       await this.options.eventSink.publish(managed.conversationId, mapped);
     } catch (error) {
-      if (pending && managed.pendingUserInputRequests.get(request.id) === pending) {
+      if (managed.pendingUserInputRequests.get(request.id) === pending) {
         managed.pendingUserInputRequests.delete(request.id);
         if (pending.timer) clearTimeout(pending.timer);
       }
@@ -7374,6 +7522,15 @@ export class AppServerProcessPool {
       modelProviderRevision: input.modelProvider.revision,
       modelProviderBaseUrl: input.modelProvider.baseUrl,
       modelProviderProtocolMode: input.modelProvider.protocolMode,
+      privacyMasking: input.modelProvider.privacyMasking
+        ? {
+            revision: input.modelProvider.privacyMasking.revision,
+            placeholderKey: createHash("sha256")
+              .update(input.modelProvider.privacyMasking.placeholder_key)
+              .digest("hex")
+              .slice(0, 16),
+          }
+        : null,
       memoryExtraction: input.modelProvider.memoryExtraction ?? null,
       modelContextWindow: input.modelProvider.modelContextWindow ?? null,
       modelAutoCompactTokenLimit:
@@ -7926,6 +8083,9 @@ function modelGatewayTransitionSourceFor(
     protocolMode: source.provider.protocolMode,
     model: sourceModel,
     pricing: source.provider.pricing ?? zeroModelTokenPricing,
+    ...(source.provider.supportsImageInput === undefined
+      ? {}
+      : { supportsImageInput: source.provider.supportsImageInput }),
   };
 }
 
@@ -7954,9 +8114,10 @@ export function planRuntimeConfigOverrides(
   managedBrowserEnabled = true,
 ): string[] {
   if (collaborationMode !== "plan") return [];
+  // Plan mode needs the native Stop hook, but not the deprecated legacy
+  // landlock flag: Codex 0.170 rejects it for the read-only Plan sandbox.
   return [
     "features.hooks=true",
-    "features.use_legacy_landlock=true",
     ...(managedBrowserEnabled
       ? [
           "mcp_servers.linksense_managed_browser.enabled=true",
@@ -7975,26 +8136,50 @@ function managedBrowserTurnEnvironment(
     : {};
 }
 
+type ThreadModelConfig = {
+  modelContextWindow?: number;
+  modelAutoCompactTokenLimit?: number;
+};
+
 type LinkSenseThreadRuntimeOverrides = {
   model: string;
   modelProvider: typeof linkSenseModelProviderId;
   cwd: string;
   runtimeWorkspaceRoots: string[];
   approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY;
+  config?: Record<string, unknown>;
   sandbox: "danger-full-access";
 };
 
 function linkSenseThreadRuntimeOverrides(
   model: string,
   workspace: string,
+  modelConfig?: ThreadModelConfig,
 ): LinkSenseThreadRuntimeOverrides {
+  const autoCompactTokenLimit =
+    modelConfig?.modelAutoCompactTokenLimit ??
+    (modelConfig?.modelContextWindow === undefined
+      ? undefined
+      : modelAutoCompactTokenLimitFor(modelConfig.modelContextWindow));
+  const config = {
+    ...(modelConfig?.modelContextWindow === undefined
+      ? {}
+      : { model_context_window: modelConfig.modelContextWindow }),
+    ...(autoCompactTokenLimit === undefined
+      ? {}
+      : {
+          model_auto_compact_token_limit: autoCompactTokenLimit,
+          model_auto_compact_token_limit_scope: "total",
+        }),
+  };
   return {
     model,
     modelProvider: linkSenseModelProviderId,
     cwd: workspace,
     runtimeWorkspaceRoots: [workspace],
     approvalPolicy: LINKSENSE_APPROVAL_POLICY,
-    sandbox: "danger-full-access" as const,
+    sandbox: "danger-full-access",
+    ...(Object.keys(config).length === 0 ? {} : { config }),
   };
 }
 
@@ -8376,12 +8561,6 @@ function assertStartOperationIdentity(
   ) {
     throw new StartOperationIdempotencyConflictError();
   }
-}
-
-function isSealedStartOperation(state: StartOperationState): boolean {
-  return (
-    state.status === "failed" && state.errorCode === "RUNNER_TURN_START_SEALED"
-  );
 }
 
 function isSafelyRetryableStartOperation(state: StartOperationState): boolean {

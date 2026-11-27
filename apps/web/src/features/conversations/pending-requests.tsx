@@ -74,7 +74,7 @@ export function PendingRequests({
   reorderDisabled?: boolean
   taskStartDisabled?: boolean
   onGuide: (request: PendingRequest) => void
-  onStart: (request: PendingRequest) => void
+  onStart?: (request: PendingRequest) => void
   onEdit: (request: PendingRequest) => void
   onCancel: (request: PendingRequest) => void
   onReorder?: (requestIds: string[]) => void | Promise<void>
@@ -412,7 +412,7 @@ export function PendingRequests({
                                     ? translatedBlock
                                     : t("conversation.pendingBlockedPreflight")}
                               </DropdownMenuLabel>
-                              {index === 0 && (
+                              {index === 0 && onStart && (
                                 <DropdownMenuItem
                                   disabled={
                                     taskStartDisabled ||

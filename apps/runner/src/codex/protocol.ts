@@ -186,6 +186,7 @@ export type ThreadForkParams = {
   runtimeWorkspaceRoots?: string[] | null;
   approvalPolicy?: AskForApproval | null;
   sandbox?: "read-only" | "workspace-write" | "danger-full-access" | null;
+  permissions?: string | null;
   deferGoalContinuation?: boolean;
 };
 
@@ -369,10 +370,10 @@ export type TurnStartParams = {
   cwd: string;
   runtimeWorkspaceRoots: string[];
   approvalPolicy: AskForApproval;
-  sandboxPolicy:
-    | { type: "dangerFullAccess" }
-    | { type: "readOnly"; networkAccess: boolean };
-};
+} & (
+  | { sandboxPolicy: { type: "dangerFullAccess" } | { type: "readOnly"; networkAccess: boolean }; permissions?: never }
+  | { permissions: string; sandboxPolicy?: never }
+);
 
 export type ToolRequestUserInputOption = {
   label: string;

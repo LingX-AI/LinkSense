@@ -20,7 +20,20 @@ type PersistedAccessSession = {
   expires_at: number
 }
 
-type SessionListener = (token: string | null) => void
+type SessionListener = (
+  token: string | null,
+  reason: SessionChangeReason
+) => void
+type LoginSessionListener = (boundary: LoginSessionBoundary) => void
+/**
+ * "session" changes come from an explicit credential decision (accept, rotate,
+ * sign-out, or a definitive refresh rejection). "storage" changes only
+ * synchronize the in-memory token with localStorage, so an empty read is not a
+ * verified session ending.
+ */
+export type SessionChangeReason = "session" | "storage"
+export type LoginSessionChange = "sign-in" | "sign-out"
+export type LoginSessionBoundary = number
 type StorageReadResult =
   | { status: "unavailable" }
   | { status: "empty" }
@@ -29,11 +42,21 @@ type StorageReadResult =
 let accessToken: string | null = null
 let accessTokenExpiresAt: number | null = null
 let expirationTimer: ReturnType<typeof setTimeout> | null = null
+// A token rotation is not a new login. Only an explicit session replacement
+// (sign-out intent or accepting a session) advances this boundary.
+let loginSessionBoundary: LoginSessionBoundary = 0
+// Callers distinguish a first sign-in, which may keep a buffered approval
+// click for the matched owner, from a sign-out that must clear it.
+let loginSessionChange: LoginSessionChange = "sign-out"
+// Credential revision tracking pairs with the login boundary: the boundary
+// names the login that admitted work, while the guard below also detects
+// same-tab credential changes (rotation, definitive clear, cross-tab sync).
 let sessionRevision = 0
 let signOutRevision = 0
 let failedWriteBackingValue: string | null | undefined
 
 const listeners = new Set<SessionListener>()
+const loginSessionListeners = new Set<LoginSessionListener>()
 
 function getLocalStorage() {
   if (typeof window === "undefined") return null
@@ -130,13 +153,16 @@ function persistAccessSession(session: StoredAccessSession | null) {
     }
     failedWriteBackingValue = undefined
   } catch {
+    // Keep the token in memory when storage is blocked or full, and remember
+    // which value the failed write was based on so a stale read is not
+    // mistaken for a verified session.
     failedWriteBackingValue = previousValue
   }
 }
 
-function notifyListeners(token: string | null) {
+function notifyListeners(token: string | null, reason: SessionChangeReason) {
   for (const listener of listeners) {
-    listener(token)
+    listener(token, reason)
   }
 }
 
@@ -159,6 +185,8 @@ function scheduleExpiration() {
   expirationTimer = setTimeout(
     () => {
       if (hasExpired()) {
+        // Re-read the shared slot first: another tab may have persisted a
+        // newer session before this token expired.
         restoreAccessTokenFromStorage()
         return
       }
@@ -171,7 +199,11 @@ function scheduleExpiration() {
 function updateAccessSession(
   token: string | null,
   expiresAt: number | null,
-  options: { persist: boolean; notify: boolean }
+  options: {
+    persist: boolean
+    notify: boolean
+    reason?: SessionChangeReason
+  }
 ) {
   if (options.notify) {
     if (token !== accessToken || token === null) sessionRevision += 1
@@ -187,7 +219,7 @@ function updateAccessSession(
   }
 
   scheduleExpiration()
-  if (options.notify) notifyListeners(token)
+  if (options.notify) notifyListeners(token, options.reason ?? "session")
 }
 
 function decodeJwtPayload(token: string): unknown {
@@ -274,6 +306,46 @@ function normalizeExpiration(
   return decodeJwtExpiration(token) ?? Date.now() + DEFAULT_ACCESS_TOKEN_TTL_MS
 }
 
+export function getLoginSessionBoundary(): LoginSessionBoundary {
+  return loginSessionBoundary
+}
+
+export function getLoginSessionChange(): LoginSessionChange {
+  return loginSessionChange
+}
+
+/**
+ * Observes an explicit login replacement (sign-out intent, an accepted
+ * session, or a definitive authentication clear). Token rotation keeps the
+ * boundary and never notifies. Cleanup must not break the auth transition, so
+ * a failing listener is isolated.
+ */
+export function subscribeToLoginSession(listener: LoginSessionListener) {
+  loginSessionListeners.add(listener)
+  return () => {
+    loginSessionListeners.delete(listener)
+  }
+}
+
+export function beginLoginSession(
+  change: LoginSessionChange = "sign-out"
+): LoginSessionBoundary {
+  loginSessionBoundary += 1
+  loginSessionChange = change
+  for (const listener of loginSessionListeners) {
+    try {
+      listener(loginSessionBoundary)
+    } catch {
+      // A cleanup listener cannot veto ending the previous login.
+    }
+  }
+  return loginSessionBoundary
+}
+
+export function isLoginSessionCurrent(boundary: LoginSessionBoundary) {
+  return boundary === loginSessionBoundary
+}
+
 export function getStoredAccessSession(): StoredAccessSession | null {
   const result = readStoredAccessSession()
   return result.status === "valid" ? result.session : null
@@ -298,6 +370,7 @@ export function restoreAccessTokenFromStorage() {
   updateAccessSession(nextToken, nextExpiresAt, {
     persist: false,
     notify: nextSession !== null || !hasExpired(),
+    reason: "storage",
   })
   return accessToken
 }

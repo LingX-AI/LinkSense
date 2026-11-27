@@ -102,7 +102,7 @@ describe("Select popup placement", () => {
       )
       expect(popup).toHaveClass(
         "max-w-[min(var(--app-popup-max-width),var(--available-width))]",
-        "min-w-[min(max(var(--anchor-width),--spacing(36)),var(--app-popup-max-width),var(--available-width))]"
+        "w-(--anchor-width)"
       )
       expect(popup).toHaveAttribute("data-align-trigger", "false")
       await waitFor(() => expect(popup).toHaveAttribute("data-side", "bottom"))

@@ -500,11 +500,19 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway,
     /error_page 502 503 504 =503 @linksense_maintenance;/u,
   );
-  const maintenanceChecks =
-    gateway.match(
-      /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
-    ) ?? [];
-  assert.equal(maintenanceChecks.length, 8);
+  for (const location of [
+    "^~ /html-preview/",
+    "^~ /app/",
+    "^~ /web/",
+    "/api/",
+    "~ ^/linksense-(?:files|knowledge)(?:/|$)",
+    "= /assistant-html-preview-shell.html",
+    "/",
+  ]) {
+    const start = `  location ${location} {`;
+    const body = section(gateway, start, "\n  }");
+    assert.match(body, /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/u, `${start} must respect maintenance mode`);
+  }
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
@@ -2023,7 +2031,8 @@ test("worker restricts native marketplaces to the mounted LinkSense source while
     readFile(codexConfigPath, "utf8").then(parse),
   ]);
 
-  assert.deepEqual(requirements.marketplaces, {
+  // TOML dictionaries can have null prototypes; compare the configuration values.
+  assert.deepEqual(JSON.parse(JSON.stringify(requirements.marketplaces)), {
     restrict_to_allowed_sources: true,
     allowed_sources: {
       linksense: { source: "local", path: "/home/linksense" },

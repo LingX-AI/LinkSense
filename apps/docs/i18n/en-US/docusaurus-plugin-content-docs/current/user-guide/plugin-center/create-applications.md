@@ -23,7 +23,7 @@ Click the body of an application card in **My applications**, **Shared with me**
 
 ## Create a standard application
 
-1. Go to **Plugin Center → Applications → My applications**.
+1. Go to **Apps & Tools → Applications → My applications**.
 2. Select **Create application → Create standard application**.
 3. Enter a name and description and choose a preset icon or upload an image. Standard and interactive applications default to the colorful cube icon. Existing icon settings are preserved.
 4. Fix a model and reasoning effort, or let users choose them in chat.
@@ -34,7 +34,7 @@ Shared users cannot see the application instructions. Plugins use the creator's 
 
 ## Build an interactive application in conversation
 
-1. In My applications, choose Create application → Create an interactive app through chat, enter a name, and start building. You can also ask a regular task to build a LinkSense interactive application.
+1. Describe your goal in a new or existing ordinary conversation, or choose My applications → Create application → Create an app through chat. You do not need to select a Skill or an application type. A form clarifies only unresolved requirements that change the result. For an LS interface, explicitly request an interactive app using LinkSense AI or knowledge; its development preview opens in the same conversation. For standalone Web apps, see [Publish and manage sites](../tasks/publish-websites.md).
 2. Describe your requirements in the development conversation. The adjacent preview updates as files change, without exporting and importing packages. Click the name or description above the preview to edit it. Changes save automatically after you stop typing or leave the field.
 3. Try the application with real tasks, files, and results. Its test conversation is separate from the development conversation.
 4. Use Configure capabilities to search, select, or remove plugins, skills, knowledge bases, and MCP servers the application can use. Saving writes your choices to the application's configuration, updates the preview, and includes them when you install or update the application. If the conversation changes the application at the same time, reload the configuration before saving. Preview errors appear in Debug logs and can be inspected by the assistant.
@@ -79,6 +79,6 @@ For both standard and interactive apps, choose **Edit**, then **Save**. Editing 
 - Configuration edits are saved to the current application. Use **Save sharing** to update organization sharing, and update the Application Center listing separately. Neither action rewrites running turns or historical results.
 - Disabling prevents new tasks but keeps existing task history.
 - The application becomes unavailable when a required dependency is disabled, deleted, or no longer accessible. Repair the dependency before enabling or testing again.
-- Deleting removes the application from the Plugin Center and prevents new tasks; it does not delete users' existing tasks.
+- Deleting removes the application from the Apps & Tools and prevents new tasks; it does not delete users' existing tasks.
 
 Before organizational release, also review [sharing and external access](./application-access.md) and [application usage](./application-usage.md).

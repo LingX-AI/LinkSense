@@ -23,6 +23,32 @@ describe("native additional context transport", () => {
     },
   );
 
+  it("keeps a value at the native fragment threshold unsplit", () => {
+    const value = "a".repeat(3_200);
+    expect(
+      Object.keys(
+        prepareCodexAdditionalContext({
+          source: { kind: "application", value },
+        }),
+      ),
+    ).toEqual(["source"]);
+  });
+
+  it("splits above the threshold and keeps every part inside Codex's 4KB budget", () => {
+    const value = "a".repeat(3_201);
+    const output = prepareCodexAdditionalContext({
+      source: { kind: "application", value },
+    });
+    const parts = Object.entries(output)
+      .filter(([key]) => key.startsWith("source.part."))
+      .map(([, entry]) => entry);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const entry of parts) {
+      expect(Buffer.byteLength(entry.value)).toBeLessThanOrEqual(4_000);
+      expect(entry.value).toContain("content_id=");
+    }
+  });
+
   it("leaves short fragments unchanged and never mutates its input", () => {
     const input = { short: { kind: "untrusted" as const, value: "name only" } };
     expect(prepareCodexAdditionalContext(input)).toEqual(input);

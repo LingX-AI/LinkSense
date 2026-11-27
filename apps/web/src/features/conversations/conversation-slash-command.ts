@@ -10,7 +10,13 @@ export type ConversationSkillCommandTrigger = Readonly<{
   query: string
 }>
 
-const contextCompactionCommands = new Set(["/压缩", "/compact"])
+/** Canonical command shown in the transcript for a compaction turn. */
+export const conversationContextCompactionCommand = "/compact"
+
+const contextCompactionCommands = new Set([
+  "/压缩",
+  conversationContextCompactionCommand,
+])
 
 export function isConversationContextCompactionCommand(value: string) {
   return contextCompactionCommands.has(value.trim().toLocaleLowerCase("en-US"))

@@ -7,6 +7,7 @@ describe("Codex error event contracts", () => {
     "flexUnavailable",
     "modelNotFound",
     "policyCapacityUnavailable",
+    "inferenceHookDenied",
     "tooManyDenials",
     "contextWindowExceeded",
     "rateLimitExceeded",

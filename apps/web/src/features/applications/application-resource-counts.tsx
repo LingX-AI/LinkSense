@@ -14,7 +14,11 @@ export function ApplicationCardResources({
   knowledge_base_count,
   mcp_server_count,
   hasNewDevelopment = false,
-}: ApplicationResourceCounts & { hasNewDevelopment?: boolean }) {
+  hideEmpty = false,
+}: ApplicationResourceCounts & {
+  hasNewDevelopment?: boolean
+  hideEmpty?: boolean
+}) {
   const { t } = useTranslation()
   const resources = [
     {
@@ -28,7 +32,8 @@ export function ApplicationCardResources({
       icon: DatabaseIcon,
     },
     { key: "mcpServerCount", count: mcp_server_count, icon: ServerIcon },
-  ]
+  ].filter(({ count }) => !hideEmpty || count > 0)
+  if (resources.length === 0 && !hasNewDevelopment) return null
   return (
     <ul
       data-slot="application-card-statistics"

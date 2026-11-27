@@ -1,6 +1,14 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: "Se ha alcanzado el límite de backends de aplicaciones dinámicas. Pide a un administrador que revise los recursos conservados.",
+  WEB_SITE_BACKEND_NOT_CONFIGURED: "Un administrador debe configurar el servicio de aplicaciones dinámicas autoalojado.",
+  WEB_SITE_BACKEND_UNAVAILABLE: "El backend de la aplicación no está disponible temporalmente. Inténtalo más tarde.",
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: "Otra aplicación dinámica ya usa esta dirección. Elige otra.",
+  WEB_SITE_BACKEND_PENDING: "Los recursos o las funciones del backend aún no están listos. Revisa el estado de compilación antes de publicar.",
+  WEB_SITE_ANALYTICS_NOT_CONFIGURED: "Un administrador debe configurar el servicio de estadísticas del sitio.",
+  WEB_SITE_ANALYTICS_UNAVAILABLE: "El servicio de estadísticas no está disponible temporalmente. Inténtalo de nuevo más tarde.",
+  WEB_SITE_ANALYTICS_UNPUBLISHED: "Solo un sitio publicado puede activar las estadísticas de visitas.",
   AUTOMATION_EXPIRATION_IN_PAST: "La fecha de caducidad no puede ser anterior a hoy en la zona horaria de la automatización. Selecciona otra fecha.",
   BROWSER_USE_PAIR_RATE_LIMITED: "Demasiadas solicitudes de vinculación del navegador. Inténtalo de nuevo más tarde.",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "Demasiadas solicitudes de vinculación del navegador. Inténtalo de nuevo más tarde.",
@@ -17,6 +25,7 @@ export const errorMessages = {
   WEB_SEARCH_RATE_LIMITED: "Demasiadas solicitudes de búsqueda. Inténtalo más tarde.",
   WEB_SEARCH_RESPONSE_INVALID: "El servicio devolvió resultados no válidos. Contacta con el administrador.",
   WEB_SEARCH_TIMEOUT: "La búsqueda agotó el tiempo de espera. Inténtalo más tarde.",
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "La configuración de enmascaramiento de privacidad no está disponible temporalmente. Para evitar enviar contenido sin enmascarar, inténtalo más tarde o contacta con un administrador.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
@@ -50,6 +59,7 @@ export const errorMessages = {
   "WEB_SITE_RESOURCES_MISSING": "Falta un recurso de la página ({{path}}). Pide al asistente de la tarea original que guarde la página junto con sus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "El paquete de la página está incompleto o contiene archivos no compatibles. Actualízalo en la tarea original y vuelve a intentarlo",
   "CLIENT_UPDATE_REQUIRED": "El sistema se ha actualizado. Actualiza esta página para continuar.",
+
   "SERVICE_TEMPORARILY_UNAVAILABLE": "El sistema no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
   "APPLICATION_VERSION_TOO_LOW": "La versión debe ser superior a la más alta existente, v{{version}}. Elige una versión superior.",
   "APPLICATION_RUNTIME_BUSY": "Esta aplicación tiene tareas normales en curso y no se puede guardar ni actualizar. Detén las tareas o espera a que terminen e inténtalo de nuevo.",
@@ -220,6 +230,8 @@ export const errorMessages = {
   "EXTERNAL_IMAGE_DOWNLOAD_FAILED": "No se pudo descargar la imagen externa. Comprueba su URL e inténtalo de nuevo.",
   "TURN_START_CLOSED": "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
   "RUNNER_UNAVAILABLE": "El servicio de ejecución no está disponible. Inténtalo más tarde.",
+  "RUNNER_OPERATION_UNCERTAIN": "Aún no se ha confirmado si tu Mac ejecutó esta operación. Espera a que se actualice el estado antes de volver a enviarla.",
+
   "DEPLOYMENT_STOPPED": "Esta tarea se detuvo por una actualización del sistema. Se conservó el contenido existente. Revisa su progreso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "Las versiones del servicio de ejecución son incompatibles. Inténtalo más tarde. Si el problema persiste, contacta con un administrador.",
   "AUTH_INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",
@@ -352,6 +364,7 @@ export const auditMessages = {
     "conversation_artifact_registered": "Archivo generado de la tarea registrado",
     "conversation_attachment_uploaded": "Adjunto de la tarea subido",
     "conversation_context_compaction_started": "Compactación del contexto de la tarea iniciada",
+    "conversation_continued": "Tarea continuada",
     "conversation_created": "Tarea creada",
     "conversation_deleted": "Tarea eliminada",
     "conversation_forked": "Tarea bifurcada",

@@ -1,7 +1,6 @@
 // Tests grouped by their shared DOM setup; each file has an isolated module graph.
 // These files use real modules; the setup also resets DOM and global spies.
 export const sharedDomTests = [
-  "src/api/client.test.ts",
   "src/api/contracts.test.ts",
   "src/api/error-message.test.ts",
   "src/api/session.test.ts",

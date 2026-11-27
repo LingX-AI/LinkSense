@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import type { LookupAddress } from "node:dns";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +29,16 @@ const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+const SMALL_EXTRACTION_LIMITS = {
+  archiveBytes: 4 * 1024,
+  entryBytes: 1024,
+  totalExpandedBytes: 2 * 1024,
+  entryCount: 10,
+  compressionRatio: 100,
+  redirectCount: 1,
+  requestTimeoutMs: 1_000,
+  logoBytes: 1024,
+};
 
 afterEach(async () => {
   await Promise.all(
@@ -41,6 +59,7 @@ describe("CapabilityPackageImporter", () => {
       const prepared = await importer.prepare({
         kind: "manual_skill",
         name: "meeting-notes",
+        description: "Meeting notes",
         ...(displayName === undefined ? {} : { displayName }),
         skillMarkdown: "# Instructions",
       });
@@ -315,6 +334,27 @@ describe("CapabilityPackageImporter", () => {
     await expect(readFile(join(root, "escape", "SKILL.md"))).rejects.toThrow();
   });
 
+  it("adds the provided description to manual Skill frontmatter that omits it", async () => {
+    const root = await temporaryDirectory();
+    const importer = new CapabilityPackageImporter({
+      stagingRoot: join(root, "staging"),
+    });
+
+    const prepared = await importer.prepare({
+      kind: "manual_skill",
+      name: "report-helper",
+      description: "Creates reports",
+      skillMarkdown: "---\nname: report-helper\n---\n# Instructions",
+    });
+
+    await expect(
+      readFile(join(prepared.packageRoot, "SKILL.md"), "utf8"),
+    ).resolves.toBe(
+      "---\nname: report-helper\ndescription: Creates reports\n---\n# Instructions",
+    );
+    await importer.cleanup(prepared);
+  });
+
   it("prepares a manual Skill and only statically reports dependency commands", async () => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({
@@ -369,6 +409,7 @@ describe("CapabilityPackageImporter", () => {
       importer.prepare({
         kind: "manual_skill",
         name,
+        description: "Instructions",
         skillMarkdown: "# Instructions",
       }),
     ).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
@@ -529,6 +570,97 @@ describe("CapabilityPackageImporter", () => {
       }),
     ).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
   });
+
+  it("streams valid ZIP entries to disk while the signal stays active", async () => {
+    const root = await temporaryDirectory();
+    const destination = join(root, "staging");
+    await mkdir(destination);
+    const archive = createStoredZip([
+      { path: "skill/references/guide.md", bytes: "Guide" },
+    ]);
+    const controller = new AbortController();
+
+    await extractZipSecurely(
+      archive,
+      destination,
+      SMALL_EXTRACTION_LIMITS,
+      { signal: controller.signal },
+    );
+
+    await expect(
+      readFile(join(destination, "skill/references/guide.md"), "utf8"),
+    ).resolves.toBe("Guide");
+  });
+
+  it("checks the entry count and the caller's path policy before creating any extracted file", async () => {
+    const root = await temporaryDirectory();
+    const archive = createStoredZip([
+      { path: "index.html", bytes: "entry" },
+      { path: "one/two/deep.html", bytes: "too deep" },
+    ]);
+    const allowPath = vi.fn((path: string) => path.split("/").length < 3);
+
+    await expect(extractZipSecurely(archive, root, { ...SMALL_EXTRACTION_LIMITS, entryCount: 1 }, { allowPath }))
+      .rejects.toMatchObject({ params: { reason_code: "archive_entry_count_invalid" } });
+    expect(allowPath).not.toHaveBeenCalled();
+    await expect(extractZipSecurely(archive, root, SMALL_EXTRACTION_LIMITS, { allowPath }))
+      .rejects.toMatchObject({ params: { reason_code: "archive_path_invalid" } });
+    await expect(readdir(root)).resolves.toEqual([]);
+  });
+
+  it("stops ZIP extraction without writing entries when the signal aborts", async () => {
+    const root = await temporaryDirectory();
+    const destination = join(root, "staging");
+    await mkdir(destination);
+    const archive = createStoredZip([{ path: "SKILL.md", bytes: "content" }]);
+    const controller = new AbortController();
+
+    const extraction = extractZipSecurely(
+      archive,
+      destination,
+      SMALL_EXTRACTION_LIMITS,
+      { signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(extraction).rejects.toMatchObject({ name: "AbortError" });
+    await expect(stat(join(destination, "SKILL.md"))).rejects.toThrow();
+  });
+
+  it.each([
+    { streamedBytes: 5, declaredUncompressedBytes: 4 },
+    { streamedBytes: 5, declaredUncompressedBytes: 8 },
+  ])(
+    "rejects an entry streaming $streamedBytes bytes when $declaredUncompressedBytes bytes are declared",
+    async ({ declaredUncompressedBytes }) => {
+      const root = await temporaryDirectory();
+      const destination = join(root, "staging");
+      await mkdir(destination);
+      const archive = createStoredZip([
+        {
+          path: "notes.txt",
+          bytes: "hello",
+          declaredUncompressedBytes,
+        },
+      ]);
+
+      await expect(
+        extractZipSecurely(archive, destination, SMALL_EXTRACTION_LIMITS),
+      ).rejects.toMatchObject({
+        code: "INVALID_PACKAGE",
+        params: {
+          reason_code: "archive_entry_read_failed",
+          path: "notes.txt",
+        },
+      });
+      const extracted = await stat(join(destination, "notes.txt")).catch(
+        () => null,
+      );
+      expect(extracted?.size ?? 0).toBeLessThanOrEqual(
+        declaredUncompressedBytes,
+      );
+    },
+  );
 
   it("ignores non-native manifest environment declarations while preserving nested Skills", async () => {
     const root = await temporaryDirectory();
@@ -1299,6 +1431,7 @@ interface ZipEntry {
   path: string;
   bytes: string | Buffer;
   externalFileAttributes?: number;
+  declaredUncompressedBytes?: number;
 }
 
 function createStoredZip(entries: ZipEntry[]): Buffer {
@@ -1310,6 +1443,7 @@ function createStoredZip(entries: ZipEntry[]): Buffer {
     const bytes = Buffer.isBuffer(entry.bytes)
       ? entry.bytes
       : Buffer.from(entry.bytes, "utf8");
+    const declaredBytes = entry.declaredUncompressedBytes ?? bytes.length;
     const checksum = crc32(bytes);
     const local = Buffer.alloc(30 + name.length);
     local.writeUInt32LE(0x04034b50, 0);
@@ -1318,7 +1452,7 @@ function createStoredZip(entries: ZipEntry[]): Buffer {
     local.writeUInt16LE(0, 8);
     local.writeUInt32LE(checksum, 14);
     local.writeUInt32LE(bytes.length, 18);
-    local.writeUInt32LE(bytes.length, 22);
+    local.writeUInt32LE(declaredBytes, 22);
     local.writeUInt16LE(name.length, 26);
     name.copy(local, 30);
     localParts.push(local, bytes);
@@ -1331,7 +1465,7 @@ function createStoredZip(entries: ZipEntry[]): Buffer {
     central.writeUInt16LE(0, 10);
     central.writeUInt32LE(checksum, 16);
     central.writeUInt32LE(bytes.length, 20);
-    central.writeUInt32LE(bytes.length, 24);
+    central.writeUInt32LE(declaredBytes, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt32LE(
       entry.externalFileAttributes ??

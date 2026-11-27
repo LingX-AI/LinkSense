@@ -14,6 +14,7 @@ export const pluginResources = {
     identifierHint:
       "L’identifiant de la compétence reste inchangé lors d’une mise à jour.",
     content: "Instructions de la compétence",
+    descriptionRequired: "Saisissez une description de la compétence.",
     contentRequired: "Saisissez les instructions de la compétence.",
     contentTooLarge:
       "Ces instructions sont trop longues pour l’édition en ligne. Téléchargez le paquet complet, modifiez-le puis importez-le à nouveau.",
@@ -36,7 +37,7 @@ export const pluginResources = {
     confirmDeletions: "Je confirme la suppression de ces {{count}} fichiers",
   },
   marketplace: {
-    title: "Centre de plugins",
+    title: "Applications et outils",
     description:
       "Parcourez les plugins et compétences publics et gérez les éléments installés, vos contenus personnels et les connexions MCP au même endroit.",
     personalAccountDescription:
@@ -52,7 +53,7 @@ export const pluginResources = {
       reviews: "Demandes de référencement",
       listings: "Tous les éléments référencés",
     },
-    catalogTabsLabel: "Catégories du Centre de plugins",
+    catalogTabsLabel: "Catégories de la rubrique Applications et outils",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Compétences",
@@ -193,6 +194,7 @@ export const pluginResources = {
     skillMarkdown: "Contenu de SKILL.md",
     skillIdentifier: "Identifiant de la compétence",
     skillNameRequired: "Saisissez un identifiant de compétence.",
+    skillDescriptionRequired: "Saisissez une description de la compétence.",
     skillNameTooLong: "L’identifiant ne peut pas dépasser 64 caractères.",
     skillNameInvalid:
       "Utilisez uniquement des lettres latines minuscules, des chiffres et des traits d’union (-), jamais au début, à la fin ou consécutifs.",
@@ -212,7 +214,7 @@ export const pluginResources = {
       "Le plugin ou la compétence personnel actuel est copié dans un instantané immuable, soumis à la révision d’un administrateur.",
     sourceCapability: "Source du plugin ou de la compétence personnel",
     noPublishableSource:
-      "Aucun plugin ou compétence personnel publiable ne porte le même nom et le même type que cet élément. Importez ou mettez d’abord à jour la source dans le Centre.",
+      "Aucun plugin ni aucune compétence de même nom et de même type ne peut être publié. Importez ou mettez d’abord à jour la source dans Applications et outils.",
     immutableSnapshotNotice:
       "La révision porte sur un instantané indépendant et immuable. Les modifications ultérieures de votre contenu personnel ne peuvent pas changer cette version en attente.",
     submitForReview: "Soumettre à révision",
@@ -226,7 +228,7 @@ export const pluginResources = {
       "Vous n’avez encore soumis aucune application, aucun plugin ni aucune compétence.",
     publicationsDescription:
       "Gérez vos soumissions, suivez les révisions et publiez des mises à jour.",
-    backToCenter: "Retour au Centre de plugins",
+    backToCenter: "Retour à la rubrique Applications et outils",
     manageApplicationListing: "Gérer le référencement",
     selectApplication: "Choisir une application à référencer",
     selectApplicationDescription:
@@ -424,6 +426,11 @@ export const pluginResources = {
         name: "Développement d’applications interactives {{productName}}",
         description:
           "Crée et modifie des applications par conversation, avec aperçu en direct, débogage et installation.",
+      },
+      publicSite: {
+        name: "Développement de sites publics {{productName}}",
+        description:
+          "Créez des sites publics ou des applications dynamiques auto-hébergées et fournissez leurs liens.",
       },
       skillCreator: {
         name: "Créateur de compétences {{productName}}",

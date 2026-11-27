@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { webBundleLimits } from "@linksense/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureWebBundle } from "../src/modules/web-sites/bundle.js";
 import { prepareWebResource, readResource, sha256 } from "../src/modules/web-sites/resources.js";
@@ -63,6 +64,15 @@ describe("web resource packaging", () => {
     input.storage.putObject.mockClear();
     await rm(join(input.workspaceRoot, "site/assets/counter.js"));
     await expect(captureWebBundle(input)).rejects.toMatchObject({ code: "WEB_SITE_RESOURCES_MISSING" });
+    expect(input.storage.putObject).not.toHaveBeenCalled();
+  });
+  it("rejects resources that exceed the file limit after rewriting, before any object write", async () => {
+    const input = await bundleFixture();
+    const prefix = '<!doctype html><link rel="stylesheet" href="/assets/style.css"><!--';
+    const entryData = Buffer.from(`${prefix}${"x".repeat(webBundleLimits.fileBytes - prefix.length - 3)}-->`);
+    await writeFile(input.entry, entryData);
+
+    await expect(captureWebBundle({ ...input, entryData })).rejects.toMatchObject({ code: "WEB_SITE_BUNDLE_INVALID" });
     expect(input.storage.putObject).not.toHaveBeenCalled();
   });
   it("rewrites responsive images, nested imports, inline styles, import maps, and dynamic string imports", async () => {

@@ -88,7 +88,7 @@ describe("InitializePage", () => {
     const interaction = userEvent.setup()
     renderPage()
     const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     }).parentElement
     expect(attribution).toHaveAttribute("data-placement", "page")
     expect(attribution).toHaveClass(

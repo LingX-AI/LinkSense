@@ -415,7 +415,8 @@ export const adminMessages = {
       cachedInputPrice: "Precio de entrada en caché",
       outputPrice: "Precio de salida",
       contextWindow: "Longitud del contexto del modelo",
-      contextWindowPlaceholder: "Detectar automáticamente",
+      contextWindowPlaceholder: "Deja vacío para detectar automáticamente",
+      contextWindowShortcuts: "Valores rápidos de longitud de contexto",
       contextWindowInvalid:
         "Introduce un entero mayor que 0 o deja en blanco para detectar automáticamente.",
       priceUnit: "USD / 1 millón de tokens",
@@ -428,6 +429,8 @@ export const adminMessages = {
         "El modelo se eliminará inmediatamente tras confirmar. Las tareas y los registros de uso históricos no se ven afectados.",
       modelDeleted: "Modelo eliminado.",
       supportedEfforts: "Esfuerzos de razonamiento admitidos",
+      reasoningEffortsAutoHint:
+        "Se ajusta automáticamente al modelo; modifícalo solo si es necesario.",
       selectedEfforts: "{{count}} seleccionados",
       defaultEffort: "Esfuerzo de razonamiento predeterminado",
       defaultModel: "Modelo de conversación predeterminado",

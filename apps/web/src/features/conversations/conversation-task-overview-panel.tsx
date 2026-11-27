@@ -1,7 +1,9 @@
 import { useCallback, useId, useState, type Ref } from "react"
 import type { VirtualElement } from "@floating-ui/react-dom"
-import { LoaderCircleIcon } from "lucide-react"
+import { ChevronRightIcon, LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
+
+import { modelAutoCompactTokenLimitFor } from "@linksense/shared"
 
 import type {
   ConversationEvent,
@@ -14,10 +16,20 @@ import { HeaderIcon } from "@/components/ui/header-icon-button"
 import {
   Popover,
   PopoverContent,
-  PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
+import {
+  buildConversationContextRows,
+  selectLatestConversationContextBreakdown,
+  type ConversationContextRow,
+  type ConversationModelContextUsage,
+} from "@/features/conversations/conversation-context-usage"
+import {
+  ConversationContextBreakdownRows,
+  ConversationContextUsageBar,
+} from "@/features/conversations/conversation-context-usage-blocks"
+import { formatCompactTokenCount } from "@/lib/usage-number"
 import { ConversationHeaderButton } from "@/features/conversations/conversation-header-button"
 import {
   readTaskOverviewOpenPreference,
@@ -30,6 +42,7 @@ import {
 } from "@/features/conversations/conversation-sources-list"
 import { normalizeLanguage } from "@/i18n"
 import { formatFileSize } from "@/i18n/date"
+import { cn } from "@/lib/utils"
 import { TaskOverviewFileIcon } from "@/features/conversations/task-overview-file-icon"
 import { getTaskOverviewFileFormat } from "@/features/conversations/task-overview-file-format"
 
@@ -46,6 +59,11 @@ type ConversationTaskOverviewPanelProps = {
     readonly NativeSubAgentSummary[]
   >
   downloadingFileId?: string
+  contextUsage?: ConversationModelContextUsage | null
+  changedFileCount?: number
+  compactAvailable?: boolean
+  compacting?: boolean
+  onCompact?: () => void
   onDownload: (file: ConversationFile) => void
   onOpenChange?: (open: boolean) => void
   sourcesState?: ConversationSourcesListProps
@@ -59,6 +77,11 @@ export function ConversationTaskOverviewPanel({
   panelRef,
   subAgentSummariesByTurnId,
   downloadingFileId,
+  contextUsage,
+  changedFileCount,
+  compactAvailable = false,
+  compacting = false,
+  onCompact,
   onDownload,
   onOpenChange: onPanelOpenChange,
   sourcesState,
@@ -91,6 +114,7 @@ export function ConversationTaskOverviewPanel({
   const [internalOpen, setOpen] = useState(
     () => defaultOpen ?? readTaskOverviewOpenPreference()
   )
+  const [contextCollapsed, setContextCollapsed] = useState(false)
   const open = controlledOpen ?? internalOpen
   const overview = buildConversationTaskOverview({
     events,
@@ -98,6 +122,37 @@ export function ConversationTaskOverviewPanel({
     summaries: [...(subAgentSummariesByTurnId?.values() ?? [])].flat(),
   })
   const hasSubAgents = overview.subAgentCount > 0
+  const contextBreakdown = selectLatestConversationContextBreakdown(events)
+  const totalTokens =
+    contextUsage?.modelContextWindow ??
+    contextBreakdown?.modelContextWindow ??
+    null
+  const usedTokens =
+    contextUsage?.usedTokens ?? contextBreakdown?.usedTokens ?? null
+  const contextPercent =
+    usedTokens !== null && totalTokens !== null && totalTokens > 0
+      ? Math.round((usedTokens / totalTokens) * 100)
+      : null
+  const autoCompactLimit =
+    totalTokens === null ? null : modelAutoCompactTokenLimitFor(totalTokens)
+  const untilAutoCompact =
+    autoCompactLimit === null || usedTokens === null
+      ? null
+      : Math.max(0, autoCompactLimit - usedTokens)
+  const formatContextTokens = (value: number) =>
+    formatCompactTokenCount(value, language)
+  const contextRowLabels: Record<ConversationContextRow["key"], string> = {
+    input: t("conversation.taskOverview.tokenInput"),
+    cached: t("conversation.taskOverview.tokenCachedInput"),
+    output: t("conversation.taskOverview.tokenOutput"),
+    reasoning: t("conversation.taskOverview.tokenReasoning"),
+    free: t("conversation.taskOverview.freeSpace"),
+  }
+  const contextRows = buildConversationContextRows(
+    contextBreakdown,
+    usedTokens,
+    totalTokens
+  ).map((row) => ({ ...row, label: contextRowLabels[row.key] }))
 
   return (
     <Popover
@@ -140,20 +195,144 @@ export function ConversationTaskOverviewPanel({
         sideOffset={8}
         className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-80 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto overscroll-contain rounded-card p-3 shadow-none ring-0"
       >
-        <PopoverTitle className="shrink-0 text-sm leading-[var(--app-line-20)] font-semibold text-foreground">
-          {t("conversation.taskOverview.title")}
-        </PopoverTitle>
-
         <div className="flex shrink-0 flex-col gap-3 [&>section+section]:border-t [&>section+section]:border-border/70 [&>section+section]:pt-3">
-          {hasSubAgents ? (
+          {contextPercent !== null &&
+          totalTokens !== null &&
+          usedTokens !== null ? (
             <section
-              aria-label={t("conversation.taskOverview.subagents")}
+              aria-label={t("conversation.taskOverview.context")}
+              className="flex flex-col gap-2"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                aria-expanded={!contextCollapsed}
+                className="h-auto w-full min-w-0 justify-between gap-2 rounded-none px-0 py-0 text-left font-normal hover:bg-transparent aria-expanded:bg-transparent"
+                onClick={() => setContextCollapsed((value) => !value)}
+              >
+                <span className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+                  {t("conversation.taskOverview.context")}
+                </span>
+                <span className="flex min-w-0 items-center gap-1 text-xs text-(--app-task-overview-muted) tabular-nums">
+                  {contextCollapsed ? (
+                    <span className="truncate">
+                      {t("conversation.taskOverview.contextCollapsedSummary", {
+                        used: formatContextTokens(usedTokens),
+                        total: formatContextTokens(totalTokens),
+                        percent: contextPercent,
+                      })}
+                    </span>
+                  ) : null}
+                  <ChevronRightIcon
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+                      !contextCollapsed && "rotate-90"
+                    )}
+                  />
+                </span>
+              </Button>
+              {contextCollapsed ? (
+                <ConversationContextUsageBar
+                  rows={contextRows}
+                  usedTokens={usedTokens}
+                  totalTokens={totalTokens}
+                  label={t("conversation.modelContextUsagePercent", {
+                    percent: contextPercent,
+                  })}
+                />
+              ) : (
+                <>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm leading-[var(--app-line-20)] font-semibold text-foreground tabular-nums">
+                      {t("conversation.modelContextUsagePercent", {
+                        percent: contextPercent,
+                      })}
+                    </span>
+                    <span className="text-xs text-(--app-task-overview-muted) tabular-nums">
+                      {t("conversation.taskOverview.contextUsedDetail", {
+                        used: formatContextTokens(usedTokens),
+                        total: formatContextTokens(totalTokens),
+                      })}
+                    </span>
+                  </div>
+                  <ConversationContextUsageBar
+                    rows={contextRows}
+                    usedTokens={usedTokens}
+                    totalTokens={totalTokens}
+                    label={t("conversation.modelContextUsagePercent", {
+                      percent: contextPercent,
+                    })}
+                  />
+                  {contextRows.length > 0 ? (
+                    <ConversationContextBreakdownRows
+                      rows={contextRows}
+                      totalTokens={totalTokens}
+                      formatTokens={formatContextTokens}
+                    />
+                  ) : null}
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-xs text-(--app-task-overview-muted)">
+                      {untilAutoCompact !== null && untilAutoCompact > 0
+                        ? t("conversation.taskOverview.untilAutoCompact", {
+                            tokens: formatContextTokens(untilAutoCompact),
+                          })
+                        : t("conversation.taskOverview.readyToCompact")}
+                    </span>
+                    {onCompact ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        disabled={!compactAvailable || compacting}
+                        aria-busy={compacting || undefined}
+                        onClick={onCompact}
+                      >
+                        {t(
+                          compacting
+                            ? "conversation.taskOverview.compacting"
+                            : "conversation.taskOverview.compactSession"
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </section>
+          ) : null}
+
+          {changedFileCount !== undefined ? (
+            <section
+              aria-label={t("conversation.taskOverview.changes")}
               className="flex flex-col gap-1"
             >
-              <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
-                {t("conversation.taskOverview.subagents")}
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-medium text-foreground">
+                  {t("conversation.taskOverview.changes")}
+                </h3>
+                <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-muted px-1.5 text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
+                  {changedFileCount.toLocaleString(language)}
+                </span>
+              </div>
+              <p className="text-xs leading-[var(--app-line-18)] text-(--app-task-overview-muted)">
+                {changedFileCount > 0
+                  ? t("conversation.taskOverview.changedFiles", {
+                      count: changedFileCount,
+                    })
+                  : t("conversation.taskOverview.noChanges")}
+              </p>
+            </section>
+          ) : null}
+
+          {hasSubAgents ? (
+            <section
+              aria-label={t("conversation.taskOverview.backgroundTasks")}
+              className="flex flex-col gap-1"
+            >
+              <h3 className="text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-medium text-foreground">
+                {t("conversation.taskOverview.backgroundTasks")}
               </h3>
-              <div className="flex items-center gap-2 text-sm font-medium text-(--app-task-overview-muted)">
+              <div className="flex items-center gap-2 text-[length:var(--app-font-13)] font-medium text-(--app-task-overview-muted)">
                 <span className="flex min-w-0 items-center gap-1">
                   {overview.subAgents
                     .slice(0, maxVisibleSubAgentIcons)
@@ -165,7 +344,7 @@ export function ConversationTaskOverviewPanel({
                       />
                     ))}
                   {overview.subAgentCount > maxVisibleSubAgentIcons ? (
-                    <span className="text-sm text-(--app-task-overview-muted) tabular-nums">
+                    <span className="text-[length:var(--app-font-13)] text-(--app-task-overview-muted) tabular-nums">
                       +{overview.subAgentCount - maxVisibleSubAgentIcons}
                     </span>
                   ) : null}
@@ -185,7 +364,7 @@ export function ConversationTaskOverviewPanel({
             className="flex flex-col gap-1"
           >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+              <h3 className="text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-medium text-foreground">
                 {t("conversation.taskOverview.outputFiles")}
               </h3>
               <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-muted px-1.5 text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
@@ -205,7 +384,7 @@ export function ConversationTaskOverviewPanel({
                       key={file.id}
                       type="button"
                       variant="ghost"
-                      className="h-auto min-h-12 w-full justify-start gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1 text-left text-sm hover:bg-hover"
+                      className="h-auto min-h-12 w-full justify-start gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1 text-left text-[length:var(--app-font-13)] hover:bg-hover"
                       aria-label={t("conversation.downloadArtifact", {
                         name: file.name,
                       })}
@@ -221,7 +400,7 @@ export function ConversationTaskOverviewPanel({
                         />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate leading-[var(--app-line-20)] font-medium text-foreground">
+                        <span className="truncate leading-[var(--app-line-18)] font-medium text-foreground">
                           {file.name}
                         </span>
                         <span className="truncate text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted)">

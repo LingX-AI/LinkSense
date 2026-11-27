@@ -19,9 +19,9 @@
     "message": "Message channels",
     "description": "The label for category '消息渠道' in sidebar 'helpSidebar'"
   },
-  "sidebar.helpSidebar.category.插件中心": {
-    "message": "Plugin Center",
-    "description": "The label for category '插件中心' in sidebar 'helpSidebar'"
+  "sidebar.helpSidebar.category.应用与工具": {
+    "message": "Apps & Tools",
+    "description": "The label for category '应用与工具' in sidebar 'helpSidebar'"
   },
   "sidebar.helpSidebar.category.知识库": {
     "message": "Knowledge bases",

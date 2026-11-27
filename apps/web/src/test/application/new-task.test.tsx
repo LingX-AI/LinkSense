@@ -426,13 +426,17 @@ describe("LinkSense application", () => {
       name: "LinkSense 导航",
     })
     await screen.findByRole("form", { name: "任务输入框" })
-    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
     await interaction.click(
       within(screen.getByRole("banner")).getByRole("button", {
-        name: "关闭任务概览",
+        name: "关闭会话侧栏",
       })
     )
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
 
     await interaction.click(
       within(sidebar).getByRole("link", { name: "整理项目会议纪要" })
@@ -484,18 +488,22 @@ describe("LinkSense application", () => {
     expect(
       await screen.findByText("会议纪要已加载。", { exact: true })
     ).toBeVisible()
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
     expect(
       within(screen.getByRole("banner")).getByRole("button", {
-        name: "打开任务概览",
+        name: "打开会话侧栏",
       })
     ).toBeVisible()
     await interaction.click(
       within(screen.getByRole("banner")).getByRole("button", {
-        name: "打开任务概览",
+        name: "打开会话侧栏",
       })
     )
-    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
   })
 
   it("hides the empty-task message while a new task's first message is loading", async () => {
@@ -878,6 +886,7 @@ describe("LinkSense application", () => {
     const optimisticStopButton = await screen.findByRole("button", {
       name: "停止",
     })
+    expect(composer).toHaveValue("")
     expect(optimisticTurnSummary).toBeInTheDocument()
     promotionScrollTo.mockClear()
     initialScroller.scrollTop = 37
@@ -902,8 +911,9 @@ describe("LinkSense application", () => {
       ).toHaveLength(1)
     )
     expect(
-      await screen.findByRole("button", { name: "打开任务概览" })
+      await screen.findByRole("region", { name: "会话侧栏" })
     ).toBeVisible()
+    expect(screen.getByRole("button", { name: "关闭会话侧栏" })).toBeVisible()
     expect(screen.getByTestId(`turn-summary-${projectedTurnId}`)).toBe(
       optimisticTurnSummary
     )
@@ -915,6 +925,7 @@ describe("LinkSense application", () => {
       initialComposerShell
     )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    expect(composer).toHaveValue("")
     expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
       initialModelSelector
     )
@@ -956,6 +967,7 @@ describe("LinkSense application", () => {
         document.getElementById("conversation-message-new-task-message-1")
       ).toBeInTheDocument()
     )
+    expect(composer).toHaveValue("")
     expect(screen.getByRole("article", { name: "用户消息" })).toBe(
       optimisticUserMessage
     )
@@ -967,7 +979,7 @@ describe("LinkSense application", () => {
     )
     releaseStaleNewTaskDetail()
     await staleNewTaskDetailSettled
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "会话侧栏" })).toBeVisible()
     await waitFor(() => {
       expect(document.querySelector(".conversation-workspace")).toBe(
         initialWorkspace
@@ -982,7 +994,7 @@ describe("LinkSense application", () => {
         optimisticTurnSummary
       )
     })
-    expect(initialWorkspace).not.toHaveAttribute("data-task-overview-open")
+    expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
     expect(
       document.querySelector(".page-state-loading-fullscreen")
     ).not.toBeInTheDocument()
@@ -1070,10 +1082,7 @@ describe("LinkSense application", () => {
       optimisticStopButton
     )
 
-    await interaction.click(
-      screen.getByRole("button", { name: "打开任务概览" })
-    )
-    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(screen.getByRole("region", { name: "会话侧栏" })).toBeVisible()
     expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
   })
 

@@ -20,7 +20,7 @@ import {
   applyUiFontSize,
   clampUiFontSize,
   persistUiFontSize,
-  readStoredUiFontSize,
+  readEffectiveUiFontSize,
 } from "@/app/ui-font-size"
 import { ThemeContext } from "@/app/theme-state"
 
@@ -29,7 +29,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     readStoredThemePreference
   )
   const latestTheme = useRef(theme)
-  const [uiFontSize, setUiFontSizeState] = useState(readStoredUiFontSize)
+  const [uiFontSize, setUiFontSizeState] = useState(readEffectiveUiFontSize)
 
   useLayoutEffect(() => {
     const mediaQuery = window.matchMedia(SYSTEM_THEME_QUERY)

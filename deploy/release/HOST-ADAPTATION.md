@@ -135,6 +135,7 @@ This upgrades the existing instance and management tools; it does not require
 recreating accounts, resources, or data volumes. Subsequent upgrades use the
 updated installed tooling.
 
+
 ## Downloads and resumable installation
 
 Script/resource downloads use HTTPS and redirect restrictions, connect and

@@ -929,7 +929,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     expect(catalogTabs).toHaveAttribute("data-variant", "navigation")
     await interaction.click(
@@ -938,7 +938,7 @@ describe("capability marketplace pages", () => {
     const searchbox = screen.getByRole("searchbox", { name: "搜索技能" })
     expect(searchbox).toBeVisible()
     const inputGroup = searchbox.closest('[data-slot="input-group"]')
-    expect(inputGroup).toHaveClass("h-10", "rounded-lg", "bg-field")
+    expect(inputGroup).toHaveClass("h-9", "rounded-lg", "bg-field")
     const searchRow = inputGroup?.parentElement
     const addButton = screen.getByRole("button", { name: "添加技能" })
     expect(searchRow).toHaveClass("capability-center-search-row")
@@ -1021,7 +1021,7 @@ describe("capability marketplace pages", () => {
       within(installedSection).getByRole("list", { name: "已安装的技能" })
     ).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
-    expect(scopeToggle).toHaveAttribute("data-variant", "catalog")
+    expect(scopeToggle).toHaveAttribute("data-variant", "segmented")
     expect(scopeToggle).toHaveAttribute("role", "tablist")
     expect(
       within(scopeToggle)
@@ -1866,7 +1866,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
@@ -2018,7 +2018,7 @@ describe("capability marketplace pages", () => {
       within(header).queryByRole("button", { name: "插件中心" })
     ).not.toBeInTheDocument()
     const catalogTabs = screen.getByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     const expectAddButtonBesideSearch = (
       searchLabel: string,
@@ -2089,18 +2089,8 @@ describe("capability marketplace pages", () => {
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "MCP" })
     )
-    const mcpScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(mcpScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
-    ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     expect(screen.queryByText(mcpRelease.name)).not.toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "搜索MCP" })).toBeVisible()
     expect(
@@ -2225,7 +2215,7 @@ describe("capability marketplace pages", () => {
     renderUserPageWithSettingsDestination()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     const installedPluginList = await screen.findByRole("list", {
       name: "已安装的插件",
@@ -2319,18 +2309,8 @@ describe("capability marketplace pages", () => {
       expect(enabledStatus.querySelector("svg")).not.toBeNull()
       expect(within(item).queryByText("启用")).not.toBeInTheDocument()
     }
-    const mcpScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(mcpScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
-    ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     const connectionsHeading = await screen.findByRole("heading", {
       name: "MCP 连接",
     })
@@ -2395,28 +2375,16 @@ describe("capability marketplace pages", () => {
 
     await interaction.click(screen.getByRole("button", { name: "测试返回" }))
     const returnedCatalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     expect(
       within(returnedCatalogTabs).getByRole("tab", { name: "MCP" })
     ).toHaveAttribute("aria-selected", "true")
-    expect(
-      within(screen.getByLabelText("内容范围")).getByRole("tab", {
-        name: "个人",
-      })
-    ).toHaveAttribute("aria-selected", "true")
+    // The MCP section has a single scope, so the switcher stays hidden.
+    expect(screen.queryByLabelText("内容范围")).not.toBeInTheDocument()
     expect(
       await screen.findByRole("heading", { name: "MCP 连接" })
     ).toBeVisible()
-    const returnedScopeToggle = screen.getByLabelText("内容范围")
-    expect(
-      within(returnedScopeToggle)
-        .getAllByRole("tab")
-        .map((button) => button.textContent)
-    ).toEqual(["个人"])
-    expect(
-      within(returnedScopeToggle).queryByRole("tab", { name: "公开" })
-    ).not.toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([input]) => {
         const url = new URL(String(input), window.location.origin)
@@ -2506,7 +2474,7 @@ describe("capability marketplace pages", () => {
     const { router } = renderUserPageWithRouter("/capabilities?section=plugin")
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "应用" })
@@ -2849,7 +2817,6 @@ describe("capability marketplace pages", () => {
       '[data-slot="card-header"]'
     )
     const cardAction = cardHeader
-    const description = within(card).getByText("暂无说明")
     const statistics = within(card).getByRole("list", { name: "应用资源" })
     const status = card.querySelector<HTMLElement>(
       '[data-slot="application-card-status"]'
@@ -2860,40 +2827,29 @@ describe("capability marketplace pages", () => {
     )
     const shareSummary = within(card).getByText("已共享 · 林老师、教务组…")
 
-    expect(list).toHaveClass("flex", "flex-col")
+    expect(list).toHaveClass("flex", "flex-col", "rounded-xl")
     expect(list).not.toHaveClass("grid", "md:grid-cols-2")
     expect(card).toHaveAttribute("data-layout", "row")
     expect(card).toHaveClass("gap-0", "rounded-none", "shadow-none")
-    expect(cardHeader).toHaveClass("grid", "min-w-0", "gap-x-4")
     expect(cardHeader).toContainElement(
       within(card).getByRole("button", {
         name: applications[0]!.name + "的更多操作",
       })
     )
-    expect(description).toHaveClass(
-      "line-clamp-2",
-      "wrap-anywhere",
-      "leading-[var(--app-line-22)]"
-    )
+    expect(within(card).queryByText("暂无说明")).not.toBeInTheDocument()
     expect(card.querySelector('[data-slot="card-content"]')).toContainElement(
       statistics
     )
-    expect(description).toHaveClass("line-clamp-2", "wrap-anywhere")
-    expect(description).not.toHaveClass("min-h-10")
-    expect(description.nextElementSibling).toContainElement(statistics)
     expect(statistics).toHaveClass("flex-wrap", "tabular-nums")
-    expect(statistics).toHaveTextContent("插件 / Skill 0")
+    expect(statistics).not.toHaveTextContent("插件 / Skill 0")
     expect(statistics).toHaveTextContent("知识库 1")
-    const mcpCount = within(statistics).getByText("MCP 0").closest("li")
-    expect(mcpCount?.querySelector("svg.lucide-server")).toBeVisible()
+    expect(statistics).not.toHaveTextContent("MCP 0")
     expect(statistics).not.toHaveTextContent("已启用")
     expect(status).toHaveTextContent("已启用")
     expect(cardHeader).toContainElement(status)
     expect(
       card.querySelector('[data-slot="application-card-model"]')
     ).toBeNull()
-    expect(footer).toHaveClass("contents")
-    expect(footer).not.toHaveClass("border-t")
     expect(footer).toContainElement(shareSummary)
     expect(statistics).not.toContainElement(shareSummary)
     expect(within(card).queryByText(/王老师/u)).toBeNull()
@@ -3156,8 +3112,8 @@ describe("capability marketplace pages", () => {
     expect(groupTab).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userTab).toHaveAttribute("aria-selected", "true")
     expect(userTab).toHaveAttribute("data-active")
-    expect(targetTypeSelector).toHaveAttribute("data-variant", "pills")
-    expect(userTab).toHaveClass("data-active:text-foreground")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(userTab).toHaveClass("data-active:text-link-foreground")
     expect(groupTab).toHaveAttribute("aria-selected", "false")
     expect(groupTab).not.toHaveAttribute("data-active")
     expect(
@@ -3483,7 +3439,7 @@ describe("capability marketplace pages", () => {
       renderUserPageWithApplicationCreateRoute()
 
       const catalogTabs = await screen.findByRole("tablist", {
-        name: "插件中心内容分类",
+        name: "应用与工具分类",
       })
       await interaction.click(
         within(catalogTabs).getByRole("tab", { name: "应用" })
@@ -3823,14 +3779,18 @@ describe("capability marketplace pages", () => {
         )
       ).toHaveTextContent("*")
       await interaction.click(manual)
-      for (const id of ["capability-name", "capability-skill-markdown"]) {
+      for (const id of [
+        "capability-name",
+        "capability-description",
+        "capability-skill-markdown",
+      ]) {
         expect(
           document.querySelector(
             `label[for='${id}'] span.text-destructive[aria-hidden='true']`
           )
         ).toHaveTextContent("*")
       }
-      for (const id of ["capability-display-name", "capability-description"]) {
+      for (const id of ["capability-display-name"]) {
         expect(
           document.querySelector(`label[for='${id}'] span.text-destructive`)
         ).not.toBeInTheDocument()
@@ -3963,6 +3923,9 @@ describe("capability marketplace pages", () => {
       const display = within(dialog).getByRole("textbox", {
         name: i18n.t("marketplace.skillDisplayName"),
       })
+      const description = within(dialog).getByRole("textbox", {
+        name: i18n.t("common.description"),
+      })
       const preview = within(dialog).getByRole("button", {
         name: i18n.t("capability.previewSubmit"),
       })
@@ -3972,6 +3935,14 @@ describe("capability marketplace pages", () => {
       expect(identifier).toHaveAccessibleDescription(
         i18n.t("marketplace.skillNameRequired")
       )
+      await interaction.click(description)
+      await interaction.tab()
+      expect(description).toHaveAttribute("aria-required", "true")
+      expect(description).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillDescriptionRequired")
+      )
+      await interaction.click(description)
+      await interaction.paste("Skill description")
       await interaction.click(
         within(dialog).getByRole("textbox", {
           name: i18n.t("marketplace.skillMarkdown"),
@@ -4176,6 +4147,12 @@ describe("capability marketplace pages", () => {
       expect(display).toHaveValue(expectedName ?? "")
       await interaction.click(
         within(dialog).getByRole("textbox", {
+          name: i18n.t("common.description"),
+        })
+      )
+      await interaction.paste("Meeting notes description")
+      await interaction.click(
+        within(dialog).getByRole("textbox", {
           name: i18n.t("marketplace.skillMarkdown"),
         })
       )
@@ -4193,6 +4170,7 @@ describe("capability marketplace pages", () => {
       expect(submittedBody).toMatchObject({
         name: "meeting-notes-daily",
         display_name: expectedName,
+        description: "Meeting notes description",
         skill_markdown: "# Instructions",
       })
       await interaction.click(
@@ -4462,7 +4440,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
@@ -4817,7 +4795,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })

@@ -25,7 +25,7 @@ const manualImportSchema = z.strictObject({
   type: z.literal("skill"),
   name: z.string().trim().min(1).max(160),
   display_name: skillDisplayNameSchema,
-  description: z.string().trim().max(4_000).nullable().optional(),
+  description: z.string().trim().min(1).max(4_000),
   skill_markdown: z.string().min(1).max(1_000_000),
 });
 
@@ -204,9 +204,7 @@ function parseCapabilityJson(body: unknown): {
       kind: "manual_skill",
       name: value.name,
       displayName: value.display_name,
-      ...(value.description === undefined
-        ? {}
-        : { description: value.description }),
+      description: value.description,
       skillMarkdown: value.skill_markdown,
     },
     requestedType: "skill",

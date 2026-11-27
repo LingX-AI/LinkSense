@@ -1051,7 +1051,7 @@ export function CredentialManagementPage() {
                 onValueChange={(value) => selectBindingCapability(value)}
                 required
               >
-                <SelectTrigger id="binding-capability" className="h-9! w-full">
+                <SelectTrigger id="binding-capability" className="w-full">
                   <SelectValue>
                     {capabilityNameById.get(capabilityId) ?? t("common.select")}
                   </SelectValue>
@@ -1160,7 +1160,7 @@ export function CredentialManagementPage() {
                         >
                           <SelectTrigger
                             id={`binding-credential-key-${envKey}`}
-                            className="h-9! w-full"
+                            className="w-full"
                           >
                             <SelectValue>
                               {bindingMappings[envKey] ||

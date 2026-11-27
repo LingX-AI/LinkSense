@@ -1,4 +1,5 @@
 export type KnowledgeSearchErrorCode =
+  | "RUNNER_OPERATION_UNCERTAIN"
   | "KNOWLEDGE_SEARCH_INVALID"
   | "KNOWLEDGE_SEARCH_FORBIDDEN"
   | "KNOWLEDGE_SEARCH_UNAVAILABLE"
@@ -22,6 +23,8 @@ export function knowledgeSearchErrorFromApi(
   const value = asRecord(responseBody)
   const apiCode = typeof value.error_code === "string" ? value.error_code : null
   switch (apiCode) {
+    case "RUNNER_OPERATION_UNCERTAIN":
+      return new KnowledgeSearchRequestError(apiCode, false, statusCode)
     case "VALIDATION_ERROR":
       return new KnowledgeSearchRequestError(
         "KNOWLEDGE_SEARCH_INVALID",

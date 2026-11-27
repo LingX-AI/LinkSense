@@ -707,10 +707,7 @@ describe("knowledge-base document and access management", () => {
         vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
           const pathname = new URL(String(input), window.location.origin)
             .pathname
-          if (
-            pathname === "/api/v1/task-artifacts" ||
-            pathname === "/api/v1/web-sites"
-          ) {
+          if (pathname === "/api/v1/task-artifacts") {
             return Promise.resolve(envelope({ items: [], next_cursor: null }))
           }
           return knowledgeFetch(input, init)
@@ -720,6 +717,14 @@ describe("knowledge-base document and access management", () => {
       const tabs = screen.getByRole("tablist", {
         name: i18n.t("library.tabsLabel"),
       })
+      expect(
+        within(tabs)
+          .getAllByRole("tab")
+          .map((tab) => tab.textContent)
+      ).toEqual([
+        i18n.t("library.tabs.knowledge"),
+        i18n.t("library.tabs.artifacts"),
+      ])
       expect(tabs.querySelector("svg")).not.toBeInTheDocument()
       const header = screen.getByRole("banner")
       expect(
@@ -779,20 +784,6 @@ describe("knowledge-base document and access management", () => {
           name: i18n.t("knowledge.create.action"),
         })
       ).not.toBeInTheDocument()
-      expect(screen.getByRole("banner")).toBe(header)
-      expect(header).toHaveClass("pb-6")
-      await userEvent.click(
-        within(tabs).getByRole("tab", { name: i18n.t("webSites.title") })
-      )
-      expect(
-        within(header).getByRole("heading", {
-          name: i18n.t("webSites.title"),
-          level: 1,
-        })
-      ).toBeVisible()
-      expect(
-        within(header).getByText(i18n.t("webSites.description"))
-      ).toBeVisible()
       expect(screen.getByRole("banner")).toBe(header)
       expect(header).toHaveClass("pb-6")
       await userEvent.click(

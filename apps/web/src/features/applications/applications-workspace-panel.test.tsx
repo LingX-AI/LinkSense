@@ -172,7 +172,7 @@ function mockCatalog(ownedApplications: Application[] = [owned, installed]) {
   })
 }
 
-describe("three application categories", () => {
+describe("application workspace categories", () => {
   it.each(supportedLocales)(
     "renders all application kinds in the same compact list in %s",
     async (language) => {
@@ -237,6 +237,40 @@ describe("three application categories", () => {
       ).toHaveTextContent(i18n.t("applications.status.active"))
     }
   )
+
+  it("keeps existing apps with no description or resources usable without empty placeholders", async () => {
+    await i18n.changeLanguage("en-US")
+    mockCatalog([
+      applicationSchema.parse({
+        ...owned,
+        description: null,
+        capability_count: 0,
+        knowledge_base_count: 0,
+        mcp_server_count: 0,
+      }),
+    ])
+    show()
+    const row = await screen.findByRole("article", { name: owned.name })
+    expect(within(row).queryByText(i18n.t("applications.noDescription"))).toBeNull()
+    expect(
+      within(row).queryByRole("list", {
+        name: i18n.t("applications.details.resources"),
+      })
+    ).toBeNull()
+    expect(
+      within(row).getByText(i18n.t("applications.status.active"))
+    ).toBeVisible()
+    expect(
+      within(row).getByRole("button", {
+        name: i18n.t("applications.details.open", { name: owned.name }),
+      })
+    ).toBeEnabled()
+    expect(
+      await within(row).findByRole("button", {
+        name: i18n.t("applications.distribution.useService"),
+      })
+    ).toBeEnabled()
+  })
 
   it.each([
     {
@@ -473,7 +507,7 @@ describe("three application categories", () => {
       expect(draftDetails).toHaveTextContent(
         i18n.t("applications.card.mcpServerCount", { count: 3 })
       )
-      expect(card).toHaveTextContent(
+      expect(card).not.toHaveTextContent(
         i18n.t("applications.card.mcpServerCount", { count: 0 })
       )
       expect(dialog).toHaveTextContent(
@@ -1309,7 +1343,7 @@ describe("three application categories", () => {
   })
 
   it.each(["zh-CN", "en-US"])(
-    "opens the development setup from the recommended creation option in %s",
+    "opens a goal-only conversation from the recommended creation option in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       const client = new QueryClient({
@@ -1332,18 +1366,20 @@ describe("three application categories", () => {
         })
       )
       const dialog = await screen.findByRole("dialog", {
-        name: i18n.t("applicationDevelopment.create"),
+        name: i18n.t("applications.conversationCreation.title"),
       })
       expect(
         within(dialog).getByRole("textbox", {
-          name: i18n.t("applicationDevelopment.name"),
+          name: i18n.t("applications.conversationCreation.goal"),
         })
       ).toBeVisible()
       expect(
         within(dialog).getByRole("button", {
-          name: i18n.t("applicationDevelopment.start"),
+          name: i18n.t("applications.conversationCreation.start"),
         })
       ).toBeDisabled()
+      expect(within(dialog).getAllByRole("textbox")).toHaveLength(1)
+      expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument()
       expect(apiRequest).not.toHaveBeenCalled()
     }
   )
@@ -1448,6 +1484,7 @@ describe("three application categories", () => {
           .map((tab) => tab.textContent)
       ).toEqual([
         i18n.t("applications.distribution.myApplications"),
+        i18n.t("webSites.title"),
         i18n.t("applications.distribution.sharedApplications"),
         i18n.t("applications.distribution.center"),
       ])
@@ -1593,6 +1630,50 @@ describe("three application categories", () => {
     )
     expect(screen.getByTestId("application-location")).toHaveTextContent(
       "app_search=report"
+    )
+  })
+
+  it("loads sites only when activated and preserves each tab's search", async () => {
+    await i18n.changeLanguage("en-US")
+    mockCatalog()
+    show(
+      "/capabilities?section=application&app_search=report&site_search=water&site_status=published"
+    )
+    const user = userEvent.setup()
+    const tabs = within(
+      screen.getByRole("tablist", { name: i18n.t("applications.scopeLabel") })
+    )
+    const ownedTab = tabs.getByRole("tab", { name: "My applications" })
+    const siteTab = tabs.getByRole("tab", { name: "My sites" })
+
+    await user.click(ownedTab)
+    await user.keyboard("{ArrowRight}")
+    expect(siteTab).toHaveFocus()
+    expect(ownedTab).toHaveAttribute("aria-selected", "true")
+    expect(apiRequest).not.toHaveBeenCalledWith("/web-sites", expect.anything())
+    await user.keyboard("{Enter}")
+    expect(siteTab).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("webSites.search") })
+    ).toHaveValue("water")
+    expect(
+      screen.queryByRole("textbox", { name: i18n.t("applications.search") })
+    ).not.toBeInTheDocument()
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/web-sites",
+      expect.objectContaining({
+        query: expect.objectContaining({
+          search: "water",
+          status: "published",
+        }),
+      })
+    )
+    await user.click(ownedTab)
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("applications.search") })
+    ).toHaveValue("report")
+    expect(screen.getByTestId("application-location")).toHaveTextContent(
+      "site_search=water"
     )
   })
 

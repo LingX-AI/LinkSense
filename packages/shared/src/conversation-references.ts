@@ -3,6 +3,7 @@ import { uuidSchema } from "./common.js";
 
 export const maximumConversationReferences = 3;
 export const maximumConversationReferenceOffset = 10_000_000;
+export const conversationReferenceReadTimeoutMs = 15_000;
 export const conversationReferenceIdsSchema = z.array(uuidSchema).min(1).max(maximumConversationReferences)
   .refine(ids => new Set(ids).size === ids.length, "duplicate_conversation_reference");
 export const taskReferencesInputSchema = z.strictObject({

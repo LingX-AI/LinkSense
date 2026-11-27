@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { AppWindowIcon, RefreshCwIcon, XIcon } from "lucide-react"
@@ -34,11 +40,20 @@ export function BrowserPanel({
   const client = useQueryClient()
   const [token] = useState(createRandomUuid)
   const [text, setText] = useState("")
+  const focusToolbarAfterReleaseRef = useRef(false)
+  const releaseSourceRef = useRef<HTMLButtonElement | null>(null)
   const toolbarRef = useRef<HTMLButtonElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const textInputRef = useRef<HTMLInputElement>(null)
   const ownsControlRef = useRef(false)
   const mountedRef = useRef(false)
+  // A release can resolve after this panel instance unmounted. Keep the last
+  // committed callback here so a later page render is what runs, never the
+  // closure captured when the panel first opened.
+  const onContinueRef = useRef(onContinue)
+  useLayoutEffect(() => {
+    onContinueRef.current = onContinue
+  })
   const queryKey = [
     "conversation",
     conversationId,
@@ -84,7 +99,10 @@ export function BrowserPanel({
   useEffect(() => {
     ownsControlRef.current = data?.has_control ?? false
   }, [data?.has_control])
-  useEffect(() => {
+  // Layout cleanup runs synchronously with the commit that removes this panel,
+  // so a release resolving afterwards can observe that it is unmounted. The
+  // owner token is still released exactly once.
+  useLayoutEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
@@ -97,6 +115,31 @@ export function BrowserPanel({
       }).catch(() => undefined)
     }
   }, [conversationId, token])
+  useEffect(() => {
+    toolbarRef.current?.focus()
+  }, [])
+  // Once this panel's release settles without control, the buttons that
+  // invoked it are gone. Move focus to the refresh button only when that
+  // removal lost the focus (activeElement falls back to <body>) or the
+  // initiating button still holds it; never take focus from a control the
+  // user has chosen since.
+  useLayoutEffect(() => {
+    if (
+      !focusToolbarAfterReleaseRef.current ||
+      mutation.isPending ||
+      data?.has_control !== false
+    )
+      return
+    focusToolbarAfterReleaseRef.current = false
+    const active = document.activeElement
+    if (
+      active !== null &&
+      active !== document.body &&
+      active !== releaseSourceRef.current
+    )
+      return
+    toolbarRef.current?.focus()
+  }, [data?.has_control, mutation.isPending])
   useEffect(() => {
     if (!data?.has_control || readOnly) return
     const timer = window.setInterval(() => {
@@ -129,14 +172,26 @@ export function BrowserPanel({
     viewport.addEventListener("wheel", wheel, { passive: false })
     return () => viewport.removeEventListener("wheel", wheel)
   }, [controlled, mutate, token])
-  const close = async () => {
-    if (data?.has_control)
-      await mutation.mutateAsync({ action: "release", token })
-    onClose()
-  }
-  const returnControl = async (continueTask: boolean) => {
-    await mutation.mutateAsync({ action: "release", token })
-    if (continueTask) onContinue()
+  // Closing never waits on the server. The unmount cleanup releases this
+  // token's control and the server lease is the bounded fallback when that
+  // release is rejected.
+  const returnControl = async (
+    continueTask: boolean,
+    source: HTMLButtonElement
+  ) => {
+    releaseSourceRef.current = source
+    focusToolbarAfterReleaseRef.current = true
+    const state = await mutation
+      .mutateAsync({ action: "release", token })
+      .catch((error: unknown) => {
+        focusToolbarAfterReleaseRef.current = false
+        throw error
+      })
+    if (state.has_control || !mountedRef.current) {
+      focusToolbarAfterReleaseRef.current = false
+      return
+    }
+    if (continueTask) onContinueRef.current()
   }
   const keyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!controlled || event.nativeEvent.isComposing || event.keyCode === 229)
@@ -164,7 +219,7 @@ export function BrowserPanel({
       className="office-preview-pane"
       aria-label={t("browserPanel.title")}
     >
-      <header className="flex flex-wrap items-center gap-2 border-b p-3">
+      <header className="flex h-(--conversation-top-bar-height) shrink-0 items-center gap-2 border-b px-3">
         <AppWindowIcon
           className="size-4 text-muted-foreground"
           aria-hidden="true"
@@ -177,6 +232,7 @@ export function BrowserPanel({
           variant="ghost"
           size="icon-sm"
           aria-label={t("browserPanel.refresh")}
+          disabled={mutation.isPending}
           onClick={() => {
             mutation.reset()
             void query.refetch()
@@ -188,17 +244,17 @@ export function BrowserPanel({
           variant="ghost"
           size="icon-sm"
           aria-label={t("browserPanel.close")}
-          onClick={() => {
-            void close().catch(() => undefined)
-          }}
+          onClick={onClose}
         >
           <XIcon aria-hidden="true" />
         </Button>
-        <p className="basis-full text-xs text-muted-foreground">
-          {t("browserPanel.hint")}
-        </p>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+        {!readOnly && (
+          <p className="text-xs text-muted-foreground">
+            {t("browserPanel.hint")}
+          </p>
+        )}
         {error && (
           <StatusBanner variant="error">
             {getErrorMessage(error, t)}
@@ -213,22 +269,24 @@ export function BrowserPanel({
             >
               {data.frame.url}
             </p>
-            <p className="text-xs" role="status">
-              {t(
-                data.has_control
-                  ? "browserPanel.youControl"
-                  : data.mode === "human"
-                    ? "browserPanel.otherWindow"
-                    : "browserPanel.agentControls"
-              )}
-            </p>
+            {!readOnly && (
+              <p className="text-xs" role="status">
+                {t(
+                  data.has_control
+                    ? "browserPanel.youControl"
+                    : data.mode === "human"
+                      ? "browserPanel.otherWindow"
+                      : "browserPanel.agentControls"
+                )}
+              </p>
+            )}
             <div
               ref={viewportRef}
-              role="application"
-              aria-label={t("browserPanel.viewport")}
-              tabIndex={controlled ? 0 : -1}
+              role={readOnly ? undefined : "application"}
+              aria-label={readOnly ? undefined : t("browserPanel.viewport")}
+              tabIndex={readOnly ? undefined : controlled ? 0 : -1}
               className="min-w-0 overflow-hidden rounded-md border bg-muted focus-visible:outline-2 focus-visible:outline-ring"
-              onKeyDown={keyboard}
+              onKeyDown={readOnly ? undefined : keyboard}
             >
               <img
                 src={`data:image/jpeg;base64,${data.frame.image}`}
@@ -260,8 +318,10 @@ export function BrowserPanel({
                     <Button
                       size="sm"
                       disabled={mutation.isPending}
-                      onClick={() => {
-                        void returnControl(false).catch(() => undefined)
+                      onClick={(event) => {
+                        void returnControl(false, event.currentTarget).catch(
+                          () => undefined
+                        )
                       }}
                     >
                       {t("browserPanel.returnControl")}
@@ -271,8 +331,10 @@ export function BrowserPanel({
                         size="sm"
                         variant="outline"
                         disabled={mutation.isPending}
-                        onClick={() => {
-                          void returnControl(true).catch(() => undefined)
+                        onClick={(event) => {
+                          void returnControl(true, event.currentTarget).catch(
+                            () => undefined
+                          )
                         }}
                       >
                         {t("browserPanel.continueTask")}
@@ -290,7 +352,7 @@ export function BrowserPanel({
                 )}
               </div>
             )}
-            {data.has_control && (
+            {data.has_control && !readOnly && (
               <form
                 className="flex flex-col gap-2"
                 onSubmit={(event) => {

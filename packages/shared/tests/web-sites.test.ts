@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { webBundleManifestSchema, webBundlePathSchema, webSiteCreateSchema, webSiteSlugSchema, webSiteUpdateSchema } from "../src/web-sites.js";
+import { webApplicationPath, webBundleManifestSchema, webBundlePathSchema, webSiteCreateSchema, webSiteSchema, webSiteSlugSchema, webSiteUpdateSchema } from "../src/web-sites.js";
 
 describe("website contracts", () => {
+  it("builds the canonical short application path from a validated site id", () => {
+    const id = "10000000-0000-4000-8000-000000000001";
+    expect(webApplicationPath(id)).toBe(`/app/s/${id}`);
+    expect(() => webApplicationPath("not-a-uuid")).toThrow();
+  });
+  it("accepts an absent alias from older APIs and rejects non-HTTP alias URLs", () => {
+    const schema = webSiteSchema.pick({ alias_url: true });
+    expect(schema.parse({})).toEqual({});
+    expect(schema.parse({ alias_url: "https://public.example.test/web/sample" }).alias_url).toBe("https://public.example.test/web/sample");
+    for (const alias_url of ["javascript:alert(1)", "data:text/html,hello", "/web/sample"]) {
+      expect(schema.safeParse({ alias_url }).success).toBe(false);
+    }
+  });
   it("normalizes readable slugs and accepts UUID addresses", () => {
     expect(webSiteSlugSchema.parse(" My-Page ")).toBe("my-page");
     expect(webSiteSlugSchema.safeParse("10000000-0000-4000-8000-000000000001").success).toBe(true);

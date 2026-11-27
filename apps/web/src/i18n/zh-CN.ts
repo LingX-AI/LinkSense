@@ -175,7 +175,7 @@ export const zhCN = {
     automations: "自动化",
     conversations: "任务",
     archived: "已归档任务",
-    capabilities: "插件中心",
+    capabilities: "应用与工具",
     knowledgeBases: "资料库",
     pinned: "置顶",
     projects: "项目",
@@ -432,7 +432,7 @@ export const zhCN = {
     mcpDescription: "管理个人 HTTP 与 STDIO MCP 服务器",
     channelAccess: "消息渠道",
     channelAccessDescription: "管理微信、企业微信、钉钉、Teams、飞书等消息渠道",
-    capabilitiesDescription: "浏览插件中心并管理个人插件与 Skill",
+    capabilitiesDescription: "浏览和管理应用、站点与工具",
     archivedDescription: "查看已归档任务",
     usersDescription: "管理用户账号、角色和状态",
     rolesDescription: "查看固定角色与权限边界",
@@ -499,6 +499,75 @@ export const zhCN = {
       "此操作无法撤销。你的任务、自定义指令、插件和 Skill 将保留。",
     resettingMemories: "正在重置记忆…",
     memoriesReset: "记忆已重置",
+    privacyMasking: "隐私脱敏",
+    privacyMaskingDescription:
+      "在请求发送给模型渠道前，把密钥和敏感值替换为占位符，并在回复返回运行时前还原。",
+    privacyMaskingEnabled: "启用隐私脱敏",
+    privacyMaskingEnabledDescription:
+      "仅脱敏通过任务模型网关发送的文本。不保护自动标题、网页搜索、图片生成或知识库向量化的请求。任务历史与事件仍按原文保存。",
+    privacyMaskingSecrets: "密钥与凭据",
+    privacyMaskingSecretsDescription:
+      "API Key、Token、私钥、密码，以及 Authorization 或 Cookie 请求头的值。",
+    privacyMaskingWords: "自定义词",
+    privacyMaskingWordsDescription:
+      "每行一个词或短语，例如项目名、内部代号或你不希望发送给渠道的名称。",
+    privacyMaskingWordsPlaceholder: "Nightjar 项目\nAcme 内部",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "任意大小写",
+    privacyMaskingAnyCaseDescription:
+      "不区分大小写匹配，例如 nightjar、Nightjar 和 NIGHTJAR 视为同一个词。",
+    privacyMaskingWholeWord: "仅匹配完整词",
+    privacyMaskingWholeWordDescription: "不匹配更长单词或标识符中的一部分。",
+    privacyMaskingAllow: "允许原样发送的值",
+    privacyMaskingAllowDescription:
+      "每行填写一个值。只有检测到的值与某一项完全一致（包括大小写）时，才会原样发送。自定义词的大小写设置不影响此列表。",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "隐私脱敏设置已保存。",
+    privacyMaskingSave: "保存隐私脱敏",
+    privacyMaskingBehaviorNote:
+      "模型看到的是占位符而不是原值。需要检查密钥本身的任务可能无法继续，可把该值加入允许列表。",
+    privacyMaskingPageDescription:
+      "选择哪些内容不发送给模型渠道，并先用示例文本测试规则。",
+    privacyMaskingWhatToMask: "脱敏范围",
+    privacyMaskingTryIt: "试一试",
+    privacyMaskingTryItDescription:
+      "粘贴一段 Agent 可能发送的文本。这里会按真实请求的方式脱敏，且不会保存任何内容。",
+    privacyMaskingTryItPlaceholder:
+      "使用密钥 sk-proj-… 部署，然后调用预发环境 API",
+    privacyMaskingTryItOutput: "草稿规则下的文本预览",
+    privacyMaskingTryItEmpty: "这段文本中没有需要脱敏的内容。",
+    privacyMaskingTryItOffNote:
+      "隐私脱敏当前已关闭。此预览显示开启后会被替换的内容。",
+    privacyMaskingKindPrivateKey: "私钥",
+    privacyMaskingKindApiKey: "API Key",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "密钥",
+    privacyMaskingKindPassword: "密码",
+    privacyMaskingKindTerm: "自定义词",
+    privacyMaskingKindEmail: "邮箱地址",
+    privacyMaskingKindPhone: "电话号码",
+    privacyMaskingKindIdCard: "身份证号",
+    privacyMaskingKindBankCard: "银行卡号",
+    privacyMaskingActivity: "脱敏动态",
+    privacyMaskingActivityDescription:
+      "可查看最近 30 天的脱敏请求。记录替换类别、长度、位置和次数，不保存原值。",
+    privacyMaskingSections: "配置与统计",
+    privacyMaskingSectionSettings: "配置",
+    privacyMaskingSectionActivity: "统计",
+    privacyMaskingActivityPeriod: "统计周期",
+    privacyMaskingActivity7Days: "7 天",
+    privacyMaskingActivity30Days: "30 天",
+    privacyMaskingActivityMasked: "处已脱敏",
+    privacyMaskingActivityRequests: "次请求",
+    privacyMaskingActivityEmpty: "这段时间还没有需要脱敏的请求。",
+    privacyMaskingActivityLoadMore: "加载更多",
+    privacyMaskingActivityHintLength: "{{length}} 字符",
+    privacyMaskingActivityLocationPrompt: "提问",
+    privacyMaskingActivityLocationInstructions: "系统指令",
+    privacyMaskingActivityLocationToolArguments: "工具参数",
+    privacyMaskingActivityLocationToolOutput: "工具输出",
+    privacyMaskingActivityLocationTools: "工具定义",
+    privacyMaskingActivityLocationOther: "其他",
     appearancePageDescription: "设置 {{productName}} 的界面主题与基准字号。",
     theme: "主题",
     themeSystem: "系统",
@@ -1759,8 +1828,10 @@ export const zhCN = {
     reorderCancelled: "已取消项目拖动。",
     dragSaving: "正在保存项目顺序。",
     dragSaveFailed: "项目顺序保存失败，请重试。",
-    delete: "移除项目",
+    delete: "移除",
+    newTaskNamed: "在项目“{{title}}”中新建任务",
     move: "移动到项目",
+    moveToPublicWorkspace: "移至公共空间",
     moveNamed: "将“{{title}}”移动到项目",
     name: "项目名称",
     namePlaceholder: "输入项目名称",
@@ -1910,12 +1981,12 @@ export const zhCN = {
     resetReasoningEffort: "恢复默认推理强度",
     modelNotConfigured: "模型服务未配置",
     reasoningEffort: "推理强度",
-    modelContextUsageUnknown: "暂无用量",
-    modelContextBadgeLabel: "背景信息窗口：{{value}}",
-    modelContextTitle: "背景信息窗口：",
     modelContextUsagePercent: "{{percent}}% 已用",
-    modelContextUsageDetail: "已用 {{used}}，共 {{total}}",
-    modelContextUnavailable: "暂无上下文用量",
+    modelContextUsageLabel: "上下文 {{used}} / {{total}}（{{percent}}%）",
+    modelContextUsageSummary: "{{used}} / {{total}}（{{percent}}%）",
+    modelContextWindowTitle: "上下文窗口",
+    modelContextWindowOption: "{{size}} 上下文窗口",
+    modelContextDetailedBreakdown: "查看完整明细",
     stop: "停止",
     interrupting: "正在中断…",
     attach: "添加附件",
@@ -1969,6 +2040,8 @@ export const zhCN = {
     voiceDemoTranscript:
       "【语音演示】请帮我整理今天的会议重点，并生成一份待办事项清单。",
     voiceNotConfigured: "语音转文字服务尚未配置",
+    voiceNotConfiguredHint:
+      "<configure>配置</configure>语音转文字服务",
     voiceServiceUnavailable: "语音转文字服务暂时不可用，请稍后重试。",
     voiceStop: "停止语音输入",
     voiceRecording: "正在录音",
@@ -2152,6 +2225,7 @@ export const zhCN = {
       submit: "提交回答",
       submitting: "正在提交",
       cancel: "取消",
+      dismissRequest: "关闭请求",
       selectPlaceholder: "请选择",
       datePlaceholder: "选择日期",
       clearDate: "清除日期",
@@ -2366,15 +2440,32 @@ export const zhCN = {
       sources: "来源",
       noSources: "暂无来源",
       sourcesError: "暂时无法加载来源，请重试。",
-      open: "打开任务概览",
-      close: "关闭任务概览",
-      title: "任务概览",
+      open: "打开会话侧栏",
+      close: "关闭会话侧栏",
+      title: "会话侧栏",
       subagents: "子智能体",
       subagentsUsed: "已使用 {{count}} 个子智能体",
       subagentsCompleted: "{{count}} 完成",
       subagentsProgress: "{{completed}} / {{count}} 已完成",
       outputFiles: "产出文件",
       noOutputFiles: "暂无产出文件",
+      context: "上下文",
+      contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}}（{{percent}}%）",
+      tokenInput: "输入",
+      tokenCachedInput: "缓存输入",
+      tokenOutput: "输出",
+      tokenReasoning: "推理",
+      freeSpace: "剩余空间",
+      untilAutoCompact: "距自动压缩 {{tokens}}",
+      readyToCompact: "已达到自动压缩阈值",
+      compactSession: "压缩会话",
+      compacting: "压缩中…",
+      changes: "变更",
+      changedFiles_one: "已变更 {{count}} 个文件",
+      changedFiles_other: "已变更 {{count}} 个文件",
+      noChanges: "暂无变更",
+      backgroundTasks: "后台任务",
     },
     capabilitiesUsed: "本轮插件/Skill",
     loaded: "已加载",
@@ -2446,6 +2537,8 @@ export const zhCN = {
       exitedReviewMode: "已退出审查模式",
       contextCompactionRunning: "正在压缩上下文",
       contextCompactionCompleted: "上下文已压缩",
+      contextCompactionCompletedSavedTokens:
+        "上下文已压缩 · 节省 {{tokens}} Token",
       contextCompactionIncomplete: "上下文压缩未完成",
       collabAgentRunning: "正在协调子智能体",
       collabAgentCompleted: "已协调子智能体",
@@ -2680,9 +2773,38 @@ export const zhCN = {
     createTypeDescription: "选择一种方式，开始创建你的应用。",
     creation: {
       recommended: "推荐",
-      interactiveTitle: "用对话创建交互式应用",
+      interactiveTitle: "用对话创建应用",
       interactiveDescription: "说出你的想法，LinkSense帮你实现",
+      publicSiteTitle: "创建 Web 应用",
+      publicSiteDescription:
+        "创建对外访问的网站或应用，交付可打开和复制的链接。",
       start: "开始创建",
+    },
+    conversationCreation: {
+      title: "用对话创建应用",
+      description: "说出你的目标，系统会在需要时澄清使用方式、数据和提醒需求。",
+      goal: "你想实现什么？",
+      goalPlaceholder:
+        "例如：做一个喝水助手，先看看页面，之后再决定是否需要提醒。",
+      defaultGoal: "先澄清影响结果的必要需求。",
+      start: "开始对话",
+      prompt:
+        "请帮我实现这个目标：{{goal}}。请复用我已说明的信息，只在关键需求不明确时提问。先提供可用草稿，不要默认公开发布或启用定时任务。",
+    },
+    publicSiteCreation: {
+      title: "创建 Web 应用",
+      description:
+        "创建公开网站或动态应用。可在对话里补充账号、数据和业务需求。",
+      name: "站点名称",
+      goal: "网站要做什么（可选）",
+      goalPlaceholder: "例如：制作一个可按日期筛选的活动日程页",
+      defaultGoal: "请先根据站点名称确认需要哪些内容和交互。",
+      start: "创建并发布",
+      openLocally: "发布后在本机浏览器打开",
+      openInstruction:
+        "发布成功后，请用 Browser Use 在我的本机浏览器中打开这个站点一次。",
+      prompt:
+        "请帮我创建一个公开网站或应用。名称：{{name}}。需求：{{goal}}。请根据需求选择静态站点或自部署动态后端，完成后发布并把访问链接发给我。",
     },
     createStandardApp: "创建普通应用",
     createStandardAppDescription: "配置专属助手，复用常用能力和资料。",
@@ -2997,6 +3119,7 @@ export const zhCN = {
       "更新后以新技能包为准，当前技能中未包含在新包内的文件将被删除。请上传包含全部所需文件的完整技能包。",
     identifierHint: "更新时技能标识保持不变。",
     content: "技能正文",
+    descriptionRequired: "请输入技能说明。",
     contentRequired: "请输入技能正文。",
     contentTooLarge:
       "此技能正文较长，暂不支持在线编辑。请下载完整技能包，修改后重新上传。",
@@ -3019,7 +3142,7 @@ export const zhCN = {
     confirmDeletions: "我确认删除以上 {{count}} 个文件",
   },
   marketplace: {
-    title: "插件中心",
+    title: "应用与工具",
     description:
       "浏览公开的插件与技能，并在同一处管理已安装内容、个人内容与 MCP 连接。",
     personalAccountDescription:
@@ -3035,7 +3158,7 @@ export const zhCN = {
       reviews: "上架审核",
       listings: "全部上架项",
     },
-    catalogTabsLabel: "插件中心内容分类",
+    catalogTabsLabel: "应用与工具分类",
     catalogTabs: {
       plugin: "插件",
       skill: "技能",
@@ -3161,6 +3284,7 @@ export const zhCN = {
     skillMarkdown: "SKILL.md 内容",
     skillIdentifier: "技能标识",
     skillNameRequired: "请输入技能标识。",
+    skillDescriptionRequired: "请输入技能说明。",
     skillNameTooLong: "技能标识不能超过 64 个字符。",
     skillNameInvalid:
       "技能标识只能使用小写英文字母、数字和连字符（-）；连字符不能在开头、结尾或连续出现。",
@@ -3179,7 +3303,7 @@ export const zhCN = {
       "系统会复制当前个人插件或技能形成不可变快照，并将该快照送交管理员审核。",
     sourceCapability: "个人插件/技能来源",
     noPublishableSource:
-      "没有名称和类型与该上架项一致的可发布个人插件或技能，请先在“插件中心”中导入或更新来源。",
+      "没有名称和类型与该上架项一致的可发布个人插件或技能，请先在“应用与工具”中导入或更新来源。",
     immutableSnapshotNotice:
       "提交后审核的是独立不可变快照；之后修改个人插件或技能不会改变本次待审核内容。",
     submitForReview: "提交审核",
@@ -3191,7 +3315,7 @@ export const zhCN = {
     publicationsEmpty: "你还没有提交任何应用、插件或技能。",
     publicationsDescription:
       "管理你提交的应用、插件和技能，查看审核状态并发布更新。",
-    backToCenter: "返回插件中心",
+    backToCenter: "返回应用与工具",
     manageApplicationListing: "管理上架",
     selectApplication: "选择要上架的应用",
     selectApplicationDescription:
@@ -3503,6 +3627,10 @@ export const zhCN = {
       applicationBuilder: {
         name: "{{productName}} 交互式应用开发",
         description: "与助手一起创建和修改应用，实时预览、调试并安装使用。",
+      },
+      publicSite: {
+        name: "{{productName}} 公开站点开发",
+        description: "创建公开网站或自部署动态应用，并交付访问链接。",
       },
       skillCreator: {
         name: "{{productName}} Skill 创建器",
@@ -4460,7 +4588,8 @@ export const zhCN = {
       cachedInputPrice: "缓存输入单价",
       outputPrice: "输出单价",
       contextWindow: "模型上下文长度",
-      contextWindowPlaceholder: "自动探测",
+      contextWindowPlaceholder: "留空自动探测",
+      contextWindowShortcuts: "上下文长度快捷值",
       contextWindowInvalid: "请输入大于 0 的整数，或留空自动探测。",
       priceUnit: "美元 / 百万 Token",
       priceUnitSummary: "，价格单位为{{unit}}。",
@@ -4472,6 +4601,7 @@ export const zhCN = {
         "确认后模型将立即删除；历史任务和用量记录不会受影响。",
       modelDeleted: "模型已删除。",
       supportedEfforts: "支持的推理强度",
+      reasoningEffortsAutoHint: "默认按模型自动匹配，需要时可手动调整。",
       selectedEfforts: "已选择 {{count}} 项",
       defaultEffort: "默认推理强度",
       defaultModel: "对话默认模型",
@@ -5011,15 +5141,27 @@ export const zhCN = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "zh-CN"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "zh-CN"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "zh-CN"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "zh-CN"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "zh-CN"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "zh-CN"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "zh-CN"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "zh-CN"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "zh-CN"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "zh-CN"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "zh-CN"),
+    },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "zh-CN"
+      ),
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
@@ -5051,6 +5193,12 @@ export const zhCN = {
       resourcesMissing:
         errorCatalog.WEB_SITE_RESOURCES_MISSING.messages["zh-CN"],
       bundleInvalid: errorCatalog.WEB_SITE_BUNDLE_INVALID.messages["zh-CN"],
+      analyticsNotConfigured:
+        errorCatalog.WEB_SITE_ANALYTICS_NOT_CONFIGURED.messages["zh-CN"],
+      analyticsUnavailable:
+        errorCatalog.WEB_SITE_ANALYTICS_UNAVAILABLE.messages["zh-CN"],
+      analyticsUnpublished:
+        errorCatalog.WEB_SITE_ANALYTICS_UNPUBLISHED.messages["zh-CN"],
     },
     feishu: {
       connectionNotFound: "未找到飞书连接，请重新连接。",
@@ -5253,6 +5401,10 @@ export const zhCN = {
     artifactNotFound: "未找到该产物。",
     downloadForbidden: "你无权下载该产物。",
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "zh-CN"
+    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",

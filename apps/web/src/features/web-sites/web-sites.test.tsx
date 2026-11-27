@@ -2,20 +2,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createInstance } from "i18next"
-import { webSiteSchema } from "@linksense/shared"
+import { webSiteSchema, webSiteUpdateSchema } from "@linksense/shared"
 import i18n from "@/i18n"
 import { notify } from "@/components/feedback/notification"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
 import { SiteLibrary } from "./site-library"
+import { ConversationSiteCard } from "./conversation-site-card"
 import { SiteDialog } from "./site-dialog"
 import { SiteShareButton } from "./site-share-button"
 import { webSitesEnUS, webSitesZhCN } from "./messages"
@@ -40,7 +41,10 @@ const site = webSiteSchema.parse({
   updated_at: "2026-09-17T09:00:00.000Z",
 })
 const clients: QueryClient[] = []
-function mount(element: React.ReactNode, url = "/knowledge-bases?tab=sites") {
+function mount(
+  element: React.ReactNode,
+  url = "/capabilities?section=application&app_scope=sites"
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -71,8 +75,532 @@ afterEach(() => {
 })
 
 describe("website management", () => {
+  it("keeps the custom slug link in details while rows open the stable application URL", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+    const url = `https://public.example.test/app/s/${id}`
+    const aliasUrl = "https://public.example.test/web/drink-water"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, slug: "drink-water", url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    const row = await screen.findByRole("article", { name: site.name })
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", url)
+    expect(within(row).queryByText("/web/drink-water")).not.toBeInTheDocument()
+    expect(
+      within(row).queryByRole("button", {
+        name: i18n.t("webSites.copyNamed", { name: site.name }),
+      })
+    ).not.toBeInTheDocument()
+    await user.click(
+      within(row).getByRole("button", {
+        name: i18n.t("webSites.actions", { name: site.name }),
+      })
+    )
+    expect(
+      screen.queryByRole("dialog", { name: site.name })
+    ).not.toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(
+      within(row).getByRole("img", {
+        name: `${i18n.t("webSites.dataCapabilityTitle")}. ${i18n.t("webSites.dataServiceDisconnected")}`,
+      })
+    ).toHaveAttribute("data-connected", "false")
+    await user.click(within(row).getByText(site.description))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(within(details).getByText(aliasUrl)).toBeVisible()
+    expect(
+      within(details).getByText(i18n.t("webSites.details.passcode"))
+        .nextElementSibling
+    ).toHaveTextContent(i18n.t("webSites.details.passcodeOff"))
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyAlias"),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(aliasUrl)
+    const openAlias = within(details).getByRole("link", {
+      name: i18n.t("webSites.details.openAlias"),
+    })
+    expect(openAlias).toHaveAttribute("href", aliasUrl)
+    expect(openAlias).toHaveAttribute("target", "_blank")
+    expect(
+      within(details).getByRole("link", {
+        name: i18n.t("webSites.details.openStable"),
+      })
+    ).toHaveAttribute("href", url)
+    // The footer Visit button follows the custom slug as well.
+    expect(
+      screen.getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", aliasUrl)
+  })
+
+  it("visits the stable application URL when the slug is auto-generated", async () => {
+    const slug = "30000000-0000-4000-8000-000000000001"
+    const url = `https://public.example.test/app/s/${id}`
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [
+            {
+              ...site,
+              slug,
+              url,
+              alias_url: `https://public.example.test/web/${slug}`,
+            },
+          ],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    const row = await screen.findByRole("article", { name: site.name })
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", url)
+  })
+
+  it("shows whether an access passcode is enabled in publication details", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, passcode_protected: true }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByText(i18n.t("webSites.details.passcode"))
+        .nextElementSibling
+    ).toHaveTextContent(i18n.t("webSites.details.passcodeOn"))
+  })
+
+  it("links to the analytics dashboard in publication details when enabled", async () => {
+    const user = userEvent.setup()
+    const analyticsUrl = "http://stats.example.test/sites/7"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [
+            { ...site, analytics_enabled: true, analytics_url: analyticsUrl },
+          ],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByRole("link", {
+        name: i18n.t("webSites.details.openAnalytics"),
+      })
+    ).toHaveAttribute("href", analyticsUrl)
+  })
+
+  it("does not require a custom slug when editing and keeps the current link when cleared", async () => {
+    const fetch = vi.fn(async () => success(site))
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    const slug = screen.getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    expect(slug).not.toHaveAttribute("aria-required")
+    await userEvent.clear(slug)
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalled())
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: site.name,
+          description: site.description,
+        }),
+      })
+    )
+  })
+
+  it("keeps the custom slug field blank for an auto-generated address", () => {
+    mount(
+      <SiteDialog
+        action={{ kind: "edit", site: { ...site, slug: id } }}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("webSites.slug") })
+    ).toHaveValue("")
+  })
+
+  it("enables visitor analytics from the edit dialog", async () => {
+    const fetch = vi.fn(async () =>
+      success({
+        ...site,
+        analytics_enabled: true,
+        analytics_url: "http://stats.example.test/sites/7",
+      })
+    )
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    await userEvent.click(
+      screen.getByRole("switch", { name: i18n.t("webSites.analytics") })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalled())
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ analytics: true }),
+      })
+    )
+  })
+
+  it("keeps saved site settings when enabling visitor analytics fails", async () => {
+    const saved = { ...site, name: "New name" }
+    const message = "The analytics service is temporarily unavailable."
+    const errorToast = vi
+      .spyOn(notify, "error")
+      .mockImplementation(() => "toast")
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(success(saved))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            success: false,
+            error_code: "WEB_SITE_ANALYTICS_UNAVAILABLE",
+            message,
+          },
+          { status: 502 }
+        )
+      )
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    const name = screen.getByRole("textbox", { name: i18n.t("webSites.name") })
+    await userEvent.clear(name)
+    await userEvent.type(name, saved.name)
+    await userEvent.click(
+      screen.getByRole("switch", { name: i18n.t("webSites.analytics") })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalledWith(saved))
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ analytics: true }),
+      })
+    )
+    expect(errorToast).toHaveBeenCalledWith(message)
+  })
+
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "opens site details without another request and restores keyboard focus in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const user = userEvent.setup()
+      const url = `https://public.example.test/app/s/${id}`
+      const aliasUrl = "https://public.example.test/web/shanhai"
+      const fetch = vi.fn(async () =>
+        success({
+          items: [{ ...site, backend_id: id, url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+      vi.stubGlobal("fetch", fetch)
+      mount(<SiteLibrary />)
+      const row = await screen.findByRole("article", { name: site.name })
+      expect(
+        within(row).getByRole("img", {
+          name: `${i18n.t("webSites.dataCapabilityTitle")}. ${i18n.t("webSites.dataServiceConnected")}`,
+        })
+      ).toHaveAttribute("data-connected", "true")
+      const trigger = within(row).getByRole("button", { name: site.name })
+      await user.click(trigger)
+      const dialog = screen.getByRole("dialog", { name: site.name })
+      expect(within(dialog).getByText(aliasUrl)).toBeVisible()
+      expect(within(dialog).getByText(url)).toBeVisible()
+      expect(
+        within(dialog).getByText(i18n.t("webSites.dataConnected"))
+      ).toBeVisible()
+      expect(
+        within(dialog).getByRole("link", {
+          name: site.source_task_title,
+        })
+      ).toHaveAttribute("href", `/conversations/${id}`)
+      expect(dialog.querySelector("iframe")).toBeNull()
+      expect(fetch).toHaveBeenCalledOnce()
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(dialog).not.toBeInTheDocument())
+      expect(trigger).toHaveFocus()
+    }
+  )
+
+  it("refreshes the open details and custom link after editing a slug", async () => {
+    const user = userEvent.setup()
+    const url = `https://public.example.test/app/s/${id}`
+    let current = {
+      ...site,
+      url,
+      alias_url: "https://public.example.test/web/shanhai",
+    }
+    const fetch = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") {
+        const input = webSiteUpdateSchema.parse(
+          JSON.parse(String(options.body))
+        )
+        current = {
+          ...current,
+          ...input,
+          alias_url: `https://public.example.test/web/${input.slug ?? current.slug}`,
+        }
+        return success(current)
+      }
+      return success({ items: [current], next_cursor: null })
+    })
+    vi.stubGlobal("fetch", fetch)
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    await user.click(
+      within(screen.getByRole("dialog", { name: site.name })).getByRole(
+        "button",
+        { name: i18n.t("webSites.edit") }
+      )
+    )
+    const edit = screen.getByRole("dialog", {
+      name: i18n.t("webSites.dialog.edit"),
+    })
+    const slug = within(edit).getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    await user.clear(slug)
+    await user.type(slug, "drink-water")
+    await user.click(
+      within(edit).getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(edit).not.toBeInTheDocument())
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByText("https://public.example.test/web/drink-water")
+    ).toBeVisible()
+    expect(within(details).getByText(url)).toBeVisible()
+    expect(
+      within(details).queryByText("https://public.example.test/web/shanhai")
+    ).not.toBeInTheDocument()
+    expect(
+      fetch.mock.calls.filter(([, options]) => options?.method === "PATCH")
+    ).toHaveLength(1)
+  })
+
+  it("keeps legacy details usable without an alias or backend and shows a disabled site with its deleted source", async () => {
+    const user = userEvent.setup()
+    const legacy = { ...site, status: "disabled", conversation_id: null }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [legacy], next_cursor: null }))
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(within(details).getByText(i18n.t("webSites.pageOnly"))).toBeVisible()
+    expect(
+      within(details).getByText(i18n.t("webSites.sourceDeleted"))
+    ).toBeVisible()
+    expect(
+      within(details).getByText(
+        new URL(site.url_path, window.location.origin).href
+      )
+    ).toBeVisible()
+    expect(
+      within(details).queryByText(i18n.t("webSites.details.alias"))
+    ).not.toBeInTheDocument()
+    expect(
+      within(details).queryByRole("link", { name: i18n.t("webSites.visit") })
+    ).not.toBeInTheDocument()
+  })
+
+  it("copies each address independently in details and returns to details when editing is cancelled", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+    const url = "https://legacy-app.apps.example.test"
+    const aliasUrl = "https://public.example.test/web/shanhai"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, backend_id: id, url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyAlias"),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(aliasUrl)
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyStable"),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(url)
+    const editTrigger = within(details).getByRole("button", {
+      name: i18n.t("webSites.edit"),
+    })
+    await user.click(editTrigger)
+    const edit = screen.getByRole("dialog", {
+      name: i18n.t("webSites.dialog.edit"),
+    })
+    await user.click(
+      within(edit).getByRole("button", { name: i18n.t("webSites.cancel") })
+    )
+    await waitFor(() => expect(edit).not.toBeInTheDocument())
+    expect(screen.getByRole("dialog", { name: site.name })).toBeVisible()
+    expect(editTrigger).toHaveFocus()
+  })
+
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "separately displays page and backend capability without claiming reminder delivery in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const delivery = {
+        ...site,
+        turn_id: id,
+        url: `https://apps.example.test/app/s/${id}`,
+      }
+      const { rerender } = render(
+        <MemoryRouter>
+          <ConversationSiteCard site={delivery} />
+        </MemoryRouter>
+      )
+      expect(
+        i18n.getResource(locale, "translation", "webSites.pageOnly")
+      ).toBeTruthy()
+      expect(
+        i18n.getResource(locale, "translation", "webSites.dataConnected")
+      ).toBeTruthy()
+      expect(screen.getByText(i18n.t("webSites.pageOnly"))).toBeVisible()
+      rerender(
+        <MemoryRouter>
+          <ConversationSiteCard site={{ ...delivery, backend_id: id }} />
+        </MemoryRouter>
+      )
+      expect(screen.getByText(i18n.t("webSites.dataConnected"))).toBeVisible()
+      expect(
+        screen.queryByText(i18n.t("webSites.pageOnly"))
+      ).not.toBeInTheDocument()
+    }
+  )
+  it("opens the actual dynamic application URL from the row and publication dialog", async () => {
+    const user = userEvent.setup()
+    const copy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined)
+    const url = `https://${id}.apps.example.test`
+    const dynamicSite = { ...site, backend_id: id, url }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [dynamicSite], next_cursor: null }))
+    )
+    const library = mount(<SiteLibrary />)
+    const row = await screen.findByRole("article", { name: site.name })
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", url)
+    library.unmount()
+    mount(
+      <SiteDialog
+        action={{
+          kind: "share",
+          source: { conversationId: id, fileId, name: "index.html" },
+        }}
+        lookup={{ kind: "ready", site: dynamicSite }}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      await screen.findByRole("textbox", { name: i18n.t("webSites.url") })
+    ).toHaveValue(url)
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("webSites.copy") })
+    )
+    expect(copy).toHaveBeenLastCalledWith(url)
+  })
+
+  it("lets users open and copy a published local site and removes both actions when unpublished", async () => {
+    const user = userEvent.setup()
+    const copy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined)
+    const url = "http://localhost:5273/web/shanhai"
+    const delivery = { ...site, turn_id: id, url }
+    const { rerender } = render(
+      <MemoryRouter>
+        <ConversationSiteCard site={delivery} />
+      </MemoryRouter>
+    )
+    const open = screen.getByRole("link", { name: "打开网站" })
+    const manage = screen.getByRole("link", { name: i18n.t("webSites.title") })
+    expect(manage).toHaveAttribute(
+      "href",
+      "/capabilities?section=application&app_scope=sites"
+    )
+    expect(
+      manage.querySelector('svg[data-icon="inline-start"]')
+    ).toHaveAttribute("aria-hidden", "true")
+    expect(open).toHaveAttribute("href", url)
+    expect(open).toHaveAttribute("target", "_blank")
+    expect(open).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.getByText("仅在本机可访问")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "复制链接" }))
+    expect(copy).toHaveBeenCalledExactlyOnceWith(url)
+    expect(screen.getByRole("status")).toHaveTextContent("链接已复制")
+    rerender(
+      <MemoryRouter>
+        <ConversationSiteCard site={{ ...delivery, status: "disabled" }} />
+      </MemoryRouter>
+    )
+    expect(screen.getByText("未发布")).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "打开网站" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "复制链接" })
+    ).not.toBeInTheDocument()
+  })
   it.each(["zh-CN", "en-US"])(
-    "places copy beside each card's URL and shows a temporary check without a success toast in %s",
+    "keeps technical URLs and copy controls out of site rows in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       const secondSite = {
@@ -88,46 +616,22 @@ describe("website management", () => {
           success({ items: [site, secondSite], next_cursor: null })
         )
       )
-      userEvent.setup()
-      const writeText = vi
-        .spyOn(navigator.clipboard, "writeText")
-        .mockResolvedValue(undefined)
-      const successToast = vi.spyOn(notify, "success")
       mount(<SiteLibrary />)
-      const copy = await screen.findByRole("button", {
-        name: i18n.t("webSites.copyNamed", { name: site.name }),
-      })
-      const otherCopy = screen.getByRole("button", {
-        name: i18n.t("webSites.copyNamed", { name: secondSite.name }),
-      })
       const url = new URL(site.url_path, window.location.origin).href
-      expect(copy.parentElement).toContainElement(screen.getByText(url))
-      expect(copy).toHaveClass("size-6", "text-muted-foreground/70")
-      const cards = screen.getAllByRole("listitem")
+      const cards = await screen.findAllByRole("listitem")
       expect(cards).toHaveLength(2)
+      expect(cards.map((card) => within(card).getByRole("article"))).toEqual([
+        screen.getByRole("article", { name: site.name }),
+        screen.getByRole("article", { name: secondSite.name }),
+      ])
       for (const card of cards) {
-        expect(card.querySelector(".lucide-globe")).toBeNull()
-        expect(card.querySelector('[data-slot="card"]')).toHaveClass(
-          "rounded-none",
-          "border-b",
-          "border-divider"
-        )
+        expect(within(card).queryByText(url)).not.toBeInTheDocument()
+        expect(
+          within(card).queryByRole("button", {
+            name: i18n.t("webSites.copyNamed", { name: site.name }),
+          })
+        ).not.toBeInTheDocument()
       }
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-      await act(async () => {
-        fireEvent.click(copy)
-      })
-      expect(writeText).toHaveBeenCalledExactlyOnceWith(url)
-      expect(copy).toHaveAttribute("data-copy-state", "copied")
-      expect(copy).toHaveAccessibleName(i18n.t("webSites.copied"))
-      expect(copy.querySelector(".lucide-check")).not.toBeNull()
-      expect(otherCopy).toHaveAttribute("data-copy-state", "idle")
-      expect(successToast).not.toHaveBeenCalled()
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000)
-      })
-      expect(copy).toHaveAttribute("data-copy-state", "idle")
-      expect(copy.querySelector(".lucide-copy")).not.toBeNull()
     }
   )
   it("disables copy while pending and allows retry after a clipboard failure", async () => {
@@ -149,8 +653,10 @@ describe("website management", () => {
     const errorToast = vi.spyOn(notify, "error").mockReturnValue("copy-error")
     const successToast = vi.spyOn(notify, "success")
     mount(<SiteLibrary />)
-    const copy = await screen.findByRole("button", {
-      name: "复制 山海集 的链接",
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    const copy = within(details).getByRole("button", {
+      name: i18n.t("webSites.details.copyStable"),
     })
     await user.click(copy)
     expect(copy).toBeDisabled()
@@ -289,18 +795,18 @@ describe("website management", () => {
         `label[for='${nameInput.id}'] span.text-destructive[aria-hidden='true']`
       )
     ).toHaveTextContent("*")
-    const slugInput = screen.getByRole("textbox", { name: "链接名称" })
+    const slugInput = screen.getByRole("textbox", { name: "自定义 Slug" })
     expect(
       document.querySelector(
         `label[for='${slugInput.id}'] span.text-destructive`
       )
     ).not.toBeInTheDocument()
     await userEvent.type(
-      screen.getByRole("textbox", { name: "链接名称" }),
+      screen.getByRole("textbox", { name: "自定义 Slug" }),
       "../bad"
     )
     expect(screen.getByRole("button", { name: "发布站点" })).toBeDisabled()
-    await userEvent.clear(screen.getByRole("textbox", { name: "链接名称" }))
+    await userEvent.clear(screen.getByRole("textbox", { name: "自定义 Slug" }))
     await userEvent.click(screen.getByRole("button", { name: "发布站点" }))
     expect(
       await screen.findByRole("heading", { name: "站点已发布" })
@@ -337,14 +843,23 @@ describe("website management", () => {
     expect(dialog.querySelector('[data-slot="dialog-footer"]')).toHaveClass(
       "sm:justify-end"
     )
-    for (const key of ["webSites.name", "webSites.slug"]) {
-      const input = screen.getByRole("textbox", { name: i18n.t(key) })
-      expect(
-        document.querySelector(
-          `label[for='${input.id}'] span.text-destructive[aria-hidden='true']`
-        )
-      ).toHaveTextContent("*")
-    }
+    const nameInput = screen.getByRole("textbox", {
+      name: i18n.t("webSites.name"),
+    })
+    expect(
+      document.querySelector(
+        `label[for='${nameInput.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toHaveTextContent("*")
+    const slugInput = screen.getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    expect(slugInput).not.toHaveAttribute("aria-required")
+    expect(
+      document.querySelector(
+        `label[for='${slugInput.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toBeNull()
     expect(
       view.container.ownerDocument.querySelector(
         '[data-slot="site-dialog-hero"]'
@@ -356,7 +871,7 @@ describe("website management", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close" }))
     expect(close).toHaveBeenCalledOnce()
   })
-  it("keeps editing open when a slug is taken, and warns that the old address will stop working", async () => {
+  it("keeps editing open when a slug is taken and explains that old aliases remain usable", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -369,10 +884,9 @@ describe("website management", () => {
     const close = vi.fn()
     mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
     await userEvent.type(
-      screen.getByRole("textbox", { name: "链接名称" }),
+      screen.getByRole("textbox", { name: "自定义 Slug" }),
       "-changed"
     )
-    expect(screen.getByText("修改后，原来的站点链接将立即失效。")).toBeVisible()
     await userEvent.click(screen.getByRole("button", { name: "保存" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       i18n.t("errors.webSites.slugTaken")

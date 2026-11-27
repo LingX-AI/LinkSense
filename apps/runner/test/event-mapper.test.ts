@@ -19,6 +19,49 @@ const previewContext = {
 };
 
 describe("mapCodexNotification", () => {
+  it("projects no raw MCP tool arguments, result or error payload into events", () => {
+    const secret = "你好 👋 raw keyboard text";
+    const windowTitle = "Private Banking - 1234";
+    const image = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6B";
+    const notification = {
+      method: "item/completed",
+      params: {
+        threadId: "thr_1",
+        turnId: "turn_1",
+        item: {
+          type: "mcpToolCall",
+          id: "tool-call",
+          server: "linksense_core",
+          tool: "run_tool",
+          status: "completed",
+          arguments: { action: "type", observation_id: "obs-1", ref: "e1", text: secret },
+          result: {
+            content: [
+              { type: "text", text: windowTitle },
+              { type: "image", data: image, mimeType: "image/png" },
+            ],
+            structuredContent: { window_title: windowTitle, nodes: [{ name: windowTitle }] },
+          },
+          error: { message: `${windowTitle}: ${secret}` },
+        },
+      },
+    }
+    const mapped = mapCodexNotification(notification)
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0]).toMatchObject({
+      params: {
+        item: {
+          type: "mcpToolCall", id: "tool-call",
+          server: "linksense_core", tool: "run_tool", status: "completed",
+        },
+      },
+    })
+    const serialized = JSON.stringify(mapped)
+    for (const value of [secret, windowTitle, image, "observation_id", "structuredContent", "arguments", "result"]) {
+      expect(serialized).not.toContain(value)
+    }
+  })
+
   it("preserves asynchronous questions, including empty message text and free-text questions", () => {
     const item = {
       id: "async-question", type: "agentMessage", text: "", phase: "final_answer",

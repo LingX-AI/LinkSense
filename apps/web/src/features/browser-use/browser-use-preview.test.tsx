@@ -133,7 +133,7 @@ it("hides the thumbnail without releasing or closing the user's browser tab", as
 it("supports keyboard corner movement and remembers the user's position", async () => {
   show()
   const handle = await screen.findByRole("button", {
-    name: "拖动预览到四角，或使用方向键移动",
+    name: /拖动预览到四角，或使用方向键移动/u,
   })
   fireEvent.keyDown(handle, { key: "ArrowLeft" })
   fireEvent.keyDown(handle, { key: "ArrowUp" })
@@ -229,7 +229,7 @@ it("keeps keyboard focus reachable when compacting and expanding the preview", a
   const onExpand = vi.fn()
   const view = show(conversation, { compactContainer: toolbar, onExpand })
   const handle = await screen.findByRole("button", {
-    name: "拖动预览到四角，或使用方向键移动",
+    name: /拖动预览到四角，或使用方向键移动/u,
   })
   handle.focus()
   view.rerender(
@@ -280,7 +280,7 @@ it("restores focus when a focused compact control disappears after layout become
   await waitFor(() =>
     expect(
       screen.getByRole("button", {
-        name: "拖动预览到四角，或使用方向键移动",
+        name: /拖动预览到四角，或使用方向键移动/u,
       })
     ).toHaveFocus()
   )

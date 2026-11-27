@@ -7,24 +7,27 @@ import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
 import { timingSafeEqual } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
+import { WebSiteRequestError } from "./web-site-error.js";
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { createLoggerOptions, RunnerLogController } from "./lib/logger.js";
 import { z } from "zod";
 
 import {
   runtimeWorkspaceHeader,
   applicationBuilderRequestSchema,
   userWorkspacePathSchema,
+  webSiteLegacyToolRequestSchema,
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
   conversationFormRequestedSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   conversationFormWaitingPolicySchema,
-  conversationUserInputResponseSchema,
+  nativeUserInputResponseSchema,
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
   imageGenerationRequestSchema,
@@ -37,6 +40,7 @@ import {
   modelProviderProtocolModeSchema,
   modelTokenPricingSchema,
   personalizationSettingsSchema,
+  privacyMaskingRuntimeSchema,
   reasoningEffortSchema,
   runnerKnowledgeBaseSelectionSchema,
   runnerCodexAgentKeySchema,
@@ -88,7 +92,10 @@ import {
   sanitizeZodIssues,
   TURN_START_CONTRACT_VERSION,
 } from "./turn-start-contract.js";
-import type { WorkspaceManager } from "./workspace/workspace-manager.js";
+import {
+  WorkspaceOwnerMismatchError,
+  type WorkspaceManager,
+} from "./workspace/workspace-manager.js";
 import {
   proxyUserMcpHttpRequest,
   UserMcpProxyRequestError,
@@ -167,6 +174,8 @@ const modelProviderRuntimeSchema = z.strictObject({
   pricing: modelTokenPricingSchema.optional(),
   modelContextWindow: modelContextWindowSchema.optional(),
   modelAutoCompactTokenLimit: modelContextWindowSchema.optional(),
+  supportsImageInput: z.boolean().optional(),
+  privacyMasking: privacyMaskingRuntimeSchema.optional(),
 });
 
 const modelTransitionSourceSchema = z.strictObject({
@@ -513,6 +522,9 @@ function prewarmInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
@@ -532,6 +544,9 @@ function prewarmInput(
               body.modelProvider.modelAutoCompactTokenLimit,
           }
         : {}),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
     ...(body.codexThreadId !== undefined
       ? { codexThreadId: body.codexThreadId }
@@ -563,6 +578,13 @@ function prewarmInput(
                         .modelAutoCompactTokenLimit,
                   }
                 : {}),
+              ...(body.modelTransitionSource.provider.supportsImageInput ===
+              undefined
+                ? {}
+                : {
+                    supportsImageInput:
+                      body.modelTransitionSource.provider.supportsImageInput,
+                  }),
             },
           },
         }
@@ -576,7 +598,7 @@ const userInputResponseBodySchema = z.strictObject({
   codexTurnId: z.string().min(1).max(240),
   itemId: z.string().min(1).max(240),
   requestId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  response: conversationUserInputResponseSchema,
+  response: nativeUserInputResponseSchema,
 });
 
 export const reconcileBodySchema = z
@@ -810,7 +832,10 @@ export function buildRunnerServer(
   userProcessCount: () => Promise<number> = async () => 0,
   publicEventSink?: Pick<RunnerEventSink, "publishBatch">,
 ) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+  const app = Fastify({
+    logController: new RunnerLogController(),
+    logger: createLoggerOptions(),
+  });
   const healthRoots = resolveHealthRoots(config);
 
   app.addHook("onRequest", async (request, reply) => {
@@ -823,6 +848,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-skill-creator/") ||
       request.url.startsWith("/mcp-skills/") ||
       request.url.startsWith("/mcp-application-builder/") ||
+      request.url.startsWith("/mcp-web-site/") ||
       request.url.startsWith("/mcp-web-search/") ||
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-automations/") ||
@@ -868,7 +894,7 @@ export function buildRunnerServer(
     } catch (error) {
       if (
         error instanceof ConversationOwnerMismatchError ||
-        (error instanceof Error && error.message.includes("owner"))
+        error instanceof WorkspaceOwnerMismatchError
       ) {
         return reply.code(403).send({ error_code: "RUNNER_OWNER_MISMATCH" });
       }
@@ -1087,7 +1113,7 @@ export function buildRunnerServer(
           displayName: body.displayName,
           ...(body.mimeType ? { mimeType: body.mimeType } : {}),
           ...(body.artifactKind ? { artifactKind: body.artifactKind } : {}),
-        ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
+          ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
         });
       } catch (error) {
         const failure =
@@ -1109,6 +1135,7 @@ export function buildRunnerServer(
         return reply.code(failure.statusCode).send({
           code: failure.code,
           retryable: failure.retryable,
+          ...(failure.artifactId && { artifact_id: failure.artifactId }),
         });
       }
     },
@@ -1296,6 +1323,30 @@ export function buildRunnerServer(
   );
 
   app.post<{ Params: { conversationId: string } }>(
+    "/mcp-web-site/:conversationId",
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+      if (!token) {
+        return reply.code(401).send({ code: "WEB_SITE_FORBIDDEN", retryable: false });
+      }
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = webSiteLegacyToolRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) {
+        return reply.code(400).send({ code: "WEB_SITE_INVALID", retryable: false });
+      }
+      try {
+        return await pool.webSite(conversationId.data, token, body.data);
+      } catch (error) {
+        const failure = error instanceof WebSiteRequestError
+          ? error
+          : new WebSiteRequestError("WEB_SITE_UNAVAILABLE", true, 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "web site request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
     "/mcp-skill-creator/:conversationId/confirm",
     async (request, reply) => {
       const conversationId = uuid.parse(request.params.conversationId);
@@ -1474,18 +1525,21 @@ export function buildRunnerServer(
   });
 
   for (const path of ["/mcp-current-user/:conversationId/browser-use", "/mcp-current-user/:conversationId/local-browser"]) app.post<{ Params: { conversationId: string } }>(path, { bodyLimit: 40_000 }, async (request, reply) => {
-    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema } = await import("@linksense/shared");
+    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema, runnerNativeIdSchema } = await import("@linksense/shared");
     const response = (result: import("@linksense/shared").BrowserUseResult) =>
       path.endsWith("/local-browser") ? browserUseLegacyResult(result) : result;
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
     const conversationId = uuid.safeParse(request.params.conversationId);
-    const body = browserUseRequestSchema.safeParse(request.body);
+    const body = z.union([
+      z.strictObject({ input: browserUseRequestSchema, nativeCallId: runnerNativeIdSchema }),
+      browserUseRequestSchema.transform(input => ({ input, nativeCallId: undefined })),
+    ]).safeParse(request.body);
     if (!token) return reply.code(401).send(response(browserUseFailure("BROWSER_USE_ACCESS_DENIED")));
     if (!conversationId.success || !body.success) return reply.code(400).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED")));
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
-    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data, controller.signal))); }
+    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data.input, controller.signal))); }
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
     finally { reply.raw.off("close", abort); }
   });
@@ -1496,10 +1550,15 @@ export function buildRunnerServer(
     const body = readConversationReferenceInputSchema.safeParse(request.body);
     if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
     if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
-    try { return await pool.readConversationReference(conversationId.data, token, body.data); }
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once("close", abort);
+    try { return await pool.readConversationReference(conversationId.data, token, body.data, controller.signal); }
     catch (error) {
       const status = error instanceof ConversationReferenceRequestError ? error.statusCode : 503;
       return reply.code(status).send({ code: "CONVERSATION_REFERENCE_UNAVAILABLE", retryable: status >= 500 });
+    } finally {
+      reply.raw.off("close", abort);
     }
   });
 
@@ -1855,6 +1914,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -1874,6 +1936,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
           ...(body.codexThreadId !== undefined
             ? { codexThreadId: body.codexThreadId }
@@ -2230,6 +2295,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -2249,6 +2317,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
         });
       } catch (error) {
@@ -2352,6 +2423,9 @@ export function buildRunnerServer(
             : {}),
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.privacyMasking
+              ? { privacyMasking: body.modelProvider.privacyMasking }
+              : {}),
             ...(body.modelProvider.memoryExtraction
               ? { memoryExtraction: body.modelProvider.memoryExtraction }
               : {}),
@@ -2371,6 +2445,9 @@ export function buildRunnerServer(
                   modelAutoCompactTokenLimit:
                     body.modelProvider.modelAutoCompactTokenLimit,
                 }),
+            ...(body.modelProvider.supportsImageInput === undefined
+              ? {}
+              : { supportsImageInput: body.modelProvider.supportsImageInput }),
           },
         });
       } catch (error) {
@@ -2455,6 +2532,9 @@ export function buildRunnerServer(
             model: body.model,
             reasoningEffort: body.reasoningEffort,
             modelProvider: {
+              ...(body.modelProvider.privacyMasking
+                ? { privacyMasking: body.modelProvider.privacyMasking }
+                : {}),
               ...(body.modelProvider.memoryExtraction
                 ? { memoryExtraction: body.modelProvider.memoryExtraction }
                 : {}),
@@ -2477,6 +2557,9 @@ export function buildRunnerServer(
                     modelAutoCompactTokenLimit:
                       body.modelProvider.modelAutoCompactTokenLimit,
                   }),
+              ...(body.modelProvider.supportsImageInput === undefined
+                ? {}
+                : { supportsImageInput: body.modelProvider.supportsImageInput }),
             },
           }),
         };
@@ -2855,6 +2938,9 @@ function goalRuntimeInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
@@ -2874,6 +2960,9 @@ function goalRuntimeInput(
             modelAutoCompactTokenLimit:
               body.modelProvider.modelAutoCompactTokenLimit,
           }),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
   };
 }
@@ -2903,6 +2992,9 @@ function subAgentReadInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.privacyMasking
+        ? { privacyMasking: body.modelProvider.privacyMasking }
+        : {}),
       ...(body.modelProvider.memoryExtraction
         ? { memoryExtraction: body.modelProvider.memoryExtraction }
         : {}),
@@ -2922,6 +3014,9 @@ function subAgentReadInput(
             modelAutoCompactTokenLimit:
               body.modelProvider.modelAutoCompactTokenLimit,
           }),
+      ...(body.modelProvider.supportsImageInput === undefined
+        ? {}
+        : { supportsImageInput: body.modelProvider.supportsImageInput }),
     },
     ...("agentKey" in body ? { agentKey: body.agentKey } : {}),
   };

@@ -4,11 +4,18 @@ import {
   TaskRecoveryScheduler,
   type TaskRecoveryQueueControl,
 } from "../src/modules/events/recovery-scheduler.js";
+import {
+  START_INTENT_UNSETTLED_RELEASE_MILLISECONDS,
+  START_RECOVERY_ATTEMPTS,
+} from "../src/modules/conversations/start-intent-policy.js";
 
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const bootId = "10000000-0000-4000-8000-000000000002";
 const conversationId = "10000000-0000-4000-8000-000000000003";
 const projectionTurnId = "10000000-0000-4000-8000-000000000004";
+const deviceId = "10000000-0000-4000-8000-000000000005";
+const connectionId = "10000000-0000-4000-8000-000000000006";
+const runtimeGeneration = "10000000-0000-4000-8000-000000000007";
 const capabilityGeneration = "a".repeat(64);
 afterEach(() => vi.useRealTimers());
 
@@ -178,6 +185,36 @@ describe("targeted task recovery", () => {
     );
   });
 
+  it("scopes start job ids to the intent and keeps one total attempt budget", async () => {
+    const f = fixture();
+    const freshTurnId = "10000000-0000-4000-8000-000000000010";
+    const fresh = new Date();
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    );
+    f.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce([
+      { conversationId, projectionTurnId: freshTurnId, createdAt: fresh },
+      { conversationId, projectionTurnId, createdAt: stale },
+    ]);
+    await f.scheduler.process({ data: { type: "maintenance" } });
+    expect(f.queue.add).toHaveBeenCalledWith(
+      "start",
+      { type: "start", conversationId, projectionTurnId: freshTurnId },
+      {
+        jobId: `start-${freshTurnId}-${fresh.getTime()}`,
+        attempts: START_RECOVERY_ATTEMPTS,
+      },
+    );
+    expect(f.queue.add).toHaveBeenCalledWith(
+      "start",
+      { type: "start", conversationId, projectionTurnId },
+      {
+        jobId: `start-${projectionTurnId}-${stale.getTime()}`,
+        attempts: START_RECOVERY_ATTEMPTS,
+      },
+    );
+  });
+
   it("persists the next pending page only after every record has been durably enqueued", async () => {
     const f = fixture();
     const createdAt = new Date("2026-09-07T00:00:00Z");
@@ -274,15 +311,23 @@ function fixture() {
   };
   const worker = { close: vi.fn(async () => undefined) };
   const prisma = {
+    $queryRaw: vi.fn<(...params: unknown[]) => Promise<unknown[]>>(async () => []),
+    desktopTurnSlotRelease: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(
       (run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma),
     ),
+    conversation: {
+      findFirst: vi.fn(async () => ({ id: conversationId, runtimeGeneration })),
+      findMany: vi.fn(async () => [] as Array<{ id: string; executionTarget: string | null }>),
+    },
     conversationTurn: {
+      findFirst: vi.fn(async () => ({ capabilityGeneration })),
       findMany: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(
         async () => [],
       ),
     },
     conversationTurnStartIntent: {
+      findFirst: vi.fn<() => Promise<{ projectionTurnId: string } | null>>(async () => null),
       findMany: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(
         async () => [],
       ),
@@ -294,6 +339,9 @@ function fixture() {
     },
   };
   const redis = {
+    client: {
+      mget: vi.fn(async () => [connectionId, `${connectionId}:${deviceId}`]),
+    },
     runningTurnRecoveryStatus: vi.fn<
       () => Promise<{ outcome: string; last_success_at: string | null }>
     >(async () => ({
@@ -313,6 +361,9 @@ function fixture() {
       }>
     >(async () => ({ slots: [], after: null })),
     releaseTurnSlot: vi.fn(async () => undefined),
+    runningTurnSlotPage: vi.fn(async () => ({ slots: [], after: null })),
+    revokedMacRecoveryCursor: vi.fn(async () => ({ conversation: null, slot: null })),
+    setRevokedMacRecoveryCursor: vi.fn(async () => undefined),
     recoveryDispatchCursor: vi.fn(async () => null),
     setRecoveryDispatchCursor: vi.fn(async () => undefined),
     acquireRecoveryLock: vi.fn<() => Promise<string | null>>(
@@ -323,6 +374,13 @@ function fixture() {
   const events = {
     recoverRunningTurns: vi.fn(async () => undefined),
     reconcileAfterProcessExit: vi.fn(async () => ({ outcome: "succeeded" })),
+    settleRevokedMacTurn: vi.fn<(input: {
+      ownerId: string;
+      conversationId: string;
+      deviceId: string;
+      projectionTurnId: string;
+      runtimeGeneration: string;
+    }) => Promise<void>>(async () => undefined),
   };
   const conversations = {
     recoverStartIntent: vi.fn(async () => "projected"),

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS = 200_000
+export { DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS } from "@linksense/shared"
 
 const TRANSPORT_MARGIN_MS = 5_000
 const OUTER_TRANSPORT_COUNT = 3

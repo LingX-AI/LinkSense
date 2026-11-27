@@ -6,9 +6,9 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { createBrowserExtensionFixture } from "../../api/test/fixtures/browser-use-extension.js"
-import type { BrowserUseRequest, BrowserUseResult } from "@linksense/shared"
+import type { BrowserUseExtensionRequest, BrowserUseResult } from "@linksense/shared"
 
-test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, controls and revokes a real tab", async ({
+test("an isolated Chrome extension pairs over non-localhost HTTP and lets a task control a shared tab", async ({
   playwright,
 }, testInfo) => {
   test.setTimeout(60_000)
@@ -44,6 +44,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     api,
     service,
     address: fixtureAddress,
+    connectTask,
     dropBrowserTransport,
   } = await createBrowserExtensionFixture(owner, date)
   const address = fixtureAddress.replace("127.0.0.1", "linksense-http.test")
@@ -65,7 +66,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     ],
   })
   const execute = async (
-    input: BrowserUseRequest,
+    input: BrowserUseExtensionRequest,
     conversation = task
   ): Promise<Extract<BrowserUseResult, { ok: true }>> => {
     const result = await service.execute(owner, conversation, input)
@@ -84,7 +85,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     ).toMatchObject({
       manifest_version: 3,
       default_locale: "en",
-      version: "0.4.5",
+      version: "0.4.6",
     })
     expect(archive.file("background.js")).not.toBeNull()
     expect(archive.file("ZOD-LICENSE")).not.toBeNull()
@@ -137,6 +138,14 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     await expect
       .poll(async () => (await service.status(owner)).connected)
       .toBe(true)
+    const [openedSite, siteResult] = await Promise.all([
+      browser.waitForEvent("page"),
+      execute({ action: "open_site_window", slug: "fixture-site" }),
+    ])
+    expect(siteResult.data.tab_id).toBeUndefined()
+    await expect(openedSite).toHaveURL(`${address}/web/fixture-site`)
+    await expect(openedSite.getByRole("heading", { name: "Published fixture site" })).toBeVisible()
+    await openedSite.close()
     const managementTab = browser.waitForEvent("page")
     await page.evaluate(
       (owner) =>
@@ -328,7 +337,11 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     expect(await previewRequest("activate", tabId + 999)).toMatchObject({
       ok: false,
     })
-    const snapshot = await execute({ action: "snapshot", tab_id: tabId })
+    const runner = await connectTask(task)
+    const { result: desktopStatus } = await runner.execute({ action: "status" })
+    expect(desktopStatus).toMatchObject({ ok: true, data: { connected: true, browser: "chrome" } })
+    const { result: snapshot } = await runner.execute({ action: "snapshot", tab_id: tabId })
+    if (!snapshot.ok) throw new Error(snapshot.code)
     expect(
       snapshot.data.elements?.some(
         (element) => element.name === "Stop sharing this page"
@@ -342,7 +355,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     )
     expect(button).toBeTruthy()
     expect(input).toBeTruthy()
-    const movingClick = execute({
+    const movingClick = runner.execute({
       action: "click",
       tab_id: tabId,
       ref: button!.ref,
@@ -357,7 +370,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           `cursor-motion-${String(frame).padStart(2, "0")}.png`
         ),
       })
-    await movingClick
+    expect((await movingClick).result).toMatchObject({ ok: true, data: { tab_id: tabId } })
     await expect(
       targetPage.getByRole("button", { name: "Clicked" })
     ).toBeVisible()
@@ -581,7 +594,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
       .boundingBox())!
     const cursor = control.locator("[data-linksense-cursor]")
     const previousX = Number(await cursor.getAttribute("data-x"))
-    const stoppedClick = service.execute(owner, task, {
+    const stoppedClick = runner.execute({
       action: "click_at",
       tab_id: tabId,
       x: cancelTarget.x + cancelTarget.width / 2,
@@ -591,15 +604,24 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
       .poll(async () => Number(await cursor.getAttribute("data-x")))
       .not.toBe(previousX)
     await popup.evaluate(() => document.getElementById("release")!.click())
-    expect(await stoppedClick).toMatchObject({
+    expect((await stoppedClick).result).toMatchObject({
       ok: false,
       code: "BROWSER_USE_CANCELLED",
+      retryable: false,
     })
     await expect(control).toBeHidden()
     await expect(
       targetPage.getByRole("button", { name: "Do not click" })
     ).toBeVisible()
     expect((await execute({ action: "tabs" })).data.tabs).toEqual([])
+    expect(await service.execute(owner, task, { action: "snapshot", tab_id: tabId })).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_ACCESS_DENIED",
+    })
+    expect((await runner.execute({ action: "snapshot", tab_id: tabId })).result).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_ACCESS_DENIED",
+    })
     expect((await service.status(owner)).connected).toBe(true)
     await popup.reload()
     await targetPage.bringToFront()
@@ -615,17 +637,12 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           .analyze()
       ).violations
     ).toEqual([])
-    await popup.reload()
-    await targetPage.bringToFront()
-    await popup.evaluate(() => document.getElementById("release")!.click())
-    await expect
-      .poll(async () => (await execute({ action: "tabs" })).data.tabs)
-      .toEqual([])
-    expect(
-      await service.execute(owner, task, { action: "snapshot", tab_id: tabId })
-    ).toMatchObject({ ok: false, code: "BROWSER_USE_ACCESS_DENIED" })
-    await service.revoke(owner)
+    expect((await api.inject({ method: "DELETE", url: "/api/v1/browser-use" })).statusCode).toBe(200)
     expect(await service.status(owner)).toEqual({ connected: false })
+    expect((await runner.execute({ action: "snapshot", tab_id: tabId })).result).toMatchObject({
+      ok: false,
+      code: "BROWSER_USE_NOT_CONNECTED",
+    })
     expect(targetPage.isClosed()).toBe(false)
   } finally {
     await browser.close()

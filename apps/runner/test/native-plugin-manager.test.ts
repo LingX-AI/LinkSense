@@ -50,6 +50,26 @@ describe("NativePluginManager", () => {
     expect(fixture.userHome).not.toBe(fixture.taskHome);
   });
 
+  it("accepts additive native plugin-list metadata", async () => {
+    const fixture = await createFixture();
+    const runCommand = vi.fn<NativePluginCommand>(async () => ({
+      stdout: JSON.stringify({
+        ...pluginList([]),
+        futureMetadata: { enabled: true },
+      }),
+    }));
+    await expect(
+      new NativePluginManager(runCommand).reconcileBeforeStart({
+        command: "codex",
+        ...fixture,
+        expectedGeneration: generation,
+        pluginContentDigest,
+        pluginNames: [],
+      }),
+    ).resolves.toBeUndefined();
+    expect(runCommand).toHaveBeenCalledOnce();
+  });
+
   it("rejects a task marketplace registered to another source without changing it", async () => {
     const fixture = await createFixture();
     await writeFile(path.join(fixture.codexHome, "config.toml"), marketplaceConfig(path.join(fixture.workspace, ".codex")));

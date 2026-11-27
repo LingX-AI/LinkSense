@@ -12,6 +12,7 @@ import {
 } from "@/features/conversations/automation-tool-activity"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
+import { listConversationWebSites, webSiteKeys } from "@/features/web-sites/api"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
 
 import { responseLatency } from "@/features/conversations/response-latency"
@@ -35,6 +36,8 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import {
+  AppWindowIcon,
+  ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
@@ -61,6 +64,7 @@ import {
   officeAnnotationRequestText,
   APPLICATION_BUILDER_SKILL_NAME,
   builtInCapabilityId,
+  coreMcpServerKey,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
   type SideChatReference,
@@ -69,6 +73,11 @@ import { z } from "zod"
 import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+  type LoginSessionBoundary,
+} from "@/api/session"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -191,6 +200,7 @@ import {
   isTerminalConversationExecutionStatus,
 } from "@/features/conversations/conversation-execution-lifecycle"
 import { matchingConversationStartFailure } from "@/features/conversations/conversation-start-failure"
+import { reconcileStartingConversationTurn } from "@/features/conversations/conversation-starting-turn"
 import {
   bindPendingConversationTurn,
   clearPendingConversationExecution,
@@ -213,12 +223,15 @@ import {
   consumeAcceptedLocalConversationDraft,
   readLocalConversationDraft,
   writeLocalConversationDraft,
+  type LocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { BrowserUsePreview } from "@/features/browser-use/browser-use-preview"
 import { BrowserUsePrompt } from "@/features/browser-use/browser-use-prompt"
+import { BrowserPanel } from "@/features/browser-panel/browser-panel"
+import { isManagedBrowserCommandItem } from "@/features/browser-panel/tool-activity"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -337,7 +350,10 @@ import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
 } from "@/features/conversations/conversation-live-events"
-import { selectConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
+import {
+  selectConversationModelContextUsage,
+  selectLatestConversationContextBreakdown,
+} from "@/features/conversations/conversation-context-usage"
 import { mapLegacyConversationActivity } from "@/features/conversations/legacy-conversation-activity"
 import {
   isNativeStreamDisconnectRetry,
@@ -441,7 +457,56 @@ type OptimisticTurnStart = Readonly<{
   attachmentConsumption: OptimisticAttachmentConsumption | undefined
   sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
   pendingExecutionConversationId: string | undefined
+  loginSessionBoundary: LoginSessionBoundary | undefined
 }>
+
+type ConversationCreationOrigin = Readonly<{
+  routeEpoch: number
+  executionOwnerId: string | undefined
+  gated: boolean
+  routeConversationId: string | null
+  loginSessionBoundary: LoginSessionBoundary
+}>
+
+type FreshSendPlaceholderSnapshot = Readonly<{
+  optimisticId: string
+  timingKey: string
+  pendingExecution: boolean
+  pendingSubmission: PendingConversationTurnSubmission | null
+  draft: LocalConversationDraft | null
+  draftOwnerId: string | undefined
+}>
+
+function freshSendTimingKey(optimisticId: string) {
+  return `new-send:${optimisticId}`
+}
+
+function localConversationDraftMatches(
+  left: LocalConversationDraft,
+  right: LocalConversationDraft
+) {
+  const sameReferences =
+    (left.taskReferences ?? []).length ===
+      (right.taskReferences ?? []).length &&
+    (left.taskReferences ?? []).every(
+      (reference, index) =>
+        reference.id === right.taskReferences?.[index]?.id &&
+        reference.title === right.taskReferences?.[index]?.title
+    )
+  return (
+    left.input === right.input &&
+    left.capabilityIds.length === right.capabilityIds.length &&
+    left.capabilityIds.every(
+      (capabilityId, index) => capabilityId === right.capabilityIds[index]
+    ) &&
+    left.knowledgeBaseIds.length === right.knowledgeBaseIds.length &&
+    left.knowledgeBaseIds.every(
+      (knowledgeBaseId, index) =>
+        knowledgeBaseId === right.knowledgeBaseIds[index]
+    ) &&
+    sameReferences
+  )
+}
 
 type UserCreditQuotaUsage = NonNullable<
   NonNullable<User["credit_quota"]>["weekly"]
@@ -605,6 +670,7 @@ export function ConversationPage({
   const personalizationQuery = usePersonalization()
   const navigate = useNavigate()
   const location = useLocation()
+  const [newTaskResetVersion, setNewTaskResetVersion] = useState(0)
   const queryClient = useQueryClient()
   const [composerValue] = useState(createConversationComposerValue)
   const sideChatPanelRef = useRef<HTMLElement>(null)
@@ -625,10 +691,6 @@ export function ConversationPage({
   const [
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
-  ] = useState<string | null>(null)
-  const [
-    taskOverviewSuppressedConversationId,
-    setTaskOverviewSuppressedConversationId,
   ] = useState<string | null>(null)
   const [newTaskPromotionConversationId, setNewTaskPromotionConversationId] =
     useState<string | null>(null)
@@ -651,7 +713,6 @@ export function ConversationPage({
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<
     string[]
   >([])
-  const [newTaskResetVersion, setNewTaskResetVersion] = useState(0)
   const [
     composerAttachmentOperationPending,
     setComposerAttachmentOperationPending,
@@ -798,6 +859,19 @@ export function ConversationPage({
   const [filePreviewClosing, setFilePreviewClosing] = useState(false)
   const [selectedSubAgent, setSelectedSubAgent] =
     useState<ConversationSubAgentSelection | null>(null)
+  const [browserPanelTarget, setBrowserPanelTarget] = useState<{
+    conversationId: string
+    ownerId: string
+  } | null>(null)
+  const browserPanelToggleRef = useRef<HTMLButtonElement>(null)
+  // A close restores focus only after the commit that removed the panel and
+  // its narrow-layout inert region, and only while this owner and route still
+  // own the header control that was captured.
+  const browserPanelCloseFocusRef = useRef<{
+    toggle: HTMLButtonElement
+    conversationId: string
+    ownerId: string
+  } | null>(null)
   const autoPreviewedCompletedTurnIdsRef = useRef(new Set<string>())
   const handlePreviewOfficeDocument = useCallback(
     (file: ConversationFile) => {
@@ -805,6 +879,7 @@ export function ConversationPage({
       setHtmlCodePreview(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setOfficePreview((current) => ({
         conversationId,
         file,
@@ -850,7 +925,7 @@ export function ConversationPage({
   const [taskReferenceSelection, setTaskReferenceSelection] = useState<{
     scope: string | undefined
     items: { id: string; title: string }[]
-  }>({ scope: conversationId, items: [] })
+  }>({ scope: undefined, items: [] })
   const taskReferences =
     taskReferenceSelection.scope === conversationId
       ? taskReferenceSelection.items
@@ -861,10 +936,25 @@ export function ConversationPage({
     currentRouteConversationId
   )
   const routeEpochRef = useRef(0)
+  const executionOwnerIdRef = useRef(user?.id)
   const ensureConversationPromiseRef = useRef<{
     epoch: number
     promise: Promise<string>
   } | null>(null)
+  const sendCreationOriginRef = useRef<ConversationCreationOrigin | null>(null)
+  const freshSendPlaceholderRef = useRef<FreshSendPlaceholderSnapshot | null>(
+    null
+  )
+  const goalCreationOriginRef = useRef<ConversationCreationOrigin | null>(null)
+  const attachmentCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
+  const referenceCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
+  const officeCreationOriginRef = useRef<ConversationCreationOrigin | null>(
+    null
+  )
   const sendSubmissionConversationIdRef = useRef<string | null>(null)
   const goalStartSubmissionConversationIdRef = useRef<string | null>(null)
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
@@ -872,6 +962,7 @@ export function ConversationPage({
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
+    executionOwnerIdRef.current = user?.id
     const previousRouteConversationId = routeConversationIdRef.current
     if (previousRouteConversationId !== currentRouteConversationId) {
       setError(null)
@@ -885,7 +976,13 @@ export function ConversationPage({
     }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
-  }, [currentRouteConversationId, location.key, newTaskResetVersion])
+    return () => {
+      // Unmounting (for example, leaving the task page for Settings) must
+      // supersede pending work such as an awaited native readiness read, so
+      // it cannot create a conversation after this page is gone.
+      routeEpochRef.current += 1
+    }
+  }, [currentRouteConversationId, location.key, newTaskResetVersion, user?.id])
 
   useEffect(() => {
     if (isNew && surfaceActive && showComposer && !readOnly) {
@@ -1274,11 +1371,32 @@ export function ConversationPage({
     knowledgeBaseSelectionLoading
   const knowledgeBasesError =
     knowledgeBaseQuery.isError || knowledgeBaseSelectionVerificationFailed
+  const knowledgeBasesUnsupported =
+    knowledgeBaseQuery.error instanceof ApiError &&
+    knowledgeBaseQuery.error.status === 404
   const knowledgeBaseSelectionPending =
     selectedKnowledgeBaseIds.length > 0 &&
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const canShowSiteDeliveries = Boolean(
+    user &&
+    conversationId &&
+    !isNew &&
+    !embedded &&
+    !readOnly &&
+    !conversation?.application &&
+    conversation?.files?.some(
+      (file) => file.kind === "artifact" && file.mime_type === "text/html"
+    )
+  )
+  const siteDeliveries = useQuery({
+    queryKey: webSiteKeys.deliveries(user?.id, conversationId),
+    enabled: canShowSiteDeliveries,
+    queryFn: ({ signal }) =>
+      listConversationWebSites(conversationId ?? "", signal),
+    retry: false,
+  })
   const sideChat = useSideChat(
     conversationId,
     !isNew &&
@@ -1294,11 +1412,7 @@ export function ConversationPage({
       conversation?.history?.scope_id,
       conversation?.last_event_id ?? conversation?.updated_at
     ),
-    enabled:
-      !isNew &&
-      Boolean(conversation) &&
-      taskOverviewOpen &&
-      taskOverviewSuppressedConversationId !== conversationId,
+    enabled: !isNew && Boolean(conversation) && taskOverviewOpen,
   })
   const conversationHistory = useConversationHistory(conversation)
   const pendingConversationExecution = usePendingConversationExecution(
@@ -1318,9 +1432,19 @@ export function ConversationPage({
       (isNewTaskPromotion &&
         pendingTurnSubmission.conversationId === newConversationPlaceholderId))
   )
-  const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
+  const unreconciledSubmission = pendingSubmissionBelongsToConversation
     ? pendingTurnSubmission
     : cachedPendingTurnSubmission
+  const currentPendingTurnSubmission = useMemo(
+    () =>
+      unreconciledSubmission
+        ? reconcileStartingConversationTurn(
+            conversation,
+            unreconciledSubmission
+          )
+        : unreconciledSubmission,
+    [conversation, unreconciledSubmission]
+  )
   const applicationSubmissionScrollId =
     currentPendingTurnSubmission?.message.display?.kind ===
     "interactive_application"
@@ -1441,6 +1565,57 @@ export function ConversationPage({
   const planMode = collaborationMode === "plan"
   const goalMode =
     goalModeState.conversationId === conversationId && goalModeState.enabled
+  // The cloud browser preview is mounted into the shared conversation preview
+  // slot and only after the current owner, conversation and surface have
+  // loaded; the server still authorizes every frame and control request.
+  const browserPanelAvailable = Boolean(
+    user &&
+    conversation &&
+    conversation.id === conversationId &&
+    !isNew &&
+    !embedded &&
+    !readOnly &&
+    showHeader &&
+    surfaceActive
+  )
+  const browserPanelOpen = Boolean(
+    browserPanelAvailable &&
+    user &&
+    browserPanelTarget?.conversationId === conversationId &&
+    browserPanelTarget?.ownerId === user.id
+  )
+  const browserPanelCompetingPreview =
+    sideChat.open ||
+    Boolean(activeSubAgent) ||
+    Boolean(activeHtmlCodePreview) ||
+    Boolean(activeImagePreview) ||
+    Boolean(officeFile) ||
+    (surfaceActive && taskOverviewOpen && !sideChat.open)
+  // Adjust the open target during render so navigation, an account switch, an
+  // inactive tab or another preview pane unmounts the panel before commit.
+  if (
+    browserPanelTarget &&
+    (!browserPanelAvailable ||
+      browserPanelCompetingPreview ||
+      browserPanelTarget.conversationId !== conversationId ||
+      browserPanelTarget.ownerId !== user?.id)
+  )
+    setBrowserPanelTarget(null)
+  const showBrowserPanel = browserPanelOpen && !browserPanelCompetingPreview
+  useLayoutEffect(() => {
+    const pending = browserPanelCloseFocusRef.current
+    if (!pending || showBrowserPanel) return
+    browserPanelCloseFocusRef.current = null
+    if (
+      pending.conversationId !== currentRouteConversationId ||
+      pending.conversationId !== routeConversationIdRef.current ||
+      pending.ownerId !== user?.id ||
+      pending.toggle !== browserPanelToggleRef.current ||
+      !pending.toggle.isConnected
+    )
+      return
+    pending.toggle.focus()
+  }, [currentRouteConversationId, showBrowserPanel, user?.id])
   const {
     state: nativeReconnectState,
     start: startNativeReconnect,
@@ -1454,6 +1629,7 @@ export function ConversationPage({
     (running || pendingTurnExecutionActive || pendingConversationExecution) &&
     !reconnectExhausted
   )
+  const turnStoppable = visuallyRunning
   const sensitiveTaskId =
     !isNew && surfaceActive && !readOnly ? conversationId : undefined
   const sensitiveDataStatus = useTaskLocalModelStatus(
@@ -1486,7 +1662,8 @@ export function ConversationPage({
       !readOnly &&
       !turnExecutionActive &&
       !modelPreferenceMutation.isPending &&
-      !modelPreferenceQuery.isPending,
+      !modelPreferenceQuery.isPending &&
+      (isNew || Boolean(conversation)),
   })
 
   const startNewTaskFromComposer = useCallback(() => {
@@ -1505,7 +1682,6 @@ export function ConversationPage({
     }
     setPendingFirstMessageConversationId(null)
     resetPrewarm()
-    setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
     hydratedDraftScopeRef.current = null
@@ -1529,6 +1705,7 @@ export function ConversationPage({
     resetPrewarm,
     resetNewProject,
     setGoalMode,
+    setNewTaskResetVersion,
     user,
     conversationId,
     setValue,
@@ -1552,18 +1729,22 @@ export function ConversationPage({
 
   useLayoutEffect(() => {
     if (!user) return
+    const keys = [
+      conversation?.starting_turn?.idempotency_key,
+      ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
+      ...(conversation?.pending_requests ?? []).map(
+        (request) => request.idempotency_key
+      ),
+    ]
     const acceptedDraft = consumeAcceptedLocalConversationDraft(
       window.localStorage,
       user.id,
       localDraftScope,
-      [
-        conversation?.starting_turn?.idempotency_key,
-        ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
-        ...(conversation?.pending_requests ?? []).map(
-          (request) => request.idempotency_key
-        ),
-      ]
+      keys
     )
+    if (isNewTaskPromotion && hydratedDraftScopeRef.current === "new") {
+      hydratedDraftScopeRef.current = localDraftScope
+    }
     if (
       hydratedDraftScopeRef.current === localDraftScope &&
       (!acceptedDraft || composerValue.getSnapshot() !== acceptedDraft.input)
@@ -1585,6 +1766,7 @@ export function ConversationPage({
   }, [
     conversation,
     conversationId,
+    isNewTaskPromotion,
     localDraftScope,
     newTaskResetVersion,
     user,
@@ -1593,28 +1775,53 @@ export function ConversationPage({
   ])
 
   useEffect(() => {
-    if (!user) return
-    const persistDraft = () => {
+    // On a task switch the input is hydrated before the selections commit.
+    if (
+      !user ||
+      (!isNew &&
+        !isNewTaskPromotion &&
+        taskReferenceSelection.scope !== conversationId)
+    )
+      return
+    const persistDraft = (skipUnchanged = false) => {
       if (hydratedDraftScopeRef.current !== localDraftScope) return
       if (composerSubmissionInFlightRef.current) return
+      const draft = {
+        input: composerValue.getSnapshot(),
+        capabilityIds: selectedCapabilityIds,
+        knowledgeBaseIds: selectedKnowledgeBaseIds,
+        taskReferences,
+      }
+      // Hydration isn't an edit: don't reserialize an unchanged saved draft.
+      if (
+        skipUnchanged &&
+        localConversationDraftMatches(
+          readLocalConversationDraft(
+            window.localStorage,
+            user.id,
+            localDraftScope
+          ),
+          draft
+        )
+      )
+        return
       writeLocalConversationDraft(
         window.localStorage,
         user.id,
         localDraftScope,
-        {
-          input: composerValue.getSnapshot(),
-          capabilityIds: selectedCapabilityIds,
-          knowledgeBaseIds: selectedKnowledgeBaseIds,
-          taskReferences,
-        }
+        draft
       )
     }
-    persistDraft()
+    persistDraft(true)
     return composerValue.subscribe(persistDraft)
   }, [
+    conversationId,
+    isNew,
+    isNewTaskPromotion,
     localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
+    taskReferenceSelection.scope,
     taskReferences,
     user,
     composerValue,
@@ -1705,6 +1912,14 @@ export function ConversationPage({
         {
           updatedAt,
           lastRunAt,
+          // This page is the active route, so observing the terminal detail
+          // means the completion was seen. Surface it as unread so the shell
+          // acknowledges it with completion_read; otherwise a completion that
+          // settles while its task is open is only acknowledged if the sidebar
+          // list happens to refresh before the user navigates away.
+          ...(conversation?.has_unread_completion
+            ? { hasUnreadCompletion: true }
+            : {}),
         }
       )
     )
@@ -1713,6 +1928,7 @@ export function ConversationPage({
     conversation?.turns,
     conversation?.updated_at,
     conversation?.last_run_at,
+    conversation?.has_unread_completion,
     conversationId,
     conversationQuery.isFetchedAfterMount,
     conversationQuery.isSuccess,
@@ -1881,14 +2097,16 @@ export function ConversationPage({
     (event: ConversationEvent) => {
       if (!conversationId) return
       const pending =
+        getPendingConversationTurnSubmission(queryClient, conversationId) ??
         (pendingTurnSubmission?.conversationId === conversationId
           ? pendingTurnSubmission
-          : null) ??
-        getPendingConversationTurnSubmission(queryClient, conversationId)
+          : null)
       const failure = matchingConversationStartFailure(event, pending)
       if (!failure) return
       if (pending?.replacesTurnId) {
         retireOperationId(regenerateOperationRef, pending.idempotencyKey)
+      } else if (pending) {
+        retireOperationId(turnSubmitOperationRef, pending.idempotencyKey)
       }
       clearPendingConversationTurnSubmission(queryClient, conversationId)
       clearPendingConversationExecution(queryClient, conversationId)
@@ -1900,6 +2118,9 @@ export function ConversationPage({
       )
       clearInterruptingConversation(
         conversationId,
+        failure.start_failure.turn_id
+      )
+      dispatchedInterruptTurnIdsRef.current.delete(
         failure.start_failure.turn_id
       )
       clearNativeReconnect()
@@ -2032,6 +2253,8 @@ export function ConversationPage({
           }
           if (terminal && matchesCurrentTurn) {
             const terminalTurnId = executionTransition.turnId
+            if (terminalTurnId)
+              dispatchedInterruptTurnIdsRef.current.delete(terminalTurnId)
             const terminalStatus = executionTransition.status
             if (
               terminalTurnId &&
@@ -2080,6 +2303,17 @@ export function ConversationPage({
 
         const native = getNativeCodexPayload(event)
         if (native) {
+          if (
+            native.method === "item/completed" &&
+            native.params.item.type === "mcpToolCall" &&
+            native.params.item.server === coreMcpServerKey &&
+            native.params.item.status === "completed" &&
+            ["publish_web_site", "update_web_site"].includes(
+              native.params.item.tool
+            )
+          ) {
+            void queryClient.invalidateQueries({ queryKey: webSiteKeys.all })
+          }
           if (
             conversationId &&
             native.method === "item/completed" &&
@@ -2693,13 +2927,19 @@ export function ConversationPage({
       return
     }
     const timer = window.setTimeout(() => {
-      clearPendingConversationTurnSubmission(
-        queryClient,
-        pending.conversationId
+      if (
+        getPendingConversationTurnSubmission(
+          queryClient,
+          pending.conversationId
+        )?.idempotencyKey === pending.idempotencyKey
       )
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          pending.conversationId
+        )
       setPendingTurnSubmission((current) =>
         current?.conversationId === pending.conversationId &&
-        current.turnId === pending.turnId
+        current.idempotencyKey === pending.idempotencyKey
           ? null
           : current
       )
@@ -2756,6 +2996,67 @@ export function ConversationPage({
     return () => window.clearTimeout(timer)
   }, [conversation?.id, conversation?.pending_requests, pendingOfficeQuestion])
 
+  // A mutation can be paused offline before its mutationFn runs, and
+  // MutationObserver.setOptions can replace that mutationFn after the route or
+  // account changed. Capture the submission origin before the pause so a
+  // resumed fresh Mac create cannot reuse a new route ID or POST elsewhere.
+  const captureConversationCreationOrigin = (): ConversationCreationOrigin => ({
+    routeEpoch: routeEpochRef.current,
+    executionOwnerId: executionOwnerIdRef.current,
+    // The browser product has no local execution target to gate.
+    gated: false,
+    routeConversationId: routeConversationIdRef.current,
+    loginSessionBoundary: getLoginSessionBoundary(),
+  })
+  const isConversationSubmissionContextCurrent = (
+    origin: ConversationCreationOrigin | null | undefined,
+    targetConversationId?: string | null
+  ) =>
+    !origin?.gated ||
+    (isLoginSessionCurrent(origin.loginSessionBoundary) &&
+      executionOwnerIdRef.current === origin.executionOwnerId &&
+      (targetConversationId
+        ? routeConversationIdRef.current === targetConversationId
+        : routeEpochRef.current === origin.routeEpoch))
+  const isConversationCreationOriginCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) =>
+    !origin?.gated ||
+    (isConversationSubmissionContextCurrent(origin) &&
+      routeConversationIdRef.current === origin.routeConversationId)
+  const assertConversationCreationOriginCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => {
+    if (isConversationCreationOriginCurrent(origin)) return
+    throw new ApiError({
+      status: 409,
+      errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+      messageKey: "desktopExecution.deviceChanged",
+    })
+  }
+  const isConversationCreationSessionCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => !origin?.gated || isLoginSessionCurrent(origin.loginSessionBoundary)
+  const assertConversationCreationSessionCurrent = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) => {
+    if (isConversationCreationSessionCurrent(origin)) return
+    throw new ApiError({
+      status: 409,
+      errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+      messageKey: "desktopExecution.deviceChanged",
+    })
+  }
+  const creationRequestOptions = (
+    origin: ConversationCreationOrigin | null | undefined
+  ) =>
+    origin?.gated
+      ? {
+          beforeAttempt: () => assertConversationCreationSessionCurrent(origin),
+          loginSessionBoundary: origin.loginSessionBoundary,
+        }
+      : {}
+
   const ensureConversation = async ({
     suppressEmptyStateUntilFirstMessage = false,
     initialInput = "",
@@ -2763,6 +3064,8 @@ export function ConversationPage({
     initialKnowledgeBaseIds = selectedKnowledgeBaseIds,
     initialTaskReferences = taskReferences,
     initialCollaborationMode = collaborationMode,
+    creationOrigin,
+    freshSendPlaceholder,
   }: {
     suppressEmptyStateUntilFirstMessage?: boolean
     initialInput?: string
@@ -2770,12 +3073,54 @@ export function ConversationPage({
     initialKnowledgeBaseIds?: string[]
     initialTaskReferences?: ComposerSubmission["taskReferences"]
     initialCollaborationMode?: ConversationCollaborationMode
+    creationOrigin?: ConversationCreationOrigin | null
+    freshSendPlaceholder?: FreshSendPlaceholderSnapshot | null
   } = {}) => {
+    assertConversationCreationOriginCurrent(creationOrigin)
     if (routeConversationIdRef.current) return routeConversationIdRef.current
-    const routeEpoch = routeEpochRef.current
+    const routeEpoch = creationOrigin?.gated
+      ? creationOrigin.routeEpoch
+      : routeEpochRef.current
     if (ensureConversationPromiseRef.current?.epoch === routeEpoch) {
       return ensureConversationPromiseRef.current.promise
     }
+    const creationOwnerId = creationOrigin?.gated
+      ? creationOrigin.executionOwnerId
+      : executionOwnerIdRef.current
+    // Capture the placeholder draft before the create network pause. The
+    // active route instance and this snapshot (plus the send's optimistic id
+    // when present) decide whether this receipt may clear it later.
+    const placeholderDraftSnapshot = creationOrigin?.gated
+      ? (freshSendPlaceholder?.draft ??
+        (user && user.id === creationOwnerId
+          ? readLocalConversationDraft(
+              window.localStorage,
+              user.id,
+              newConversationPlaceholderId
+            )
+          : null))
+      : null
+    const assertCreationTargetAllowed = () => {
+      // Re-check a gated submission's captured origin even when the updated
+      // mutation closure no longer renders a fresh Mac task.
+      if (creationOrigin?.gated)
+        assertConversationCreationOriginCurrent(creationOrigin)
+      // Browser creates keep their existing behavior.
+      if (!creationOrigin?.gated) return
+      // Never create or retry a create for a page the user left or an account
+      // that changed while this create was prepared.
+      if (
+        routeEpochRef.current !== routeEpoch ||
+        executionOwnerIdRef.current !== creationOwnerId
+      ) {
+        throw new ApiError({
+          status: 409,
+          errorCode: "DESKTOP_EXECUTION_REQUEST_SUPERSEDED",
+          messageKey: "desktopExecution.deviceChanged",
+        })
+      }
+    }
+    assertCreationTargetAllowed()
     const creation = (async () => {
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
@@ -2787,18 +3132,44 @@ export function ConversationPage({
           collaboration_mode: initialCollaborationMode,
           project_id: newProjectId,
           ...(prewarmedConversationId
-            ? {
-                prewarmed_conversation_id: prewarmedConversationId,
-              }
+            ? { prewarmed_conversation_id: prewarmedConversationId }
             : {}),
         },
         schema: conversationSchema,
+        // A 401 retry is a new physical POST. Re-check the same route/owner
+        // and rollout conditions immediately before it, including after a
+        // successful token refresh; the guard's rejection keeps the session.
+        beforeAttempt: assertCreationTargetAllowed,
+        ...(creationOrigin?.gated
+          ? { loginSessionBoundary: creationOrigin.loginSessionBoundary }
+          : {}),
       })
-      if (user) {
+      assertConversationCreationSessionCurrent(creationOrigin)
+      const createdConversationId = createdConversation.id
+      // Local draft metadata is scoped to the account whose create was
+      // admitted. An account switch during the POST must not write or clear a
+      // draft that now belongs to another account.
+      const localDraftOwnerId =
+        user &&
+        executionOwnerIdRef.current === creationOwnerId &&
+        user.id === executionOwnerIdRef.current
+          ? user.id
+          : undefined
+      const pendingPlaceholderSubmission = freshSendPlaceholder
+        ? getPendingConversationTurnSubmission(
+            queryClient,
+            newConversationPlaceholderId
+          )
+        : null
+      const ownsPlaceholder =
+        !freshSendPlaceholder ||
+        pendingPlaceholderSubmission?.optimisticId ===
+          freshSendPlaceholder.optimisticId
+      if (localDraftOwnerId) {
         writeLocalConversationDraft(
           window.localStorage,
-          user.id,
-          createdConversation.id,
+          localDraftOwnerId,
+          createdConversationId,
           {
             input: initialInput,
             capabilityIds: initialCapabilityIds,
@@ -2806,45 +3177,129 @@ export function ConversationPage({
             taskReferences: initialTaskReferences,
           }
         )
-        clearLocalConversationDraft(window.localStorage, user.id, "new")
+        const activeRouteOwnsPlaceholder =
+          !creationOrigin?.gated ||
+          (routeEpochRef.current === creationOrigin.routeEpoch &&
+            routeConversationIdRef.current ===
+              creationOrigin.routeConversationId)
+        const placeholderDraft = readLocalConversationDraft(
+          window.localStorage,
+          localDraftOwnerId,
+          newConversationPlaceholderId
+        )
+        const capturedPlaceholderDraft =
+          freshSendPlaceholder?.draft ?? placeholderDraftSnapshot
+        // Never clear a draft that belongs to a newer route instance or to a
+        // different send. Content equality is only a consistency check.
+        const clearsPlaceholderDraft = freshSendPlaceholder
+          ? freshSendPlaceholder.draft !== null &&
+            freshSendPlaceholder.draftOwnerId === localDraftOwnerId &&
+            activeRouteOwnsPlaceholder &&
+            ownsPlaceholder &&
+            localConversationDraftMatches(
+              placeholderDraft,
+              freshSendPlaceholder.draft
+            )
+          : !creationOrigin?.gated ||
+            (capturedPlaceholderDraft !== null &&
+              activeRouteOwnsPlaceholder &&
+              localConversationDraftMatches(
+                placeholderDraft,
+                capturedPlaceholderDraft
+              ))
+        if (clearsPlaceholderDraft)
+          clearLocalConversationDraft(
+            window.localStorage,
+            localDraftOwnerId,
+            newConversationPlaceholderId
+          )
       }
       queryClient.setQueryData(
-        ["conversation", createdConversation.id],
+        ["conversation", createdConversationId],
         createdConversation
       )
-      responseLatency.move(newConversationPlaceholderId, createdConversation.id)
+      if (freshSendPlaceholder) {
+        // The fresh send moved its timing to a submission-private key before
+        // any other page could begin the shared placeholder timing again.
+        responseLatency.move(
+          freshSendPlaceholder.timingKey,
+          createdConversationId
+        )
+      } else {
+        responseLatency.move(
+          newConversationPlaceholderId,
+          createdConversationId
+        )
+      }
       if (suppressEmptyStateUntilFirstMessage) {
         const runningConversation: Conversation = {
           ...createdConversation,
           execution_status: "running",
         }
-        movePendingConversationExecution(
-          queryClient,
-          newConversationPlaceholderId,
-          createdConversation.id
-        )
-        movePendingConversationTurnSubmission(
-          queryClient,
-          newConversationPlaceholderId,
-          createdConversation.id
-        )
-        queryClient.setQueryData<
-          InfiniteData<Paginated<Conversation>, string | undefined>
-        >(["conversations", "sidebar"], (cached) =>
-          replaceSidebarConversation(
-            cached,
-            newConversationPlaceholderId,
-            runningConversation
+        if (!freshSendPlaceholder) {
+          // A Goal or another fresh creator has no send placeholder of its
+          // own. Never consume a send's pending marker or sidebar row.
+          queryClient.setQueryData<
+            InfiniteData<Paginated<Conversation>, string | undefined>
+          >(["conversations", "sidebar"], (cached) =>
+            upsertSidebarConversation(cached, runningConversation)
           )
-        )
+        } else {
+          // Only the submission that still owns the cached placeholder may
+          // migrate it. Ownership is the optimistic id captured before the
+          // await, compared with the id cached at migration time. If the
+          // entry is already gone, this create can only seed its own snapshot.
+          if (ownsPlaceholder) {
+            movePendingConversationExecution(
+              queryClient,
+              newConversationPlaceholderId,
+              createdConversationId
+            )
+            movePendingConversationTurnSubmission(
+              queryClient,
+              newConversationPlaceholderId,
+              createdConversationId
+            )
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (cached) =>
+              replaceSidebarConversation(
+                cached,
+                newConversationPlaceholderId,
+                runningConversation
+              )
+            )
+          } else {
+            // Another submission owns the placeholder. Seed this accepted
+            // create from its own captured snapshot instead of migrating the
+            // placeholder, and upsert its row beside the newer placeholder.
+            if (freshSendPlaceholder.pendingExecution)
+              markConversationExecutionPending(
+                queryClient,
+                createdConversationId
+              )
+            if (freshSendPlaceholder.pendingSubmission)
+              setPendingConversationTurnSubmission(
+                queryClient,
+                createdConversationId,
+                {
+                  ...freshSendPlaceholder.pendingSubmission,
+                  conversationId: createdConversationId,
+                }
+              )
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (cached) =>
+              upsertSidebarConversation(cached, runningConversation)
+            )
+          }
+        }
       }
       if (
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
         setNewTaskPromotionConversationId(createdConversation.id)
-        setTaskOverviewSuppressedConversationId(createdConversation.id)
-        hydratedDraftScopeRef.current = createdConversation.id
         routeConversationIdRef.current = createdConversation.id
         if (suppressEmptyStateUntilFirstMessage) {
           setPendingFirstMessageConversationId(createdConversation.id)
@@ -2864,14 +3319,29 @@ export function ConversationPage({
     }
   }
 
-  const refreshSubmittedConversation = async (id: string) => {
+  const refreshSubmittedConversation = async (
+    id: string,
+    loginSessionBoundary = getLoginSessionBoundary()
+  ) => {
     const queryKey = ["conversation", id] as const
+    const isLoginSessionCurrentForRefresh = () =>
+      isLoginSessionCurrent(loginSessionBoundary)
+    if (!isLoginSessionCurrentForRefresh()) return null
     await queryClient.cancelQueries({ queryKey, exact: true }, { silent: true })
-    const detail = await queryClient.fetchQuery({
-      ...conversationDetailQueryOptions(id),
-      staleTime: 0,
-    })
-    return detail
+    if (!isLoginSessionCurrentForRefresh()) return null
+    try {
+      const detail = await queryClient.fetchQuery({
+        ...conversationDetailQueryOptions(id, { loginSessionBoundary }),
+        staleTime: 0,
+      })
+      if (!isLoginSessionCurrentForRefresh()) return null
+      return detail
+    } catch (error) {
+      // A stale login's failed or superseded detail refresh is not an error
+      // for the replacement login; never let its caller invalidate by key.
+      if (!isLoginSessionCurrentForRefresh()) return null
+      throw error
+    }
   }
 
   const refreshAfterMutation = async (id: string) => {
@@ -3081,12 +3551,24 @@ export function ConversationPage({
 
   const sendMutation = useMutation({
     onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      const creationOrigin = captureConversationCreationOrigin()
+      sendCreationOriginRef.current = creationOrigin
+      const freshSendOptimisticId =
+        isNew && submission.optimisticId ? submission.optimisticId : undefined
+      const freshSendTiming = freshSendOptimisticId
+        ? freshSendTimingKey(freshSendOptimisticId)
+        : null
       responseLatency.begin(
         isNew
           ? newConversationPlaceholderId
           : (conversationId ?? newConversationPlaceholderId),
         isNew ? "new_task" : "follow_up"
       )
+      if (freshSendTiming) {
+        // Keep this send's timing independent of the shared placeholder before
+        // a later page instance starts its own fresh-task timing there.
+        responseLatency.move(newConversationPlaceholderId, freshSendTiming)
+      }
       // A sidebar refetch may have started before this submission. Cancel it
       // before applying the optimistic status so its older snapshot cannot
       // replace this task -- or the other running task rows -- when it settles.
@@ -3105,6 +3587,39 @@ export function ConversationPage({
           pendingExecutionConversationId
         )
       }
+      if (freshSendOptimisticId && freshSendTiming) {
+        // Snapshot this send's own placeholder state before the first await.
+        // A newer page instance can replace the shared placeholder while the
+        // admitted create is still in flight.
+        const pendingSubmission = getPendingConversationTurnSubmission(
+          queryClient,
+          newConversationPlaceholderId
+        )
+        freshSendPlaceholderRef.current = {
+          optimisticId: freshSendOptimisticId,
+          timingKey: freshSendTiming,
+          pendingExecution: Boolean(
+            getPendingConversationExecution(
+              queryClient,
+              newConversationPlaceholderId
+            )
+          ),
+          pendingSubmission:
+            pendingSubmission?.optimisticId === freshSendOptimisticId
+              ? pendingSubmission
+              : null,
+          draft: user
+            ? readLocalConversationDraft(
+                window.localStorage,
+                user.id,
+                newConversationPlaceholderId
+              )
+            : null,
+          draftOwnerId: user?.id,
+        }
+      } else {
+        freshSendPlaceholderRef.current = null
+      }
       await sidebarCancellation
       try {
         const attachmentConsumption =
@@ -3113,6 +3628,9 @@ export function ConversationPage({
           attachmentConsumption,
           sidebarExecutionStatus,
           pendingExecutionConversationId,
+          loginSessionBoundary: creationOrigin.gated
+            ? creationOrigin.loginSessionBoundary
+            : undefined,
         }
       } catch (error) {
         if (pendingExecutionConversationId) {
@@ -3130,9 +3648,13 @@ export function ConversationPage({
       }
     },
     mutationFn: async (submission: ComposerSubmission) => {
-      sendSubmissionConversationIdRef.current = isNew
-        ? null
-        : (conversationId ?? null)
+      const creationOrigin = sendCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
+      sendSubmissionConversationIdRef.current = creationOrigin?.gated
+        ? creationOrigin.routeConversationId
+        : isNew
+          ? null
+          : (conversationId ?? null)
       const requestedInput = submission.input
       const requestedCapabilityIds = [...submission.capabilityIds]
       const requestedKnowledgeBaseIds = [...submission.knowledgeBaseIds]
@@ -3144,7 +3666,13 @@ export function ConversationPage({
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
         initialTaskReferences: submission.taskReferences ?? [],
         initialCollaborationMode: submission.collaborationMode,
+        creationOrigin,
+        freshSendPlaceholder:
+          isNew && submission.optimisticId
+            ? freshSendPlaceholderRef.current
+            : null,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       sendSubmissionConversationIdRef.current = id
       if (submission.optimisticId) {
         setPendingTurnSubmission((current) => {
@@ -3154,7 +3682,7 @@ export function ConversationPage({
           return { ...current, conversationId: id }
         })
       }
-      const idempotencyKey = await stableOperationId(turnSubmitOperationRef, {
+      const operation = {
         operation: "turn_start",
         conversation_id: id,
         preceding_turn_id:
@@ -3170,7 +3698,12 @@ export function ConversationPage({
         knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
         collaboration_mode: submission.collaborationMode,
-      })
+      }
+      const idempotencyKey = await stableOperationId(
+        turnSubmitOperationRef,
+        operation
+      )
+      assertConversationCreationSessionCurrent(creationOrigin)
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -3225,11 +3758,12 @@ export function ConversationPage({
         optimisticId: submission.optimisticId,
         idempotencyKey,
       }))
-      if (user)
+      if (user) {
         writeLocalConversationDraft(window.localStorage, user.id, id, {
           ...submission,
           idempotencyKey,
         })
+      }
       const receipt = await requestTurnStart(
         turnSubmitOperationRef,
         `/conversations/${id}/turns`,
@@ -3243,8 +3777,10 @@ export function ConversationPage({
           knowledge_base_ids: requestedKnowledgeBaseIds,
           idempotency_key: idempotencyKey,
           collaboration_mode: submission.collaborationMode,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
@@ -3265,9 +3801,14 @@ export function ConversationPage({
         message: { ...current.message, turn_id: receipt.turn_id },
       }))
       bindPendingConversationTurn(queryClient, id, receipt.turn_id)
-      return { id, idempotencyKey }
+      return { id, idempotencyKey, status: receipt.status }
     },
     onSuccess: (result, _submission, optimisticTurnStart) => {
+      if (
+        optimisticTurnStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+      )
+        return
       const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
@@ -3280,6 +3821,7 @@ export function ConversationPage({
           turnSubmitOperationRef.current = null
         }
         sendSubmissionConversationIdRef.current = null
+        setPendingFirstMessageConversationId(null)
         if (user)
           consumeAcceptedLocalConversationDraft(
             window.localStorage,
@@ -3304,27 +3846,79 @@ export function ConversationPage({
       // Keep submitted attachments filtered until the admission refresh has
       // settled too. That refresh can briefly return pre-consumption staged
       // attachments and must not put them back into the composer.
-      void refreshSubmittedConversation(result.id)
-        .catch(() =>
-          queryClient.invalidateQueries({
+      void refreshSubmittedConversation(
+        result.id,
+        optimisticTurnStart?.loginSessionBoundary
+      )
+        .catch(() => {
+          if (
+            optimisticTurnStart?.loginSessionBoundary !== undefined &&
+            !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+          )
+            return
+          return queryClient.invalidateQueries({
             queryKey: ["conversation", result.id],
           })
-        )
+        })
         .finally(() => {
+          if (
+            optimisticTurnStart?.loginSessionBoundary !== undefined &&
+            !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+          )
+            return
           commitOptimisticallyConsumedAttachments(attachmentConsumption)
         })
     },
     onError: (nextError, submission, optimisticTurnStart) => {
+      if (
+        optimisticTurnStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticTurnStart.loginSessionBoundary)
+      )
+        return
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       clearInterruptingConversation(targetConversationId)
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
       )
-      restoreOptimisticSidebarExecutionStatus(
-        optimisticTurnStart?.sidebarExecutionStatus,
-        targetConversationId
-      )
+      // A paused fresh submission can restart after the same placeholder was
+      // reused by another page instance. Its pending cache entry belongs to
+      // the newer submission, so only clean up the placeholder version that
+      // this mutation created.
+      const pendingPlaceholderSubmission =
+        optimisticTurnStart?.pendingExecutionConversationId ===
+        newConversationPlaceholderId
+          ? getPendingConversationTurnSubmission(
+              queryClient,
+              newConversationPlaceholderId
+            )
+          : null
+      const ownsPendingPlaceholder =
+        !pendingPlaceholderSubmission ||
+        !submission.optimisticId ||
+        pendingPlaceholderSubmission.optimisticId === submission.optimisticId
+      if (ownsPendingPlaceholder) {
+        restoreOptimisticSidebarExecutionStatus(
+          optimisticTurnStart?.sidebarExecutionStatus,
+          targetConversationId
+        )
+      } else if (
+        targetConversationId &&
+        optimisticTurnStart?.sidebarExecutionStatus?.kind === "inserted"
+      ) {
+        // This send was promoted to its own conversation even though a newer
+        // submission owns the fresh placeholder. Restore only this send's own
+        // row; the placeholder row and markers belong to that submission.
+        queryClient.setQueryData<
+          InfiniteData<Paginated<Conversation>, string | undefined>
+        >(["conversations", "sidebar"], (cached) =>
+          patchSidebarConversationExecutionStatus(
+            cached,
+            targetConversationId,
+            undefined
+          )
+        )
+      }
       if (targetConversationId) {
         clearPendingConversationExecution(queryClient, targetConversationId)
         clearPendingConversationTurnSubmission(
@@ -3333,6 +3927,7 @@ export function ConversationPage({
         )
       }
       if (
+        ownsPendingPlaceholder &&
         optimisticTurnStart?.pendingExecutionConversationId &&
         optimisticTurnStart.pendingExecutionConversationId !==
           targetConversationId
@@ -3346,7 +3941,14 @@ export function ConversationPage({
           optimisticTurnStart.pendingExecutionConversationId
         )
       }
-      if (routeConversationIdRef.current !== targetConversationId) {
+      const creationContextCurrent = isConversationSubmissionContextCurrent(
+        sendCreationOriginRef.current,
+        targetConversationId
+      )
+      if (
+        routeConversationIdRef.current !== targetConversationId ||
+        !creationContextCurrent
+      ) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
         )
@@ -3356,6 +3958,10 @@ export function ConversationPage({
             ? null
             : current
         )
+        if (!targetConversationId && !creationContextCurrent) {
+          setPendingFirstMessageConversationId(null)
+          setPendingTurnSubmission(null)
+        }
         sendSubmissionConversationIdRef.current = null
         return
       }
@@ -3388,7 +3994,7 @@ export function ConversationPage({
       routeEpoch,
       precedingTurnId,
     }: {
-      commandValue: string
+      commandValue?: string
       targetConversationId: string
       routeEpoch: number
       precedingTurnId: string | null
@@ -3460,15 +4066,32 @@ export function ConversationPage({
       if (contextCompactionOperationRef.current?.id === result.idempotencyKey) {
         contextCompactionOperationRef.current = null
       }
-      if (user) {
-        clearLocalConversationDraft(
-          window.localStorage,
-          user.id,
-          result.conversationId
-        )
-      }
-      if (routeConversationIdRef.current === result.conversationId) {
-        setValue((current) => (current === result.commandValue ? "" : current))
+      if (result.commandValue !== undefined) {
+        const currentInput =
+          routeConversationIdRef.current === result.conversationId
+            ? composerValue.getSnapshot()
+            : null
+        if (currentInput === result.commandValue) setValue("")
+        if (user) {
+          const draft = readLocalConversationDraft(
+            window.localStorage,
+            user.id,
+            result.conversationId
+          )
+          if (draft.input === result.commandValue) {
+            writeLocalConversationDraft(
+              window.localStorage,
+              user.id,
+              result.conversationId,
+              {
+                ...draft,
+                input:
+                  currentInput === result.commandValue ? "" : (currentInput ?? ""),
+                idempotencyKey: undefined,
+              }
+            )
+          }
+        }
       }
       void refreshConversationList()
     },
@@ -3488,18 +4111,30 @@ export function ConversationPage({
 
   const goalStartMutation = useMutation({
     onMutate: async (submission: ComposerSubmission) => {
+      const creationOrigin = captureConversationCreationOrigin()
+      goalCreationOriginRef.current = creationOrigin
       responseLatency.begin(
         isNew
           ? newConversationPlaceholderId
           : (conversationId ?? newConversationPlaceholderId),
         isNew ? "new_task" : "follow_up"
       )
-      return optimisticallyConsumeSubmissionAttachments(submission)
+      return {
+        attachmentConsumption:
+          await optimisticallyConsumeSubmissionAttachments(submission),
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
     },
     mutationFn: async (submission: ComposerSubmission) => {
-      goalStartSubmissionConversationIdRef.current = isNew
-        ? null
-        : (conversationId ?? null)
+      const creationOrigin = goalCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
+      goalStartSubmissionConversationIdRef.current = creationOrigin?.gated
+        ? creationOrigin.routeConversationId
+        : isNew
+          ? null
+          : (conversationId ?? null)
       const requestedObjective = submission.input.trim()
       const requestedCapabilityIds = [...submission.capabilityIds]
       const requestedKnowledgeBaseIds = [...submission.knowledgeBaseIds]
@@ -3510,7 +4145,9 @@ export function ConversationPage({
         initialCapabilityIds: requestedCapabilityIds,
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
         initialCollaborationMode: "default",
+        creationOrigin,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       goalStartSubmissionConversationIdRef.current = id
       setOptimisticGoal((current) => {
         if (
@@ -3543,6 +4180,7 @@ export function ConversationPage({
         knowledge_base_ids: knowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -3588,8 +4226,10 @@ export function ConversationPage({
           priority_capability_ids: capabilityIds,
           knowledge_base_ids: knowledgeBaseIds,
           idempotency_key: idempotencyKey,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
@@ -3604,16 +4244,30 @@ export function ConversationPage({
       )
       let refreshedConversation: Conversation | null = null
       try {
-        refreshedConversation = await refreshSubmittedConversation(id)
+        refreshedConversation = await refreshSubmittedConversation(
+          id,
+          creationOrigin?.gated
+            ? creationOrigin.loginSessionBoundary
+            : undefined
+        )
       } catch {
-        void queryClient.invalidateQueries({
-          queryKey: ["conversation", id],
-        })
+        if (isConversationCreationSessionCurrent(creationOrigin))
+          void queryClient.invalidateQueries({
+            queryKey: ["conversation", id],
+          })
       }
+      assertConversationCreationSessionCurrent(creationOrigin)
       return { id, idempotencyKey, refreshedConversation }
     },
-    onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
-      commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+    onSuccess: (result, _submission, optimisticGoalStart) => {
+      if (
+        optimisticGoalStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticGoalStart.loginSessionBoundary)
+      )
+        return
+      commitOptimisticallyConsumedAttachments(
+        optimisticGoalStart?.attachmentConsumption
+      )
       if (result.refreshedConversation?.goal) {
         setOptimisticGoal((current) =>
           current?.conversationId === result.id ? null : current
@@ -3644,11 +4298,25 @@ export function ConversationPage({
       goalStartSubmissionConversationIdRef.current = null
       void refreshConversationList()
     },
-    onError: (nextError, submission, optimisticAttachmentConsumption) => {
+    onError: (nextError, submission, optimisticGoalStart) => {
+      if (
+        optimisticGoalStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticGoalStart.loginSessionBoundary)
+      )
+        return
       const targetConversationId = goalStartSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
-      restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
-      if (routeConversationIdRef.current !== targetConversationId) {
+      restoreOptimisticallyConsumedAttachments(
+        optimisticGoalStart?.attachmentConsumption
+      )
+      const creationContextCurrent = isConversationSubmissionContextCurrent(
+        goalCreationOriginRef.current,
+        targetConversationId
+      )
+      if (
+        routeConversationIdRef.current !== targetConversationId ||
+        !creationContextCurrent
+      ) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
         )
@@ -3664,6 +4332,11 @@ export function ConversationPage({
             ? null
             : current
         )
+        if (!targetConversationId && !creationContextCurrent) {
+          setPendingFirstMessageConversationId(null)
+          setPendingTurnSubmission(null)
+          setOptimisticGoal(null)
+        }
         goalStartSubmissionConversationIdRef.current = null
         return
       }
@@ -3773,6 +4446,15 @@ export function ConversationPage({
     mutateAsync: submitOfficeQuestion,
     isPending: officeQuestionPending,
   } = useMutation({
+    onMutate: () => {
+      const creationOrigin = captureConversationCreationOrigin()
+      officeCreationOriginRef.current = creationOrigin
+      return {
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
+    },
     mutationFn: async (
       input:
         | {
@@ -3781,10 +4463,14 @@ export function ConversationPage({
           }
         | Parameters<ApplicationAnnotationSubmit>[0]
     ) => {
+      const creationOrigin = officeCreationOriginRef.current
+      assertConversationCreationOriginCurrent(creationOrigin)
       const id = await ensureConversation({
         initialKnowledgeBaseIds: validSelectedKnowledgeBaseIds,
         initialCollaborationMode: collaborationMode,
+        creationOrigin,
       })
+      assertConversationCreationSessionCurrent(creationOrigin)
       const messageDisplay =
         "annotation" in input
           ? input.annotation
@@ -3810,6 +4496,7 @@ export function ConversationPage({
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
         }
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       const createdAt = new Date().toISOString()
       if (shouldQueueSelection) {
         const optimisticRequest: PendingRequest = {
@@ -3841,8 +4528,10 @@ export function ConversationPage({
               message_display: messageDisplay,
             },
             schema: pendingRequestSchema,
+            ...creationRequestOptions(creationOrigin),
           }
         )
+        assertConversationCreationSessionCurrent(creationOrigin)
         setPendingOfficeQuestion((current) =>
           current?.conversationId === id &&
           current.idempotencyKey === idempotencyKey
@@ -3881,8 +4570,10 @@ export function ConversationPage({
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
           message_display: messageDisplay,
-        }
+        },
+        creationRequestOptions(creationOrigin)
       )
+      assertConversationCreationSessionCurrent(creationOrigin)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3896,12 +4587,22 @@ export function ConversationPage({
       )
       return { id, idempotencyKey, mode: "turn" as const }
     },
-    onSuccess: ({ id }) => {
+    onSuccess: ({ id }, _variables, optimisticOfficeStart) => {
+      if (
+        optimisticOfficeStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticOfficeStart.loginSessionBoundary)
+      )
+        return
       officeTurnSubmitOperationRef.current = null
       officeTurnSubmitAttemptRef.current = null
       void refreshAfterMutation(id).catch(() => undefined)
     },
-    onError: (nextError) => {
+    onError: (nextError, _variables, optimisticOfficeStart) => {
+      if (
+        optimisticOfficeStart?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticOfficeStart.loginSessionBoundary)
+      )
+        return
       const idempotencyKey = officeTurnSubmitOperationRef.current?.id
       setPendingTurnSubmission((current) =>
         idempotencyKey && current?.idempotencyKey === idempotencyKey
@@ -4063,6 +4764,7 @@ export function ConversationPage({
 
   const attachMutation = useMutation({
     mutationFn: async (files: File[]) => {
+      const creationOrigin = attachmentCreationOriginRef.current
       const uploadableFiles = files.filter(isMeaningfulComposerUploadFile)
       if (uploadableFiles.length === 0) {
         throw new ApiError({
@@ -4070,11 +4772,13 @@ export function ConversationPage({
           errorCode: "ATTACHMENT_TEMPORARY_FILE_SKIPPED",
         })
       }
-      const id = await ensureConversation()
+      const id = await ensureConversation({ creationOrigin })
+      assertConversationCreationSessionCurrent(creationOrigin)
       attachmentMutationTargetConversationIdRef.current = id
       const previewResources: ConversationAttachmentPreviewResource[] = []
       try {
         for (const file of uploadableFiles) {
+          assertConversationCreationSessionCurrent(creationOrigin)
           const formData = new FormData()
           formData.append("file", file)
           const attachment = await apiRequest(
@@ -4083,8 +4787,10 @@ export function ConversationPage({
               method: "POST",
               body: formData,
               schema: conversationFileSchema,
+              ...creationRequestOptions(creationOrigin),
             }
           )
+          assertConversationCreationSessionCurrent(creationOrigin)
           if (
             isPreviewableImageMimeType(attachment.mime_type) &&
             isPreviewableImageMimeType(file.type)
@@ -4098,13 +4804,16 @@ export function ConversationPage({
           }
         }
       } catch (nextError) {
-        await refreshAfterMutation(id).catch(() => undefined)
+        if (isConversationCreationSessionCurrent(creationOrigin))
+          await refreshAfterMutation(id).catch(() => undefined)
         previewResources.forEach(releaseConversationAttachmentPreviewResource)
         throw nextError
       }
       return { id, previewResources }
     },
     onMutate: (files) => {
+      const creationOrigin = captureConversationCreationOrigin()
+      attachmentCreationOriginRef.current = creationOrigin
       const pendingUploads = files
         .filter(isMeaningfulComposerUploadFile)
         .map(createPendingAttachmentUpload)
@@ -4114,10 +4823,26 @@ export function ConversationPage({
           ...pendingUploads,
         ])
       }
-      return { pendingUploadIds: pendingUploads.map((file) => file.id) }
+      return {
+        pendingUploadIds: pendingUploads.map((file) => file.id),
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
     },
-    onSuccess: async ({ id, previewResources }) => {
+    onSuccess: async (
+      { id, previewResources },
+      _files,
+      optimisticAttachmentUpload
+    ) => {
       try {
+        if (
+          optimisticAttachmentUpload?.loginSessionBoundary !== undefined &&
+          !isLoginSessionCurrent(
+            optimisticAttachmentUpload.loginSessionBoundary
+          )
+        )
+          return
         await refreshAfterMutation(id)
       } finally {
         previewResources.forEach(releaseConversationAttachmentPreviewResource)
@@ -4134,13 +4859,36 @@ export function ConversationPage({
   })
 
   const referenceFileMutation = useMutation({
+    onMutate: () => {
+      const creationOrigin = captureConversationCreationOrigin()
+      referenceCreationOriginRef.current = creationOrigin
+      return {
+        loginSessionBoundary: creationOrigin.gated
+          ? creationOrigin.loginSessionBoundary
+          : undefined,
+      }
+    },
     mutationFn: async (file: ReferenceableFile) => {
-      const id = await ensureConversation()
+      const creationOrigin = referenceCreationOriginRef.current
+      const id = await ensureConversation({ creationOrigin })
+      assertConversationCreationSessionCurrent(creationOrigin)
       attachmentMutationTargetConversationIdRef.current = id
-      await referenceConversationFile(id, file.id)
+      await referenceConversationFile(
+        id,
+        file.id,
+        creationRequestOptions(creationOrigin)
+      )
+      assertConversationCreationSessionCurrent(creationOrigin)
       return id
     },
-    onSuccess: (id) => refreshAfterMutation(id),
+    onSuccess: (id, _file, optimisticReference) => {
+      if (
+        optimisticReference?.loginSessionBoundary !== undefined &&
+        !isLoginSessionCurrent(optimisticReference.loginSessionBoundary)
+      )
+        return
+      return refreshAfterMutation(id)
+    },
   })
 
   const removeAttachmentMutation = useMutation({
@@ -4244,7 +4992,13 @@ export function ConversationPage({
       return true
     } catch (error) {
       const targetId = attachmentMutationTargetConversationIdRef.current
-      if (targetId) await refreshAfterMutation(targetId).catch(() => undefined)
+      // A stale login's failed reference must not refresh the replacement
+      // login's cache for the old conversation.
+      if (
+        targetId &&
+        isConversationCreationSessionCurrent(referenceCreationOriginRef.current)
+      )
+        await refreshAfterMutation(targetId).catch(() => undefined)
       throw error
     } finally {
       attachmentMutationTargetConversationIdRef.current = null
@@ -4318,6 +5072,27 @@ export function ConversationPage({
     }
   }
 
+  const clearPendingInterruptRequest = useCallback(
+    ({ conversationId: targetConversationId, turnId }: ConversationInterruptTarget) => {
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      const reset = (pending: PendingTurnSubmission) =>
+        pending.conversationId === targetConversationId &&
+        pending.turnId === turnId &&
+        pending.interruptRequested
+          ? { ...pending, interruptRequested: false }
+          : pending
+      updatePendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId,
+        reset
+      )
+      setPendingTurnSubmission((current) =>
+        current ? reset(current) : current
+      )
+    },
+    [queryClient]
+  )
+
   const interruptMutation = useMutation({
     mutationFn: ({
       targetConversationId,
@@ -4332,12 +5107,12 @@ export function ConversationPage({
         setError(null)
     },
     onSuccess: (_result, { targetConversationId, turnId }) => {
-      dispatchedInterruptTurnIdsRef.current.delete(turnId)
-      clearPendingConversationExecution(queryClient, targetConversationId)
       const pending = getPendingConversationTurnSubmission(
         queryClient,
         targetConversationId
       )
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      clearPendingConversationExecution(queryClient, targetConversationId)
       if (pending?.turnId === turnId && pending.interruptRequested) {
         clearPendingConversationTurnSubmission(
           queryClient,
@@ -4353,22 +5128,12 @@ export function ConversationPage({
       void refreshAfterMutation(targetConversationId).catch(() => undefined)
     },
     onError: (nextError, { targetConversationId, turnId }) => {
-      dispatchedInterruptTurnIdsRef.current.delete(turnId)
       clearPendingConversationExecution(queryClient, targetConversationId)
       clearInterruptingConversation(targetConversationId, turnId)
-      updatePendingConversationTurnSubmission(
-        queryClient,
-        targetConversationId,
-        (current) =>
-          current.turnId === turnId
-            ? { ...current, interruptRequested: false }
-            : current
-      )
-      setPendingTurnSubmission((current) =>
-        current?.turnId === turnId
-          ? { ...current, interruptRequested: false }
-          : current
-      )
+      clearPendingInterruptRequest({
+        conversationId: targetConversationId,
+        turnId,
+      })
       if (routeConversationIdRef.current === targetConversationId) {
         setError(getErrorMessage(nextError, t))
       }
@@ -4395,6 +5160,7 @@ export function ConversationPage({
         : undefined
     const timeout = window.setTimeout(() => {
       clearInterruptingConversation(targetConversationId, turnId)
+      clearPendingInterruptRequest(interruptTarget)
       if (
         (routeConversationIdRef.current ?? newConversationPlaceholderId) ===
         targetConversationId
@@ -4406,23 +5172,29 @@ export function ConversationPage({
       window.clearInterval(poll)
       window.clearTimeout(timeout)
     }
-  }, [interruptTarget, clearInterruptingConversation, queryClient, t])
+  }, [
+    interruptTarget,
+    clearInterruptingConversation,
+    clearPendingInterruptRequest,
+    queryClient,
+    t,
+  ])
 
   useEffect(() => {
     const pending = currentPendingTurnSubmission
     if (
       !pending?.interruptRequested ||
-      !pending.turnId ||
-      pending.conversationId === newConversationPlaceholderId ||
-      dispatchedInterruptTurnIdsRef.current.has(pending.turnId)
+      pending.conversationId === newConversationPlaceholderId
     ) {
       return
     }
-    dispatchedInterruptTurnIdsRef.current.add(pending.turnId)
-    requestTurnInterrupt({
-      targetConversationId: pending.conversationId,
-      turnId: pending.turnId,
-    })
+    const dispatched = dispatchedInterruptTurnIdsRef.current
+    if (pending.turnId && dispatched.has(pending.turnId)) return
+    const targetConversationId = pending.conversationId
+    if (pending.turnId) {
+      dispatched.add(pending.turnId)
+      requestTurnInterrupt({ targetConversationId, turnId: pending.turnId })
+    }
   }, [currentPendingTurnSubmission, requestTurnInterrupt])
 
   useEffect(() => {
@@ -4922,7 +5694,7 @@ export function ConversationPage({
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
-  const startContextCompaction = () => {
+  const startContextCompaction = (commandValue?: string) => {
     if (
       contextCompactionMutation.isPending ||
       composerSubmissionInFlightRef.current ||
@@ -4942,7 +5714,7 @@ export function ConversationPage({
     scrollToBottom("auto")
     composerSubmissionInFlightRef.current = true
     contextCompactionMutation.mutate({
-      commandValue: composerValue.getSnapshot(),
+      commandValue,
       targetConversationId,
       routeEpoch: routeEpochRef.current,
       precedingTurnId: conversation?.turns?.at(-1)?.id ?? null,
@@ -4952,7 +5724,7 @@ export function ConversationPage({
   const submitComposer = (input: string) => {
     if (applicationSubmissionSending || applicationInteractionBlocked) return
     if (isConversationContextCompactionCommand(input)) {
-      startContextCompaction()
+      startContextCompaction(input)
       return
     }
     if (
@@ -4963,6 +5735,7 @@ export function ConversationPage({
       attachmentOperationPending
     )
       return
+    // Keep the draft and the selected target on every block; never switch to
     const submission: ComposerSubmission = {
       input,
       ...(!goalMode &&
@@ -5211,7 +5984,8 @@ export function ConversationPage({
   )
 
   const reportFileDownloadError = useCallback(
-    (nextError: unknown) => {
+    (nextError: unknown, boundary?: LoginSessionBoundary) => {
+      if (boundary !== undefined && !isLoginSessionCurrent(boundary)) return
       notify.error(getErrorMessage(nextError, t), {
         id: "conversation-file-download-error",
       })
@@ -5222,6 +5996,7 @@ export function ConversationPage({
   const downloadArtifact = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
+      const boundary = getLoginSessionBoundary()
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -5230,7 +6005,7 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        reportFileDownloadError(nextError)
+        reportFileDownloadError(nextError, boundary)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
@@ -5264,6 +6039,7 @@ export function ConversationPage({
   const downloadSourcePreview = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
+      const boundary = getLoginSessionBoundary()
       downloadInFlightRef.current = true
       setDownloadingFileId(file.id)
       try {
@@ -5275,7 +6051,7 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        reportFileDownloadError(nextError)
+        reportFileDownloadError(nextError, boundary)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
@@ -5293,6 +6069,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
     },
     [conversationId]
   )
@@ -5304,6 +6081,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setHtmlCodePreview((current) => ({
         conversationId,
         html,
@@ -5321,6 +6099,7 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setHtmlCodePreview(null)
       setFilePreviewClosing(false)
+      setBrowserPanelTarget(null)
       setImagePreview((current) => ({
         conversationId,
         item,
@@ -5344,6 +6123,19 @@ export function ConversationPage({
     setOfficePreview(null)
     setOfficePreviewUpdate(null)
   }, [])
+
+  const openBrowserPanel = () => {
+    if (!browserPanelAvailable || !conversationId || !user) return
+    sideChat.close()
+    setTaskOverviewOpen(false)
+    setSelectedSubAgent(null)
+    setHtmlCodePreview(null)
+    setImagePreview(null)
+    setOfficePreview(null)
+    setOfficePreviewUpdate(null)
+    setFilePreviewClosing(false)
+    setBrowserPanelTarget({ conversationId, ownerId: user.id })
+  }
 
   const regenerateMessage = regenerateMutation.mutateAsync
   const handleRegenerateMessage = useCallback(
@@ -5485,8 +6277,16 @@ export function ConversationPage({
   ].filter((event) => event.turn_id !== optimisticallyReplacedTurnId)
   const modelContextUsage = selectConversationModelContextUsage(
     visibleEvents,
-    displayConversation.model_context_usage
+    displayConversation.model_context_usage,
+    modelPreferenceQuery.data?.models.find(
+      (model) => model.id === modelPreferenceQuery.data?.selected_model
+    )?.context_window
   )
+  const modelContextBreakdown =
+    selectLatestConversationContextBreakdown(visibleEvents)
+  const changedFileCount = Object.values(
+    displayConversation.turn_file_change_counts ?? {}
+  ).reduce((total, count) => total + count, 0)
   const runningPlan =
     displayConversation.running_turn && !reconnectExhausted
       ? selectConversationTurnPlan(
@@ -5665,6 +6465,26 @@ export function ConversationPage({
     optimisticPendingTurn ??
     optimisticCompactionTurn ??
     displayConversation.running_turn
+  // The remote browser panel mirrors the cloud browser session, which only
+  // exists for turns that drive the managed `linksense-browser` command.
+  // Offering the entry on other tasks opens an empty session.
+  const browserTaskTurnId =
+    visibleRunningTurn?.id ?? displayConversation.turns?.at(-1)?.id
+  const browserTaskActive = Boolean(
+    browserTaskTurnId &&
+      visibleEvents.some((event) => {
+        if (event.turn_id !== browserTaskTurnId) return false
+        const native = getNativeCodexPayload(event)
+        if (
+          native?.method !== "item/started" &&
+          native?.method !== "item/completed"
+        )
+          return false
+        return isManagedBrowserCommandItem(native.params.item)
+      })
+  )
+  const showBrowserPanelToggle =
+    browserPanelAvailable && (browserTaskActive || browserPanelOpen)
   const activePlanReview = executionBlocked
     ? undefined
     : [...(displayConversation.plan_reviews ?? [])]
@@ -5679,6 +6499,27 @@ export function ConversationPage({
         visibleRunningTurn?.id,
         Boolean(activePlanReview)
       )
+  const awaitingBrowserQuestion =
+    activeUserInputRequest?.kind === "questions"
+  // The app-server question and the started MCP item share the native item ID.
+  const browserApprovalEvent = awaitingBrowserQuestion
+    ? visibleEvents.findLast((event) => {
+        if (
+          event.type !== "item/started" ||
+          event.turn_id !== activeUserInputRequest.turn_id
+        )
+          return false
+        const native = getNativeCodexPayload(event)
+        return (
+          native?.method === "item/started" &&
+          native.params.item.id === activeUserInputRequest.item_id &&
+          native.params.item.type === "mcpToolCall" &&
+          native.params.item.browserApproval !== undefined
+        )
+      })
+    : undefined
+  const browserApproval =
+    browserApprovalEvent && getNativeCodexPayload(browserApprovalEvent)
   const blockingPanelKey = activeUserInputRequest
     ? `user-input:${activeUserInputRequest.id}`
     : activePlanReview
@@ -5695,6 +6536,12 @@ export function ConversationPage({
     <ConversationUserInputRequestCard
       key={activeUserInputRequest.id}
       request={activeUserInputRequest}
+      browserApproval={
+        browserApproval?.method === "item/started" &&
+        browserApproval.params.item.type === "mcpToolCall"
+          ? browserApproval.params.item.browserApproval
+          : undefined
+      }
       submitting={respondUserInputMutation.isPending}
       onInteractionStart={preserveScrollPositionForInteraction}
       onSubmit={(response) => {
@@ -5755,34 +6602,80 @@ export function ConversationPage({
     !applicationDeleted &&
     !applicationUnavailableMessage &&
     !blockingPanelActive
-  const taskOverviewSuppressed =
-    taskOverviewSuppressedConversationId === conversationId
+  // Keep the rail open across the new-task promotion so starting a task does
+  // not collapse a workspace the user already had open.
   const taskOverviewVisible =
-    surfaceActive &&
-    !isNew &&
-    !taskOverviewSuppressed &&
-    taskOverviewOpen &&
-    !sideChat.open
+    surfaceActive && taskOverviewOpen && !sideChat.open
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
+  // This runs only after BrowserPanel released its own token for this instance.
+  // The callback is refreshed each commit while the panel is open, and the
+  // draft is read live because typing re-renders only the composer child.
+  const continueBrowserPanelTask = (panelConversationId: string) => {
+    if (
+      !browserPanelAvailable ||
+      !browserPanelOpen ||
+      panelConversationId !== conversationId ||
+      routeConversationIdRef.current !== panelConversationId ||
+      executionOwnerIdRef.current !== user?.id ||
+      executionBlocked ||
+      planMode ||
+      Boolean(conversation?.archived)
+    )
+      return
+    const prompt = t("browserPanel.continuePrompt")
+    const draft = composerValue.getSnapshot()
+    const canUseOrdinaryComposer =
+      showConversationComposer &&
+      !turnExecutionActive &&
+      draft.length === 0 &&
+      attachments.length === 0 &&
+      taskReferences.length === 0 &&
+      optionalCapabilityIds.length === 0 &&
+      selectedKnowledgeBaseIds.length === 0 &&
+      !goalMode &&
+      !displayGoal &&
+      !displayGoalSynchronizing &&
+      !attachmentOperationPending &&
+      !collaborationModeMutationPending &&
+      !composerSubmissionInFlightRef.current &&
+      !composerAttachmentOperationInFlightRef.current &&
+      !composerModelPreferenceOperationInFlightRef.current
+    if (
+      canUseOrdinaryComposer &&
+      composerRef.current?.trySubmit(prompt) === true
+    )
+      return
+    // Keep the existing draft, attachments, references and selections: only
+    // prefill the localized continuation so the ordinary composer sends it.
+    setValue((value) => (value.length > 0 ? `${value}\n\n${prompt}` : prompt))
+  }
   const handleInterrupt = () => {
     const pending = activePendingTurnSubmission
     if (pending) {
-      setInterruptTarget({
-        conversationId: pending.conversationId,
-        turnId: pending.turnId,
-      })
+      const { turnId } = pending
+      // Mark the receipt immediately; the pending effect sends the interrupt
+      // as soon as the start response binds its turn.
+      if (turnId) {
+        setInterruptTarget({
+          conversationId: pending.conversationId,
+          turnId,
+        })
+      }
       updatePendingConversationTurnSubmission(
         queryClient,
         pending.conversationId,
         (current) =>
           current.idempotencyKey === pending.idempotencyKey
-            ? { ...current, interruptRequested: true }
+            ? { ...current, turnId, interruptRequested: true }
             : current
       )
       setPendingTurnSubmission((current) =>
-        current === pending ? { ...current, interruptRequested: true } : current
+        current?.conversationId === pending.conversationId &&
+        current.idempotencyKey === pending.idempotencyKey
+          ? { ...current, turnId, interruptRequested: true }
+          : current
       )
       return
     }
@@ -5797,9 +6690,24 @@ export function ConversationPage({
     }
   }
 
+  const stopTurnButton =
+    (!showComposer || awaitingBrowserQuestion) &&
+    !executionBlocked &&
+    turnStoppable ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={interrupting}
+        onClick={handleInterrupt}
+      >
+        {t(interrupting ? "conversation.interrupting" : "conversation.stop")}
+      </Button>
+    ) : null
+
   return (
     <ConversationOfficeLayout
-      previewBlocksWorkspace={sideChat.open}
+      previewBlocksWorkspace={sideChat.open || showBrowserPanel}
       taskOverviewOpen={taskOverviewVisible}
       defaultPreviewViewportRatio={
         sideChat.open
@@ -5813,7 +6721,9 @@ export function ConversationPage({
           ? "sideChat.resize"
           : activeSubAgent
             ? "conversation.subAgentActivities.resizeDetails"
-            : "officePreview.resizePreview"
+            : showBrowserPanel
+              ? "browserPanel.resize"
+              : "officePreview.resizePreview"
       )}
       previewClosing={
         !sideChat.open &&
@@ -5916,6 +6826,27 @@ export function ConversationPage({
             }
             onClose={() => setFilePreviewClosing(true)}
           />
+        ) : showBrowserPanel && conversationId && user ? (
+          <BrowserPanel
+            key={`${user.id}:${conversationId}`}
+            conversationId={conversationId}
+            readOnly={planMode || Boolean(conversation?.archived)}
+            running={turnExecutionActive}
+            onClose={() => {
+              // The close commit removes the narrow-layout inert region; the
+              // layout effect above restores the captured control only if this
+              // owner, conversation and header button are still current.
+              const toggle = browserPanelToggleRef.current
+              if (toggle && conversationId && user)
+                browserPanelCloseFocusRef.current = {
+                  toggle,
+                  conversationId,
+                  ownerId: user.id,
+                }
+              setBrowserPanelTarget(null)
+            }}
+            onContinue={() => continueBrowserPanelTask(conversationId)}
+          />
         ) : undefined
       }
     >
@@ -6002,10 +6933,7 @@ export function ConversationPage({
               <DropdownMenuContent align="start" className="min-w-40">
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={openRenameDialog}>
-                    <DesignIcon
-                      name="rename"
-                      className="size-4"
-                    />{" "}
+                    <DesignIcon name="rename" className="size-4" />{" "}
                     {t("conversation.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -6047,14 +6975,15 @@ export function ConversationPage({
                   >
                     {displayConversation.archived ? (
                       <ArchiveRestoreIcon
-                        className="size-4"
+                        className="conversation-title-menu-icon size-4"
                         data-icon="conversation-unarchive"
                         aria-hidden="true"
                       />
                     ) : (
-                      <DesignIcon
-                        name="archive"
-                        className="size-4"
+                      <ArchiveIcon
+                        className="conversation-title-menu-icon size-4"
+                        data-design-icon="archive"
+                        aria-hidden="true"
                       />
                     )}{" "}
                     {t(
@@ -6063,6 +6992,22 @@ export function ConversationPage({
                         : "conversation.archive"
                     )}
                   </DropdownMenuItem>
+                  {!readOnly &&
+                    displayConversation.project_id &&
+                    developmentRole !== "development" && (
+                      <DropdownMenuItem
+                        disabled={
+                          patchConversationMutation.isPending ||
+                          turnExecutionActive
+                        }
+                        onClick={() =>
+                          patchConversationMutation.mutate({ project_id: null })
+                        }
+                      >
+                        <DesignIcon name="move-project" className="size-4" />
+                        {t("projects.moveToPublicWorkspace")}
+                      </DropdownMenuItem>
+                    )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
@@ -6070,7 +7015,11 @@ export function ConversationPage({
                     variant="destructive"
                     onClick={() => setDeleteOpen(true)}
                   >
-                    <DesignIcon name="delete" className="size-4" />{" "}
+                    <Trash2Icon
+                      className="conversation-title-menu-icon size-4"
+                      data-design-icon="delete"
+                      aria-hidden="true"
+                    />{" "}
                     {t("conversation.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -6089,11 +7038,27 @@ export function ConversationPage({
               <HeaderIcon name="share" className="size-4" />
             </ConversationHeaderButton>
           )}
+          {showBrowserPanelToggle && (
+            <ConversationHeaderButton
+              ref={browserPanelToggleRef}
+              label={t("browserPanel.open")}
+              aria-expanded={browserPanelOpen}
+              onClick={() => {
+                if (browserPanelOpen) {
+                  setBrowserPanelTarget(null)
+                  return
+                }
+                openBrowserPanel()
+              }}
+            >
+              <AppWindowIcon aria-hidden="true" />
+            </ConversationHeaderButton>
+          )}
           <div
             ref={setBrowserPreviewToolbar}
             className="min-w-0 empty:hidden"
           />
-          {!isNew && surfaceActive && (
+          {surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
@@ -6108,12 +7073,19 @@ export function ConversationPage({
               }}
               open={taskOverviewVisible}
               panelRef={setTaskOverviewElement}
+              contextUsage={modelContextUsage}
+              changedFileCount={changedFileCount}
+              compactAvailable={compactionAvailable}
+              compacting={contextCompactionMutation.isPending}
+              onCompact={() => startContextCompaction()}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
               onOpenChange={(open) => {
-                if (open) sideChat.close()
-                setTaskOverviewSuppressedConversationId(null)
+                if (open) {
+                  sideChat.close()
+                  setBrowserPanelTarget(null)
+                }
                 setTaskOverviewOpen(open)
               }}
             />
@@ -6123,24 +7095,15 @@ export function ConversationPage({
             <ConversationHeaderButton
               label={t("sideChat.reopen")}
               aria-expanded={sideChat.open}
-              onClick={sideChat.show}
+              onClick={() => {
+                setBrowserPanelTarget(null)
+                sideChat.show()
+              }}
             >
               <MessagesSquareIcon aria-hidden="true" />
             </ConversationHeaderButton>
           )}
-          {!showComposer && !executionBlocked && visuallyRunning && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={interrupting}
-              onClick={handleInterrupt}
-            >
-              {t(
-                interrupting ? "conversation.interrupting" : "conversation.stop"
-              )}
-            </Button>
-          )}
+          {stopTurnButton}
         </div>
       </header>
 
@@ -6215,6 +7178,7 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        siteDeliveries={canShowSiteDeliveries ? siteDeliveries.data : undefined}
         messageReferenceAction={
           onReturnSideChatSelection
             ? {
@@ -6296,31 +7260,35 @@ export function ConversationPage({
         showNewTaskWelcome={isNew}
         newTaskUserName={user?.name}
         newTaskGuide={
-          isNew &&
-          !embedded &&
-          !development &&
-          !readOnly &&
-          user?.role === "admin" &&
-          user.status === "active" ? (
-            <FirstUseGuide
-              key={user.id}
-              userId={user.id}
-              isAdmin={user.role === "admin" && user.status === "active"}
-              preference={modelPreferenceQuery.data}
-              loading={modelPreferenceQuery.isPending}
-              failed={modelPreferenceQuery.isError}
-              force={new URLSearchParams(location.search).get("setup") === "1"}
-              onRetry={() => void modelPreferenceQuery.refetch()}
-              onDismiss={() => {
-                const params = new URLSearchParams(location.search)
-                if (params.get("setup") !== "1") return
-                params.delete("setup")
-                navigate(
-                  { pathname: location.pathname, search: params.toString() },
-                  { replace: true }
-                )
-              }}
-            />
+          isNew && !embedded && !development && !readOnly ? (
+            <>
+              {user?.role === "admin" && user.status === "active" && (
+                <FirstUseGuide
+                  key={user.id}
+                  userId={user.id}
+                  isAdmin={user.role === "admin" && user.status === "active"}
+                  preference={modelPreferenceQuery.data}
+                  loading={modelPreferenceQuery.isPending}
+                  failed={modelPreferenceQuery.isError}
+                  force={
+                    new URLSearchParams(location.search).get("setup") === "1"
+                  }
+                  onRetry={() => void modelPreferenceQuery.refetch()}
+                  onDismiss={() => {
+                    const params = new URLSearchParams(location.search)
+                    if (params.get("setup") !== "1") return
+                    params.delete("setup")
+                    navigate(
+                      {
+                        pathname: location.pathname,
+                        search: params.toString(),
+                      },
+                      { replace: true }
+                    )
+                  }}
+                />
+              )}
+            </>
           ) : undefined
         }
         onStarterQuestionSelect={handleStarterQuestionSelect}
@@ -6334,7 +7302,9 @@ export function ConversationPage({
         contentRef={contentRef}
         onRegenerateMessage={handleRegenerateMessage}
         onForkMessage={
-          developmentRole === "preview" || executionBlocked || sideChatReference
+          developmentRole === "preview" ||
+          executionBlocked ||
+          sideChatReference
             ? undefined
             : handleForkMessage
         }
@@ -6509,6 +7479,7 @@ export function ConversationPage({
             knowledgeBases={availableKnowledgeBases}
             knowledgeBasesLoading={knowledgeBasesLoading}
             knowledgeBasesError={knowledgeBasesError}
+            knowledgeBasesUnsupported={knowledgeBasesUnsupported}
             knowledgeSearchCapability={knowledgeSearchCapability.capability}
             onRetryKnowledgeBases={() => {
               void knowledgeBaseQuery.refetch()
@@ -6581,6 +7552,7 @@ export function ConversationPage({
               modelPreferenceMutation.isPending
             }
             modelContextUsage={modelContextUsage}
+            modelContextBreakdown={modelContextBreakdown}
             managedApplicationName={
               isManagedApplicationConversation
                 ? displayConversation.application?.name

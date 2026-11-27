@@ -292,7 +292,24 @@ describe("PrismaFeishuRepository", () => {
     ).resolves.toEqual({ status: "running" });
   });
 
-  it("prefers an explicit native final answer without using the fallback", async () => {
+  it.each([
+    ["最终结果", "最终结果"],
+    [
+      [
+        "最终结果",
+        "```json-render",
+        JSON.stringify({
+          version: 1,
+          summary: "对比方案 [A] 和 [B]",
+          spec: { root: "result", elements: {
+            result: { type: "Panel", props: { title: "比较结果" } },
+          } },
+        }),
+        "```",
+      ].join("\n"),
+      "最终结果\n对比方案 [A] 和 [B]",
+    ],
+  ])("uses the explicit final answer and projects rich results for text delivery", async (contentText, expectedText) => {
     const findEvent = vi.fn(async () => ({
       payloadJson: {
         schema_version: 2,
@@ -321,7 +338,7 @@ describe("PrismaFeishuRepository", () => {
       },
       conversationEvent: { findFirst: findEvent },
       conversationMessage: {
-        findFirst: vi.fn(async () => ({ contentText: "最终结果" })),
+        findFirst: vi.fn(async () => ({ contentText })),
       },
     };
     const repository = new PrismaFeishuRepository(
@@ -330,7 +347,7 @@ describe("PrismaFeishuRepository", () => {
 
     await expect(repository.getTurnOutcome(TURN_ID)).resolves.toEqual({
       status: "completed",
-      text: "最终结果",
+      text: expectedText,
     });
     expect(findEvent).toHaveBeenCalledTimes(1);
   });

@@ -30,6 +30,7 @@ import { coreMcpServerKey } from "./mcp.js";
 import { modelIdentifierSchema } from "./model-provider.js";
 import { modelTokenPricingSchema } from "./model-pricing.js";
 import { publicKnowledgeOutputLimit } from "./public-knowledge-output.js";
+import { browserUseApprovalSchema, browserUseToolName } from "./browser-use.js";
 
 export const conversationEventVisibilitySchema = z.enum([
   "user_visible",
@@ -518,6 +519,7 @@ const runnerCodexPathPreviewSchema = z
     "unsafe_preview_secret",
   )
   .refine(isSafePathPreview, "unsafe_preview_path");
+const runnerCodexFileChangeKindSchema = z.enum(["add", "delete", "update"]);
 const runnerCodexQueryPreviewSchema = runnerCodexSafeTextPreviewSchema(
   runnerCodexPreviewLimits.queryCharacters,
 );
@@ -917,6 +919,7 @@ export const runnerCodexErrorInfoSchema = z.union([
     "serverOverloaded",
     "modelNotFound",
     "policyCapacityUnavailable",
+    "inferenceHookDenied",
     "cyberPolicy",
     "misalignmentPolicyViolation",
     "tooManyDenials",
@@ -1050,7 +1053,7 @@ const runnerCodexFileChangeItemSchema = z.strictObject({
     .array(
       z.strictObject({
         kind: z.strictObject({
-          type: z.enum(["add", "delete", "update"]),
+          type: runnerCodexFileChangeKindSchema,
         }),
         path: runnerCodexPathPreviewSchema.optional(),
       }),
@@ -1075,8 +1078,17 @@ const runnerCodexMcpToolCallItemSchema = z
     /** Registered image IDs only; raw generation arguments and results stay private. */
     generatedImageFileIds: z.array(z.uuid()).min(1).max(10).optional(),
     imageGenerationFailureCode: imageGenerationFailureCodeSchema.optional(),
+    browserApproval: browserUseApprovalSchema.optional(),
   })
   .superRefine((item, context) => {
+    if (item.browserApproval &&
+      (item.server !== coreMcpServerKey || item.tool !== browserUseToolName || item.status !== "inProgress")) {
+      context.addIssue({
+        code: "custom",
+        path: ["browserApproval"],
+        message: "browser_approval_requires_pending_browser_use",
+      });
+    }
     if (
       item.generatedImageFileIds !== undefined &&
       (item.server !== coreMcpServerKey ||

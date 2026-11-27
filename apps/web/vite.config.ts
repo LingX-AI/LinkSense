@@ -5,11 +5,11 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import type { Plugin } from "vite"
 import { defineConfig } from "vitest/config"
-import { sharedDomTests } from "./src/test/shared-dom-files"
+import { sharedDomTests } from "./src/test/shared-dom-files.ts"
 import { applicationBuildId } from "../../scripts/application-build.mjs"
 // Config is bundled before Vite applies development export conditions; Docker
 // development has shared sources only, so do not depend on shared/dist here.
-import { htmlPreviewShellDocument } from "../../packages/shared/src/html-preview-shell-document"
+import { htmlPreviewShellDocument } from "../../packages/shared/src/html-preview-shell-document.ts"
 
 const embedStylesheetFileName = "assets/embed-app.css"
 const applicationTests = ["src/App.test.tsx", "src/test/application/*.test.tsx"]
@@ -78,9 +78,57 @@ function emitBuildInfo(): Plugin {
   }
 }
 
+function desktopDocumentPolicy(): Plugin {
+  return {
+    name: "linksense-desktop-document-policy",
+    transformIndexHtml() {
+      if (process.env.LINKSENSE_DESKTOP_BUILD !== "1") return []
+      const nginx = readFileSync(
+        path.resolve(
+          import.meta.dirname,
+          "../../deploy/nginx/default.conf.template"
+        ),
+        "utf8"
+      )
+      const policy = nginx.match(
+        /add_header Content-Security-Policy "([^"]+)"/u
+      )?.[1]
+      if (!policy)
+        throw new Error("The shared Web content security policy is missing")
+      return [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            // frame-ancestors is response-only; the native window controls navigation.
+          content: `${policy.replace(/;\s*frame-ancestors[^;]*/u, "")}; frame-src 'self' https: http:`,
+          },
+          injectTo: "head-prepend",
+        },
+      ]
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    desktopDocumentPolicy(),
+    {
+      name: "linksense-protected-release-proxy-logging",
+      apply: "serve",
+      configResolved({ logger }) {
+        const logError = logger.error.bind(logger)
+        logger.error = (message, options) =>
+          logError(
+            message.replace(
+              /^.*?http proxy error: \/web\/_protected\/[^\r\n]*/u,
+              "http proxy error: /web/_protected/[redacted]"
+            ),
+            options
+          )
+      },
+    },
     {
       name: "linksense-html-preview-shell",
       configureServer(server) {
@@ -125,6 +173,10 @@ export default defineConfig({
         target:
           process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
       },
+      "/app": {
+        target:
+          process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
+      },
       "/help": {
         target:
           process.env.LINKSENSE_DEV_DOCS_PROXY_TARGET ??
@@ -139,7 +191,9 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: [{ find: "@", replacement: path.resolve(__dirname, "./src") }],
+    alias: [
+      { find: "@", replacement: path.resolve(import.meta.dirname, "./src") },
+    ],
   },
   optimizeDeps: {
     // This package is patched locally; pre-bundling can keep an older, unpatched loader alive.
@@ -153,10 +207,10 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, "index.html"),
-        embed: path.resolve(__dirname, "src/embed-main.tsx"),
+        main: path.resolve(import.meta.dirname, "index.html"),
+        embed: path.resolve(import.meta.dirname, "src/embed-main.tsx"),
         publicKnowledge: path.resolve(
-          __dirname,
+          import.meta.dirname,
           "src/public-knowledge-main.tsx"
         ),
       },

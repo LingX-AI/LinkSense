@@ -1,6 +1,7 @@
 import { assertExecutionPrincipalActive } from "../../lib/execution-principal.js";
 import type {
   ConversationFile,
+  Prisma,
   PrismaClient,
 } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
@@ -42,7 +43,10 @@ export class ConversationAssetRepository {
     );
   }
 
-  async publish(input: SnapshotPublication): Promise<boolean> {
+  async publish(input: SnapshotPublication, publication?: {
+    signal?: AbortSignal;
+    check?: (tx: Prisma.TransactionClient) => Promise<void>;
+  }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       // Use the same parent-row lock as conversation deletion. An upload may
       // finish after deletion, but must never recreate its attachment records.
@@ -74,6 +78,8 @@ export class ConversationAssetRepository {
         }),
       ]);
       if (!turn && !intent) throw new AppError("NOT_FOUND");
+      await publication?.check?.(tx);
+      publication?.signal?.throwIfAborted();
       const saved = await tx.conversationFile.upsert({
         where: snapshotWhere(input),
         update: {},
@@ -98,6 +104,7 @@ export class ConversationAssetRepository {
         },
         select: { minioObjectKey: true },
       });
+      publication?.signal?.throwIfAborted();
       return saved.minioObjectKey === input.objectKey;
     });
   }

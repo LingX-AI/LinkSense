@@ -1,4 +1,11 @@
-import type { Locale } from "@linksense/shared"
+import type { BrowserUseApproval, Locale } from "@linksense/shared"
+
+type BrowserApprovalMessages = {
+  title: string
+  targetTab: string
+  destination: string
+  actions: Record<BrowserUseApproval["action"], string>
+}
 
 export const browserUseMessages = {
   "zh-CN": {
@@ -9,13 +16,32 @@ export const browserUseMessages = {
     getChrome: "下载 Chrome",
     getEdge: "下载 Edge",
     copyAppAddress: "复制 LinkSense 地址",
+    approval: {
+      title: "允许浏览器执行此操作：{{action}}？",
+      targetTab: "标签页编号：{{tab}}",
+      destination: "目标域名：{{host}}",
+      actions: {
+        status: "检查连接状态",
+        tabs: "列出共享标签页",
+        open: "打开网页",
+        open_site: "打开已发布的 LinkSense 站点",
+        navigate: "前往其他网页",
+        snapshot: "读取页面结构",
+        screenshot: "截取页面画面",
+        click: "点击页面元素",
+        click_at: "点击页面上的位置",
+        type: "在页面中输入文字",
+        scroll: "滚动页面",
+        key: "向页面发送按键",
+        release: "结束对标签页的控制",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "让助手操作你的本机浏览器",
     setupMissing:
       "还未检测到 Browser Use 扩展。安装后，助手可操作这台电脑的 Chrome / Edge，查看已打开的网页，并复用你的登录状态。",
     setupDisconnected:
       "已检测到 Browser Use 扩展，当前浏览器尚未连接。连接并授权后，助手就能操作你共享的网页。",
-    setupOptional: "这是可选能力，云端浏览器仍可照常使用。",
     setupInstall: "前往安装",
     setupConnect: "前往连接",
     setupDismiss: "暂不需要",
@@ -65,13 +91,32 @@ export const browserUseMessages = {
     getChrome: "Get Chrome",
     getEdge: "Get Edge",
     copyAppAddress: "Copy LinkSense address",
+    approval: {
+      title: "Allow this browser action: {{action}}?",
+      targetTab: "Tab ID: {{tab}}",
+      destination: "Destination host: {{host}}",
+      actions: {
+        status: "Check connection status",
+        tabs: "List shared tabs",
+        open: "Open a page",
+        open_site: "Open a published LinkSense site",
+        navigate: "Navigate to another page",
+        snapshot: "Read the page structure",
+        screenshot: "Capture a page screenshot",
+        click: "Click a page element",
+        click_at: "Click a location on the page",
+        type: "Enter text on the page",
+        scroll: "Scroll the page",
+        key: "Send a keystroke to the page",
+        release: "Release control of the tab",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Let the assistant use your browser",
     setupMissing:
       "Browser Use is not detected. Install the extension to let the assistant use Chrome / Edge on this computer, work with open pages, and use your existing login sessions.",
     setupDisconnected:
       "Browser Use is installed, but this browser is not connected. Connect and authorize pages so the assistant can work with them.",
-    setupOptional: "This is optional. The cloud browser remains available.",
     setupInstall: "Set up extension",
     setupConnect: "Connect browser",
     setupDismiss: "Not now",
@@ -125,13 +170,32 @@ export const browserUseMessages = {
     getChrome: "Descargar Chrome",
     getEdge: "Descargar Edge",
     copyAppAddress: "Copiar dirección de LinkSense",
+    approval: {
+      title: "¿Permitir esta acción en el navegador: {{action}}?",
+      targetTab: "ID de pestaña: {{tab}}",
+      destination: "Dominio de destino: {{host}}",
+      actions: {
+        status: "Comprobar la conexión",
+        tabs: "Listar las pestañas compartidas",
+        open: "Abrir una página",
+        open_site: "Abrir un sitio publicado de LinkSense",
+        navigate: "Ir a otra página",
+        snapshot: "Leer la estructura de la página",
+        screenshot: "Capturar una imagen de la página",
+        click: "Hacer clic en un elemento de la página",
+        click_at: "Hacer clic en un punto de la página",
+        type: "Escribir texto en la página",
+        scroll: "Desplazar la página",
+        key: "Pulsar una tecla en la página",
+        release: "Devolver el control de la pestaña",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Permite al asistente usar tu navegador",
     setupMissing:
       "No se ha detectado Browser Use. Instala la extensión para que el asistente use Chrome / Edge en este equipo, trabaje con páginas abiertas y aproveche tus sesiones existentes.",
     setupDisconnected:
       "Browser Use está instalado, pero este navegador no está conectado. Conéctalo y autoriza páginas para que el asistente pueda utilizarlas.",
-    setupOptional: "Es opcional. El navegador en la nube sigue disponible.",
     setupInstall: "Instalar extensión",
     setupConnect: "Conectar navegador",
     setupDismiss: "Ahora no",
@@ -186,13 +250,32 @@ export const browserUseMessages = {
     getChrome: "Baixar Chrome",
     getEdge: "Baixar Edge",
     copyAppAddress: "Copiar endereço do LinkSense",
+    approval: {
+      title: "Permitir esta ação no navegador: {{action}}?",
+      targetTab: "ID da aba: {{tab}}",
+      destination: "Domínio de destino: {{host}}",
+      actions: {
+        status: "Verificar a conexão",
+        tabs: "Listar as abas compartilhadas",
+        open: "Abrir uma página",
+        open_site: "Abrir um site publicado no LinkSense",
+        navigate: "Navegar para outra página",
+        snapshot: "Ler a estrutura da página",
+        screenshot: "Capturar uma imagem da página",
+        click: "Clicar em um elemento da página",
+        click_at: "Clicar em um ponto da página",
+        type: "Digitar texto na página",
+        scroll: "Rolar a página",
+        key: "Enviar uma tecla à página",
+        release: "Devolver o controle da aba",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Deixe o assistente usar seu navegador",
     setupMissing:
       "O Browser Use não foi detectado. Instale a extensão para o assistente usar o Chrome / Edge deste computador, trabalhar com páginas abertas e aproveitar suas sessões existentes.",
     setupDisconnected:
       "O Browser Use está instalado, mas este navegador não está conectado. Conecte e autorize páginas para o assistente poder usá-las.",
-    setupOptional: "É opcional. O navegador na nuvem continua disponível.",
     setupInstall: "Instalar extensão",
     setupConnect: "Conectar navegador",
     setupDismiss: "Agora não",
@@ -248,13 +331,32 @@ export const browserUseMessages = {
     getChrome: "Télécharger Chrome",
     getEdge: "Télécharger Edge",
     copyAppAddress: "Copier l’adresse de LinkSense",
+    approval: {
+      title: "Autoriser cette action dans le navigateur : {{action}} ?",
+      targetTab: "ID de l’onglet : {{tab}}",
+      destination: "Domaine de destination : {{host}}",
+      actions: {
+        status: "Vérifier la connexion",
+        tabs: "Lister les onglets partagés",
+        open: "Ouvrir une page",
+        open_site: "Ouvrir un site LinkSense publié",
+        navigate: "Accéder à une autre page",
+        snapshot: "Lire la structure de la page",
+        screenshot: "Prendre une capture de la page",
+        click: "Cliquer sur un élément de la page",
+        click_at: "Cliquer à un endroit de la page",
+        type: "Saisir du texte sur la page",
+        scroll: "Faire défiler la page",
+        key: "Envoyer une frappe clavier à la page",
+        release: "Rendre le contrôle de l’onglet",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "Laissez l’assistant utiliser votre navigateur",
     setupMissing:
       "Browser Use n’est pas détecté. Installez l’extension pour que l’assistant utilise Chrome / Edge sur cet ordinateur, travaille sur les pages ouvertes et réutilise vos sessions existantes.",
     setupDisconnected:
       "Browser Use est installé, mais ce navigateur n’est pas connecté. Connectez-le et autorisez les pages pour que l’assistant puisse les utiliser.",
-    setupOptional: "C’est facultatif. Le navigateur cloud reste disponible.",
     setupInstall: "Installer l’extension",
     setupConnect: "Connecter le navigateur",
     setupDismiss: "Plus tard",
@@ -310,14 +412,32 @@ export const browserUseMessages = {
     getChrome: "Chrome をダウンロード",
     getEdge: "Edge をダウンロード",
     copyAppAddress: "LinkSense のアドレスをコピー",
+    approval: {
+      title: "ブラウザーで「{{action}}」を許可しますか？",
+      targetTab: "タブ ID：{{tab}}",
+      destination: "移動先のホスト：{{host}}",
+      actions: {
+        status: "接続状態を確認",
+        tabs: "共有タブを一覧表示",
+        open: "ページを開く",
+        open_site: "公開済みの LinkSense サイトを開く",
+        navigate: "別のページに移動",
+        snapshot: "ページの構造を読み取る",
+        screenshot: "ページのスクリーンショットを撮る",
+        click: "ページ上の要素をクリック",
+        click_at: "ページ上の指定位置をクリック",
+        type: "ページに文字を入力",
+        scroll: "ページをスクロール",
+        key: "ページにキー入力を送る",
+        release: "タブの操作を終了",
+      },
+    },
     previewTitle: "Browser Use",
     setupTitle: "アシスタントにブラウザーの操作を任せる",
     setupMissing:
       "Browser Use が検出されません。拡張機能をインストールすると、このパソコンの Chrome / Edge で、開いているページや既存のログイン状態を使って操作できます。",
     setupDisconnected:
       "Browser Use はインストール済みですが、このブラウザーは未接続です。接続してページを許可すると、アシスタントが操作できるようになります。",
-    setupOptional:
-      "インストールは任意です。クラウドブラウザーも引き続き使えます。",
     setupInstall: "拡張機能を設定",
     setupConnect: "ブラウザーを接続",
     setupDismiss: "後で",
@@ -377,7 +497,6 @@ export const browserUseMessages = {
     | "setupTitle"
     | "setupMissing"
     | "setupDisconnected"
-    | "setupOptional"
     | "setupInstall"
     | "setupConnect"
     | "setupDismiss"
@@ -413,5 +532,5 @@ export const browserUseMessages = {
     | "activityRunning"
     | "activityFinished",
     string
-  >
+  > & { approval: BrowserApprovalMessages }
 >

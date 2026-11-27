@@ -86,6 +86,7 @@ describe("LinkSense Core MCP subprocess", () => {
         expect.objectContaining({ name: "register_artifact" }),
         expect.objectContaining({ name: "convert_document_to_markdown" }),
         expect.objectContaining({ name: "generate_image" }),
+        expect.objectContaining({ name: "get_rich_output_catalog" }),
         expect.objectContaining({ name: "get_current_user_info" }),
         expect.objectContaining({ name: "search_knowledge_base" }),
         expect.objectContaining({ name: "list_knowledge_documents" }),
@@ -93,6 +94,13 @@ describe("LinkSense Core MCP subprocess", () => {
         expect.objectContaining({ name: "preview_skill_zip" }),
         expect.objectContaining({ name: "install_skill" }),
       ]),
+    });
+
+    await expect(
+      rpc.call(11, "tools/call", { name: "get_rich_output_catalog", arguments: {} }),
+    ).resolves.toMatchObject({
+      isError: false,
+      content: [{ type: "text", text: expect.stringContaining('"language":"json-render"') }],
     });
 
     await expect(

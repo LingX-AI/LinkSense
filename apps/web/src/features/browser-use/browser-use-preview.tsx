@@ -100,6 +100,8 @@ function PreviewCard({
 }) {
   const { t } = useTranslation()
   const previewId = useId()
+  const moveLabelId = useId()
+  const moveTitleId = useId()
   const boundary = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLElement>(null)
   const handle = useRef<HTMLButtonElement>(null)
@@ -279,16 +281,21 @@ function PreviewCard({
             type="button"
             variant="plain"
             className="flex h-8 min-h-8 min-w-0 flex-1 cursor-grab touch-none items-center justify-start gap-2 rounded-md px-1 text-xs font-normal text-muted-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-            aria-label={t("browserUse.previewMove")}
+            aria-labelledby={`${moveLabelId} ${moveTitleId}`}
             onPointerDown={startDrag}
             onKeyDown={keyboardMove}
           >
+            <span id={moveLabelId} className="sr-only">
+              {t("browserUse.previewMove")}
+            </span>
             <GripVerticalIcon
               className="size-3.5 shrink-0"
               aria-hidden="true"
             />
             <GlobeIcon className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{t("browserUse.previewTitle")}</span>
+            <span id={moveTitleId} className="truncate">
+              {t("browserUse.previewTitle")}
+            </span>
           </Button>
           <Button
             type="button"

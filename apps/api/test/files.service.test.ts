@@ -2977,7 +2977,11 @@ function artifactTransactionFixture() {
     downloadCardEventId: "50000000-0000-4000-8000-000000000002",
   };
   return {
+    $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID }]),
     $executeRaw: vi.fn(async () => 1),
+    conversationTurn: {
+      findFirst: vi.fn(async () => ({ id: artifact.turnId })),
+    },
     conversationEvent: {
       findFirst: vi.fn(async () => ({ sequenceNo: 10n })),
       create: vi.fn(
@@ -2986,6 +2990,7 @@ function artifactTransactionFixture() {
     },
     webArtifactBundle: { create: vi.fn(async () => ({})) },
     conversationFile: {
+      findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       create: vi.fn(async () => artifact),
     },
     auditLog: {

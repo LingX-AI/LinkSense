@@ -11,6 +11,7 @@ import { z } from "zod"
 import { apiRequest, refreshSession } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import { externalLoginDestination } from "@/app/external-login-destination"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -20,7 +21,7 @@ import { AccountAccessLayout } from "@/components/auth/account-access-layout"
 
 export function SocialCallbackPage() {
   const { t } = useTranslation()
-  const { refreshUser } = useAuth()
+  const { acceptSession } = useAuth()
   const navigate = useNavigate()
   const [initial] = useState(() => {
     const url = new URL(window.location.href)
@@ -37,10 +38,11 @@ export function SocialCallbackPage() {
   const [error, setError] = useState<string | null>(null)
   const attempted = useRef(false)
   const finish = useCallback(async () => {
-    await refreshSession()
-    await refreshUser()
-    navigate("/conversations/new", { replace: true })
-  }, [refreshUser, navigate])
+    // The social exchange establishes a new login; accepting it advances the
+    // login boundary and verifies the profile through the auth provider.
+    await acceptSession(await refreshSession())
+    navigate(externalLoginDestination(), { replace: true })
+  }, [acceptSession, navigate])
   useEffect(() => {
     window.history.replaceState(
       window.history.state,

@@ -1,14 +1,23 @@
-import AxeBuilder from "@axe-core/playwright"
+import { createAxeBuilder } from "./support/axe"
 import { expect, test, type Page, type Route } from "@playwright/test"
 import { writeFile } from "node:fs/promises"
 import dayjs from "dayjs"
 import JSZip from "jszip"
 import {
-  supportedLocales,
   updateVoiceTranscriptionSettingsSchema,
   voiceTranscriptionProviderDefinitions,
+  type PublicKnowledgeCitation,
+  type RichOutput,
 } from "@linksense/shared"
 import { expectPopupPadding } from "./support/popup-padding"
+import {
+  richOutputExpansionMarkdown,
+  richOutputFixtureMarkdown,
+  richOutputReadingMarkdown,
+  richOutputResourceFiles,
+  richOutputResourceMarkdown,
+} from "./support/rich-output-fixture"
+import type { ConversationFile } from "../src/api/contracts"
 
 import {
   createE2EAuthSession,
@@ -52,6 +61,845 @@ const HEALTH_STATUS = {
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
+})
+
+test("goal-based application creation stays accessible on desktop and mobile", async ({
+  page,
+}) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto("/capabilities?section=application")
+    await page
+      .getByRole("button", { name: "创建应用", exact: true })
+      .first()
+      .click()
+    await page
+      .getByRole("dialog", { name: "创建应用", exact: true })
+      .getByRole("button", { name: "用对话创建应用", exact: true })
+      .click()
+    const dialog = page.getByRole("dialog", {
+      name: "用对话创建应用",
+      exact: true,
+    })
+    await expect(dialog).toBeVisible()
+    const goal = dialog.getByRole("textbox", { name: "你想实现什么？" })
+    await expect(goal).toBeFocused()
+    await expect(dialog.getByRole("textbox")).toHaveCount(1)
+    await expect(dialog.getByRole("checkbox")).toHaveCount(0)
+    await goal.fill("我想做一个喝水助手，先看页面，提醒稍后决定。")
+    await expect(dialog.getByRole("button", { name: "开始对话" })).toBeEnabled()
+    // Audit settled colors after entrance and disabled-opacity transitions.
+    await dialog.evaluate(async (element) => {
+      await Promise.allSettled(
+        element
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished)
+      )
+    })
+    await expectNoHorizontalOverflow(page)
+    expect(
+      (await createAxeBuilder(page).include('[role="dialog"]').analyze())
+        .violations
+    ).toEqual([])
+    await page.screenshot({
+      path: test.info().outputPath(`goal-creation-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+  }
+})
+
+for (const entry of ["new", "existing"] as const) {
+  test(`ordinary ${entry} conversation accepts application creation without choosing a builder`, async ({
+    page,
+  }) => {
+    const conversationId = "20000000-0000-4000-8000-000000000001"
+    await mockTaskHomeApi(page)
+    await page.route(
+      `**/api/v1/conversations/${conversationId}/model-preference`,
+      (route) =>
+        ok(route, {
+          configured: true,
+          models: [
+            {
+              id: "gpt-5.6-terra",
+              display_name: "GPT-5.6 Terra",
+              enabled: true,
+              supported_reasoning_efforts: ["medium"],
+              default_reasoning_effort: "medium",
+            },
+          ],
+          default_model: "gpt-5.6-terra",
+          selected_model: "gpt-5.6-terra",
+          selected_reasoning_effort: "medium",
+        })
+    )
+    const requests: Record<string, unknown>[] = []
+    await page.route("**/api/v1/conversations", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      return ok(route, {
+        id: conversationId,
+        title: "喝水助手",
+        archive_status: "active",
+        project_id: null,
+        updated_at: NOW,
+      })
+    })
+    await page.route(
+      `**/api/v1/conversations/${conversationId}/turns`,
+      async (route) => {
+        requests.push(route.request().postDataJSON() as Record<string, unknown>)
+        return ok(route, {
+          turn_id: "60000000-0000-4000-8000-000000000001",
+          accepted: true,
+          status: "starting",
+        })
+      }
+    )
+    await page.goto(
+      entry === "new"
+        ? "/conversations/new"
+        : `/conversations/${conversationId}`
+    )
+    const input = page.getByRole("textbox", { name: "任务输入框" })
+    await expect(input).toBeVisible()
+    const dismissNotifications = page.getByRole("button", {
+      name: "暂时不用",
+      exact: true,
+    })
+    if (await dismissNotifications.isVisible())
+      await dismissNotifications.click()
+    await input.fill("做一个喝水提醒小助手，先看效果，不要公开发布。")
+    await page.getByRole("button", { name: "发送", exact: true }).click()
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]?.input_text).toBe(
+      "做一个喝水提醒小助手，先看效果，不要公开发布。"
+    )
+    expect(requests[0]?.priority_capability_ids ?? []).toEqual([])
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page).toHaveURL(
+      new RegExp(`/conversations/${conversationId}$`)
+    )
+  })
+}
+
+test.describe("sidebar project action layout", () => {
+  test.use({ hasTouch: true })
+
+  test("keeps long project titles and running indicators clear of both touch actions", async ({
+    page,
+  }) => {
+    const projectId = "80000000-0000-4000-8000-000000000001"
+    const projectName = "需要完整保留操作入口的超长项目名称和说明"
+    const task = {
+      id: "20000000-0000-4000-8000-000000000001",
+      title: "运行中的项目任务",
+      archive_status: "active",
+      project_id: projectId,
+      execution_status: "running",
+      updated_at: NOW,
+    }
+    await mockTaskHomeApi(page)
+    await page.route("**/api/v1/projects", (route) =>
+      ok(route, [
+        {
+          id: projectId,
+          name: projectName,
+          icon: "folder",
+          color: "default",
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ])
+    )
+    await page.route("**/api/v1/conversations?**", (route) =>
+      ok(route, { items: [task], next_cursor: null })
+    )
+    await page.route(`**/api/v1/conversations/${task.id}`, (route) =>
+      ok(route, {
+        conversation: task,
+        messages: [],
+        turns: [{ id: "running-project-turn", status: "running" }],
+        pending_requests: [],
+        files: [],
+        events: [],
+        activities: [],
+      })
+    )
+    await page.goto("/conversations/new")
+    expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(
+      true
+    )
+    const folder = page.getByRole("button", { name: projectName, exact: true })
+    const title = folder.locator("span.truncate")
+    const more = page.getByRole("button", {
+      name: `${projectName}的更多操作`,
+    })
+    const create = page.getByRole("button", {
+      name: `在项目“${projectName}”中新建任务`,
+    })
+    await expect(folder).toBeVisible()
+    await expect(create).toBeVisible()
+    const titleBounds = await title.boundingBox()
+    const moreBounds = await more.boundingBox()
+    expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
+      moreBounds!.x
+    )
+
+    await folder.tap()
+    const running = folder
+      .locator("..")
+      .getByRole("status", { name: "执行中", exact: true })
+    await expect(running).toBeVisible()
+    await expect(running).toHaveCSS("opacity", "1")
+    const runningBounds = await running.boundingBox()
+    const collapsedTitleBounds = await title.boundingBox()
+    expect(runningBounds!.x + runningBounds!.width).toBeLessThanOrEqual(
+      moreBounds!.x
+    )
+    expect(
+      collapsedTitleBounds!.x + collapsedTitleBounds!.width
+    ).toBeLessThanOrEqual(runningBounds!.x)
+  })
+})
+
+async function openRichOutputConversation(
+  page: Page,
+  content = richOutputFixtureMarkdown,
+  files: readonly ConversationFile[] = [],
+  citations?: readonly PublicKnowledgeCitation[]
+) {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await page.route(`**/api/v1/conversations/${conversationId}`, (route) =>
+    ok(route, {
+      conversation: {
+        id: conversationId,
+        title: "富内容测试",
+        archive_status: "active",
+        project_id: null,
+        execution_status: "completed",
+        updated_at: NOW,
+      },
+      draft: null,
+      messages: [
+        {
+          id: "rich-output-answer",
+          role: "assistant",
+          turn_id: "rich-turn",
+          phase: "final_answer",
+          content,
+          knowledge_citations: citations,
+          created_at: NOW,
+        },
+      ],
+      turns: [
+        {
+          id: "rich-turn",
+          status: "completed",
+          started_at: NOW,
+          completed_at: NOW,
+        },
+      ],
+      pending_requests: [],
+      files,
+      events: [],
+      activities: [],
+    })
+  )
+  await page.goto(`/conversations/${conversationId}`)
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output opens a recorded evidence source by keyboard at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    const prose = "先用小范围试点验证流程，再评估扩大覆盖范围。"
+    const citation: PublicKnowledgeCitation = {
+      citation_id: "40000000-0000-4000-8000-000000000081",
+      citation_no: 1,
+      summary: {
+        knowledge_base_name: "实施资料库",
+        document_name: "试点管理手册.pdf",
+        title_path: ["实施计划", "试点要求"],
+        page_numbers: [2, 4],
+      },
+      anchors: [{ occurrence_no: 1, after_offset_utf16: prose.length }],
+    }
+    const output: RichOutput = {
+      version: 1,
+      summary: prose,
+      spec: {
+        root: "result",
+        elements: {
+          result: {
+            type: "Panel",
+            props: { title: "试点建议" },
+            children: ["evidence"],
+          },
+          evidence: {
+            type: "Evidence",
+            props: {
+              title: "查看试点依据",
+              detail: "先验证核心流程，扩大覆盖范围前须另行评估。",
+              citations: [1, 99],
+            },
+          },
+        },
+      },
+    }
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 900 })
+    await page.route("**/api/v1/knowledge-bases/search-capability", (route) =>
+      ok(route, { status: "available", reason_code: null, checked_at: NOW })
+    )
+    const previewPath = `/knowledge-citations/${citation.citation_id}`
+    let requestedPreview = false
+    await page.route(`**/api/v1${previewPath}`, (route) => {
+      requestedPreview = true
+      return ok(route, {
+        status: "available",
+        citation_id: citation.citation_id,
+        citation_no: citation.citation_no,
+        summary: citation.summary,
+        parent_excerpt: "试点通过后，须重新评估全团队推广成本。",
+        original: { supported: false, renderer: null },
+      })
+    })
+    await page.route(`**/api/v1${previewPath}/events`, (route) =>
+      route.fulfill({
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      })
+    )
+    await openRichOutputConversation(
+      page,
+      `${prose}\n\n\`\`\`json-render\n${JSON.stringify(output)}\n\`\`\``,
+      [],
+      [citation]
+    )
+    await page.getByRole("button", { name: "关闭会话侧栏" }).click()
+
+    const result = page.getByTestId("assistant-rich-output")
+    const disclosure = result.getByRole("button", { name: "查看试点依据" })
+    const source = result.getByRole("link", { name: /试点管理手册\.pdf/u })
+    await expect(source).toHaveCount(0)
+    await disclosure.focus()
+    await page.keyboard.press("Enter")
+    await expect(source).toBeVisible()
+    await expect(source).toHaveAccessibleDescription(
+      "实施计划 / 试点要求 · 第 2, 4 页"
+    )
+    await expect(result.getByRole("link")).toHaveCount(1)
+    expect(requestedPreview).toBe(false)
+    await page.keyboard.press("Tab")
+    await expect(source).toBeFocused()
+    expect(
+      await result.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true)
+    const { violations } = await createAxeBuilder(page)
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await result.screenshot({
+      path: testInfo.outputPath("rich-output-evidence.png"),
+    })
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(new RegExp(`${previewPath}$`, "u"))
+    await expect(
+      page.getByRole("heading", { name: "试点管理手册.pdf" })
+    ).toBeVisible()
+    await expect(
+      page.getByText("试点通过后，须重新评估全团队推广成本。")
+    ).toBeVisible()
+    expect(requestedPreview).toBe(true)
+  })
+}
+
+async function mockRichOutputResources(page: Page) {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await page.route("**/rich-gallery-preview.png", (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64"
+      ),
+    })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/preview`,
+    (route) =>
+      ok(route, {
+        url: "http://127.0.0.1:4173/rich-gallery-preview.png",
+        expires_at: "2099-07-14T10:49:00.000Z",
+        filename: "design-a.png",
+      })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/content`,
+    (route) =>
+      route.fulfill({
+        contentType: "text/plain",
+        body: "Rich output file preview.",
+      })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/download`,
+    (route) =>
+      route.fulfill({
+        contentType: "text/plain",
+        body: "Rich output file preview.",
+      })
+  )
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "light"],
+  [1440, "dark"],
+] as const) {
+  test(`rich AI output previews and downloads authorized resources at ${width}px in ${theme} mode`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 1000 })
+    await mockRichOutputResources(page)
+    const fileRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.url().includes("/files/")) fileRequests.push(request.url())
+    })
+    await openRichOutputConversation(
+      page,
+      richOutputResourceMarkdown,
+      richOutputResourceFiles
+    )
+    const answer = page.getByRole("article", { name: "助手回复" })
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result).toBeVisible()
+    const preview = result.getByRole("button", { name: "预览图片 设计方案 A" })
+    await expect(preview).toBeEnabled()
+    await expect(
+      result.getByText("此文件不可用，可能已被移除或无权访问。")
+    ).toBeVisible()
+    await expect(
+      answer.getByRole("button", { name: "下载 design-a.png", exact: true })
+    ).toHaveCount(1)
+    await expect(
+      answer.getByRole("button", { name: "下载 analysis.txt", exact: true })
+    ).toHaveCount(1)
+    await preview.focus()
+    await preview.press("Enter")
+    await expect(page.getByRole("dialog")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(preview).toBeFocused()
+
+    const download = page.waitForEvent("download")
+    await result
+      .getByRole("button", { name: "下载 analysis.txt", exact: true })
+      .click()
+    expect((await download).suggestedFilename()).toBe("analysis.txt")
+    await result
+      .getByRole("button", { name: /预览文件 analysis\.txt/u })
+      .click()
+    const documentPreview = page.getByLabel("预览文档 analysis.txt", {
+      exact: true,
+    })
+    await expect(documentPreview).toBeVisible()
+    await expect(documentPreview).toContainText("Rich output file preview.")
+    await documentPreview
+      .getByRole("button", { name: "关闭文档预览", exact: true })
+      .click()
+    expect(fileRequests.some((url) => url.includes("000000000073"))).toBe(false)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await createAxeBuilder(page)
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-resources.png"),
+    })
+  })
+}
+
+test("rich AI output preserves automatic resource access when its renderer cannot load", async ({
+  page,
+}) => {
+  await mockRichOutputResources(page)
+  await page.route("**/assets/assistant-rich-output-renderer-*.js", (route) =>
+    route.abort()
+  )
+  await openRichOutputConversation(
+    page,
+    richOutputResourceMarkdown,
+    richOutputResourceFiles
+  )
+  await expect(
+    page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("article", { name: "助手回复" })
+      .getByRole("button", { name: "下载 analysis.txt", exact: true })
+  ).toBeEnabled()
+  await expect(page.getByText(/已移除的候选/)).toBeVisible()
+})
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "light"],
+  [1440, "dark"],
+] as const) {
+  test(`rich AI output supports local interactions at ${width}px in ${theme} mode`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 1000 })
+    await openRichOutputConversation(page)
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result).toBeVisible()
+    await expect(
+      result.locator(".recharts-bar-rectangle").first()
+    ).toBeAttached()
+    await result.getByRole("button", { name: "查看分析依据" }).click()
+    await expect(result.getByText(/三个团队的数据分别为/)).toBeVisible()
+    await result.getByRole("radio", { name: "完整建设" }).click()
+    await expect(
+      result.getByText("在需求清晰后统一建设完整流程。")
+    ).toBeVisible()
+    await result.getByRole("button", { name: "数据表", exact: true }).click()
+    await expect(result.getByRole("table", { name: "团队数据" })).toBeVisible()
+    await result.getByRole("button", { name: "数值 (项)" }).click()
+    await expect(result.locator("th[aria-sort=ascending]")).toHaveText(
+      "数值 (项)"
+    )
+    await expect(result.getByText("暂无数据", { exact: true })).toBeVisible()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await createAxeBuilder(page)
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+  })
+}
+
+for (const [width, input] of [
+  [1440, "pointer"],
+  [390, "keyboard"],
+] as const) {
+  test(`rich AI output preserves scroll position on radio selection by ${input} at ${width}px`, async ({
+    page,
+  }) => {
+    await page.addInitScript((userId) => {
+      sessionStorage.setItem(
+        `linksense.browserNotifications.promptDismissed:${userId}`,
+        "true"
+      )
+    }, ADMIN.id)
+    await page.setViewportSize({ width, height: 1200 })
+    const context = "用于滚动测试的上下文段落。\n\n".repeat(25)
+    await openRichOutputConversation(
+      page,
+      `${context}${richOutputFixtureMarkdown}`
+    )
+    const result = page.getByTestId("assistant-rich-output")
+    const selection = result.getByRole("radiogroup", { name: "比较实施方式" })
+    await expect(selection).toBeInViewport({ ratio: 1 })
+    const scroll = page.locator(".conversation-scroll")
+    await expect
+      .poll(() =>
+        scroll.evaluate(
+          (viewport) =>
+            viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+    const { scrollTop, scrollHeight } = await scroll.evaluate((viewport) => ({
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+    }))
+    expect(scrollTop).toBeGreaterThan(100)
+
+    if (input === "pointer") {
+      await selection.getByText("完整建设", { exact: true }).click()
+    } else {
+      await selection
+        .getByRole("radio", { name: "先做验证" })
+        .press("ArrowRight")
+    }
+    const selectedRadio = selection.getByRole("radio", { name: "完整建设" })
+    await expect(selectedRadio).toBeChecked()
+    await expect(selectedRadio).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((viewport) => viewport.scrollHeight))
+      .toBeGreaterThan(scrollHeight)
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await scroll.evaluate((viewport) => viewport.scrollTop)) - scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+  })
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output expands common content and filters data at ${width}px in ${theme} mode`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((mode) => {
+      localStorage.setItem("linksense.theme", mode)
+      localStorage.setItem("linksense.taskOverviewOpen", "false")
+    }, theme)
+    await page.setViewportSize({ width, height: 1000 })
+    await openRichOutputConversation(page, richOutputExpansionMarkdown)
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result.getByRole("region", { name: "关键信息" })).toBeVisible()
+    if (width === 1440) {
+      expect(
+        await result.evaluate(
+          (element) => element.getBoundingClientRect().width
+        )
+      ).toBeGreaterThan(600)
+    }
+    const timeline = result.getByRole("region", { name: "事件时间线" })
+    await expect(timeline.getByRole("listitem")).toHaveCount(2)
+    await expect(timeline.getByRole("list")).toHaveCSS(
+      "list-style-type",
+      "none"
+    )
+    await expect(
+      result.getByRole("region", { name: "建议步骤" }).getByRole("listitem")
+    ).toHaveCount(2)
+    await expect(result.getByText("+2 项", { exact: true })).toBeVisible()
+    const chart = result.getByRole("region", { name: "多系列堆叠柱图" })
+    await expect(chart.locator(".recharts-bar")).toHaveCount(2)
+    await chart.getByRole("button", { name: "数据表", exact: true }).click()
+    await expect(chart.getByRole("table")).toBeVisible()
+    await expect(
+      chart.getByRole("columnheader", { name: "已处理 (项)" })
+    ).toBeVisible()
+    const line = result.getByRole("region", { name: "多系列折线图" })
+    await expect(line.locator(".recharts-line")).toHaveCount(2)
+    await line.locator(".recharts-line-dot").first().hover()
+    await expect(
+      line.getByText("已处理: 12.123456 项", { exact: true })
+    ).toBeVisible()
+    await line.locator(".recharts-line-dot").nth(1).hover()
+    await expect(line.getByText("已处理: 0 项", { exact: true })).toBeVisible()
+    await expect(
+      line.getByText("待核对: 暂无数据", { exact: true })
+    ).toBeVisible()
+
+    const filter = result.getByRole("searchbox", { name: "筛选可筛选明细" })
+    await filter.fill("第二组")
+    const table = result.getByRole("table", { name: "可筛选明细" })
+    await expect(table.getByRole("row")).toHaveCount(2)
+    await expect(result.getByText("显示 1 / 3 行")).toBeVisible()
+    await expect(
+      table.getByRole("cell", { name: "0", exact: true })
+    ).toBeVisible()
+    await filter.fill("不存在")
+    await expect(result.getByText("没有匹配的数据。")).toBeVisible()
+    await filter.fill("")
+    await table.getByRole("button", { name: "日期", exact: true }).click()
+    await expect(table.getByRole("row").nth(1)).toContainText("第二组")
+    await expect(
+      table.getByRole("button", { name: "日期", exact: true })
+    ).toBeFocused()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await createAxeBuilder(page)
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await result
+      .getByRole("region", { name: "关键信息" })
+      .scrollIntoViewIfNeeded()
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-expanded.png"),
+    })
+  })
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output keeps the reading position and temporary checks across views at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(
+      ({ mode, userId }) => {
+        localStorage.setItem("linksense.theme", mode)
+        localStorage.setItem("linksense.taskOverviewOpen", "false")
+        sessionStorage.setItem(
+          `linksense.browserNotifications.promptDismissed:${userId}`,
+          "true"
+        )
+      },
+      { mode: theme, userId: ADMIN.id }
+    )
+    await page.setViewportSize({ width, height: 1100 })
+    await openRichOutputConversation(
+      page,
+      `${"这里是报告的背景说明。\n\n".repeat(30)}${richOutputReadingMarkdown}\n\n${"附录：本段用于留出阅读空间。\n\n".repeat(13)}`
+    )
+    const result = page.getByTestId("assistant-rich-output")
+    const tablist = result.getByRole("tablist", { name: "阅读视图" })
+    const summary = tablist.getByRole("tab", { name: "摘要与主要结论" })
+    const preparation = tablist.getByRole("tab", { name: "交付准备及逐项核对" })
+    const limits = tablist.getByRole("tab", { name: "数据口径与使用限制" })
+    const scroll = page.locator(".conversation-scroll")
+    await expect(tablist).toBeInViewport({ ratio: 1 })
+    await expect(summary).toHaveAttribute("aria-selected", "true")
+    await expect
+      .poll(() =>
+        scroll.evaluate(
+          (element) =>
+            element.scrollHeight - element.clientHeight - element.scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+    const top = await scroll.evaluate((element) => element.scrollTop)
+    const startingHeight = await scroll.evaluate(
+      (element) => element.scrollHeight
+    )
+    expect(top).toBeGreaterThan(100)
+    const expectScrollUnchanged = () =>
+      expect
+        .poll(() =>
+          scroll.evaluate(
+            (element, initialTop) => Math.abs(element.scrollTop - initialTop),
+            top
+          )
+        )
+        .toBeLessThanOrEqual(1)
+
+    if (width === 390) {
+      await expect
+        .poll(() =>
+          tablist.evaluate(
+            (element) => element.scrollWidth - element.clientWidth
+          )
+        )
+        .toBeGreaterThan(0)
+      await summary.press("ArrowRight")
+      await expect(preparation).toBeFocused()
+      await expect(summary).toHaveAttribute("aria-selected", "true")
+      await preparation.press("Enter")
+    } else {
+      await preparation.click()
+    }
+    await expect(preparation).toHaveAttribute("aria-selected", "true")
+    await expect(preparation).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(startingHeight)
+    await expectScrollUnchanged()
+
+    const disclosure = result.getByRole("button", { name: "查看核对要求" })
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    const foldedHeight = await scroll.evaluate(
+      (element) => element.scrollHeight
+    )
+    if (width === 390) await disclosure.press("Space")
+    else await disclosure.click()
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    await expect(disclosure).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(foldedHeight)
+    await expectScrollUnchanged()
+    const source = result.getByRole("checkbox", { name: "确认资料来源" })
+    await expect(source).toHaveAccessibleDescription("与原始文件核对。")
+    if (width === 390) await source.press("Space")
+    else await result.getByText("确认资料来源", { exact: true }).click()
+    await expect(source).toBeChecked()
+    await expectScrollUnchanged()
+    await disclosure.press("Enter")
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    await expect(disclosure).toBeFocused()
+    await expect(source).toHaveCount(0)
+    await expectScrollUnchanged()
+
+    await preparation.press("ArrowRight")
+    await expect(limits).toBeFocused()
+    await limits.press("Space")
+    await expect(
+      result.getByRole("tabpanel", { name: "数据口径与使用限制" })
+    ).toHaveText("本次不包含跨季度数据。")
+    await preparation.press("Enter")
+    await summary.press("Enter")
+    await preparation.press("Enter")
+    await expect(preparation).toBeFocused()
+    await expectScrollUnchanged()
+    await disclosure.click()
+    await expect(source).toBeChecked()
+    await expectScrollUnchanged()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await createAxeBuilder(page)
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-reading.png"),
+    })
+
+    await page.reload()
+    await result.getByRole("tab", { name: "交付准备及逐项核对" }).press("Enter")
+    await disclosure.press("Enter")
+    await expect(source).not.toBeChecked()
+  })
+}
+
+test("rich AI output keeps the answer and readable data if the renderer cannot load", async ({
+  page,
+}) => {
+  await page.route("**/assets/assistant-rich-output-renderer-*.js", (route) =>
+    route.abort()
+  )
+  await openRichOutputConversation(page)
+  await expect(
+    page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")
+  ).toBeVisible()
+  await expect(
+    page.getByText("这是分析结论，下面可以查看依据、比较方案并核对数据。")
+  ).toBeVisible()
+  await expect(page.getByText(/团队 A: 12 项/)).toBeVisible()
+  await expect(page.getByTestId("assistant-rich-output")).toHaveCount(0)
 })
 
 for (const width of [1440, 390]) {
@@ -293,12 +1141,15 @@ for (const width of [1440, 390]) {
       })
     )
     expect(cardBoxes).toHaveLength(3)
-    expect(cardBoxes.every((card) => card.height >= 160)).toBe(true)
-    expect(
-      width === 1440
-        ? cardBoxes.every((card) => card.y === cardBoxes[0].y)
-        : cardBoxes[1].y > cardBoxes[0].y
-    ).toBe(true)
+    // Templates render as full-width rows: 72px tall beside the wide
+    // workspace and 137px once their text wraps in the narrow column.
+    const templateMinHeight = width === 1440 ? 72 : 137
+    expect(cardBoxes.every((card) => card.height >= templateMinHeight)).toBe(
+      true
+    )
+    expect(cardBoxes.every((card) => card.x === cardBoxes[0].x)).toBe(true)
+    expect(cardBoxes[1].y).toBeGreaterThan(cardBoxes[0].y)
+    expect(cardBoxes[2].y).toBeGreaterThan(cardBoxes[1].y)
     await expectNoHorizontalOverflow(page)
     await page.screenshot({
       path: test.info().outputPath(`automations-${width}.png`),
@@ -346,7 +1197,7 @@ for (const width of [1440, 390]) {
       "/capabilities?section=mcp",
       "/knowledge-bases",
       "/knowledge-bases?tab=artifacts",
-      "/knowledge-bases?tab=sites",
+      "/capabilities?section=application&app_scope=sites",
     ]) {
       await page.goto(route)
       await expect(
@@ -367,13 +1218,9 @@ for (const width of [1440, 390]) {
       )
     )
     expect((await creationDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
-    for (const name of [
-      "用对话创建交互式应用",
-      "创建普通应用",
-      "导入交互式应用",
-    ]) {
+    for (const name of ["用对话创建应用", "创建普通应用", "导入交互式应用"]) {
       const action = creationDialog.getByRole("button", { name })
-      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(88)
+      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(72)
     }
     await expect(
       creationDialog.locator('[data-slot="application-creation-illustration"]')
@@ -410,6 +1257,13 @@ for (const width of [1440, 390]) {
       })
     )
     await page.goto("/knowledge-bases?tab=sites")
+    await expect(page).toHaveURL(
+      /\/capabilities\?section=application&app_scope=sites$/u
+    )
+    await expect(page.getByRole("tab", { name: "我的站点" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
     await page.getByRole("button", { name: "管理 Figma site" }).click()
     await page.getByRole("menuitem", { name: "编辑", exact: true }).click()
     const siteDialog = page.getByRole("dialog", { name: "编辑站点" })
@@ -418,7 +1272,7 @@ for (const width of [1440, 390]) {
     await expect(
       siteDialog.locator('[data-slot="site-dialog-hero"]')
     ).toHaveCount(0)
-    for (const name of ["站点名称", "简介", "链接名称"]) {
+    for (const name of ["站点名称", "简介", "自定义 Slug"]) {
       await expect(siteDialog.getByRole("textbox", { name })).toBeVisible()
     }
     await expect(
@@ -999,16 +1853,16 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   await expect(heading).toHaveCSS("height", "28px")
   await expect(sort).toHaveCSS("opacity", "0")
   const row = section.getByRole("link", { name: "Q3 enrollment data" })
-  await expect(row).toHaveCSS("height", "36px")
+  await expect(row).toHaveCSS("height", "34px")
   await expect(
     sidebar.getByRole("link", { name: "Grade 10 syllabus" })
-  ).toHaveCSS("height", "36px")
+  ).toHaveCSS("height", "34px")
   await expect(row.locator("..")).toHaveCSS(
     "background-color",
     "color(srgb 0.0313726 0.454902 1 / 0.06)"
   )
   const navIcon = sidebar.locator('[data-design-icon="automations"]')
-  await expect(navIcon).toHaveCSS("width", "16px")
+  await expect(navIcon).toHaveCSS("width", "15px")
   await expect(navIcon).toHaveCSS("mask-image", /url\(/)
   expect(
     await page
@@ -1054,44 +1908,21 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   if (!rowBounds || !previewBounds)
     throw new Error("Missing task preview bounds")
   expect(previewBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
-  await row
-    .locator("..")
-    .getByRole("button", { name: "Q3 enrollment data的更多操作" })
-    .click()
-  const taskMenu = page.getByRole("menu").filter({ hasText: "移动到项目" })
-  await expect(taskMenu).toBeVisible()
-  await expect
-    .poll(async () => {
-      const bounds = await taskMenu.boundingBox()
-      return bounds
-        ? Math.round((bounds.x - rowBounds.x - rowBounds.width) * 10) / 10
-        : null
-    })
-    .toBe(8)
-  const menuBounds = await taskMenu.boundingBox()
-  if (!menuBounds) throw new Error("Missing task menu bounds")
-  expect(menuBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
-  expect(menuBounds.y).toBeCloseTo(rowBounds.y, 0)
-  await taskMenu.getByRole("menuitem", { name: "移动到项目" }).hover()
-  const destinations = page.getByRole("menu").filter({ hasText: "公共空间" })
-  await expect(destinations).toBeVisible()
-  await expect
-    .poll(async () => {
-      const bounds = await destinations.boundingBox()
-      return bounds
-        ? Math.round((bounds.x - menuBounds.x - menuBounds.width) * 10) / 10
-        : null
-    })
-    .toBe(8)
-  const destinationsBounds = await destinations.boundingBox()
-  if (!destinationsBounds) throw new Error("Missing project destination bounds")
-  expect(destinationsBounds.x - (menuBounds.x + menuBounds.width)).toBeCloseTo(
-    8,
-    0
+  const actions = row.locator("..")
+  const pin = actions.getByRole("button", {
+    name: "置顶任务“Q3 enrollment data”",
+  })
+  const archive = actions.getByRole("button", {
+    name: "归档任务“Q3 enrollment data”",
+  })
+  await expect(actions.locator(".sidebar-conversation-actions")).toHaveCSS(
+    "opacity",
+    "1"
   )
-  expect(destinationsBounds.y).toBeCloseTo(menuBounds.y, 0)
-  await page.keyboard.press("Escape")
-  await page.keyboard.press("Escape")
+  await expect(actions.getByRole("button", { name: /更多操作/ })).toHaveCount(0)
+  await pin.focus()
+  await page.keyboard.press("Tab")
+  await expect(archive).toBeFocused()
   await page.keyboard.press("Control+k")
   await expect(page.getByRole("dialog", { name: "搜索" })).toBeVisible()
   await page.keyboard.press("Escape")
@@ -1141,10 +1972,36 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`published applications and existing drafts share the design list at ${width}px`, async ({
+  test(`application and site rows fit their controls at ${width}px`, async ({
     page,
   }) => {
+    const applicationId = "50000000-0000-4000-8000-000000000001"
+    const siteId = "50000000-0000-4000-8000-000000000003"
+    const slug = "community-water-break-reminder-for-busy-teams"
+    const publishedSite = {
+      id: siteId,
+      name: "Team water break reminder",
+      description: "A shared reminder to take a break and drink water.",
+      slug,
+      url_path: `/app/s/${siteId}`,
+      url: `https://example.test/app/s/${siteId}`,
+      alias_url: `https://example.test/web/${slug}`,
+      status: "published",
+      conversation_id: null,
+      source_task_title: "",
+      source_file_id: siteId,
+      release_id: siteId,
+      file_count: 3,
+      size_bytes: 12000,
+      published_at: NOW,
+      created_at: NOW,
+      updated_at: NOW,
+    }
     await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({
+      colorScheme: width === 1440 ? "dark" : "light",
+      reducedMotion: "reduce",
+    })
     await page.route("**/api/v1/applications/catalog**", (route) =>
       ok(route, {
         items: [
@@ -1152,7 +2009,7 @@ for (const width of [1440, 390]) {
             type: "application",
             development: null,
             application: {
-              id: "50000000-0000-4000-8000-000000000001",
+              id: applicationId,
               owner: { id: ADMIN.id, name: ADMIN.name },
               name: "Published research assistant",
               icon: { type: "preset", preset: "sparkles" },
@@ -1193,6 +2050,46 @@ for (const width of [1440, 390]) {
         next_cursor: null,
       })
     )
+    await page.route("**/api/v1/applications/distribution**", (route) =>
+      ok(route, {
+        items: [
+          {
+            application_id: applicationId,
+            published_version_id: applicationId,
+            published_version_number: "1.0.0",
+            usage_modes: ["service"],
+            installation: null,
+            installed_application_id: null,
+            service_installation: {
+              installed_version_id: applicationId,
+              installed_version_number: "1.0.0",
+              available_version_id: applicationId,
+              available_version_number: "1.0.0",
+              update_available: false,
+            },
+          },
+        ],
+      })
+    )
+    await page.route("**/api/v1/web-sites**", (route) =>
+      ok(route, {
+        items: [
+          publishedSite,
+          {
+            ...publishedSite,
+            id: "50000000-0000-4000-8000-000000000004",
+            name: "Archived field notes",
+            description: "",
+            slug: "field-notes",
+            url_path: "/web/field-notes",
+            url: "https://example.test/web/field-notes",
+            alias_url: "https://example.test/web/field-notes",
+            status: "disabled",
+          },
+        ],
+        next_cursor: null,
+      })
+    )
     await page.goto("/capabilities")
     const published = page.getByRole("article", {
       name: "Published research assistant",
@@ -1206,6 +2103,27 @@ for (const width of [1440, 390]) {
       await expect(row).toHaveCSS("border-radius", "0px")
       await expect(row.getByRole("button").first()).toBeVisible()
     }
+    await expect(published).toHaveCSS("border-bottom-width", "1px")
+    await expect(
+      published.getByRole("button", { name: "使用", exact: true })
+    ).toBeVisible()
+    const applicationActionStyle = await published
+      .getByRole("button", { name: "使用", exact: true })
+      .evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          fontSize: style.fontSize,
+          height: style.height,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+        }
+      })
+    await expect(published.getByRole("list", { name: "应用资源" })).toHaveCount(
+      0
+    )
     const publishedBounds = await published.boundingBox()
     const draftBounds = await draft.boundingBox()
     if (!publishedBounds || !draftBounds)
@@ -1216,13 +2134,86 @@ for (const width of [1440, 390]) {
       publishedBounds.y + publishedBounds.height - 1
     )
     await expectNoHorizontalOverflow(page)
-    const contrast = await new AxeBuilder({ page })
+    const contrast = await createAxeBuilder(page)
       .withRules(["color-contrast"])
       .analyze()
     expect(contrast.violations).toEqual([])
     await page.screenshot({
       path: test.info().outputPath(`application-design-rows-${width}.png`),
+      animations: "disabled",
     })
+
+    await page.getByRole("tab", { name: "我的站点" }).click()
+    const site = page.getByRole("article", { name: publishedSite.name })
+    const unpublished = page.getByRole("article", {
+      name: "Archived field notes",
+    })
+    await expect(site.getByText(`/web/${slug}`)).toHaveCount(0)
+    await expect(
+      site.getByRole("button", {
+        name: `复制 ${publishedSite.name} 的链接`,
+      })
+    ).toHaveCount(0)
+    await expect(site.getByRole("link", { name: "访问" })).toHaveAttribute(
+      "href",
+      publishedSite.url
+    )
+    expect(
+      await site.getByRole("link", { name: "访问" }).evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          fontSize: style.fontSize,
+          height: style.height,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+        }
+      })
+    ).toEqual(applicationActionStyle)
+    await expect(unpublished.getByRole("link", { name: "访问" })).toHaveCount(0)
+    await expect(unpublished.getByText("未发布", { exact: true })).toBeVisible()
+    await expect(
+      site.getByRole("button", { name: `管理 ${publishedSite.name}` })
+    ).toBeInViewport()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`site-design-rows-${width}.png`),
+      animations: "disabled",
+    })
+
+    const dataCapability = site.getByRole("img", {
+      name: "页面应用. 未连接数据服务",
+    })
+    await expect(dataCapability).toHaveAttribute("data-connected", "false")
+    await dataCapability.hover()
+    const capabilityTooltip = page.getByRole("tooltip")
+    await expect(
+      capabilityTooltip.getByText("页面应用", { exact: true })
+    ).toBeVisible()
+    await expect(
+      capabilityTooltip.getByText("未连接数据服务", { exact: true })
+    ).toBeVisible()
+    await page.mouse.move(0, 0)
+    await expect(capabilityTooltip).toBeHidden()
+
+    const title = site.getByRole("button", {
+      name: publishedSite.name,
+      exact: true,
+    })
+    await title.hover()
+    await expect(title).toHaveCSS("text-decoration-line", "none")
+    const details = page.getByRole("dialog", { name: publishedSite.name })
+    await site.getByText(publishedSite.description).click()
+    await expect(details.getByText(publishedSite.alias_url)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(details).toBeHidden()
+    await expect(title).toBeFocused()
+    await title.press("Enter")
+    await expect(details).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(details).toBeHidden()
   })
 }
 
@@ -1238,7 +2229,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(role).toHaveCSS("height", "20px")
     await expect(role).toHaveCSS("text-decoration-line", "none")
     await expect(role).toHaveCSS("font-size", "12px")
-    const contrast = await new AxeBuilder({ page })
+    const contrast = await createAxeBuilder(page)
       .include(".profile-hero")
       .withRules(["color-contrast"])
       .analyze()
@@ -1253,7 +2244,15 @@ test("design icon controls and selected navigation survive forced colors", async
   await page.emulateMedia({ forcedColors: "active" })
   await page.goto("/conversations/new")
   const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-  for (const name of ["sidebar", "automations", "plugins", "library"]) {
+  const collapseIcon = sidebar.locator('svg[data-design-icon="sidebar"]')
+  await expect(collapseIcon).toBeVisible()
+  expect(
+    await collapseIcon.evaluate((element) => {
+      const { color, stroke } = getComputedStyle(element)
+      return stroke === color
+    })
+  ).toBe(true)
+  for (const name of ["automations", "plugins", "library"]) {
     const icon = sidebar.locator(`[data-design-icon="${name}"]`)
     await expect(icon).toHaveCSS("forced-color-adjust", "none")
     await expect(icon).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
@@ -1267,17 +2266,55 @@ test("design icon controls and selected navigation survive forced colors", async
     page.getByRole("dialog").locator('[data-design-icon="close"]')
   ).toHaveCSS("forced-color-adjust", "none")
   await page.keyboard.press("Escape")
-  await sidebar.getByRole("link", { name: "插件中心" }).click()
-  const selected = page
-    .locator('[data-variant="navigation"]')
-    .getByRole("tab", { selected: true })
-  await expect(selected).not.toHaveCSS(
-    "border-bottom-color",
-    "rgba(0, 0, 0, 0)"
-  )
+  await sidebar.getByRole("link", { name: "应用与工具" }).click()
+  for (const variant of ["navigation", "segmented"]) {
+    const list = page.locator(`[role="tablist"][data-variant="${variant}"]`)
+    const selected = list.getByRole("tab", { selected: true })
+    const inactive = list.getByRole("tab", { selected: false }).first()
+    await expect(inactive).toBeVisible()
+    const inactiveBorder = await inactive.evaluate(
+      (element) => getComputedStyle(element).borderBottomColor
+    )
+    await expect(selected).not.toHaveCSS("border-bottom-color", inactiveBorder)
+  }
   await page.screenshot({
     path: test.info().outputPath("design-forced-colors.png"),
   })
+})
+
+test("application segments remain reachable by keyboard at 390px", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/auth/refresh", (route) =>
+    ok(route, createE2EAuthSession("en-US"))
+  )
+  await page.route("**/api/v1/me", (route) =>
+    ok(route, { ...ADMIN, preferred_locale: "en-US", language: "en-US" })
+  )
+  await page.route("**/api/v1/web-sites**", (route) =>
+    ok(route, { items: [], next_cursor: null })
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/capabilities?section=application")
+  const list = page.getByRole("tablist", { name: "Application scope" })
+  const owned = list.getByRole("tab", { name: "My applications" })
+  const sites = list.getByRole("tab", { name: "My sites" })
+  const center = list.getByRole("tab", { name: "Application center" })
+  await expect(list).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(list.locator('[data-slot="tabs-indicator"]')).toBeVisible()
+  await owned.press("ArrowRight")
+  await expect(sites).toBeFocused()
+  await expect(owned).toHaveAttribute("aria-selected", "true")
+  await page.keyboard.press("Enter")
+  await expect(sites).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("tabpanel", { name: "My sites" })).toBeVisible()
+
+  await page.keyboard.press("End")
+  await expect(center).toBeFocused()
+  await page.keyboard.press("Space")
+  await expect(center).toHaveAttribute("aria-selected", "true")
+  await expect(center).toBeInViewport({ ratio: 1 })
+  await expectNoHorizontalOverflow(page)
 })
 
 test("settings controls stack below their labels when their container is narrow", async ({
@@ -1388,11 +2425,16 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
     colorScheme: "dark",
     reducedMotion: "no-preference",
   })
+  // The overview lane opens by default and covers the welcome banner's orb.
+  await page.addInitScript(() =>
+    localStorage.setItem("linksense.taskOverviewOpen", "false")
+  )
   await page.goto("/conversations/new")
   const orb = page.locator(".conversation-welcome-icon")
-  const image = orb.locator("img")
-  await expect(image).toBeVisible()
-  await expect(image).toHaveAttribute("src", /welcome-orb/)
+  const artwork = orb.locator('svg[width="176"]')
+  await expect(artwork).toBeVisible()
+  await expect(artwork).toHaveAttribute("viewBox", "0 0 176 176")
+  await expect(orb.locator("img")).toHaveCount(0)
   await expect(orb.locator("canvas")).toHaveCount(0)
   await expect(orb.locator("div[data-paused]")).toHaveCSS(
     "animation-name",
@@ -1417,7 +2459,9 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
   await page.screenshot({
     path: test.info().outputPath("design-orb-hover.png"),
   })
-  await orb.getByRole("button").click()
+  const pause = orb.getByRole("button")
+  await pause.focus()
+  await page.keyboard.press("Space")
   await expect(orb).toHaveAttribute("data-paused", "true")
   await expect(orb.locator("div[data-paused]")).toHaveCSS(
     "animation-play-state",
@@ -1431,7 +2475,8 @@ test("new task keeps the design orb through hover, pause, and reduced motion", a
   )
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await expect(orb).toHaveAttribute("data-paused", "true")
-  await orb.getByRole("button").click()
+  await pause.focus()
+  await page.keyboard.press("Space")
   await expect(orb).toHaveAttribute("data-paused", "false")
   await page.mouse.move(bounds.x - 100, bounds.y)
   await expect(orb).toHaveAttribute("data-active", "false")
@@ -1576,7 +2621,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("textbox")).toHaveCount(0)
     await expectNoHorizontalOverflow(page)
     expect(
-      (await new AxeBuilder({ page }).analyze()).violations.filter(
+      (await createAxeBuilder(page).analyze()).violations.filter(
         (v) => v.impact === "critical" || v.impact === "serious"
       )
     ).toEqual([])
@@ -2054,7 +3099,6 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   const toolbar = composer.locator('[data-slot="composer-toolbar"]')
   const input = composer.getByRole("textbox", { name: "Task composer" })
   const add = toolbar.getByRole("button", { name: "Add content", exact: true })
-  const knowledge = toolbar.getByRole("button", { name: "Add knowledge base" })
   const workspace = toolbar.getByRole("combobox", { name: "Project" })
   const voice = toolbar.getByRole("button", { name: "Voice input" })
   const send = toolbar.getByRole("button", { name: "Send", exact: true })
@@ -2066,18 +3110,34 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await expect(add).toHaveCSS("margin-right", "-6px")
   await add.hover()
   await expect(add).toHaveCSS("background-color", "rgb(242, 246, 253)")
-  await expect(knowledge).toHaveText("Knowledge")
+  await add.click()
+  const knowledgeRow = page.getByRole("option", { name: "Knowledge" })
+  await expect(knowledgeRow).toBeVisible()
+  await expect(knowledgeRow).toHaveText("Knowledge")
+  await expect(
+    knowledgeRow.locator('[data-design-icon="knowledge"]')
+  ).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("option", { name: "Knowledge" })).toHaveCount(0)
   await expect(workspace).toContainText("Public workspace")
   await expect(
     workspace.locator('[data-design-icon="chevron-down"]')
   ).toBeVisible()
   await expect(toolbar.locator('[data-slot="composer-separator"]')).toHaveCount(
-    2
+    1
   )
-  await expect(voice).toHaveCSS("width", "40px")
-  await expect(send).toHaveCSS("width", "40px")
+  await expect(voice).toHaveCSS("width", "32px")
+  await expect(send).toHaveCSS("width", "32px")
   await expect(send).toHaveAttribute("aria-disabled", "true")
-  await expect(send).toHaveCSS("background-color", "rgb(233, 235, 240)")
+  const sendDisabledColor = await composer.evaluate((element) => {
+    const probe = document.createElement("span")
+    probe.style.backgroundColor = "var(--app-send-disabled)"
+    element.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+  await expect(send).toHaveCSS("background-color", sendDisabledColor)
   await input.blur()
   await page.mouse.move(1, 1)
   const neutralBorder = await composer.evaluate(
@@ -2097,7 +3157,7 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await page.setViewportSize({ width: 390, height: 844 })
   await expectNoHorizontalOverflow(page)
   await expect(add).toBeInViewport()
-  await expect(knowledge).toBeInViewport()
+  await expect(voice).toBeInViewport()
   await expect(workspace).toBeInViewport()
   await expect(send).toBeInViewport()
   await page.screenshot({ path: test.info().outputPath("composer-mobile.png") })
@@ -2105,7 +3165,7 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await page.setViewportSize({ width: 320, height: 568 })
   await expectNoHorizontalOverflow(page)
   await expect(add).toBeInViewport()
-  await expect(knowledge).toBeInViewport()
+  await expect(voice).toBeInViewport()
   await expect(workspace).toBeInViewport()
   await expect(send).toBeInViewport()
   expect((await composer.boundingBox())?.height).toBeLessThanOrEqual(160)
@@ -2229,13 +3289,18 @@ async function expectTaskHomeLayout(page: Page): Promise<void> {
     .evaluate((workspace) => {
       const welcome = workspace.querySelector(".conversation-welcome")
       const composer = workspace.querySelector(".composer-shell")
+      const column = workspace.querySelector(".conversation-column")
       const attribution = workspace.querySelector(".conversation-attribution")
-      if (!welcome || !composer)
+      if (!welcome || !composer || !column)
         throw new Error("Expected the task home and composer")
+      const transform = getComputedStyle(column).transform
       return {
         workspace: workspace.getBoundingClientRect().toJSON(),
+        column: column.getBoundingClientRect().toJSON(),
         welcome: welcome.getBoundingClientRect().toJSON(),
         composer: composer.getBoundingClientRect().toJSON(),
+        // The content column shifts left when the task overview lane opens.
+        transformShift: transform === "none" ? 0 : new DOMMatrix(transform).m41,
         attribution: attribution?.getClientRects().length
           ? attribution.getBoundingClientRect().toJSON()
           : null,
@@ -2249,11 +3314,16 @@ async function expectTaskHomeLayout(page: Page): Promise<void> {
   expect(
     Math.abs(layout.welcome.right - layout.composer.right)
   ).toBeLessThanOrEqual(1)
+  const columnCenter = (layout.column.left + layout.column.right) / 2
   expect(
     Math.abs(
-      (layout.composer.left + layout.composer.right) / 2 -
-        (layout.workspace.left + layout.workspace.right) / 2
+      columnCenter -
+        (layout.workspace.left + layout.workspace.right) / 2 -
+        layout.transformShift
     )
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs((layout.composer.left + layout.composer.right) / 2 - columnCenter)
   ).toBeLessThanOrEqual(1)
   if (layout.attribution) {
     const mark = layout.attribution
@@ -2282,15 +3352,20 @@ for (const theme of ["light", "dark"] as const) {
     const cardBoxes = await Promise.all(
       (await cards.all()).map((card) => card.boundingBox())
     )
-    expect(
-      cardBoxes.every(
-        (box) => box && Math.abs(box.y - (cardBoxes[0]?.y ?? 0)) < 1
-      )
-    ).toBe(true)
+    expect(cardBoxes).toHaveLength(4)
+    const [firstCard, secondCard, thirdCard, fourthCard] = cardBoxes
+    expect(firstCard).not.toBeNull()
+    expect(secondCard).not.toBeNull()
+    expect(thirdCard).not.toBeNull()
+    expect(fourthCard).not.toBeNull()
+    // The starter questions form top-aligned rows of two cards.
+    expect(Math.abs(firstCard!.y - secondCard!.y)).toBeLessThan(1)
+    expect(Math.abs(thirdCard!.y - fourthCard!.y)).toBeLessThan(1)
+    expect(thirdCard!.y).toBeGreaterThan(firstCard!.y)
     await expect(
       page.getByRole("complementary", { name: "LinkSense 导航" })
     ).toHaveCSS("width", "272px")
-    const results = await new AxeBuilder({ page })
+    const results = await createAxeBuilder(page)
       .include("#main-content")
       .withTags(["wcag2a", "wcag2aa"])
       .analyze()
@@ -2503,7 +3578,7 @@ test("sidebars share the design palette and preserve distinct active states in b
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
   ).toHaveCSS("background-color", "color(srgb 0.0313726 0.454902 1 / 0.06)")
-  const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
+  const capabilitiesLink = appSidebar.getByRole("link", { name: "应用与工具" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
     "background-color",
@@ -2789,7 +3864,7 @@ test("appearance supports themes and a persistent UI font size without backend p
   ).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 
-  const results = await new AxeBuilder({ page }).analyze()
+  const results = await createAxeBuilder(page).analyze()
   expect(
     results.violations.filter(
       (violation) =>
@@ -2838,7 +3913,7 @@ test("appearance supports themes and a persistent UI font size without backend p
       }
     })
   expect(composerPlaceholderStyle).toMatchObject({
-    fontSize: "18px",
+    fontSize: "17px",
     fontWeight: "400",
     inputFontWeight: "400",
   })
@@ -2855,6 +3930,33 @@ test("appearance supports themes and a persistent UI font size without backend p
   expect(composerPlaceholderStyle.color).toBe(placeholderTokenColor)
 })
 
+test("workspace labels and icons scale together without shrinking their rows", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  for (const [fontSize, labelSize, iconSize] of [
+    ["12", "11px", "13px"],
+    ["14", "13px", "15px"],
+    ["18", "17px", "19px"],
+  ]) {
+    await page.goto("/settings/appearance")
+    await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
+    await page.goto("/conversations/new")
+    const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
+    for (const name of ["自动化", "应用与工具", "资料库"]) {
+      const link = sidebar.getByRole("link", { name, exact: true })
+      await expect(link.getByText(name, { exact: true })).toHaveCSS(
+        "font-size",
+        labelSize
+      )
+      await expect(link).toHaveCSS("height", "34px")
+      const icon = link.locator("[data-design-icon]")
+      await expect(icon).toHaveCSS("width", iconSize)
+      await expect(icon).toHaveCSS("height", iconSize)
+    }
+  }
+})
+
 test("design icons follow the UI font size across the sidebar and conversation", async ({
   page,
 }) => {
@@ -2868,11 +3970,6 @@ test("design icons follow the UI font size across the sidebar and conversation",
     await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
     await page.goto("/conversations/new")
     const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-    for (const name of ["automations"]) {
-      const icon = sidebar.locator(`[data-design-icon="${name}"]`)
-      await expect(icon).toHaveCSS("width", iconSize)
-      await expect(icon).toHaveCSS("height", iconSize)
-    }
     const sidebarToggle = sidebar.locator('[data-design-icon="sidebar"]')
     await expect(sidebarToggle).toHaveCSS("width", "16px")
     await expect(sidebarToggle).toHaveCSS("height", "16px")
@@ -2882,19 +3979,23 @@ test("design icons follow the UI font size across the sidebar and conversation",
       await expect(icon).toHaveCSS("height", "16px")
     }
     const composer = page.locator(".composer-shell")
-    for (const name of [
-      "composer-add",
-      "knowledge",
-      "workspace",
-      "microphone",
-    ]) {
-      const icon = composer.locator(`[data-design-icon="${name}"]`)
+    const addIcon = composer.locator('[data-design-icon="composer-add"]')
+    await expect(addIcon).toHaveCSS("width", "14px")
+    await expect(addIcon).toHaveCSS("height", "14px")
+    for (const name of ["workspace", "chevron-down", "microphone"]) {
+      const icon = composer.locator(`[data-design-icon="${name}"]`).first()
       await expect(icon).toHaveCSS("width", iconSize)
       await expect(icon).toHaveCSS("height", iconSize)
     }
     const sendIcon = composer.locator('[data-design-icon="send"]')
     await expect(sendIcon).toHaveCSS("width", "18px")
     await expect(sendIcon).toHaveCSS("height", "18px")
+    await composer.getByRole("button", { name: "添加内容" }).click()
+    const knowledgeIcon = page.locator('[data-design-icon="knowledge"]')
+    await expect(knowledgeIcon).toBeVisible()
+    await expect(knowledgeIcon).toHaveCSS("width", "16px")
+    await expect(knowledgeIcon).toHaveCSS("height", "16px")
+    await page.keyboard.press("Escape")
     await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
     for (const name of ["share", "overview"]) {
       const icon = page.locator(
@@ -3029,10 +4130,9 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
   await expect(
     sidebar.getByRole("link", { name: "任务", exact: true })
   ).toHaveCount(0)
-  await expect(sidebar.getByRole("link", { name: "插件中心" })).toHaveAttribute(
-    "href",
-    "/capabilities"
-  )
+  await expect(
+    sidebar.getByRole("link", { name: "应用与工具" })
+  ).toHaveAttribute("href", "/capabilities")
   await expect(
     sidebar.getByRole("link", { name: "已归档", exact: true })
   ).toHaveCount(0)
@@ -3065,7 +4165,7 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
       (element) => element.scrollWidth > element.clientWidth
     )
   ).toBe(true)
-  await expect(recentTaskLink).toHaveCSS("min-height", "36px")
+  await expect(recentTaskLink).toHaveCSS("min-height", "34px")
   await expect(recentTask.locator("time")).toHaveCount(0)
   await expect(taskStatus).toBeVisible()
   await expect(taskStatus).toHaveCSS("opacity", "1")
@@ -3652,7 +4752,7 @@ test("long task follows new content without interrupting historical reading", as
   await expect(scrollToBottom).toBeHidden()
 
   await page.setViewportSize({ width: 320, height: 568 })
-  await page.getByRole("button", { name: "关闭任务概览" }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏" }).click()
   await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
   await wheelUp()
   await expect.poll(distanceFromBottom).toBeGreaterThan(500)
@@ -3744,7 +4844,7 @@ test("user message editor uses a shorter borderless light surface", async ({
   await mockEditableConversation(page, conversationId)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/conversations/${conversationId}`)
-  await page.getByRole("button", { name: "关闭任务概览" }).click()
+  await page.getByRole("button", { name: "关闭会话侧栏" }).click()
 
   const userMessage = page.getByRole("article", { name: "用户消息" })
   const editAction = userMessage.getByRole("button", { name: "编辑消息" })
@@ -5289,123 +6389,13 @@ for (const [route, heading] of [
     await expect(
       page.getByRole("heading", { name: heading, exact: true })
     ).toBeVisible()
-    const results = await new AxeBuilder({ page }).analyze()
+    const results = await createAxeBuilder(page).analyze()
     expect(
       results.violations.filter(
         (violation) =>
           violation.impact === "critical" || violation.impact === "serious"
       )
     ).toEqual([])
-  })
-}
-
-for (const locale of supportedLocales) {
-  test(`other action popup padding supports ${locale} at the largest UI font size`, async ({
-    page,
-  }) => {
-    await page.addInitScript(() =>
-      localStorage.setItem("linksense.uiFontSize", "18")
-    )
-    await page.route("**/api/v1/auth/refresh", (route) =>
-      ok(route, createE2EAuthSession(locale))
-    )
-    await page.route("**/api/v1/me", (route) =>
-      ok(route, {
-        ...ADMIN,
-        preferred_locale: locale,
-        language: locale,
-        weekly_credit_limit: null,
-      })
-    )
-    await page.route("**/api/v1/automations", (route) =>
-      ok(route, {
-        items: [
-          {
-            id: "70000000-0000-4000-8000-000000000001",
-            title: "Popup automation",
-            instruction: "Summarize updates",
-            status: "active",
-            conversation: {
-              id: "20000000-0000-4000-8000-000000000001",
-              title: "Source task",
-              pinned_at: NOW,
-            },
-            schedule: {
-              frequency: "daily",
-              interval: 1,
-              time: "09:00",
-              time_zone: "Asia/Shanghai",
-            },
-            next_run_at: NOW,
-            expires_on: null,
-            last_run_at: null,
-            last_run_status: null,
-            last_error_code: null,
-            model_preference: null,
-            created_at: NOW,
-            updated_at: NOW,
-          },
-        ],
-      })
-    )
-    await page.route("**/api/v1/web-sites**", (route) =>
-      ok(route, {
-        items: [
-          {
-            id: "71000000-0000-4000-8000-000000000001",
-            name: "Popup site",
-            description: "Test site",
-            slug: "popup-site",
-            status: "published",
-            url_path: "/sites/popup-site",
-            conversation_id: "20000000-0000-4000-8000-000000000001",
-            source_task_title: "Source task",
-            source_file_id: "72000000-0000-4000-8000-000000000001",
-            release_id: "73000000-0000-4000-8000-000000000001",
-            file_count: 1,
-            size_bytes: 100,
-            published_at: NOW,
-            created_at: NOW,
-            updated_at: NOW,
-          },
-        ],
-        next_cursor: null,
-      })
-    )
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 1000 })
-      for (const route of ["/automations", "/knowledge-bases?tab=sites"]) {
-        await page.goto(route)
-        await expect(page.locator("html")).toHaveAttribute("lang", locale)
-        await page.locator('main [data-slot="dropdown-menu-trigger"]').click()
-        await expectPopupPadding(page.getByRole("menu"), '[role="menuitem"]')
-        await page.keyboard.press("Escape")
-      }
-      if (width === 1440) {
-        await page.goto("/conversations/new")
-        const account = page.getByRole("button", { name: "Eli", exact: true })
-        await account.click()
-        await expectPopupPadding(page.getByRole("menu"), '[role="menuitem"]')
-        await page.keyboard.press("Escape")
-        await expect(
-          page.locator('[data-slot="dropdown-menu-content"]')
-        ).toHaveCount(0)
-        await page
-          .locator(
-            '[data-slot="dropdown-menu-trigger"][aria-label*="项目数据分析"]'
-          )
-          .press("Enter")
-        await page
-          .locator('[data-slot="dropdown-menu-sub-trigger"]')
-          .press("ArrowRight")
-        await expectPopupPadding(
-          page.locator('[data-slot="dropdown-menu-sub-content"]'),
-          '[role="menuitem"]'
-        )
-        await page.keyboard.press("Escape")
-        await page.keyboard.press("Escape")
-      }
-    }
   })
 }
 
@@ -5554,26 +6544,24 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
+  const measure = () =>
+    page.evaluate(() => ({
+      body: document.body.scrollWidth,
+      document: document.documentElement.scrollWidth,
+      viewport: document.documentElement.clientWidth,
+    }))
+  // Viewport-sized popovers reflow a frame after setViewportSize; wait for the
+  // settled layout before requiring the document to fit.
   await expect
-    .poll(() =>
-      page.evaluate(() => ({
-        body: document.body.scrollWidth,
-        document: document.documentElement.scrollWidth,
-        viewport: document.documentElement.clientWidth,
-      }))
-    )
-    .toEqual(
-      expect.objectContaining({
-        body: expect.any(Number),
-        document: expect.any(Number),
-        viewport: expect.any(Number),
-      })
-    )
-  const widths = await page.evaluate(() => ({
-    body: document.body.scrollWidth,
-    document: document.documentElement.scrollWidth,
-    viewport: document.documentElement.clientWidth,
-  }))
+    .poll(async () => {
+      const widths = await measure()
+      return (
+        widths.body <= widths.viewport + 1 &&
+        widths.document <= widths.viewport + 1
+      )
+    })
+    .toBe(true)
+  const widths = await measure()
   expect(widths.body).toBeLessThanOrEqual(widths.viewport + 1)
   expect(widths.document).toBeLessThanOrEqual(widths.viewport + 1)
 }

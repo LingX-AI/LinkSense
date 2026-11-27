@@ -1,10 +1,12 @@
 import Fastify, { type FastifyRequest } from "fastify";
+import pino from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { conversationRoutes } from "../src/modules/conversations/routes.js";
 import type { AppServices } from "../src/services.js";
+import { testConfig } from "./test-config.js";
 import type { SideChatSelection } from "@linksense/shared";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -231,16 +233,14 @@ describe("conversation create route", () => {
     });
   });
 
-  it("rejects removed server-draft fields", async () => {
-    const { app, create } = await conversationRouteFixture();
-
+  it("rejects unauthenticated creation before the service", async () => {
+    const { app, create } = await conversationRouteFixture(null, false, { authenticated: false });
     const response = await app.inject({
       method: "POST",
       url: "/conversations",
-      payload: { collaboration_mode: "default", input_text: "local only" },
+      payload: {},
     });
-
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(401);
     expect(create).not.toHaveBeenCalled();
   });
 });
@@ -1342,14 +1342,17 @@ describe("conversation pending request route", () => {
     });
   });
 
-  it("reorders the complete pending request queue", async () => {
+  it.each([2, 6])("reorders the complete pending request queue of %i items", async (count) => {
     const { app, reorderPending } = await conversationRouteFixture();
+    const ids = Array.from({ length: count }, (_item, index) =>
+      `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    );
 
     const response = await app.inject({
       method: "PUT",
       url: `/conversations/${CONVERSATION_ID}/pending-requests/order`,
       payload: {
-        request_ids: [SECOND_PENDING_REQUEST_ID, PENDING_REQUEST_ID],
+        request_ids: ids,
       },
     });
 
@@ -1357,7 +1360,7 @@ describe("conversation pending request route", () => {
     expect(reorderPending).toHaveBeenCalledWith(
       OWNER_ID,
       CONVERSATION_ID,
-      [SECOND_PENDING_REQUEST_ID, PENDING_REQUEST_ID],
+      ids,
       expect.any(Object),
     );
   });
@@ -1432,6 +1435,10 @@ describe("conversation pending request route", () => {
 async function conversationRouteFixture(
   applicationId: string | null = null,
   applicationAllowsUserModelSelection = false,
+  options: {
+    authenticated?: boolean;
+    logLines?: Record<string, unknown>[];
+  } = {},
 ) {
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
   const getInteractiveTaskState = vi.fn(async () => ({ status: "idle", turn_id: null, file_ids: [], can_submit: true, interrupt_requested: false }));
@@ -1498,11 +1505,13 @@ async function conversationRouteFixture(
     status: "starting" as const,
   }));
   const getSideChat = vi.fn(async () => null);
-  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection) => ({
-    conversation_id: TURN_ID,
-    parent_conversation_id: parentId,
-    reference: { ...selection, id: IDEMPOTENCY_KEY, source_conversation_id: parentId, source_title: "Task", recent_messages: [] },
-  }));
+  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection) => {
+    return {
+      conversation_id: TURN_ID,
+      parent_conversation_id: parentId,
+      reference: { ...selection, id: IDEMPOTENCY_KEY, source_conversation_id: parentId, source_title: "Task", recent_messages: [] },
+    };
+  });
   const startGoal = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000005",
     accepted: true as const,
@@ -1639,9 +1648,23 @@ async function conversationRouteFixture(
     created_at: "2026-09-03T04:00:00.000Z",
     updated_at: "2026-09-03T04:00:00.000Z",
   }));
-  const app = Fastify();
+  const config = testConfig();
+  const logLines = options.logLines;
+  const app = Fastify({
+    loggerInstance: pino(
+      { level: logLines ? "warn" : "silent" },
+      logLines
+        ? {
+            write(line: string) {
+              logLines.push(JSON.parse(line) as Record<string, unknown>);
+            },
+          }
+        : undefined,
+    ),
+  });
   apps.push(app);
   app.decorate("authenticate", async (request: FastifyRequest) => {
+    if (options.authenticated === false) throw new AppError("AUTH_REQUIRED");
     request.authUser = {
       id: OWNER_ID,
       email: "owner@example.test",
@@ -1659,6 +1682,7 @@ async function conversationRouteFixture(
   await app.register(conversationRoutes, {
     prefix: "/conversations",
     services: {
+      config,
       conversations: {
         getSideChat,
         openSideChat,
@@ -1701,6 +1725,7 @@ async function conversationRouteFixture(
   });
   return {
     app,
+    config,
     getSideChat,
     openSideChat,
     getInteractiveTaskState,

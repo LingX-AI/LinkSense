@@ -11,6 +11,10 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { cardSpotlightProps } from "@/components/ui/card-spotlight"
+import {
+  CatalogResourceRow,
+  CatalogResourceStatus,
+} from "@/components/ui/catalog-resource-row"
 import { cn } from "@/lib/utils"
 export { ApplicationCardResources } from "./application-resource-counts"
 import {
@@ -20,7 +24,7 @@ import {
 import { ApplicationIconDisplay } from "./application-icon"
 
 type ApplicationCardProps = {
-  layout?: "card" | "row"
+  layout?: "card" | "row" | "managed"
   id: string
   name: string
   kind: Application["kind"]
@@ -84,9 +88,10 @@ export function ApplicationCard({
   actions,
 }: ApplicationCardProps) {
   const { t } = useTranslation()
-  if (layout === "row") {
+  if (layout !== "card") {
     return (
       <ApplicationListRow
+        layout={layout}
         id={id}
         name={name}
         kind={kind}
@@ -181,6 +186,7 @@ export function ApplicationCard({
 }
 
 function ApplicationListRow({
+  layout,
   id,
   name,
   kind,
@@ -196,6 +202,106 @@ function ApplicationListRow({
   actions,
 }: ApplicationCardProps) {
   const { t } = useTranslation()
+  const managed = layout === "managed"
+  const iconTile = icon ? (
+    <ApplicationCardIcon icon={icon} compact />
+  ) : (
+    <span aria-hidden="true" className="size-10" />
+  )
+  const title = (
+    <CardTitle
+      className={cn(
+        "max-w-full min-w-0 leading-[var(--app-line-22)] text-foreground",
+        managed ? "text-[length:var(--app-font-15)] font-semibold" : "text-sm"
+      )}
+    >
+      <h3 className="line-clamp-2 wrap-anywhere" aria-label={name} title={name}>
+        {onOpenDetails ? (
+          <ApplicationDetailsButton
+            id={id}
+            name={name}
+            onOpen={onOpenDetails}
+          />
+        ) : (
+          name
+        )}
+      </h3>
+    </CardTitle>
+  )
+  const metadata = (
+    <div
+      data-slot="application-card-metadata"
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-[var(--app-line-18)] text-muted-foreground"
+    >
+      <span>{t(`applications.details.kinds.${kind}`)}</span>
+      {version && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="min-w-0 truncate">
+            {t("applications.distribution.version", { version })}
+          </span>
+        </>
+      )}
+    </div>
+  )
+  const descriptionText =
+    description?.trim() || (managed ? "" : t("applications.noDescription"))
+  const detail = descriptionText && (
+    <CardDescription
+      className={cn(
+        "line-clamp-2 leading-[var(--app-line-22)] wrap-anywhere",
+        managed ? "text-[length:var(--app-font-13)]" : "text-sm"
+      )}
+      title={descriptionText}
+    >
+      {descriptionText}
+    </CardDescription>
+  )
+  const rowActions = (
+    <>
+      {actions}
+      {headerActions}
+    </>
+  )
+  if (managed) {
+    return (
+      <CatalogResourceRow
+        name={name}
+        icon={iconTile}
+        summary={
+          <div
+            data-slot="application-card-summary"
+            className="flex min-w-0 flex-col items-start gap-1"
+          >
+            <div
+              data-slot="application-card-status"
+              className="flex max-w-full flex-wrap gap-1"
+            >
+              {status && (
+                <CatalogResourceStatus positive={status === "active"}>
+                  {t(`applications.status.${status}`)}
+                </CatalogResourceStatus>
+              )}
+              {developing && (
+                <CatalogResourceStatus>
+                  {t("applicationDevelopment.publish.draft")}
+                </CatalogResourceStatus>
+              )}
+            </div>
+            {footer}
+          </div>
+        }
+        actions={(actions || headerActions) && rowActions}
+      >
+        <div data-slot="application-card-title-row">{title}</div>
+        {detail}
+        <CardContent className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 p-0 [&>[role=alert]]:basis-full [&>[role=status]]:basis-full">
+          {metadata}
+          {children}
+        </CardContent>
+      </CatalogResourceRow>
+    )
+  }
   return (
     <Card
       role="article"
@@ -204,54 +310,16 @@ function ApplicationListRow({
       className="relative min-h-19 min-w-0 gap-0 rounded-none border-x-0 border-t-0 border-b border-divider bg-transparent px-4 py-3 shadow-none transition-colors focus-within:bg-(--app-hover-subtle) hover:bg-(--app-hover-subtle)"
     >
       <CardHeader className="@container-normal grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-0 has-data-[slot=card-description]:grid-rows-none @min-[48rem]/shell-content:grid-cols-[2.5rem_minmax(0,1fr)_7.5rem_8rem] [&>[data-slot=application-card-icon]]:self-start @min-[48rem]/shell-content:[&>[data-slot=application-card-icon]]:self-center">
-        {icon ? (
-          <ApplicationCardIcon icon={icon} compact />
-        ) : (
-          <span aria-hidden="true" className="size-10" />
-        )}
+        {iconTile}
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
           <div
             data-slot="application-card-title-row"
             className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1"
           >
-            <CardTitle className="max-w-full min-w-0 text-sm leading-[var(--app-line-22)] text-foreground">
-              <h3
-                className="line-clamp-2 wrap-anywhere"
-                aria-label={name}
-                title={name}
-              >
-                {onOpenDetails ? (
-                  <ApplicationDetailsButton
-                    id={id}
-                    name={name}
-                    onOpen={onOpenDetails}
-                  />
-                ) : (
-                  name
-                )}
-              </h3>
-            </CardTitle>
-            <div
-              data-slot="application-card-metadata"
-              className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-[var(--app-line-18)] text-muted-foreground"
-            >
-              <span>{t(`applications.details.kinds.${kind}`)}</span>
-              {version && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="min-w-0 truncate">
-                    {t("applications.distribution.version", { version })}
-                  </span>
-                </>
-              )}
-            </div>
+            {title}
+            {metadata}
           </div>
-          <CardDescription
-            className="line-clamp-2 text-sm leading-[var(--app-line-22)] wrap-anywhere"
-            title={description || t("applications.noDescription")}
-          >
-            {description || t("applications.noDescription")}
-          </CardDescription>
+          {detail}
           {children && (
             <CardContent className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-0 [&>[role=alert]]:basis-full [&>[role=status]]:basis-full">
               {children}
@@ -275,8 +343,7 @@ function ApplicationListRow({
               data-slot="application-card-actions"
               className="relative col-start-2 row-start-3 flex max-w-full min-w-0 flex-wrap items-center gap-2 @min-[48rem]/shell-content:col-start-4 @min-[48rem]/shell-content:row-start-1 @min-[48rem]/shell-content:justify-end [&_[aria-haspopup=menu]]:rounded-md [&_[aria-haspopup=menu]:hover]:bg-(--app-sidebar-action-hover) [&_[aria-haspopup=menu][data-popup-open]]:bg-(--app-sidebar-action-hover) [&>[data-slot=button]]:max-w-full [&>[data-slot=button]]:whitespace-normal"
             >
-              {actions}
-              {headerActions}
+              {rowActions}
             </div>
           )}
         </CardFooter>

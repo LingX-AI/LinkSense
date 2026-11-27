@@ -862,6 +862,166 @@ describe("NativeActivityItem", () => {
     ).toBeVisible()
   })
 
+  it("renders a registered artifact file change as a downloadable display name", async () => {
+    const interaction = userEvent.setup()
+    const fileId = "40000000-0000-4000-8000-000000000001"
+    const onDownload = vi.fn()
+    const file = {
+      id: fileId,
+      name: "report.pdf",
+      mime_type: "application/pdf",
+      size: 2_048,
+      kind: "artifact" as const,
+      download_available: true,
+      turn_id: "turn-1",
+    }
+    const { container } = render(
+      <NativeActivityItem
+        method="item/completed"
+        item={{
+          id: "file-change-artifact",
+          type: "fileChange",
+          status: "completed",
+          changes: [
+            { path: "apps/web/src/app.tsx", kind: { type: "update" } },
+            { path: "$WORKSPACE/exports/report.pdf", kind: { type: "add" } },
+          ],
+        }}
+        artifactIdsByChange={{ 1: fileId }}
+        artifactFilesById={new Map([[fileId, file]])}
+        turnId="turn-1"
+        onDownload={onDownload}
+      />
+    )
+
+    await interaction.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: i18n.t(
+            "conversation.nativeActivities.fileChangeCompleted",
+            { count: 2 }
+          ),
+        }),
+      })
+    )
+
+    expect(
+      screen.getByText("apps/web/src/app.tsx", { selector: "code" })
+    ).toBeVisible()
+    await interaction.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.downloadArtifact", { name: "report.pdf" }),
+      })
+    )
+    expect(onDownload).toHaveBeenCalledWith(file)
+    expect(container).not.toHaveTextContent("$WORKSPACE/exports/report.pdf")
+  })
+
+  it("does not turn a historical filename resembling an artifact reference into a download", () => {
+    const fileId = "40000000-0000-4000-8000-000000000001"
+    const path = `linksense-artifact:${fileId}`
+    render(
+      <NativeActivityItem
+        open
+        method="item/completed"
+        item={{
+          id: "legacy-file-change",
+          type: "fileChange",
+          status: "completed",
+          changes: [{ path, kind: { type: "add" } }],
+        }}
+        artifactFilesById={new Map([[fileId, {
+          id: fileId,
+          name: "report.pdf",
+          size: 2_048,
+          kind: "artifact",
+          turn_id: "turn-1",
+          download_available: true,
+        }]])}
+        turnId="turn-1"
+        onDownload={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText(path, { selector: "code" })).toBeVisible()
+    expect(screen.queryByRole("button", {
+      name: i18n.t("conversation.downloadArtifact", { name: "report.pdf" }),
+    })).not.toBeInTheDocument()
+  })
+
+  it("keeps unresolved, other-turn, and non-downloadable artifacts as plain text", async () => {
+    const interaction = userEvent.setup()
+    const missingId = "40000000-0000-4000-8000-000000000002"
+    const otherTurnId = "40000000-0000-4000-8000-000000000003"
+    const draftId = "40000000-0000-4000-8000-000000000004"
+    const onDownload = vi.fn()
+    render(
+      <NativeActivityItem
+        method="item/completed"
+        item={{
+          id: "file-change-unresolved",
+          type: "fileChange",
+          status: "completed",
+          changes: [
+            { path: "missing.txt", kind: { type: "add" } },
+            {
+              path: "foreign.txt",
+              kind: { type: "add" },
+            },
+            { path: "not-registered.txt", kind: { type: "add" } },
+          ],
+        }}
+        artifactIdsByChange={{ 0: missingId, 1: otherTurnId, 2: draftId }}
+        artifactFilesById={
+          new Map([
+            [
+              otherTurnId,
+              {
+                id: otherTurnId,
+                name: "other-turn.txt",
+                size: 1,
+                kind: "artifact",
+                download_available: true,
+                turn_id: "turn-2",
+              },
+            ],
+            [
+              draftId,
+              {
+                id: draftId,
+                name: "draft.txt",
+                size: 1,
+                kind: "artifact",
+                download_available: false,
+                turn_id: "turn-1",
+              },
+            ],
+          ])
+        }
+        turnId="turn-1"
+        onDownload={onDownload}
+      />
+    )
+
+    await interaction.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: i18n.t(
+            "conversation.nativeActivities.fileChangeCompleted",
+            { count: 3 }
+          ),
+        }),
+      })
+    )
+
+    expect(screen.getByText("missing.txt", { selector: "code" })).toBeVisible()
+    expect(screen.getByText("foreign.txt", { selector: "code" })).toBeVisible()
+    expect(screen.getByText("not-registered.txt", { selector: "code" })).toBeVisible()
+    expect(screen.queryByText("other-turn.txt")).toBeNull()
+    expect(screen.queryAllByRole("button", { name: /下载/u })).toHaveLength(0)
+    expect(onDownload).not.toHaveBeenCalled()
+  })
+
   it.each(["artifact", "attachment", "image_preview"] as const)(
     "expands %s image-view details while retaining the image type icon",
     async (kind) => {

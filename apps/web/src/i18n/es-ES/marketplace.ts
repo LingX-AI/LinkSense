@@ -17,6 +17,7 @@ export const marketplaceMessages = {
     identifierHint:
       "El identificador de la Skill no cambia durante una actualización.",
     content: "Instrucciones de la Skill",
+    descriptionRequired: "Introduce una descripción para la Skill.",
     contentRequired: "Introduce las instrucciones de la Skill.",
     contentTooLarge:
       "Estas instrucciones son demasiado largas para editarlas en línea. Descarga el paquete completo, edítalo y vuelve a subirlo.",
@@ -39,7 +40,7 @@ export const marketplaceMessages = {
     confirmDeletions: "Confirmo la eliminación de estos {{count}} archivos",
   },
   marketplace: {
-    title: "Centro de plugins",
+    title: "Apps y herramientas",
     description:
       "Explora plugins y Skills públicos y gestiona el contenido instalado, el personal y las conexiones MCP en un solo lugar.",
     personalAccountDescription:
@@ -55,7 +56,7 @@ export const marketplaceMessages = {
       reviews: "Revisiones de publicación",
       listings: "Todas las publicaciones",
     },
-    catalogTabsLabel: "Categorías del centro de plugins",
+    catalogTabsLabel: "Categorías de Apps y herramientas",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Skills",
@@ -194,6 +195,7 @@ export const marketplaceMessages = {
     skillMarkdown: "Contenido de SKILL.md",
     skillIdentifier: "Identificador de la Skill",
     skillNameRequired: "Introduce un identificador para la Skill.",
+    skillDescriptionRequired: "Introduce una descripción para la Skill.",
     skillNameTooLong: "El identificador no puede superar los 64 caracteres.",
     skillNameInvalid:
       "Usa solo letras inglesas minúsculas, números y guiones (-). Los guiones no pueden estar al principio ni al final, ni aparecer consecutivamente.",
@@ -213,7 +215,7 @@ export const marketplaceMessages = {
       "Se crea una copia inmutable del plugin o Skill personal actual y se envía para revisión del administrador.",
     sourceCapability: "Plugin/Skill personal de origen",
     noPublishableSource:
-      "No hay ningún plugin o Skill personal publicable con el mismo nombre y tipo que esta publicación. Importa o actualiza primero el origen en el centro de plugins.",
+      "No hay ningún plugin o Skill personal publicable con el mismo nombre y tipo que esta publicación. Importa o actualiza primero el origen en Apps y herramientas.",
     immutableSnapshotNotice:
       "La revisión se aplica a una copia independiente e inmutable. Los cambios posteriores en tu plugin o Skill personal no afectan a esta versión pendiente.",
     submitForReview: "Enviar para revisión",
@@ -227,7 +229,7 @@ export const marketplaceMessages = {
       "Todavía no has enviado aplicaciones, plugins ni Skills.",
     publicationsDescription:
       "Gestiona tus aplicaciones, plugins y Skills enviados, sigue las revisiones y publica actualizaciones.",
-    backToCenter: "Volver al centro de plugins",
+    backToCenter: "Volver a Apps y herramientas",
     manageApplicationListing: "Gestionar publicación",
     selectApplication: "Selecciona una aplicación para publicar",
     selectApplicationDescription:

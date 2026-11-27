@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright"
+import { createAxeBuilder } from "./support/axe"
 import type { AuthenticationSettings } from "@linksense/shared"
 import { expect, test, type Page, type Route } from "@playwright/test"
 
@@ -114,7 +114,7 @@ for (const viewport of [
           .map((animation) => animation.finished.catch(() => undefined))
       )
     })
-    const dialogAccessibility = await new AxeBuilder({ page })
+    const dialogAccessibility = await createAxeBuilder(page)
       .include('[role="dialog"]')
       .analyze()
     expect(
@@ -131,7 +131,7 @@ for (const viewport of [
     ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
-    const accessibility = await new AxeBuilder({ page }).analyze()
+    const accessibility = await createAxeBuilder(page).analyze()
     expect(
       accessibility.violations.filter(
         (violation) =>

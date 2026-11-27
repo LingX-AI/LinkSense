@@ -77,6 +77,33 @@ Host 模式可以连接远程 PostgreSQL、Redis 和 S3 兼容的 MinIO。如需
 配置。脚本会拒绝 `postgres`、`redis`、`minio`、`api`、`runner` 和
 `host.docker.internal` 等容器专用地址，不会静默切换 Provider。
 
+如果依赖只监听远程服务器的回环地址，设置 `LINKSENSE_DEV_SSH_TARGET` 为 SSH
+主机别名，并在 `LINKSENSE_DEV_SSH_FORWARDS` 中填写逗号分隔的 `本地端口:远程端口`。
+例如 `19080:19080` 转发 Appwrite，此时 `LINKSENSE_APPWRITE_ENDPOINT` 使用
+`http://127.0.0.1:19080/v1`；其余 Appwrite 配置见
+[公开站点托管](../../docs/development/web-site-sharing.md)。动态应用 base URL 仍指向
+本机 API，例如 `http://apps.localhost:4000`。
+
+在一个终端保持 `pnpm dev:dependencies` 运行，再在另一个终端执行 `pnpm dev:host`。
+使用 `Ctrl+C` 停止隧道。切换被 Git 忽略的环境文件时，分别执行
+`LINKSENSE_ENV_FILE=.env.other pnpm dev:dependencies` 和
+`LINKSENSE_ENV_FILE=.env.other node scripts/dev-host.mjs`。依赖地址、SSH 服务器与端口
+均从该文件读取，启动器不内置服务器地址。
+
+可选的 [Appwrite Compose 覆盖文件](appwrite.override.yml) 用于官方 Appwrite 2.7.2
+PostgreSQL 安装，需要 Docker Compose 2.24.4 或更高版本以支持 `!override`。
+使用独立的 `COMPOSE_PROJECT_NAME`，把
+`_APP_COMPUTE_RUNTIMES_NETWORK` 设为 `<project>-runtimes`，把 `_APP_BUILDS_VOLUME`
+设为 `<project>-builds`。保留官方执行器的 `/tmp:/tmp` 挂载；原生运行容器使用相同的
+宿主机路径读取代码包。
+把 `LINKSENSE_APPWRITE_EXECUTOR_NAME` 设为最多四个字符的独立名称（默认 `exc1`）；
+名称过长会超过原生运行 ID 的长度限制。首次构建函数前，在服务器预先拉取
+`openruntimes/node:v5-24` 和 `ghcr.io/open-runtimes/orchestrator/job-sidecar:4.0.0`。
+通过 `docker compose -f docker-compose.yml -f appwrite.override.yml up -d` 启动。
+该覆盖文件为容器和网络使用独立名称，把 API 接入函数运行网络，且只在服务器回环地址
+开放 HTTP 管理端口。本地开发通过 SSH 访问。私有 `.env`、数据与备份不得进入 Git。
+迁移已有安装还需要数据库、存储卷和加密材料，仅复制 Compose 文件不会迁移数据。
+
 ### 隔离边界与生产不变量
 
 `local-process` Worker Provider 使用 Node.js 子进程并复用与 Docker 相同的 Worker

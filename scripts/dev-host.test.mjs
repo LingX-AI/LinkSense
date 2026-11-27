@@ -145,6 +145,12 @@ test("host development starts every application with pnpm and passes the dynamic
 
   assert.deepEqual(
     commands.map((command) => command.workspace),
+    ["@linksense/runner", "@linksense/api", "@linksense/web"],
+  );
+  assert.deepEqual(
+    hostDevelopmentCommands(environment, { docs: true }).map(
+      (command) => command.workspace,
+    ),
     ["@linksense/runner", "@linksense/api", "@linksense/docs", "@linksense/web"],
   );
   assert.deepEqual(commands.at(-1)?.args, [
@@ -218,6 +224,7 @@ test("host readiness waits for Docs before probing the Vite Help Center proxy", 
     timeoutMs: 1_000,
     intervalMs: 1,
     requestTimeoutMs: 10,
+    docs: true,
     sleepImplementation: async () => undefined,
     fetchImplementation: async (url) => {
       calls.push(url);
@@ -231,6 +238,27 @@ test("host readiness waits for Docs before probing the Vite Help Center proxy", 
 
   assert.deepEqual(calls.slice(0, 2), [docsUrl, docsUrl]);
   assert.ok(calls.indexOf(proxyUrl) > 1);
+});
+
+test("host readiness skips the Help Center unless docs is requested", async () => {
+  const environment = buildHostDevelopmentEnvironment({
+    ...dependencies,
+    LINKSENSE_DEV_WEB_PORT: "5273",
+  });
+  const calls = [];
+
+  await waitForHostDevelopmentApplicationReadiness(environment, {
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    requestTimeoutMs: 10,
+    sleepImplementation: async () => undefined,
+    fetchImplementation: async (url) => {
+      calls.push(url);
+      return readinessResponse(url);
+    },
+  });
+
+  assert.equal(calls.some((url) => url.includes("/help/")), false);
 });
 
 test("host development rejects container-only dependency addresses instead of falling back", () => {

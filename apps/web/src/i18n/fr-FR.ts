@@ -123,7 +123,7 @@ export const frFR = {
     automations: "Automatisations",
     conversations: "Tâches",
     archived: "Tâches archivées",
-    capabilities: "Centre de plugins",
+    capabilities: "Applications et outils",
     knowledgeBases: "Bibliothèque de ressources",
     pinned: "Épinglés",
     projects: "Projets",

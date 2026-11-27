@@ -5,6 +5,7 @@ import {
   browserUseFailure,
   browserUseLegacyResult,
   browserUseFailureCodes,
+  browserUseOpenSiteCapability,
   browserUsePairResponseSchema,
   browserUsePreviewSchema,
   type BrowserUseCommand,
@@ -462,6 +463,15 @@ async function run(command: BrowserUseCommand): Promise<BrowserUseResult> {
   const session = sessionSchema.parse(
     (await chrome.storage.session.get("session")).session,
   );
+  if (request.action === "open_site_window") {
+    if (!session.new_tabs) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    // This command accepts a slug, never a destination URL or a page grant.
+    const url = new URL(`/web/${request.slug}`, connectionEndpoint(session.endpoint).origin).href;
+    assertExecuting();
+    const opened = await chrome.windows.create({ url, focused: true, type: "normal" });
+    if (opened?.id === undefined) return browserUseFailure("BROWSER_USE_COMMAND_FAILED");
+    return { ok: true, browser: "local", data: { url } };
+  }
   if (
     "url" in request &&
     webUrl(request.url).origin === new URL(session.endpoint).origin
@@ -663,6 +673,7 @@ async function connect(): Promise<void> {
   reconnectTimer = undefined;
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname += "/socket";
+  url.searchParams.set("capability", browserUseOpenSiteCapability);
   const current = ++generation;
   socket?.close();
   const ws = new WebSocket(url);
@@ -1089,7 +1100,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
       const session = sessionSchema.parse(stored.session);
       if (message.origin !== new URL(session.endpoint).origin || message.new_tabs === undefined)
         throw new Error("denied");
-      if (!message.new_tabs && executing?.command.request.action === "open")
+      if (!message.new_tabs && (executing?.command.request.action === "open" || executing?.command.request.action === "open_site_window"))
         executing.controller.abort("BROWSER_USE_CANCELLED");
       await chrome.storage.session.set({ session: { ...session, new_tabs: message.new_tabs } });
       const trust = await trustedSite();

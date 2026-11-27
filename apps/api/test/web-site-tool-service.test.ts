@@ -62,7 +62,7 @@ describe("conversation site tools", () => {
       site: { id: siteId, name: draftSite.name, description: draftSite.description, status: "published", url: publicBaseUrl + "/web/" + draftSite.slug },
     });
     expect(result).not.toHaveProperty("site.url_path");
-    expect(f.store.create).toHaveBeenCalledExactlyOnceWith(ownerId, draftSite, expect.objectContaining({ slug: draftSite.slug }), "Source", expect.anything());
+    expect(f.store.create).toHaveBeenCalledExactlyOnceWith(ownerId, draftSite, expect.objectContaining({ slug: draftSite.slug }), "Source", expect.anything(), undefined, undefined);
   });
 
   it("uses the fallback language and keeps site metadata as plain text in the approval", async () => {
@@ -120,7 +120,7 @@ describe("conversation site tools", () => {
       tool: "update_site", site: { id: siteId, url: publicBaseUrl + "/web/sample" },
     });
     expect(result).not.toHaveProperty("site.url_path");
-    expect(f.store.publish).toHaveBeenCalledExactlyOnceWith(ownerId, siteId, taskId, fileId, expect.any(String), f.manifest, {
+    expect(f.store.publish).toHaveBeenCalledExactlyOnceWith(ownerId, siteId, taskId, fileId, expect.any(String), f.manifest, undefined, undefined, {
       name: "Sample", slug: "sample", status: "published", release_id: releaseId,
     });
   });
@@ -133,7 +133,7 @@ describe("conversation site tools", () => {
       tool: "update_site", site: { id: siteId, status: "disabled", url: publicBaseUrl + "/web/sample" },
     });
     expect(result).not.toHaveProperty("site.url_path");
-    expect(f.store.publish).toHaveBeenCalledExactlyOnceWith(ownerId, siteId, taskId, fileId, expect.any(String), f.manifest, {
+    expect(f.store.publish).toHaveBeenCalledExactlyOnceWith(ownerId, siteId, taskId, fileId, expect.any(String), f.manifest, undefined, undefined, {
       name: "Sample", slug: "sample", status: "disabled", release_id: releaseId,
     });
   });
@@ -151,7 +151,10 @@ describe("conversation site tools", () => {
     });
     expect(result).not.toHaveProperty("site.url_path");
     await f.execute({ tool: "unpublish_site", site_id: siteId });
-    expect(f.store.update.mock.calls).toEqual([[ownerId, siteId, changes], [ownerId, siteId, { status: "disabled" }]]);
+    expect(f.store.update.mock.calls).toEqual([
+      [ownerId, siteId, changes, undefined, undefined, undefined],
+      [ownerId, siteId, { status: "disabled" }, undefined, undefined, undefined],
+    ]);
     expect(f.store.publish).not.toHaveBeenCalled();
   });
 

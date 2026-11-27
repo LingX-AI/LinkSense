@@ -61,7 +61,7 @@ describe("task source overview integration", () => {
       },
     })
     renderApp()
-    const overview = await screen.findByRole("region", { name: "任务概览" })
+    const overview = await screen.findByRole("region", { name: "会话侧栏" })
     expect(
       await within(overview).findByRole("link", { name: "历史参考资料" })
     ).toHaveAttribute("href", "https://historical.test/guide")

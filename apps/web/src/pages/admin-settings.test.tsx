@@ -1228,13 +1228,12 @@ describe("administrator authentication settings", () => {
       "系统维护",
     ])
     expect(productTab.closest('[data-slot="tabs-list"]')).toHaveClass(
-      "rounded-xl",
-      "bg-muted"
+      "bg-transparent"
     )
     expect(productTab).toHaveClass(
       "rounded-lg",
-      "font-medium",
-      "data-active:text-foreground"
+      "font-normal",
+      "data-active:text-link-foreground"
     )
     expect(productTab).not.toHaveClass("rounded-2xl")
     expect(
@@ -3369,6 +3368,9 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("button", { name: "添加模型渠道" })
     )
     const secondProvider = screen.getByRole("dialog", { name: "添加模型渠道" })
+    await interaction.click(
+      within(secondProvider).getByRole("button", { name: "高级设置" })
+    )
     await interaction.type(
       within(secondProvider).getByLabelText(formLabelPattern("渠道名称")),
       "模型渠道 2"
@@ -3666,20 +3668,14 @@ describe("administrator authentication settings", () => {
     const model = await openModelEditor(interaction, "GPT-5.6-Sol")
     expect(within(model).queryByText(/可选档位由/u)).not.toBeInTheDocument()
 
-    const supportedEfforts = within(model).getByRole("button", {
-      name: "支持的推理强度",
-    })
-    expect(supportedEfforts).toHaveTextContent("已选择 6 项")
-    await interaction.click(supportedEfforts)
-    const ultra = await screen.findByRole("menuitemcheckbox", { name: "极致" })
+    const ultra = within(model).getByRole("checkbox", { name: "极致" })
     expect(ultra).toBeChecked()
-    expect(ultra).not.toHaveAttribute("aria-disabled", "true")
+    expect(ultra).not.toBeDisabled()
     expect(
-      screen.queryByRole("menuitemcheckbox", { name: "最小" })
+      within(model).queryByRole("checkbox", { name: "最小" })
     ).not.toBeInTheDocument()
     await interaction.click(ultra)
-    expect(supportedEfforts).toHaveTextContent("已选择 5 项")
-    await interaction.keyboard("{Escape}")
+    expect(ultra).not.toBeChecked()
     expect(
       within(model).getByLabelText(formLabelPattern("模型 ID"))
     ).toHaveValue("gpt-5.6-sol")
@@ -3757,28 +3753,22 @@ describe("administrator authentication settings", () => {
 
     const model = await openModelEditor(interaction, "Model A")
 
-    const supportedEfforts = within(model).getByRole("button", {
-      name: "支持的推理强度",
-    })
-    expect(supportedEfforts).toHaveTextContent("已选择 2 项")
-    await interaction.click(supportedEfforts)
-
-    const medium = await screen.findByRole("menuitemcheckbox", { name: "中" })
+    const medium = within(model).getByRole("checkbox", { name: "中" })
     expect(medium).toBeChecked()
-    expect(medium).not.toHaveAttribute("aria-disabled", "true")
-    const high = screen.getByRole("menuitemcheckbox", { name: "高" })
+    expect(medium).not.toBeDisabled()
+    const high = within(model).getByRole("checkbox", { name: "高" })
     expect(high).toBeChecked()
-    expect(high).not.toHaveAttribute("aria-disabled", "true")
-    const low = screen.getByRole("menuitemcheckbox", { name: "轻量" })
+    expect(high).not.toBeDisabled()
+    const low = within(model).getByRole("checkbox", { name: "轻量" })
     expect(low).not.toBeChecked()
 
     await interaction.click(medium)
-    expect(supportedEfforts).toHaveTextContent("高")
+    expect(medium).not.toBeChecked()
     expect(high).toHaveAttribute("aria-disabled", "true")
     await interaction.click(low)
-    expect(supportedEfforts).toHaveTextContent("已选择 2 项")
+    expect(low).toBeChecked()
+    expect(high).not.toHaveAttribute("aria-disabled", "true")
 
-    await interaction.keyboard("{Escape}")
     const defaultEffort = within(model).getByRole("combobox", {
       name: "默认推理强度",
     })
@@ -4478,7 +4468,12 @@ async function openChannelEditor(
   await interaction.click(
     await screen.findByRole("menuitem", { name: "编辑渠道" })
   )
-  return screen.findByRole("dialog", { name: "编辑渠道" })
+  const dialog = await screen.findByRole("dialog", { name: "编辑渠道" })
+  const advanced = within(dialog).getByRole("button", { name: "高级设置" })
+  if (advanced.getAttribute("aria-expanded") === "false") {
+    await interaction.click(advanced)
+  }
+  return dialog
 }
 
 async function openModelEditor(
@@ -4488,7 +4483,14 @@ async function openModelEditor(
   await interaction.click(
     await screen.findByRole("button", { name: `编辑模型 ${name}` })
   )
-  return screen.findByRole("dialog", { name: `编辑模型 ${name}` })
+  const dialog = await screen.findByRole("dialog", {
+    name: `编辑模型 ${name}`,
+  })
+  const advanced = within(dialog).getByRole("button", { name: "高级设置" })
+  if (advanced.getAttribute("aria-expanded") === "false") {
+    await interaction.click(advanced)
+  }
+  return dialog
 }
 
 async function closeModelEditor(

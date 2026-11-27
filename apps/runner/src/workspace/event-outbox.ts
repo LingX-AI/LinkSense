@@ -57,7 +57,8 @@ export class RunnerEventOutboxStore {
   private readonly appendLocks = new Map<string, Promise<void>>();
   private readonly nextSequences = new Map<string, number>();
 
-  constructor(private readonly workspaceManager: WorkspaceManager) {}
+  constructor(private readonly workspaceManager: WorkspaceManager) {
+  }
 
   async append(
     conversationId: string,
@@ -82,11 +83,11 @@ export class RunnerEventOutboxStore {
       throw new RangeError("runner event append batch is too large");
     }
     // Validate and snapshot the entire input before starting any filesystem I/O.
-    const records = events.map((event): PersistedOutboxEntry => {
+    const records = events.flatMap((event): PersistedOutboxEntry[] => {
       const codexEvent = runnerCodexEventSchema.safeParse(event);
-      return codexEvent.success
+      return [codexEvent.success
         ? { schema_version: 2, delivery_id: randomUUID(), event: codexEvent.data }
-        : { schema_version: 3, delivery_id: randomUUID(), event: runnerLinkSenseEventSchema.parse(event) };
+        : { schema_version: 3, delivery_id: randomUUID(), event: runnerLinkSenseEventSchema.parse(event) }];
     });
     return this.withAppendLock(conversationId, async () => {
       const directory = this.directoryFor(conversationId);
@@ -253,10 +254,8 @@ export class RunnerEventOutboxStore {
   }
 
   private directoryFor(conversationId: string): string {
-    return join(
-      this.workspaceManager.pathsFor(conversationId).taskControl,
-      "outbox",
-    );
+    const root = this.workspaceManager.pathsFor(conversationId).taskControl;
+    return join(root, "outbox");
   }
 
   private async readEntry(

@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from "uuid";
-import type { Locale } from "@linksense/shared";
+import { richOutputMarkdownToText, type Locale } from "@linksense/shared";
 import type { BotChannelConnection as ConnectionRow } from "../../generated/prisma/client.js";
 import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
 import { translateBackend } from "../../lib/i18n.js";
@@ -784,7 +784,10 @@ export class BotChannelRuntime {
           );
           const text =
             outcome.status === "completed"
-              ? outcome.text?.trim() ||
+              ? richOutputMarkdownToText(
+                  outcome.text ?? "",
+                  connection.provider === "wecom" ? "markdown-summary" : "summary",
+                ).trim() ||
                 translateBackend("botChannels.emptyResponse", locale)
               : translateBackend("botChannels.taskFailed", locale);
           const chunks = boundedChunks(text, locale);

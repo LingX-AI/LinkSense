@@ -76,25 +76,44 @@ export function ApplicationAnnotationPreview({
   const [anchor, setAnchor] = useState<OfficeSelectionAnchor | null>(null)
   const [frames, setFrames] = useState<HtmlAnnotationFrame[]>([])
   const [drafts, setDrafts] = useState<OfficeAnnotationDraft[]>([])
-  const draftPage = useRef<string | null>(null)
+  const [draftPage, setDraftPage] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const { project, onSubmit, onActiveChange } = options
+  const pageMatches = draftPage === null || draftPage === readyPath
   const active = mode || drafts.length > 0
   const receive = useEffectEvent((value: unknown) => {
     const frame = frameRef.current
-    if (!frame || !readyPath) return
+    if (!frame || !readyPath || !pageMatches) return
     const geometry = parseHtmlPreviewAnnotationFrames(value)
     if (geometry !== null) {
       setFrames(geometry)
       return
     }
-    if (!mode || (draftPage.current && draftPage.current !== readyPath)) return
+    if (!mode) return
     const message = parseHtmlPreviewSelectionMessage(value)
     if (!message) return
     setSelection(message.selection)
     setAnchor(htmlSelectionAnchor(frame, message.anchor))
+  })
+  const applyRuntimePage = useEffectEvent((path: string | null) => {
+    const changed = draftPage !== null && draftPage !== path
+    setReadyPath(path)
+    if (changed) {
+      setSelection(null)
+      setFrames([])
+      setMode(false)
+    }
+    setError(
+      changed ? t("applicationDevelopment.annotations.changed") : null
+    )
+  })
+  const onRuntimeError = useEffectEvent(() => {
+    setReadyPath(null)
+    setSelection(null)
+    setFrames([])
+    setError(t("applicationDevelopment.annotations.unavailable"))
   })
 
   useEffect(() => {
@@ -107,23 +126,17 @@ export function ApplicationAnnotationPreview({
     return installApplicationAnnotationRuntime(
       frame,
       source,
-      (path) => {
-        setReadyPath(path)
-        if (draftPage.current && draftPage.current !== path)
-          setError(t("applicationDevelopment.annotations.changed"))
-      },
-      () => {
-        setReadyPath(null)
-        setError(t("applicationDevelopment.annotations.unavailable"))
-      },
+      (path) => applyRuntimePage(path),
+      () => onRuntimeError(),
       (message) => receive(message)
     )
-  }, [frameRef, source, load, t])
+  }, [frameRef, source, load])
 
   useEffect(() => {
     const frame = frameRef.current
     if (!frame || !readyPath) return
-    const sync = () => postHtmlPreviewAnnotationMode(frame, mode)
+    const enabled = mode && pageMatches
+    const sync = () => postHtmlPreviewAnnotationMode(frame, enabled)
     sync()
     const observer = new MutationObserver(sync)
     observer.observe(document.documentElement, {
@@ -134,37 +147,37 @@ export function ApplicationAnnotationPreview({
       observer.disconnect()
       postHtmlPreviewAnnotationMode(frame, false)
     }
-  }, [frameRef, readyPath, mode])
+  }, [frameRef, readyPath, mode, pageMatches])
   useEffect(() => {
-    if (
-      !frameRef.current ||
-      !readyPath ||
-      (draftPage.current && draftPage.current !== readyPath)
-    )
-      return
-    postHtmlPreviewAnnotations(
-      frameRef.current,
-      drafts.flatMap((draft, index) =>
-        draft.officeSelection.kind === "html"
-          ? [
-              {
-                id: draft.id,
-                index: index + 1,
-                selection: draft.officeSelection.selection,
-              },
-            ]
-          : []
-      )
-    )
-  }, [drafts, frameRef, readyPath])
+    const frame = frameRef.current
+    if (!frame) return
+    // A page that no longer matches keeps its drafts but must not paint
+    // child-side markers on another route.
+    const markers =
+      readyPath && pageMatches
+        ? drafts.flatMap((draft, index) =>
+            draft.officeSelection.kind === "html"
+              ? [
+                  {
+                    id: draft.id,
+                    index: index + 1,
+                    selection: draft.officeSelection.selection,
+                  },
+                ]
+              : []
+          )
+        : []
+    if (readyPath) postHtmlPreviewAnnotations(frame, markers)
+  }, [drafts, frameRef, readyPath, pageMatches])
   const canAnnotate =
     readyPath &&
+    pageMatches &&
     project.preview_current &&
     project.source_hash &&
     !project.source_error
   const send = async () => {
     if (sendingRef.current || !drafts.length) return
-    if (!readyPath || !project.source_hash || draftPage.current !== readyPath) {
+    if (!readyPath || !project.source_hash || draftPage !== readyPath) {
       const message = t("applicationDevelopment.annotations.changed")
       setError(message)
       throw new Error(message)
@@ -190,7 +203,7 @@ export function ApplicationAnnotationPreview({
       })
       await onSubmit({ annotation, name: project.name })
       setDrafts([])
-      draftPage.current = null
+      setDraftPage(null)
       setFrames([])
       setSelection(null)
       setMode(false)
@@ -234,24 +247,35 @@ export function ApplicationAnnotationPreview({
             <OfficeAnnotationBatchTray
               drafts={drafts}
               submitting={sending}
+              submitDisabled={!readyPath || !pageMatches}
               onRemove={(id) => {
                 const next = drafts.filter((item) => item.id !== id)
-                if (!next.length) draftPage.current = null
+                if (!next.length) setDraftPage(null)
                 setDrafts(next)
               }}
               onClear={() => {
                 setDrafts([])
-                draftPage.current = null
+                setDraftPage(null)
                 setFrames([])
                 setError(null)
               }}
-              onLocate={(draft) => {
-                if (frameRef.current && draft.officeSelection.kind === "html")
-                  postHtmlPreviewAnnotationFocus(
-                    frameRef.current,
-                    draft.officeSelection.selection
-                  )
-              }}
+              onLocate={
+                readyPath && pageMatches
+                  ? (draft) => {
+                      if (
+                        !frameRef.current ||
+                        !readyPath ||
+                        !pageMatches ||
+                        draft.officeSelection.kind !== "html"
+                      )
+                        return
+                      postHtmlPreviewAnnotationFocus(
+                        frameRef.current,
+                        draft.officeSelection.selection
+                      )
+                    }
+                  : undefined
+              }
               onSend={send}
             />
           </div>,
@@ -265,6 +289,7 @@ export function ApplicationAnnotationPreview({
           title={title}
           className="absolute inset-0 size-full border-0 bg-background"
           onLoad={() => {
+            // A new document cannot report into the previous navigation.
             setReadyPath(null)
             setSelection(null)
             setFrames([])
@@ -325,10 +350,11 @@ export function ApplicationAnnotationPreview({
                 if (
                   sendingRef.current ||
                   drafts.length >= maximumOfficeAnnotationCount ||
-                  !readyPath
+                  !readyPath ||
+                  !pageMatches
                 )
                   throw new Error("annotation_unavailable")
-                draftPage.current = readyPath
+                setDraftPage(readyPath)
                 setDrafts((items) => [
                   ...items,
                   {
@@ -337,8 +363,9 @@ export function ApplicationAnnotationPreview({
                     request,
                   },
                 ])
-                if (frameRef.current)
+                if (frameRef.current) {
                   postHtmlPreviewSelectionClear(frameRef.current, selected)
+                }
                 setSelection(null)
               },
             }}

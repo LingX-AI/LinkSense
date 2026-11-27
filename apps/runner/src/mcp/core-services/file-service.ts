@@ -43,8 +43,10 @@ const artifactFailureSchema = z.object({
     "FILE_LIMIT_EXCEEDED",
     "FILE_SERVICE_FORBIDDEN",
     "FILE_SERVICE_TURN_INACTIVE",
+    "RUNNER_OPERATION_UNCERTAIN",
   ]),
   retryable: z.boolean(),
+  artifact_id: z.uuid().optional(),
 })
 
 type ArtifactFailure = z.infer<typeof artifactFailureSchema>

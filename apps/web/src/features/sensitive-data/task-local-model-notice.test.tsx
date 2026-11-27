@@ -1,6 +1,12 @@
 import type { SensitiveDataTaskStatus } from "@linksense/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { useState } from "react"
 import { compile } from "tailwindcss"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -131,9 +137,19 @@ describe("local model switch notification", () => {
     second.rerender(
       <Task userId="owner-b" conversationId="task-c" status={localStatus} />
     )
-    expect(
-      await screen.findByText(noticeTitle, { selector: "[data-title]" })
-    ).toBeVisible()
+    // The dismissed toast keeps a hidden node in the DOM until its exit
+    // transition ends, and it carries the same title text. Wait for the new
+    // owner's mounted toast instead of matching the removed one.
+    await waitFor(() => {
+      const current = screen
+        .queryAllByText(noticeTitle, { selector: "[data-title]" })
+        .find(
+          (title) =>
+            title.closest("[data-sonner-toast]")?.getAttribute("data-removed") !==
+            "true"
+        )
+      expect(current).toBeVisible()
+    })
   })
 
   it("shows the local model without announcing an already switched task when opened", () => {

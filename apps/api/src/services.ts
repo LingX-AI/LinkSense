@@ -1,11 +1,13 @@
 import { WebSearchSettingsService } from "./modules/system/web-search-settings.js";
+import { PrivacyMaskingActivityService } from "./modules/privacy-masking/activity.js";
+import { PrivacyMaskingSettingsService } from "./modules/privacy-masking/service.js";
 import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
 import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
 import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
 import { RedisPublicKnowledgeCoordinator } from "./modules/public-knowledge/coordinator.js";
 import { createPublicKnowledgeRetriever } from "./modules/public-knowledge/retrieval.js";
 import { BullMqPublicKnowledgeQueue } from "./modules/public-knowledge/queue.js";
-import pino from "pino";
+import { createLogger } from "./lib/logger.js";
 import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "./modules/html-preview/service.js";
 import { WebArtifactResources } from "./modules/web-sites/artifact-resources.js";
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
@@ -183,7 +185,10 @@ import {
 } from "./modules/application-embed/service.js";
 import { ConversationShareService } from "./modules/conversations/sharing.js";
 import { WebSiteService } from "./modules/web-sites/service.js";
+import { WebSiteAnalytics } from "./modules/web-sites/analytics.js";
 import { WebSiteRepository } from "./modules/web-sites/repository.js";
+import { WebSiteBackendRepository } from "./modules/web-site-backends/repository.js";
+import { WebSiteBackendService } from "./modules/web-site-backends/service.js";
 import { TaskRecoveryScheduler } from "./modules/events/recovery-scheduler.js";
 
 const EMPTY_MCP_RUNTIME = {
@@ -213,6 +218,8 @@ export type AppServices = {
   modelProviderSettings: ModelProviderSettingsService;
   sensitiveData: SensitiveDataService;
   webSearchSettings: WebSearchSettingsService;
+  privacyMaskingSettings: PrivacyMaskingSettingsService;
+  privacyMaskingActivity: PrivacyMaskingActivityService;
   imageGenerationSettings: ImageGenerationSettingsService;
   voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
@@ -223,6 +230,7 @@ export type AppServices = {
   conversations: ConversationService;
   conversationShares: ConversationShareService;
   webSites: WebSiteService;
+  webSiteBackends: WebSiteBackendService;
   htmlPreviews: HtmlPreviewService;
   automations: AutomationService;
   conversationAutomations: ConversationAutomationService;
@@ -303,6 +311,13 @@ export function createServices(input: {
     modelCatalog: modelProviderSettings,
   });
   const webSearchSettings = new WebSearchSettingsService(input.prisma, input.config);
+  const privacyMaskingSettings = new PrivacyMaskingSettingsService(
+    input.prisma,
+    input.config,
+  );
+  const privacyMaskingActivity = new PrivacyMaskingActivityService(
+    input.prisma,
+  );
   const imageGenerationSettings = new ImageGenerationSettingsService(
     input.prisma,
     input.config,
@@ -738,8 +753,9 @@ export function createServices(input: {
     conversationTitles,
     async (ownerId, conversationId) => {
       const project = await input.prisma.applicationDevelopment.findFirst({ where: { ownerId, conversationId }, select: { name: true, directory: true } });
-      return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task.` : null;
+      return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task. If the user instead asks for a standalone public website with a shareable external link and no LinkSense AI, follow the built-in public-site workflow. If the delivery shape is ambiguous, call request_user_form once before opening an application project.` : null;
     },
+    privacyMaskingSettings,
     input.runner.coldStartTimeoutMs,
   );
   jobs.registerConversationPrewarmProcessor((job) =>
@@ -892,6 +908,8 @@ export function createServices(input: {
     input.config.releaseVersion,
     input.redis,
   );
+  const webSiteBackends = new WebSiteBackendService(new WebSiteBackendRepository(input.prisma), input.storage, input.config);
+  const webSiteAnalytics = input.config.analytics ? new WebSiteAnalytics(input.config.analytics) : undefined;
   return {
     ...input,
     projects: new ProjectService(new ProjectRepository(input.prisma)),
@@ -900,6 +918,8 @@ export function createServices(input: {
     modelProviderSettings,
     sensitiveData,
     webSearchSettings,
+    privacyMaskingSettings,
+    privacyMaskingActivity,
     imageGenerationSettings,
     voiceTranscriptionSettings,
     imageUnderstandingSettings,
@@ -908,7 +928,8 @@ export function createServices(input: {
     audit,
     conversations,
     conversationShares,
-    webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage),
+    webSiteBackends,
+    webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage, webSiteBackends, webSiteAnalytics),
     htmlPreviews: new HtmlPreviewService(new WebArtifactResources(new WebSiteRepository(input.prisma), input.storage), new RedisHtmlPreviewSessionStore(input.redis), async ownerId => Boolean(await input.prisma.user.count({ where: { id: ownerId, status: "active" } }))),
     automations,
     conversationAutomations: new ConversationAutomationService(input.prisma, automations),
@@ -934,11 +955,11 @@ export function createServices(input: {
     applicationCenter,
     applicationExternalAccess,
     publicKnowledge: new PublicKnowledgeService({ prisma: input.prisma, iconStore: applicationIconStore, models: modelProviderSettings, knowledge: knowledgeStore,
-      progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, pino({ level: process.env.LOG_LEVEL ?? "info" })),
+      progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, createLogger("public-knowledge-progress")),
       skills: new PublicKnowledgeSkills(input.prisma, input.config.capabilityRoot),
       retrieve: knowledgeRuntime ? createPublicKnowledgeRetriever(input.prisma, knowledgeStore, knowledgeRuntime.retrieval) : null,
       runner: input.runner, coordinator: new RedisPublicKnowledgeCoordinator(input.redis.client), audit,
-      queue: new BullMqPublicKnowledgeQueue(input.redis.client, input.config.redisUrl, pino({ level: process.env.LOG_LEVEL ?? "info" })) }),
+      queue: new BullMqPublicKnowledgeQueue(input.redis.client, input.config.redisUrl, createLogger("public-knowledge-queue")) }),
     credentials,
     mcpServers,
     users,
@@ -1066,16 +1087,17 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
             { cause: error },
           );
         }
+        const environment: Record<string, string> = {
+          ...catalog.environment,
+          ...mcpRuntime.environment,
+        };
         return {
           capabilities: catalog.executionCapabilities,
           capabilityGeneration: materialized.generation,
           capabilityVerification: materialized.verification,
           mcpServers: mcpRuntime.servers,
           mcpGeneration: mcpRuntime.generation,
-          environment: {
-            ...catalog.environment,
-            ...mcpRuntime.environment,
-          },
+          environment,
           credentialUsageReceipts: catalog.credentialUsageReceipts,
           mcpCredentialUsageReceipts: mcpRuntime.credentialUsageReceipts,
         };
@@ -1402,6 +1424,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
 
   async resolveStartIntentRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -1611,6 +1634,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
 
   async resolveRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -1704,7 +1728,12 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         input.mcpServers ?? [],
       );
     }
-    return { environment: { ...environment, ...mcp.environment } };
+    return {
+      environment: {
+        ...environment,
+        ...mcp.environment,
+      },
+    };
   }
 
   async #resolveApplicationMcpRecovery(input: {

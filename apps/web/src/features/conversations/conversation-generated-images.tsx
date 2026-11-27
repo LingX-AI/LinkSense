@@ -23,6 +23,7 @@ import {
 } from "@/features/conversations/assistant-markdown-image"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
 import { selectConversationGeneratedImageIds } from "@/features/conversations/conversation-artifact-selection"
+import { useRichOutputResources } from "@/features/conversations/rich-output-resource-context"
 
 type ImageGenerationItem = Extract<NativeCodexItem, { type: "mcpToolCall" }>
 
@@ -52,6 +53,7 @@ export function ConversationGeneratedImages({
   downloadingFileId?: string
 }>) {
   const { t } = useTranslation()
+  const { renderedFileIds } = useRichOutputResources()
   const [activePreview, setActivePreview] = useState<ImagePreviewItem | null>(
     null
   )
@@ -62,7 +64,7 @@ export function ConversationGeneratedImages({
     finalMessage,
     turnId,
     filesById,
-  })
+  }).filter((id) => !renderedFileIds.has(id.toLowerCase()))
   const files = fileIds.flatMap((id) => {
     const file = filesById?.get(id)
     return file?.kind === "artifact" &&

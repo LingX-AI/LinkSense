@@ -156,7 +156,7 @@ export async function readApplicationInstallationSetup(
   try {
     if ((application.model === null) !== (application.reasoningEffort === null)) throw new AppError("MODEL_SELECTION_INVALID");
     if (application.model && application.reasoningEffort) {
-      await models.resolveRuntimeForSelection(application.model, reasoningEffortSchema.parse(application.reasoningEffort));
+      await models.resolveRuntimeForSelection(application.model, reasoningEffortSchema.parse(application.reasoningEffort), "persisted");
     } else {
       await models.resolveRuntime(ownerId);
     }

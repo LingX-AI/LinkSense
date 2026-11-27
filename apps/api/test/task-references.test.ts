@@ -42,6 +42,17 @@ describe("explicit task references", () => {
     expect(result.inputText).not.toContain("A finding");
     expect(db.conversationMessage.findMany).not.toHaveBeenCalled();
   });
+  it("keeps the established same-owner opposite-target and archived-source read contract", async () => {
+    const { db, prisma } = fixture();
+    db.conversation.findFirst.mockImplementation(({ where }) => Promise.resolve(where.id === task
+      ? { codexThreadId: "native-current", executionTarget: "local", archiveStatus: "active" }
+      : { id: source, title: "Research", codexThreadId: "native-source", executionTarget: "cloud", archiveStatus: "archived" }));
+    await expect(readTaskReference(prisma, owner, task, turn, { conversation_id: source, cursor: "0", offset: 0 }))
+      .resolves.toMatchObject({ conversation_id: source, messages: [{ id: message, role: "assistant", text: "A finding" }] });
+    expect(db.conversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: source, ownerId: owner, sideChatParentId: null, applicationId: null },
+    }));
+  });
   it("rejects a source owned by another account", async () => {
     const { db, prisma } = fixture(); db.conversation.findMany.mockResolvedValue([]);
     await expect(prepareTaskReferences(prisma, task, taskReferencesInputSchema.parse({ kind: "task_references", request: "Compare", conversation_ids: [source] }))).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });

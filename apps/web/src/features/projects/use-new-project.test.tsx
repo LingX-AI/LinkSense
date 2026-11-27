@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter, useLocation } from "react-router-dom"
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Conversation } from "@/api/contracts"
@@ -47,6 +47,7 @@ function mount(state: unknown = null) {
     ({ userId }) => ({
       ...useNewProject({ userId, isNew: true }),
       location: useLocation(),
+      navigate: useNavigate(),
     }),
     {
       initialProps: { userId: "first" },
@@ -121,6 +122,33 @@ describe("new task project defaults", () => {
     await act(async () => finishProjects(projects))
     await waitFor(() => expect(result.current.isResolving).toBe(false))
     expect(result.current.projectId).toBe(work)
+  })
+  it("applies a requested project from navigation state and clears it after use", async () => {
+    request.mockResolvedValue(projects)
+    const { result } = mount({ newTaskProjectId: work, other: true })
+    await waitFor(() => expect(result.current.projectId).toBe(work))
+    expect(readNewProject("first")).toBe(work)
+    await waitFor(() =>
+      expect(result.current.location.state).toEqual({ other: true })
+    )
+  })
+  it("applies a sidebar project request while the new-task page is already open", async () => {
+    request.mockResolvedValue(projects)
+    const { result } = mount()
+    act(() => result.current.chooseProject(personal))
+    await waitFor(() => expect(result.current.projectId).toBe(personal))
+
+    act(() =>
+      result.current.navigate("/conversations/new", {
+        state: { newTaskProjectId: work },
+      })
+    )
+    await waitFor(() => expect(result.current.projectId).toBe(work))
+    await waitFor(() => expect(result.current.location.state).toEqual({}))
+    expect(readNewProject("first")).toBe(work)
+
+    act(() => result.current.chooseProject(personal))
+    expect(result.current.projectId).toBe(personal)
   })
   it("keeps a manual choice when a delayed source task finishes loading and after refresh", async () => {
     let finishSource!: (value: Conversation) => void

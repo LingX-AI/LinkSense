@@ -5,7 +5,15 @@ description: Publish an HTML deliverable as a public website, then update, unpub
 
 # Publish and manage sites
 
-LinkSense can publish a registered HTML deliverable from a task as a public site. Visitors do not need to sign in, so anyone with the link can open it. Review the page for sensitive information before publishing.
+LinkSense can publish a registered HTML deliverable from a task as a public site. Visitors do not need to sign in to LinkSense, although an app may require its own visitor account. Anyone with the link can open its entry page. Review the content for sensitive information before publishing.
+
+## Create a Web app through conversation
+
+Describe your goal in a new or existing ordinary conversation without first opening a creation page or selecting a Skill. LinkSense distinguishes page, data, and background execution needs and clarifies only unresolved requirements that change the outcome. Preview requests produce a draft; an explicit request to publish or provide a public link produces an application card with open, copy, and management actions. Apps using platform AI or knowledge use the [LS application workflow](../plugin-center/create-applications.md).
+
+Pages and Web apps with a backend share a stable `/app/s/{application ID}` address. Renaming, publishing a new release, or adding a backend does not change it. Existing `/web/{link-name}` links and sandbox `/app/{backend-alias}` links remain usable. Historical apps on independent origins retain their original runtime and address.
+
+Ask in conversation to add self-hosted data storage, visitor accounts, uploads, or trusted business APIs when needed. The existing application and link are retained. A dynamic app's artifact preview shows its interface; verify real login and backend operations in the published application. The generic Publish as site action does not attach a backend on first publication, so request publication in conversation. Background reminders also require a supported schedule and notification channel; a page or data service alone is insufficient.
 
 ## Publish a new site
 
@@ -31,16 +39,17 @@ When publishing from a newer HTML deliverable, choose **Update existing site**, 
 - the source task becomes the task that supplied the new page;
 - an unpublished site remains unpublished until you republish it from **My sites**.
 
-You can also open **Resource library → My sites**, choose **Publish update** from a site's menu, and select an HTML deliverable from its current source task. If that task was deleted, start from a deliverable in another task and choose **Update existing site**.
+You can also choose **Publish update** from a site's menu in **My sites**, then select an HTML deliverable from its current source task. If that task was deleted, start from a deliverable in another task and choose **Update existing site**.
 
 ## Manage My sites
 
-Open **Resource library → My sites** to search by site name or link and filter by **Published** or **Unpublished**.
+Open **Apps & Tools → Applications → My sites** to search by site name or link and filter by **Published** or **Unpublished**. Existing Resource library site bookmarks open this tab with their filters intact.
 
 Each site provides these actions:
 
+- **Details:** select the site name to view the stable link, custom link, data service binding, source task, and publication information.
 - **Visit or copy link:** open the current public version or share its link.
-- **Edit:** change its name, description, or link name. Changing the link name immediately invalidates the old link.
+- **Edit:** change its name, description, or link name. Its stable application address stays the same, and previous link names still open the same app.
 - **Publish update:** select a newer HTML deliverable from the source task.
 - **Unpublish or republish:** control visitor access. Unpublishing keeps the site, reserved link, and saved version.
 - **Download website:** download the complete current version as a ZIP archive.
@@ -50,7 +59,7 @@ Permanently deleting the source task automatically unpublishes its sites, but th
 
 ## Public access and security boundaries
 
-Public sites run in an isolated surface. They cannot read LinkSense sign-in cookies, local storage, or the parent page, and cannot register a service worker. This feature hosts static websites and browser-side interactions; it does not run server programs or inherit your LinkSense permissions.
+Public sites run in an isolated surface. They cannot read LinkSense sign-in cookies, local storage, or the parent page, and cannot register a service worker. Pages without a backend run browser-side interactions. Backend-enabled apps use a controlled SDK with their own visitors, data, and server functions; they do not inherit your LinkSense platform permissions. The app's own rules determine whether its visitors must sign in.
 
 Visitors' browsers load external HTTPS resources directly, subject to availability and cross-origin rules. A site cannot rely on LinkSense authentication, server-side route fallback, or persistent same-origin browser storage. Before publishing, confirm that:
 

@@ -17,6 +17,9 @@ describe("built-in application builder", () => {
       const frontmatter = /^---\n([\s\S]*?)\n---/u.exec(skill)?.[1];
       expect(parse(frontmatter ?? "")).toMatchObject({ name: "linksense-interactive-app-builder", description: expect.stringContaining("interactive applications") });
       expect(skill).toContain("linksense_core.open_application_development"); expect(skill).toContain("linksense_core.inspect_application_development");
+      expect(skill).toContain("linksense-public-site");
+      expect(skill).toContain("linksense_core.request_user_form");
+      expect(frontmatter).toContain("Do not use for a standalone public website");
       expect(skill).toContain("../linksense-docs/references/zh-CN/developer-guide/interactive-application.md");
       expect(skill).toContain("Publish / Publish update button");
       expect(skill).toContain("Configure capabilities action");

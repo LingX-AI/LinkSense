@@ -72,10 +72,13 @@ const numberFieldSchema = z.strictObject({
 const selectOptionSchema = z.strictObject({
   value: z.string().min(1).max(500),
   label: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(500).optional(),
 })
 const singleSelectFieldSchema = z.strictObject({
   ...commonFieldShape,
-  control: z.literal("single_select"),
+  control: z.enum(["single_select", "radio"]).describe(
+    "single_select opens a compact picker; radio shows 2–5 short mutually exclusive options inline.",
+  ),
   options: z.array(selectOptionSchema).min(1).max(50),
   default: z.string().min(1).max(500).optional(),
 })
@@ -167,11 +170,13 @@ const interactiveFormArgumentsSchema = z
           (field) => field.id === input.approval?.decision_field_id,
         )
         const decisionValues =
-          decisionField?.control === "single_select"
+          decisionField?.control === "single_select" ||
+          decisionField?.control === "radio"
             ? decisionField.options.map((option) => option.value)
             : []
         if (
-          decisionField?.control !== "single_select" ||
+          (decisionField?.control !== "single_select" &&
+            decisionField?.control !== "radio") ||
           !decisionField.required ||
           decisionValues.length !== 2 ||
           input.approval.approve_value === input.approval.reject_value ||
@@ -218,6 +223,7 @@ const interactiveFormArgumentsSchema = z
       }
       if (
         field.control === "single_select" ||
+        field.control === "radio" ||
         field.control === "multi_select"
       ) {
         const values = field.options.map((option) => option.value)
@@ -343,7 +349,7 @@ function buildFormRequest(
   const required: string[] = []
   const uiHints: Record<
     string,
-    { control: "text" | "textarea" | "number"; placeholder?: string }
+    { control: "text" | "textarea" | "number" | "radio"; placeholder?: string }
   > = {}
 
   for (const field of input.fields) {
@@ -399,25 +405,19 @@ function buildFormRequest(
     }
     if (
       field.control === "single_select" ||
+      field.control === "radio" ||
       field.control === "multi_select"
     ) {
       const options = field.options.map((option) => ({
         const: option.value,
         title: option.label,
+        ...(option.description ? { description: option.description } : {}),
       }))
       const allowedValues = new Set(field.options.map((option) => option.value))
       const defaultValue = validSelectDefault(field, allowedValues)
       properties[field.id] =
-        field.control === "single_select"
+        field.control === "multi_select"
           ? {
-              type: "string",
-              ...common,
-              oneOf: options,
-              ...(typeof defaultValue === "string"
-                ? { default: defaultValue }
-                : {}),
-            }
-          : {
               type: "array",
               ...common,
               items: { anyOf: options },
@@ -427,6 +427,17 @@ function buildFormRequest(
                 ? { default: defaultValue }
                 : {}),
             }
+          : {
+              type: "string",
+              ...common,
+              oneOf: options,
+              ...(typeof defaultValue === "string"
+                ? { default: defaultValue }
+                : {}),
+            }
+      if (field.control === "radio") {
+        uiHints[field.id] = { control: "radio" }
+      }
       continue
     }
     properties[field.id] = {
@@ -524,7 +535,7 @@ const requestUserFormTool = {
   description: [
     "Show a blocking interactive form card inside the current conversation and wait for the user's response.",
     requestUserFormUsageInstructions,
-    "Also call this tool when the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI; that explicit request is sufficient even for one field. Do not replace these interactions with Markdown, plain-text questions, or html-preview, and never claim that a form was displayed unless this tool call succeeded. Supports text, textarea, single/multi select, date, date-time, number, and boolean fields. Declare purpose=input for ordinary forms or purpose=approval with an exact required two-option decision mapping for approve and reject flows. It only records user intent and never performs the side effect itself. Never use it for secrets.",
+    "Also call this tool when the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI; that explicit request is sufficient even for one field. Do not replace these interactions with Markdown, plain-text questions, or html-preview, and never claim that a form was displayed unless this tool call succeeded. Supports text, textarea, radio, single/multi select, date, date-time, number, and boolean fields. Prefer radio for 2–5 short, mutually exclusive options shown inline; use single_select for longer or compact lists. When options are not self-explanatory, give each option a short description and explain the trade-offs in message before the fields. Declare purpose=input for ordinary forms or purpose=approval with an exact required two-option decision mapping for approve and reject flows. It only records user intent and never performs the side effect itself. Never use it for secrets.",
     requestUserFormSafetyInstructions,
   ].join(" "),
   inputSchema: mcpToolInputSchemaSchema.parse(

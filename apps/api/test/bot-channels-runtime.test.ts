@@ -36,6 +36,49 @@ it("rejects a callback after shutdown so the transport cannot acknowledge an unp
   expect(fixture.repository.persistInbound).not.toHaveBeenCalled();
 });
 describe.each(testCredentials)("$provider runtime", (credentials) => {
+  it.each(["original", "data", "reading"] as const)("delivers the %s rich result as a channel summary", async (format) => {
+    const fixture = harness(credentials);
+    const richOutput = {
+      version: 1,
+      summary: "Compare [A] and [B]",
+      spec: {
+        root: "result",
+        elements: format === "reading" ? {
+          result: { type: "Panel", props: { title: "Report" }, children: ["views"] },
+          views: {
+            type: "Tabs",
+            props: { title: "Views", tabs: [{ id: "overview", label: "Overview" }, { id: "details", label: "Notes" }] },
+            children: ["overview", "details"],
+          },
+          overview: { type: "Text", props: { text: "Overview content" } },
+          details: { type: "Details", props: { title: "Notes" }, children: ["checklist"] },
+          checklist: { type: "Checklist", props: { title: "Checks", items: [{ id: "source", label: "Check the source" }] } },
+        } : format === "data" ? {
+          result: { type: "Panel", props: { title: "Comparison" }, children: ["facts", "history", "steps", "chart"] },
+          facts: { type: "KeyValue", props: { title: "Facts", items: [{ id: "count", label: "Count", value: 0 }] } },
+          history: { type: "Timeline", props: { title: "History", items: [{ id: "event", title: "Observed", time: "Morning" }] } },
+          steps: { type: "Steps", props: { title: "Proposed steps", items: [{ id: "verify", title: "Verify" }] } },
+          chart: { type: "Chart", props: { title: "Data", kind: "bar", unit: "items", series: [{ id: "a", label: "A" }, { id: "b", label: "B" }], points: [{ id: "row", label: "First", values: [0, null] }] } },
+        } : { result: { type: "Panel", props: { title: "Comparison" } } },
+      },
+    };
+    fixture.repository.getTurnOutcome.mockResolvedValue({
+      status: "completed",
+      text: ["Answer", "```json-render", JSON.stringify(richOutput), "```"].join("\n"),
+    });
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await fixture.receive();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fixture.send).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      credentials.provider === "wecom"
+        ? "Answer\nCompare \\[A\\] and \\[B\\]"
+        : "Answer\nCompare [A] and [B]",
+    );
+  });
+
   it("sends a proactive notice only through the verified current connection without starting a task", async () => {
     const fixture = harness(credentials);
     await fixture.runtime.start();

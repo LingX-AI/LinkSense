@@ -5,7 +5,7 @@ import {
 } from "../src/capabilities.js";
 
 describe("capability package names", () => {
-  it.each(["a", "123", "ppt-se", "skill-2", "a".repeat(64)])(
+  it.each(["a", "123", "ppt-se", "skill-2", "linksense-public-site", "a".repeat(64)])(
     "accepts the valid identifier %s",
     (name) => {
       expect(capabilityPackageNameSchema.parse(name)).toBe(name);
@@ -24,7 +24,7 @@ describe("capability package names", () => {
     "ppt/se",
     "ppt.se",
     "a".repeat(65),
-    ...builtInSkillNames,
+    ...builtInSkillNames.filter((name) => name !== "linksense-public-site"),
   ])("rejects the invalid or reserved identifier %s", (name) => {
     expect(capabilityPackageNameSchema.safeParse(name).success).toBe(false);
   });

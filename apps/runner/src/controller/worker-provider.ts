@@ -2,7 +2,7 @@ import type { WorkerRequestTrace } from "./worker-lifecycle.js"
 
 export type WorkerProviderKind = "docker" | "local-process"
 
-export type WorkerProviderCapabilities = {
+export type PosixWorkerProviderCapabilities = {
   isolation: "container" | "none"
   persistentWorkers: boolean
   workspaceIdentity: {
@@ -10,6 +10,11 @@ export type WorkerProviderCapabilities = {
     taskUid: number
     sharedGid: number
   }
+}
+export type WorkerProviderCapabilities = PosixWorkerProviderCapabilities | {
+  isolation: "none"
+  persistentWorkers: false
+  workspaceIdentity: null
 }
 
 export type WorkerOwnerPaths = {

@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query"
 
 import { apiRequest, ApiError } from "@/api/client"
 import { bootstrapSchema } from "@/api/contracts"
-import { BootstrapContext } from "@/app/bootstrap-state"
+import { BootstrapContext, bootstrapQueryKey } from "@/app/bootstrap-state"
 import { applyProductMetadata } from "@/app/product-branding"
 
 export function BootstrapProvider({ children }: { children: ReactNode }) {
   const query = useQuery({
-    queryKey: ["system", "bootstrap"],
+    queryKey: bootstrapQueryKey,
     queryFn: ({ signal }) =>
       apiRequest("/system/bootstrap", {
         schema: bootstrapSchema,
@@ -24,7 +24,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       count < 1 &&
       !(
         error instanceof ApiError &&
-        error.errorCode === "CLIENT_UPDATE_REQUIRED"
+        ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
       ),
   })
   const systemName = query.data?.system_name

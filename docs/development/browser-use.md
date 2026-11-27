@@ -94,6 +94,8 @@ API、Runner/Worker 和 Web 应作为同一版本发布。`linksense-local-brows
 
 开发源同步、应用构建指纹与 API 构建都包含扩展源码和构建脚本。Nginx 配置及 Vite 开发代理均支持新旧 Browser Use WebSocket；自定义外层代理也需要转发 `/api/v1/browser-use/socket` 和 `/api/v1/local-browser/socket`，保持 Origin 和长连接。
 
+Mac 本机任务接入 Browser Use 还需在 API 设置 `LINKSENSE_DESKTOP_BROWSER_USE_ENABLED=true`。此开关默认关闭，依赖 `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`（仅供非生产测试）。先升级全部 API 实例，断开旧实例上的扩展 WebSocket，再统一启用并让扩展重连；无需重新配对。没有升级的 WebSocket 消费端不能处理新的 Mac 队列。
+
 ## 验证
 
 扩展管理入口改为始终优先打开：28 项设置与桥单元测试通过，覆盖初次检测未找到扩展但点击时可用、打开失败再复制、剪贴板失败及六语言安装说明。Web 类型检查、相关 lint 与构建通过；本次仅调整 Web 流程与文案，未重跑浏览器回归，不需要新扩展版本。

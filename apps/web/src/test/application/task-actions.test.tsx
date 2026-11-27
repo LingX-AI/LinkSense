@@ -32,20 +32,20 @@ describe("LinkSense application", () => {
     expect(share).toHaveFocus()
     expect(await screen.findByRole("tooltip")).toHaveTextContent("分享")
     const overview = within(banner).getByRole("button", {
-      name: "打开任务概览",
+      name: "打开会话侧栏",
     })
     await interaction.tab()
     expect(overview).toHaveFocus()
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("打开任务概览")
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("打开会话侧栏")
     await interaction.keyboard("{Enter}")
     expect(
-      within(banner).getByRole("button", { name: "关闭任务概览" })
+      within(banner).getByRole("button", { name: "关闭会话侧栏" })
     ).toHaveAttribute("aria-expanded", "true")
     act(() => overview.blur())
     expect(
       within(banner).queryByRole("button", { name: "查看任务浏览器" })
     ).not.toBeInTheDocument()
-    const labels = ["分享", "关闭任务概览"]
+    const labels = ["分享", "关闭会话侧栏"]
     for (const label of labels) {
       const button = within(banner).getByRole("button", { name: label })
       expect(button).toHaveClass(
@@ -787,7 +787,7 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(within(banner).getByRole("button", { name: "分享" })).toBeVisible()
     expect(
-      within(banner).getByRole("button", { name: "关闭任务概览" })
+      within(banner).getByRole("button", { name: "关闭会话侧栏" })
     ).toBeVisible()
 
     const actionsButton = within(titleActions as HTMLElement).getByRole(

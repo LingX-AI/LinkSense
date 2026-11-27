@@ -1,8 +1,8 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { APPLICATION_BUILDER_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
+import { applicationIntentInstructions, APPLICATION_BUILDER_SKILL_NAME, PUBLIC_SITE_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
 
-export async function writeBuiltInApplicationBuilder(skillsRoot: string): Promise<void> {
+export async function writeBuiltInApplicationBuilder(skillsRoot: string, publicSiteName: string = PUBLIC_SITE_SKILL_NAME): Promise<void> {
   const root = join(skillsRoot, APPLICATION_BUILDER_SKILL_NAME);
   await mkdir(join(root, "agents"), { recursive: true, mode: 0o750 });
   await chmod(root, 0o750);
@@ -10,10 +10,18 @@ export async function writeBuiltInApplicationBuilder(skillsRoot: string): Promis
   const files = {
     "SKILL.md": `---
 name: ${APPLICATION_BUILDER_SKILL_NAME}
-description: Create, modify and debug LinkSense interactive applications directly in the current conversation, with an automatically updating preview and a publish button. Use when the user wants a reusable LinkSense application, not a one-off HTML illustration or an explanation of application development.
+description: Create, modify and debug LinkSense interactive applications directly in the current conversation, with an automatically updating preview and a publish button. Use when the user wants a reusable LinkSense application, not a one-off HTML illustration or an explanation of application development. Do not use for a standalone public website that needs a shareable link and no LinkSense AI; use ${publicSiteName} instead.
 ---
 
 # Interactive application development
+
+${applicationIntentInstructions(`the ${publicSiteName} Skill`, `${coreMcpServerKey}.request_user_form`)}
+
+If the user wants a standalone public website with a shareable link and no
+LinkSense AI or runtime, use the \`${publicSiteName}\` Skill instead. When the
+outcome is genuinely ambiguous, ask the next necessary result-based question with
+\`${coreMcpServerKey}.request_user_form\`; do not default to this builder merely
+because the user said “application” or “assistant”.
 
 Call \`${coreMcpServerKey}.inspect_application_development\` first when resuming
 development. If there is no project, call

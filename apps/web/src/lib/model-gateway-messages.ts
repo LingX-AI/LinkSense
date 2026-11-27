@@ -18,6 +18,10 @@ export const modelGatewayMessages = {
       "模型渠道请求超时。请检查渠道网络，确认任务状态后再继续。",
     model_gateway_error:
       "模型连接失败。请联系管理员检查执行服务和模型渠道网络。",
+    privacy_masking_unavailable:
+      "隐私脱敏暂时不可用，请求未发送。请联系管理员检查执行服务日志后再继续。",
+    privacy_masking_blocked:
+      "隐私脱敏策略拦截了本次请求，因为其中包含当前策略不允许发送的值。请调整内容或设置后再继续。",
   },
   "en-US": {
     sensitive_data_protection_blocked:
@@ -36,6 +40,10 @@ export const modelGatewayMessages = {
       "The model provider request timed out. Check provider connectivity and the task status before continuing.",
     model_gateway_error:
       "The model connection failed. Ask an administrator to check the execution service and provider connectivity.",
+    privacy_masking_unavailable:
+      "Privacy masking is temporarily unavailable, so the request was not sent. Ask an administrator to check the execution service logs before continuing.",
+    privacy_masking_blocked:
+      "Privacy masking blocked this request because it contains a value the current policy does not allow. Adjust the content or settings before continuing.",
   },
   "es-ES": {
     sensitive_data_protection_blocked:
@@ -54,6 +62,10 @@ export const modelGatewayMessages = {
       "La solicitud al proveedor del modelo agotó el tiempo de espera. Comprueba la conectividad y el estado de la tarea antes de continuar.",
     model_gateway_error:
       "Falló la conexión con el modelo. Pide a un administrador que revise el servicio de ejecución y la conectividad del proveedor.",
+    privacy_masking_unavailable:
+      "El enmascaramiento de privacidad no está disponible temporalmente, por lo que la solicitud no se envió. Pide a un administrador que revise los registros del servicio de ejecución antes de continuar.",
+    privacy_masking_blocked:
+      "El enmascaramiento de privacidad bloqueó esta solicitud porque contiene un valor que la política actual no permite. Ajusta el contenido o la configuración antes de continuar.",
   },
   "pt-BR": {
     sensitive_data_protection_blocked:
@@ -72,6 +84,10 @@ export const modelGatewayMessages = {
       "A solicitação ao provedor do modelo excedeu o tempo limite. Verifique a conectividade e o estado da tarefa antes de continuar.",
     model_gateway_error:
       "A conexão com o modelo falhou. Peça a um administrador para verificar o serviço de execução e a conectividade do provedor.",
+    privacy_masking_unavailable:
+      "O mascaramento de privacidade está temporariamente indisponível, então a solicitação não foi enviada. Peça a um administrador para verificar os logs do serviço de execução antes de continuar.",
+    privacy_masking_blocked:
+      "O mascaramento de privacidade bloqueou esta solicitação porque ela contém um valor que a política atual não permite. Ajuste o conteúdo ou as configurações antes de continuar.",
   },
   "fr-FR": {
     sensitive_data_protection_blocked:
@@ -90,6 +106,10 @@ export const modelGatewayMessages = {
       "La requête au fournisseur du modèle a expiré. Vérifiez la connectivité et l’état de la tâche avant de poursuivre.",
     model_gateway_error:
       "La connexion au modèle a échoué. Demandez à un administrateur de vérifier le service d’exécution et la connectivité du fournisseur.",
+    privacy_masking_unavailable:
+      "Le masquage de confidentialité est temporairement indisponible ; la requête n’a pas été envoyée. Demandez à un administrateur de consulter les journaux du service d’exécution avant de continuer.",
+    privacy_masking_blocked:
+      "Le masquage de confidentialité a bloqué cette requête car elle contient une valeur que la politique actuelle n’autorise pas. Modifiez le contenu ou les paramètres avant de continuer.",
   },
   "ja-JP": {
     sensitive_data_protection_blocked:
@@ -108,5 +128,9 @@ export const modelGatewayMessages = {
       "モデルプロバイダーへのリクエストがタイムアウトしました。接続とタスクの状態を確認してから続行してください。",
     model_gateway_error:
       "モデルへの接続に失敗しました。管理者に実行サービスとプロバイダーの接続状況の確認を依頼してください。",
+    privacy_masking_unavailable:
+      "プライバシーマスキングを一時的に利用できないため、リクエストは送信されませんでした。続行する前に管理者へ実行サービスログの確認を依頼してください。",
+    privacy_masking_blocked:
+      "プライバシーマスキングがこのリクエストをブロックしました。現在のポリシーで送信できない値が含まれています。内容または設定を調整してから続行してください。",
   },
 } satisfies Record<Locale, Record<ModelGatewayFailureCode, string>>

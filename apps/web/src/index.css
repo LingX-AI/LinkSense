@@ -118,6 +118,11 @@
   --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --color-application-create-accent: var(--app-selection);
   --color-application-icon-iris: color-mix(in oklab, #8270db 12%, var(--card));
   --color-application-icon-sage: color-mix(in oklab, #6da885 12%, var(--card));
@@ -125,7 +130,6 @@
   --color-automation-template-review: var(--automation-template-review);
   --color-automation-template-monitor: var(--automation-template-monitor);
   --shadow-automation-template-icon: var(--home-icon-shadow);
-  --shadow-segmented-active: 0 1px 3px rgb(41 31 61 / 4%);
   --color-application-icon-sand: color-mix(in oklab, #c59b59 14%, var(--card));
   --color-application-icon-rose: color-mix(in oklab, #ce8590 12%, var(--card));
   /* Fixed illustration palette for the maintenance announcement banner. */
@@ -245,7 +249,7 @@
   --app-sidebar-row-height: 34px;
   --app-settings-page-width: 1200px;
   --app-administration-page-width: 1440px;
-  --app-reading-width: 1112px;
+  --app-reading-width: 768px;
   --app-composer-width: var(--app-reading-width);
   --app-popup-max-width: 32rem;
   --app-ui-font-size: 14px;
@@ -302,7 +306,7 @@
     transparent
   );
   --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 4.5%, transparent);
-  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);
+  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-sidebar-primary-hover-bg: #f6f9ff;
@@ -317,7 +321,7 @@
     var(--muted-foreground)
   );
   --conversation-top-bar-height: 66px;
-  --app-text: #1c2238;
+  --app-text: #252b49;
   --app-muted: var(--muted-foreground);
   --app-scrollbar-size: 7px;
   --app-scrollbar-radius: 999px;
@@ -369,6 +373,11 @@
   --app-usage-cost-rerank: #e65f73;
   --app-usage-cost-image: #0f9f8f;
   --app-usage-chart-grid: rgb(32 32 32 / 8%);
+  --chart-1: #3478f6;
+  --chart-2: #e28a22;
+  --chart-3: #159d8c;
+  --chart-4: #df4b9f;
+  --chart-5: #7857f6;
   --office-viewer-canvas: #f7f8fa;
   --presentation-viewer-canvas: var(--office-viewer-canvas);
   --presentation-viewer-sidebar: #ffffff;
@@ -512,6 +521,11 @@
   --app-usage-cost-rerank: #f28395;
   --app-usage-cost-image: #42d2c2;
   --app-usage-chart-grid: rgb(255 255 255 / 9%);
+  --chart-1: #65a0ff;
+  --chart-2: #f2aa4c;
+  --chart-3: #3bc8b2;
+  --chart-4: #f078bc;
+  --chart-5: #9a83ff;
   --office-viewer-canvas: var(--app-canvas);
   --presentation-viewer-canvas: var(--office-viewer-canvas);
   --presentation-viewer-sidebar: var(--app-canvas);
@@ -685,6 +699,7 @@
 .composer-control {
   --ring: var(--app-brand);
   color: var(--app-control-foreground);
+  font-size: var(--app-font-13);
 }
 
 .composer-control:not(:disabled):not([aria-disabled="true"]):is(
@@ -747,6 +762,11 @@
 
 .sidebar-account-avatar [data-slot="avatar-fallback"] {
   color: var(--app-sidebar-avatar-foreground);
+}
+
+/* Avatar initials are decorative; render them from data so they are not read as control text. */
+.sidebar-account-initials::before {
+  content: attr(data-initials);
 }
 
 .conversation-scroll {
@@ -910,8 +930,8 @@
   min-width: 0;
   margin-inline: auto;
   border: 1px solid var(--app-border);
-  padding: 16px;
-  border-radius: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: var(--app-composer);
   box-shadow: var(--app-shadow);
   pointer-events: auto;
@@ -956,7 +976,7 @@
 
 .composer-input::placeholder {
   color: var(--placeholder-foreground);
-  font-size: var(--app-ui-font-size);
+  font-size: var(--app-font-13);
   font-weight: 400;
 }
 
@@ -980,9 +1000,9 @@
   padding: 0 12px 0 0;
   color: var(--app-text);
   font: inherit;
-  font-size: var(--app-ui-font-size);
+  font-size: var(--app-font-13);
   font-weight: 400;
-  line-height: calc(var(--spacing) * 6);
+  line-height: var(--app-line-20);
   overflow-wrap: anywhere;
   pointer-events: none;
   scrollbar-color: transparent transparent;
@@ -1119,6 +1139,147 @@
   background-repeat: no-repeat;
 }
 
+/* macOS hidden title bar only. MyGo processes --app-region: drag on every
+   host, so the shared Web and Windows layouts stay out of this block. */
+html[data-desktop-platform="darwin"] {
+  /* One header height across the Mac window: the native title-bar lane the
+     sidebar actions center on, and the 40px action row once full screen hides
+     that lane. */
+  --mac-header-height: max(40px, var(--mygo-titlebar-height, 0px));
+}
+
+html[data-desktop-platform="darwin"] .sidebar-brand-bar,
+html[data-desktop-platform="darwin"] .conversation-top-bar,
+html[data-desktop-platform="darwin"] .app-top-bar,
+html[data-desktop-platform="darwin"] [data-slot="page-top-bar"],
+html[data-desktop-platform="darwin"] .settings-navigation-header,
+html[data-desktop-platform="darwin"] .settings-mobile-header {
+  --app-region: drag;
+}
+
+html[data-desktop-platform="darwin"] [data-slot="account-access-layout"],
+html[data-desktop-platform="darwin"] [data-slot="application-load-error"],
+html[data-desktop-platform="darwin"] [data-slot="public-failure-screen"],
+html[data-desktop-platform="darwin"] .page-state-loading-fullscreen {
+  --app-region: drag;
+}
+
+html[data-desktop-platform="darwin"] [data-slot="account-access-layout"] > *,
+html[data-desktop-platform="darwin"] [data-slot="application-load-error"] > *,
+html[data-desktop-platform="darwin"] [data-slot="public-failure-screen"] > * {
+  --app-region: no-drag;
+}
+
+html[data-desktop-platform="darwin"] .account-access-top-row {
+  --app-region: drag;
+}
+
+/* The mobile workspace drawer keeps the shared adaptive bar so its actions
+   clear the native controls. */
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar {
+  --mac-brand-bar-height: max(
+    var(--conversation-top-bar-height),
+    calc(var(--mygo-titlebar-controls-bottom, 0px) + 33px)
+  );
+  --mac-brand-hit-height: 24px;
+  --mac-brand-top: max(
+    calc(
+      (var(--conversation-top-bar-height) - var(--mac-brand-hit-height)) / 2
+    ),
+    calc(var(--mygo-titlebar-controls-bottom, 0px) + 4px)
+  );
+  height: var(--mac-brand-bar-height);
+  min-height: var(--mac-brand-bar-height);
+}
+
+/* Settings carries no brand mark on the Mac; its header is the same height as
+   the page top bar beside it. */
+html[data-desktop-platform="darwin"] .settings-brand-bar,
+html[data-desktop-platform="darwin"] [data-slot="page-top-bar"] {
+  height: var(--mac-header-height);
+  min-height: var(--mac-header-height);
+}
+
+/* The drawer has no brand link on the Mac either; keep its actions on the
+   trailing edge instead of letting space-between drop them to the left. */
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar {
+  justify-content: flex-end;
+}
+
+html[data-desktop-platform="darwin"]
+  .mobile-navigation-sheet
+  .sidebar-brand-bar
+  .sidebar-brand-link {
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  align-self: flex-start;
+  height: var(--mac-brand-hit-height);
+  min-width: var(--mac-brand-hit-height);
+  margin-top: var(--mac-brand-top);
+}
+
+/* The expanded Mac workspace reserves the native control lane with a spacer in
+   front of the actions, so they clear the traffic lights, and keeps the header
+   exactly as tall as the top bar beside it. */
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-bar {
+  --mac-brand-spacer-width: clamp(
+    0px,
+    calc(var(--mygo-titlebar-inset-left, 0px) + 5px - 1rem),
+    100%
+  );
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  gap: 0;
+  width: auto;
+  height: var(--mac-header-height);
+}
+
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-bar::before {
+  content: "";
+  flex: 0 0 auto;
+  width: var(--mac-brand-spacer-width);
+  max-width: 100%;
+  height: var(--mygo-titlebar-height, 0px);
+  pointer-events: none;
+}
+
+html[data-desktop-platform="darwin"]
+  .app-shell
+  > .app-sidebar
+  .sidebar-brand-row {
+  display: flex;
+  flex: 1 1 max-content;
+  min-width: min-content;
+  max-width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* The Mac workspace gives the conversation top bar, its triggers, and the
+   sidebar header one shared height. */
+html[data-desktop-platform="darwin"] .app-shell,
+html[data-desktop-platform="darwin"] .app-shell .conversation-workspace {
+  --conversation-top-bar-height: var(--mac-header-height);
+}
+
+html[data-desktop-platform="darwin"] .app-shell .conversation-top-bar {
+  padding-inline: 18px;
+}
+
 .sidebar-resize-handle {
   position: absolute;
   top: var(--app-safe-area-top);
@@ -1187,6 +1348,18 @@
 
   .app-shell[data-sidebar-collapsed="true"] .conversation-top-bar {
     padding-left: 52px;
+  }
+
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    .app-top-bar,
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    .conversation-top-bar,
+  html[data-desktop-platform="darwin"]
+    .app-shell[data-sidebar-collapsed="true"]
+    [data-slot="page-top-bar"] {
+    padding-left: calc(52px + var(--mygo-titlebar-inset-left, 0px));
   }
 
   .app-shell[data-sidebar-collapsed="true"]
@@ -1364,6 +1537,11 @@
   left: 10px;
   z-index: 50;
   color: var(--app-muted);
+}
+
+html[data-desktop-platform="darwin"] .mobile-shell-trigger,
+html[data-desktop-platform="darwin"] .desktop-sidebar-trigger {
+  left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
 }
 
 .app-main:has([data-slot="page-top-bar"]) > .desktop-sidebar-trigger,
@@ -4016,6 +4194,9 @@
   z-index: 30;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  /* Content-sized rows keep the Composer border in step with a toolbar that
+     wraps after the preview pane resizes the workspace. */
+  grid-auto-rows: max-content;
   min-width: 0;
   gap: 8px;
   pointer-events: none;
@@ -5306,8 +5487,10 @@
 
 .message-row-user .message-content {
   max-width: min(82%, 596px);
-  padding: 14px 18px;
-  min-height: 50px;
+  padding: 10px 14px;
+  min-height: 40px;
+  font-size: var(--app-font-13);
+  line-height: var(--app-line-20);
 }
 
 .message-row-assistant .message-content {
@@ -5987,12 +6170,9 @@ button.annotation-hover-file:focus-visible {
   margin-bottom: 0;
 }
 
-.assistant-markdown p,
-.assistant-markdown ul,
-.assistant-markdown ol,
-.assistant-markdown pre,
-.assistant-markdown blockquote,
-.assistant-markdown table {
+/* Rich output components control their own spacing inside Markdown replies. */
+.assistant-markdown
+  :is(p, ul, ol, pre, blockquote, table):where(:not([data-slot="rich-output"] *)) {
   margin-block: 12px;
 }
 
@@ -6302,43 +6482,38 @@ button.annotation-hover-file:focus-visible {
   color: var(--app-text);
 }
 
-.assistant-markdown h1,
-.assistant-markdown h2,
-.assistant-markdown h3,
-.assistant-markdown h4 {
+.assistant-markdown :is(h1, h2, h3, h4):where(:not([data-slot="rich-output"] *)) {
   margin: 20px 0 8px;
   color: var(--app-text);
   font-weight: 600;
   line-height: 1.45;
 }
 
-.assistant-markdown h1 {
+.assistant-markdown h1:where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-font-18);
 }
 
-.assistant-markdown h2 {
+.assistant-markdown h2:where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-font-16);
 }
 
-.assistant-markdown h3,
-.assistant-markdown h4 {
+.assistant-markdown :is(h3, h4):where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-ui-font-size);
 }
 
-.assistant-markdown ul,
-.assistant-markdown ol {
+.assistant-markdown :is(ul, ol):where(:not([data-slot="rich-output"] *)) {
   padding-left: 22px;
 }
 
-.assistant-markdown ul {
+.assistant-markdown ul:where(:not([data-slot="rich-output"] *)) {
   list-style: disc;
 }
 
-.assistant-markdown ol {
+.assistant-markdown ol:where(:not([data-slot="rich-output"] *)) {
   list-style: decimal;
 }
 
-.assistant-markdown li + li {
+.assistant-markdown li + li:where(:not([data-slot="rich-output"] *)) {
   margin-top: 4px;
 }
 
@@ -6417,7 +6592,7 @@ button.annotation-hover-file:focus-visible {
 .assistant-markdown
   img:not(.conversation-image-thumbnail-image):not(.image-preview-image):not(
     [data-diagram-image]
-  ) {
+  ):where(:not([data-slot="rich-output"] *)) {
   display: block;
   width: auto;
   max-width: min(100%, 760px);
@@ -6495,7 +6670,7 @@ button.annotation-hover-file:focus-visible {
   color: var(--app-muted);
 }
 
-.assistant-markdown table {
+.assistant-markdown table:where(:not([data-slot="rich-output"] *)) {
   border-collapse: collapse;
 }
 
@@ -6828,6 +7003,10 @@ button.annotation-hover-file:focus-visible {
   border-bottom-color: transparent;
 }
 
+.turn-summary-heading[data-context-compaction="true"] {
+  border-bottom-color: transparent;
+}
+
 .turn-summary-marker-content {
   display: inline-flex;
   min-width: 0;
@@ -6867,6 +7046,11 @@ button.annotation-hover-file:focus-visible {
   flex-direction: column;
   gap: var(--conversation-assistant-block-gap, 8px);
   padding: 12px 0 0;
+}
+
+/* An empty panel must not add its padding to the turn layout. */
+.activity-panel-inner:empty {
+  padding-top: 0;
 }
 
 .activity-panel-inner > p {
@@ -7400,6 +7584,7 @@ button.annotation-hover-file:focus-visible {
 .process-commentary .assistant-markdown {
   max-width: 100%;
   color: var(--process-commentary-color);
+  font-weight: 500;
 }
 
 .process-commentary .assistant-markdown :is(h1, h2, h3, h4) {
@@ -8950,6 +9135,8 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-navigation-body {
+  --app-sidebar-row-height: 40px;
+
   display: flex;
   height: 100%;
   min-height: 0;
@@ -8973,6 +9160,22 @@ button.annotation-hover-file:focus-visible {
   gap: 12px;
   overflow-y: auto;
   padding: 8px 16px 16px;
+}
+
+/* Title-menu glyphs keep the compact 14px muted treatment from the Figma menu. */
+.conversation-title-menu-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--app-muted);
+  opacity: 0.7;
+}
+
+/* Segmented tracks keep the pre-compaction 32px tab height. */
+[data-slot="tabs-list"]:not([data-variant="navigation"])
+  [data-slot="tabs-trigger"] {
+  min-height: 32px;
+  padding-block: 4px;
+  font-weight: 500;
 }
 
 .settings-back-link {
@@ -9039,7 +9242,7 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-group nav {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -10495,6 +10698,12 @@ button.annotation-hover-file:focus-visible {
   .conversation-workspace:has(.conversation-welcome) > .conversation-top-bar {
     padding-left: 52px;
   }
+
+  html[data-desktop-platform="darwin"]
+    .conversation-workspace:has(.conversation-welcome)
+    > .conversation-top-bar {
+    padding-left: calc(52px + var(--mygo-titlebar-inset-left, 0px));
+  }
 }
 
 .public-shell {
@@ -11734,6 +11943,10 @@ button.annotation-hover-file:focus-visible {
     padding: 8px 10px;
   }
 
+  html[data-desktop-platform="darwin"] .settings-mobile-header {
+    padding-left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
   .settings-navigation-header {
     padding-top: 8px;
   }
@@ -11858,6 +12071,10 @@ button.annotation-hover-file:focus-visible {
     padding-inline: 10px;
   }
 
+  html[data-desktop-platform="darwin"] .app-top-bar {
+    padding-left: calc(10px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
   .conversation-column {
     --conversation-bottom-stack-clearance: 26px;
     --conversation-bottom-stack-fallback: 206px;
@@ -11913,6 +12130,14 @@ button.annotation-hover-file:focus-visible {
   .conversation-top-bar {
     padding-right: 10px;
     padding-left: 48px;
+  }
+
+  html[data-desktop-platform="darwin"] .conversation-top-bar {
+    padding-left: calc(48px + var(--mygo-titlebar-inset-left, 0px));
+  }
+
+  html[data-desktop-platform="darwin"] [data-slot="page-top-bar"] {
+    padding-left: calc(56px + var(--mygo-titlebar-inset-left, 0px));
   }
 
   .conversation-top-overlay-stack {
@@ -12399,4 +12624,11 @@ button.annotation-hover-file:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Toast exits are decorative; hide the node as soon as Sonner marks it removed so
+   its fading text never reaches accessibility scans as low-contrast content. */
+[data-sonner-toast][data-removed="true"] {
+  visibility: hidden;
+  pointer-events: none;
 }

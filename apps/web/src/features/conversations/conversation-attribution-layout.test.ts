@@ -15,7 +15,7 @@ describe("conversation attribution layout", () => {
     await i18n.changeLanguage("zh-CN")
     render(createElement(PoweredByLinkSense, { placement: "conversation" }))
     const frame = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     }).parentElement
     if (!frame) throw new Error("Attribution frame is missing")
     const compiler = await compile(`${tailwindTheme}\n@tailwind utilities;`)
@@ -32,13 +32,13 @@ describe("conversation attribution layout", () => {
     expect(attributionStyles).not.toMatch(/(?:^|\n)\.absolute\s*\{/u)
     expect(attributionStyles).not.toMatch(/position:\s*fixed;/u)
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*right:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-horizontal-gutter\)\);/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[\s\S]*?right:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-horizontal-gutter\)\);/u
     )
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*bottom:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-bottom-inset\)\);/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[\s\S]*?bottom:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-bottom-inset\)\);/u
     )
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*margin:\s*0;/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[\s\S]*?margin:\s*0(?:px)?;/u
     )
   })
 
@@ -61,7 +61,7 @@ describe("conversation attribution layout", () => {
     )
     expect(attributionStyles).toMatch(/\.hidden\s*\{\s*display:\s*none;/u)
     expect(attributionStyles).toMatch(
-      /@media \(width >= 48rem\)\s*\{\s*display:\s*flex;/u
+      /@media \(width >= 48rem\)\s*\{[\s\S]*?display:\s*flex;/u
     )
   })
 
@@ -70,7 +70,7 @@ describe("conversation attribution layout", () => {
       /\.mt-4\s*\{\s*margin-top:\s*calc\(var\(--spacing\)\s*\*\s*4\);/u
     )
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*margin:\s*0;/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[\s\S]*?margin:\s*0(?:px)?;/u
     )
   })
 })

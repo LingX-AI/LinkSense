@@ -8,12 +8,11 @@ import { init, parse as parseModules } from "es-module-lexer";
 import { lookup } from "mime-types";
 import srcset from "srcset";
 import { z } from "zod";
-import { webBundleLimits, webBundlePathSchema, type WebBundleManifest } from "@linksense/shared";
+import { webBundleLimits, webBundleResourcePathSchema, type WebBundleManifest } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 
-const extensions = new Set([".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".webm", ".ogg", ".wav", ".wasm", ".txt", ".csv", ".pdf"]);
 export function resourceMimeType(path: string): string {
-  if (!webBundlePathSchema.safeParse(path).success || !extensions.has(posix.extname(path).toLowerCase())) {
+  if (!webBundleResourcePathSchema.safeParse(path).success) {
     throw new AppError("WEB_SITE_BUNDLE_INVALID");
   }
   return lookup(path) || "application/octet-stream";

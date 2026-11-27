@@ -189,6 +189,7 @@ describe("Core automation MCP protocol", () => {
         url: "https://example.test:18173/web/demo",
         conversation_id: id, source_task_title: "Current", source_file_id: id,
         release_id: id, file_count: 6, size_bytes: 200,
+        analytics_enabled: false, passcode_protected: false,
         published_at: timestamp, created_at: timestamp, updated_at: timestamp,
       };
       for (const { name, args, result } of [

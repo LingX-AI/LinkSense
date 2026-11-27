@@ -22,6 +22,7 @@ import {
 } from "@/adapters/teams/teams-adapter"
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
+import { externalLoginDestination } from "@/app/external-login-destination"
 import { useProductName } from "@/app/product-branding"
 import {
   AccountAccessHeading,
@@ -59,6 +60,10 @@ function PublicPanel({
 }
 
 export function LoginPage() {
+  return <WebLoginPage />
+}
+
+function WebLoginPage() {
   const { t } = useTranslation()
   const productName = useProductName()
   const location = useLocation()
@@ -905,15 +910,21 @@ export function EnterpriseCallbackPage() {
   const navigate = useNavigate()
   const [callbackResult] = useState(readEnterpriseCallbackResult)
   const { status } = useAuth()
+  const redirected = useRef(false)
 
   useLayoutEffect(() => {
     clearEnterpriseCallbackParameters()
   }, [])
 
   useEffect(() => {
-    if (callbackResult === "success" && status === "authenticated") {
-      navigate("/conversations/new", { replace: true })
-    }
+    if (
+      callbackResult !== "success" ||
+      status !== "authenticated" ||
+      redirected.current
+    )
+      return
+    redirected.current = true
+    navigate(externalLoginDestination(), { replace: true })
   }, [callbackResult, navigate, status])
 
   const error =

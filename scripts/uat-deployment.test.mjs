@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
+import { parseEnv } from "node:util";
 import { prepareUat } from "../deploy/uat/prepare.mjs";
 
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
@@ -33,6 +34,67 @@ test("UAT updates preserve credentials and data identities while advancing sourc
   for (const file of ["runtime.env", "initialization.txt"]) assert.equal(statSync(resolve(root, ".data/uat", file)).mode & 0o777, 0o600);
   assert(!("ELASTICSEARCH_PASSWORD" in second));
 });
+test("UAT updates preserve operator-supplied dynamic application settings", t => {
+  const root = fixture(t);
+  prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+  const file = resolve(root, ".data/uat/runtime.env");
+  const settings =
+    'LINKSENSE_APPWRITE_ENDPOINT="http://traefik/v1"\n' +
+    'LINKSENSE_APPWRITE_ADMIN_EMAIL="operator@example.test"\n' +
+    'LINKSENSE_APPWRITE_ADMIN_PASSWORD="uat-operator-pw-0001"\n' +
+    'LINKSENSE_APPWRITE_ORGANIZATION_ID="linksense-test"\n' +
+    'LINKSENSE_DYNAMIC_APPS_BASE_URL="https://192-168-2-210.nip.io:19443"\n';
+  writeFileSync(file, readFileSync(file, "utf8") + settings);
+  prepareUat(root, { revision: "b".repeat(40), publicUrl: "http://localhost:19090" });
+  assert.ok(readFileSync(file, "utf8").endsWith(settings));
+});
+
+test("UAT repeated updates preserve optional assignment bytes and keep multiline passwords out of managed settings", t => {
+  for (const assignment of [
+    "LINKSENSE_APPWRITE_ADMIN_PASSWORD='keep$HOME ${UNSET} $$ \"quotes\"\\slashes'\n",
+    String.raw`LINKSENSE_APPWRITE_ADMIN_PASSWORD='let\'s keep $HOME $$ "quotes" \slashes'` + "\n",
+    String.raw`export LINKSENSE_APPWRITE_ADMIN_PASSWORD = "first\"line` + "\r\n" +
+      "POSTGRES_PASSWORD=unexpected-password\r\nLINKSENSE_MAX_CONCURRENT_CONVERSATIONS=999\r\n" +
+      String.raw`last\\line" # retain this comment` + "\n",
+    'LINKSENSE_APPWRITE_ADMIN_PASSWORD=""\n',
+  ]) {
+    const root = fixture(t);
+    const initial = prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+    const file = resolve(root, ".data/uat/runtime.env");
+    writeFileSync(file, readFileSync(file, "utf8") + assignment);
+    for (const revisionDigit of ["b", "c", "d"]) {
+      const updated = prepareUat(root, { revision: revisionDigit.repeat(40), publicUrl: "http://localhost:19090" });
+      const written = readFileSync(file, "utf8");
+      assert.ok(written.endsWith(assignment));
+      assert.equal(written.split(assignment).length, 2);
+      assert.equal(updated.POSTGRES_PASSWORD, initial.POSTGRES_PASSWORD);
+      assert.equal(updated.DATABASE_URL, initial.DATABASE_URL);
+      assert.equal(updated.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "4");
+    }
+  }
+});
+
+test("UAT encodes a fresh optional environment password once and preserves it across updates", t => {
+  const key = "LINKSENSE_APPWRITE_ADMIN_PASSWORD";
+  const previous = process.env[key];
+  process.env[key] = "keep$HOME ${UNSET} $$ \"quotes\"\\slashes\\";
+  try {
+    const root = fixture(t);
+    prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+    const file = resolve(root, ".data/uat/runtime.env");
+    const assignment = 'LINKSENSE_APPWRITE_ADMIN_PASSWORD="keep$$HOME $${UNSET} $$$$ ' +
+      String.raw`\"quotes\"\\slashes\\"` + "\n";
+    assert.ok(readFileSync(file, "utf8").endsWith(assignment));
+    for (const revisionDigit of ["b", "c"]) {
+      prepareUat(root, { revision: revisionDigit.repeat(40), publicUrl: "http://localhost:19090" });
+      assert.ok(readFileSync(file, "utf8").endsWith(assignment));
+    }
+  } finally {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
+
 test("UAT updates preserve configured concurrency limits", t => {
   const root = fixture(t);
   prepareUat(root, { revision, publicUrl: "http://localhost:19090" });

@@ -53,7 +53,7 @@ const buttonVariants = cva(
         // Form-field triggers match Input and Select instead of the button height.
         variant: "input",
         size: "default",
-        class: "h-10 px-3",
+        class: "h-9 px-3",
       },
     ],
     defaultVariants: {

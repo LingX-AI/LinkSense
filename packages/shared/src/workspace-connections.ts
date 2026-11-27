@@ -242,3 +242,10 @@ export const connectionResultSchema = z.union([
   workspaceResultSchema,
 ]);
 export type ConnectionResult = z.infer<typeof connectionResultSchema>;
+
+export const internalConnectionRequestSchema = z.strictObject({
+  conversationId: z.uuid(),
+  turnId: z.uuid(),
+  input: connectionInputSchema,
+});
+

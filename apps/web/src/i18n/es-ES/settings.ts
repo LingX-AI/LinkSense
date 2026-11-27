@@ -29,7 +29,7 @@ export const settingsMessages = {
     channelAccessDescription:
       "Gestiona Weixin, WeCom, DingTalk, Teams, Feishu y otros canales",
     capabilitiesDescription:
-      "Explora el centro de plugins y gestiona tus plugins y Skills",
+      "Explora y gestiona apps, sitios y herramientas",
     archivedDescription: "Consulta las tareas archivadas",
     usersDescription: "Gestiona cuentas, roles y estados de usuarios",
     rolesDescription: "Consulta los roles predefinidos y sus permisos",
@@ -109,6 +109,78 @@ export const settingsMessages = {
       "Esta acción no se puede deshacer. Se conservarán tus tareas, instrucciones personalizadas, plugins y Skills.",
     resettingMemories: "Restableciendo recuerdos…",
     memoriesReset: "Recuerdos restablecidos",
+    privacyMasking: "Enmascaramiento de privacidad",
+    privacyMaskingDescription:
+      "Sustituye secretos por marcadores antes de enviar una solicitud al proveedor del modelo y los restaura antes de que la respuesta llegue al entorno de ejecución.",
+    privacyMaskingEnabled: "Activar el enmascaramiento de privacidad",
+    privacyMaskingEnabledDescription:
+      "Enmascara el texto que pasa por la pasarela de modelos de tareas. No protege los títulos automáticos, las búsquedas web, la generación de imágenes ni la vectorización de la base de conocimiento. El historial y los eventos conservan el texto original.",
+    privacyMaskingSecrets: "Secretos y credenciales",
+    privacyMaskingSecretsDescription:
+      "Claves de API, tokens, claves privadas, contraseñas y valores de las cabeceras Authorization o Cookie.",
+    privacyMaskingWords: "Palabras personalizadas",
+    privacyMaskingWordsDescription:
+      "Una palabra o frase por línea: nombres de proyectos, nombres internos o nombres que no quieres enviar al proveedor.",
+    privacyMaskingWordsPlaceholder: "Proyecto Nightjar\nInterno de Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Coincidir sin distinguir mayúsculas",
+    privacyMaskingAnyCaseDescription:
+      "Trata nightjar, Nightjar y NIGHTJAR como la misma palabra.",
+    privacyMaskingWholeWord: "Solo palabras completas",
+    privacyMaskingWholeWordDescription:
+      "No enmascara una palabra dentro de otra palabra o identificador más largo.",
+    privacyMaskingAllow: "Valores permitidos",
+    privacyMaskingAllowDescription:
+      "Un valor por línea. Un valor detectado solo se envía tal cual si coincide por completo, incluidas las mayúsculas y minúsculas. El ajuste de las palabras personalizadas no afecta a esta lista.",
+    privacyMaskingAllowPlaceholder: "ejemplo@ejemplo.test",
+    privacyMaskingSaved: "Configuración de enmascaramiento guardada.",
+    privacyMaskingSave: "Guardar enmascaramiento",
+    privacyMaskingBehaviorNote:
+      "El modelo ve marcadores en lugar de los valores reales. Las tareas que deben inspeccionar un secreto pueden no funcionar hasta que añadas ese valor a la lista permitida.",
+    privacyMaskingPageDescription:
+      "Elige qué no llega nunca al proveedor del modelo y prueba las reglas con un texto de ejemplo antes de iniciar una tarea.",
+    privacyMaskingWhatToMask: "Qué enmascarar",
+    privacyMaskingTryIt: "Probar",
+    privacyMaskingTryItDescription:
+      "Pega un texto que podría enviar un agente. Aquí se enmascara igual que en una solicitud real y no se guarda nada.",
+    privacyMaskingTryItPlaceholder:
+      "Despliega con la clave sk-proj-… y llama a la API de preproducción",
+    privacyMaskingTryItOutput: "Vista previa del texto con las reglas del borrador",
+    privacyMaskingTryItEmpty: "Nada de este texto se enmascararía.",
+    privacyMaskingTryItOffNote:
+      "El enmascaramiento está desactivado. Esta vista previa muestra lo que se sustituiría al activarlo.",
+    privacyMaskingKindPrivateKey: "Clave privada",
+    privacyMaskingKindApiKey: "Clave de API",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Secreto",
+    privacyMaskingKindPassword: "Contraseña",
+    privacyMaskingKindTerm: "Palabra personalizada",
+    privacyMaskingKindEmail: "Correo electrónico",
+    privacyMaskingKindPhone: "Número de teléfono",
+    privacyMaskingKindIdCard: "Número de documento de identidad",
+    privacyMaskingKindBankCard: "Número de tarjeta bancaria",
+    privacyMaskingActivity: "Actividad de enmascaramiento",
+    privacyMaskingActivityDescription:
+      "Consulta las solicitudes con sustituciones de los últimos 30 días. Los registros muestran los tipos, las longitudes, las ubicaciones y los recuentos, nunca los valores originales.",
+    privacyMaskingSections: "Configuración y actividad",
+    privacyMaskingSectionSettings: "Configuración",
+    privacyMaskingSectionActivity: "Actividad",
+    privacyMaskingActivityPeriod: "Periodo",
+    privacyMaskingActivity7Days: "7 días",
+    privacyMaskingActivity30Days: "30 días",
+    privacyMaskingActivityMasked: "valores sustituidos",
+    privacyMaskingActivityRequests: "solicitudes",
+    privacyMaskingActivityEmpty:
+      "Aún no hay solicitudes enmascaradas en este periodo.",
+    privacyMaskingActivityLoadMore: "Cargar más",
+    privacyMaskingActivityHintLength: "{{length}} caracteres",
+    privacyMaskingActivityLocationPrompt: "Indicación",
+    privacyMaskingActivityLocationInstructions: "Instrucciones",
+    privacyMaskingActivityLocationToolArguments:
+      "Argumentos de la herramienta",
+    privacyMaskingActivityLocationToolOutput: "Salida de la herramienta",
+    privacyMaskingActivityLocationTools: "Definiciones de herramientas",
+    privacyMaskingActivityLocationOther: "Otro",
     appearancePageDescription:
       "Configura el tema y el tamaño de letra base de {{productName}}.",
     theme: "Tema",

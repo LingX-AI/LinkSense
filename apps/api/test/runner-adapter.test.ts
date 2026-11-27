@@ -44,12 +44,12 @@ describe("RunnerClient start operation", () => {
     await expect(new RunnerClient(testConfig()).closeRuntimeProcess(conversationId, ownerId)).rejects.toMatchObject({ code: "APPLICATION_RUNTIME_BUSY" });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
-  it("uses an already authorized placement without repeating its database lookup", async () => {
+  it("checks the current execution target while preserving an already authorized placement", async () => {
     const resolveWorkspace = vi.fn();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(startingOperation(), 202));
     vi.stubGlobal("fetch", fetchMock);
     await new RunnerClient(testConfig(), resolveWorkspace).acceptStartTurn(startInput(), { workspacePath: `projects/${projectionTurnId}` });
-    expect(resolveWorkspace).not.toHaveBeenCalled();
+    expect(resolveWorkspace).toHaveBeenCalledWith(ownerId, conversationId);
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
     expect(headers.get("x-linksense-owner-id")).toBe(ownerId);
     expect(headers.get("x-linksense-workspace")).toBe(`projects/${projectionTurnId}`);

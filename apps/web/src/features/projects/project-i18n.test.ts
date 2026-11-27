@@ -3,10 +3,23 @@ import { describe, expect, it } from "vitest"
 
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
+import i18n, { supportedLanguages } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 
 describe("task project localization", () => {
+  it.each(supportedLanguages)(
+    "localizes moving a task to the public workspace in %s",
+    (locale) => {
+      const key = "projects.moveToPublicWorkspace"
+      const chinese = zhCN.projects.moveToPublicWorkspace
+      const label = i18n.getResource(locale, "translation", key)
+      expect(label).toBeTypeOf("string")
+      if (locale !== "zh-CN") expect(label).not.toBe(chinese)
+      expect(i18n.t(key, { lng: "de-DE" })).toBe(chinese)
+    }
+  )
+
   it("localizes sidebar sections and project removal with Chinese fallback", async () => {
     const instance = createInstance()
     await instance.init({
@@ -17,9 +30,9 @@ describe("task project localization", () => {
       },
     })
     for (const [language, projects, recent, remove] of [
-      ["zh-CN", "项目", "最近", "移除项目"],
-      ["en-US", "Projects", "Recent", "Remove project"],
-      ["de-DE", "项目", "最近", "移除项目"],
+      ["zh-CN", "项目", "最近", "移除"],
+      ["en-US", "Projects", "Recent", "Remove"],
+      ["de-DE", "项目", "最近", "移除"],
     ]) {
       const t = instance.getFixedT(language)
       expect(t("nav.projects")).toBe(projects)

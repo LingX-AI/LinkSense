@@ -55,6 +55,13 @@ describe("application metadata editor", () => {
       await i18n.changeLanguage(locale)
       const f = show()
       const user = userEvent.setup()
+      await waitFor(() =>
+        expect(screen.getByRole("dialog")).toContainElement(
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null
+        )
+      )
       expect(screen.getByRole("dialog")).toHaveAccessibleName(
         i18n.t("applications.editMetadata")
       )
@@ -182,6 +189,13 @@ describe("application metadata editor", () => {
     await i18n.changeLanguage("en-US")
     const save = vi.fn().mockRejectedValue(new Error("unavailable"))
     const f = show(undefined, save)
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toContainElement(
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+      )
+    )
     await userEvent.clear(
       screen.getByRole("textbox", { name: i18n.t("common.name") })
     )

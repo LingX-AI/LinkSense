@@ -81,7 +81,12 @@ const interactiveInlineScriptTypes = new Set([
 
 function normalizeTrustedRuntimeUrl(value: string) {
   const url = new URL(value, window.location.href)
-  if (url.origin !== window.location.origin) {
+  const current = new URL(window.location.href)
+  if (
+    url.origin !== current.origin ||
+    (url.origin === "null" &&
+      (url.protocol !== current.protocol || url.host !== current.host))
+  ) {
     throw new Error("HTML preview runtime must use the LinkSense origin")
   }
   return url

@@ -638,6 +638,7 @@ export const conversationTimelineEventSchema = z.object({
   payload: z.unknown(),
   created_at: z.string(),
   sequence_no: z.number().int().nonnegative(),
+  file_change_artifact_ids: z.record(z.string(), uuidSchema).optional(),
 })
 
 export type ConversationEvent = z.infer<typeof conversationTimelineEventSchema>
@@ -712,6 +713,8 @@ export type PendingRequest = z.infer<typeof pendingRequestSchema>
 export type ConversationUserInputRequest = z.infer<
   typeof conversationUserInputRequestSchema
 >
+
+export type ConversationUserInputRequestView = ConversationUserInputRequest
 
 export const capabilitySummarySchema = z
   .strictObject({
@@ -934,7 +937,9 @@ export const conversationSchema = z
     running_turn: turnSchema.nullable().optional(),
     starting_turn: conversationStartingTurnSchema.nullable().optional(),
     pending_requests: z.array(pendingRequestSchema).optional(),
-    user_input_requests: z.array(conversationUserInputRequestSchema).optional(),
+    user_input_requests: z
+      .array(conversationUserInputRequestSchema)
+      .optional(),
     plan_reviews: z.array(conversationPlanReviewSchema).optional(),
     available_capabilities: z.array(capabilitySummarySchema).optional(),
     loaded_capabilities: z.array(capabilitySummarySchema).optional(),

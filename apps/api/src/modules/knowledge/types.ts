@@ -371,6 +371,7 @@ export interface KnowledgeDocumentAccessAdapter {
     byteOffset: number;
     maxBytes: number;
     verifyIntegrity: boolean;
+    signal?: AbortSignal;
   }): Promise<{
     markdown: string;
     byteStart: number;
@@ -390,6 +391,7 @@ export interface KnowledgeDocumentAccessAdapter {
     documentId: string;
     documentVersionId: string;
     assetReferenceId: string;
+    signal?: AbortSignal;
   }): Promise<KnowledgeAssetFile>;
 }
 

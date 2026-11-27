@@ -5,6 +5,7 @@ import {
   conversationShareCreateSchema,
   sideChatSelectionSchema,
   conversationCollaborationModeSchema,
+  conversationCreateInputSchema,
   conversationHistoryQuerySchema,
   conversationSourcesSchema,
   conversationOrderUpdateSchema,
@@ -52,7 +53,8 @@ const pendingRequestOrderBodySchema = z.strictObject({
   request_ids: z
     .array(z.string().uuid())
     .min(2)
-    .max(5)
+    // A revoked Mac start can become an editable sixth draft.
+    .max(6)
     .refine((ids) => new Set(ids).size === ids.length, "duplicate_request_id"),
 });
 const contextCompactionBodySchema = z.strictObject({
@@ -209,15 +211,7 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    const body = z
-      .strictObject({
-        collaboration_mode: conversationCollaborationModeSchema.default(
-          "default",
-        ),
-        prewarmed_conversation_id: z.string().uuid().optional(),
-        project_id: z.string().uuid().nullable().optional(),
-      })
-      .parse(request.body);
+    const body = conversationCreateInputSchema.parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
       ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),

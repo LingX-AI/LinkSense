@@ -1,3 +1,5 @@
+import { remapRichOutputFileReferences } from "@linksense/shared";
+
 import { MAX_CONVERSATION_TITLE_CHARACTERS } from "../../lib/conversation-title.js";
 
 export function forkedConversationTitle(
@@ -42,7 +44,7 @@ export function remapForkedJson(
 }
 
 export function remapForkedFileReferences(text: string, replacements: ReadonlyMap<string, string>): string {
-  return text.replace(/linksense-artifact:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])/giu,
+  return remapRichOutputFileReferences(text, replacements).replace(/linksense-artifact:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])/giu,
     (reference: string, fileId: string) => {
       const replacement = replacements.get(fileId.toLowerCase());
       return replacement ? `linksense-artifact:${replacement}` : reference;

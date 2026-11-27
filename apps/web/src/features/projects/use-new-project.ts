@@ -1,12 +1,20 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import { conversationDetailQueryOptions } from "@/features/conversations/conversation-detail-query"
 import { useProjects } from "./project-api"
 import {
   readNewProject,
+  readNewTaskProject,
   readNewTaskSource,
   rememberNewProject,
+  withoutNewTaskProject,
   withoutNewTaskSource,
 } from "./new-project-preference"
 
@@ -17,15 +25,18 @@ type ProjectSelection = { userId: string | undefined } & (
 
 function initialSelection(
   userId: string | undefined,
-  sourceId?: string
+  sourceId?: string,
+  requestedProjectId?: string
 ): ProjectSelection {
-  return sourceId
-    ? { userId, kind: "context", conversationId: sourceId }
-    : {
-        userId,
-        kind: "choice",
-        projectId: userId ? readNewProject(userId) : null,
-      }
+  return requestedProjectId
+    ? { userId, kind: "choice", projectId: requestedProjectId }
+    : sourceId
+      ? { userId, kind: "context", conversationId: sourceId }
+      : {
+          userId,
+          kind: "choice",
+          projectId: userId ? readNewProject(userId) : null,
+        }
 }
 
 export function useNewProject({
@@ -43,18 +54,50 @@ export function useNewProject({
   const location = useLocation()
   const navigate = useNavigate()
   const sourceId = readNewTaskSource(location.state, userId)
+  const requestedProjectId = readNewTaskProject(location.state)
   const projects = useProjects()
   const [selection, setSelection] = useState(() =>
-    initialSelection(userId, isNew ? sourceId : undefined)
+    initialSelection(
+      userId,
+      isNew ? sourceId : undefined,
+      isNew ? requestedProjectId : undefined
+    )
   )
-  const previousEntry = useRef({ userId, isNew })
+  const previousEntry = useRef({ userId, isNew, key: location.key })
   useLayoutEffect(() => {
     const previous = previousEntry.current
-    previousEntry.current = { userId, isNew }
-    if (userId !== previous.userId || (isNew && !previous.isNew)) {
-      setSelection(initialSelection(userId, isNew ? sourceId : undefined))
+    previousEntry.current = { userId, isNew, key: location.key }
+    if (
+      userId !== previous.userId ||
+      (isNew && !previous.isNew) ||
+      (isNew && requestedProjectId && previous.key !== location.key)
+    ) {
+      setSelection(
+        initialSelection(
+          userId,
+          isNew ? sourceId : undefined,
+          isNew ? requestedProjectId : undefined
+        )
+      )
     }
-  }, [userId, isNew, sourceId])
+  }, [userId, isNew, sourceId, requestedProjectId, location.key])
+  useEffect(() => {
+    if (!isNew || !requestedProjectId) return
+    if (userId) rememberNewProject(userId, requestedProjectId)
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: withoutNewTaskProject(location.state),
+    })
+  }, [
+    isNew,
+    userId,
+    requestedProjectId,
+    navigate,
+    location.pathname,
+    location.search,
+    location.hash,
+    location.state,
+  ])
 
   const contextId =
     selection.userId === userId && selection.kind === "context"

@@ -5,7 +5,7 @@ export const siteMessages = {
   webSites: {
     title: "Mis sitios",
     description:
-      "Gestiona tus sitios publicados, actualiza su contenido o retíralos de la publicación en cualquier momento.",
+      "Gestiona páginas y aplicaciones web publicadas, sus enlaces, servicios de datos y estado de publicación.",
     share: "Publicar como sitio",
     dialog: {
       share: "Publicar como sitio",
@@ -15,15 +15,29 @@ export const siteMessages = {
     },
     shareDescription:
       "Tras publicar, cualquier persona que tenga el enlace podrá visitar el sitio.",
+    editDescription:
+      "Edita el nombre, la descripción o el enlace personalizado. El enlace de origen y los datos de la aplicación se conservan.",
     deleteDescription:
       "El sitio y sus versiones publicadas se eliminarán permanentemente. Cualquiera podrá reutilizar la dirección. Se conservan la tarea y los archivos originales.",
     name: "Nombre del sitio",
     summary: "Descripción",
-    slug: "Nombre del enlace",
+    slug: "Slug personalizado",
+    slugPlaceholderEdit: "Déjalo vacío para mantener el enlace actual",
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
-    slugHelp: "Usa entre 3 y 80 letras inglesas, números o guiones.",
-    slugChanged:
-      "Al cambiarlo, el enlace anterior dejará de funcionar inmediatamente.",
+    slugHelp:
+      "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace de origen no cambia.",
+    passcode: "Código de acceso",
+    passcodePlaceholder: "Establecer un código",
+    passcodeHelp:
+      "Los visitantes deben introducir este código para abrir el sitio. Déjalo vacío para mantener el acceso público.",
+    invalidPasscode: "Usa al menos 4 caracteres.",
+    passcodeRemove: "Quitar el código",
+    passcodeKeep: "Mantener el código",
+    analytics: "Estadísticas de visitas",
+    analyticsHelp:
+      "Registra las visitas del sitio y enlaza su panel de estadísticas desde los detalles. Solo para sitios publicados.",
+    analyticsDisabledHelp:
+      "Vuelve a publicar el sitio para activar las estadísticas de visitas.",
     url: "Enlace del sitio",
     publishMode: "Modo de publicación",
     updateExisting: "Actualizar sitio existente",
@@ -77,13 +91,19 @@ export const siteMessages = {
     },
     empty: "Todavía no hay sitios publicados",
     emptyDescription:
-      "Abre una página web generada en una tarea y selecciona Publicar como sitio para gestionarla aquí.",
+      "Describe una página o aplicación en cualquier conversación y confirma su publicación para gestionarla aquí. También puedes seleccionar Publicar como sitio en una página existente.",
     noResults: "No hay sitios coincidentes",
-    sourceTask: "Origen: {{title}}",
     sourceDeleted: "Tarea de origen eliminada",
     publishedAt: "Publicado el {{date}}",
     resources: "{{count}} archivos · {{size}}",
     visit: "Visitar",
+    openSite: "Abrir sitio web",
+    localOnly: "Solo se puede acceder desde este dispositivo",
+    pageOnly: "Aplicación web · sin servicio de datos",
+    dataConnected: "Aplicación web · servicio de datos conectado",
+    dataCapabilityTitle: "Aplicación web",
+    dataServiceDisconnected: "Sin servicio de datos",
+    dataServiceConnected: "Servicio de datos conectado",
     copyNamed: "Copiar enlace de {{name}}",
     actions: "Gestionar {{name}}",
     edit: "Editar",
@@ -92,6 +112,31 @@ export const siteMessages = {
     enable: "Volver a publicar",
     download: "Descargar sitio web",
     loadMore: "Cargar más",
+    details: {
+      open: "Detalles",
+      description:
+        "Consulta los enlaces de acceso, las funciones de la aplicación y los detalles de la publicación actual.",
+      links: "Acceso y uso compartido",
+      alias: "Enlace personalizado",
+      stable: "Enlace de origen",
+      copyAlias: "Copiar enlace personalizado",
+      copyStable: "Copiar enlace de origen",
+      openAlias: "Abrir enlace personalizado",
+      openStable: "Abrir enlace de origen",
+      publication: "Detalles de publicación",
+      passcode: "Código de acceso",
+      passcodeOn: "Activado",
+      passcodeOff: "Desactivado",
+      analytics: "Estadísticas de visitas",
+      analyticsOn: "Activado",
+      analyticsOff: "Desactivado",
+      openAnalytics: "Abrir el panel de estadísticas",
+      source: "Conversación de origen",
+      files: "Recursos web",
+      publishedAt: "Publicación de la versión actual",
+      updatedAt: "Última modificación",
+      createdAt: "Creación",
+    },
     invalidSlug:
       "Introduce entre 3 y 80 letras inglesas, números o guiones, sin guiones al principio ni al final.",
   },

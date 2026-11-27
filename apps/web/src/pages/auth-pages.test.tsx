@@ -2,8 +2,8 @@ import { cleanup, render, screen } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
-import type { ReactElement } from "react"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
+import { StrictMode, type ReactElement } from "react"
 import { supportedLocales } from "@linksense/shared"
 
 import { bootstrapSchema } from "@/api/contracts"
@@ -16,6 +16,7 @@ import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
 import {
   CompleteRegistrationPage,
+  EnterpriseCallbackPage,
   ForgotPasswordPage,
   LoginPage,
   RegistrationPage,
@@ -49,6 +50,55 @@ const bootstrap = bootstrapSchema.parse({
   teams_sso: { status: "not_configured" },
   oidc: { status: "not_configured" },
   registration: { enabled: false },
+})
+
+describe("enterprise sign-in return navigation", () => {
+  afterEach(() => {
+    cleanup()
+    localStorage.clear()
+    sessionStorage.clear()
+    window.history.replaceState(null, "", "/")
+  })
+
+  it("returns to the account-scoped conversation destination in StrictMode", async () => {
+    const callbackPath = "/auth/oidc/callback?result=success"
+    window.history.replaceState(null, "", callbackPath)
+
+    function Destination() {
+      const { pathname, hash } = useLocation()
+      return <h1>{`${pathname}${hash}`}</h1>
+    }
+
+    render(
+      <StrictMode>
+        <AuthContext.Provider
+          value={{
+            status: "authenticated",
+            user: null,
+            acceptSession: vi.fn(),
+            refreshUser: vi.fn(),
+            signOut: vi.fn(),
+          }}
+        >
+          <MemoryRouter initialEntries={[callbackPath]}>
+            <Routes>
+              <Route
+                path="/auth/oidc/callback"
+                element={<EnterpriseCallbackPage />}
+              />
+              <Route path="*" element={<Destination />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthContext.Provider>
+      </StrictMode>
+    )
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "/conversations/new",
+      })
+    ).toBeVisible()
+  })
 })
 
 function renderRegistrationPage({
@@ -237,7 +287,7 @@ describe("LoginPage session restoration", () => {
   it("uses the shared attribution placement outside the login form", () => {
     renderLoginPageWithAuthStatus("anonymous")
     const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
+      name: "Powered by LinkSense",
     })
     const frame = attribution.parentElement
     expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")

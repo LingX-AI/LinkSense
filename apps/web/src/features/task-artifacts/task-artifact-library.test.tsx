@@ -16,7 +16,8 @@ import { downloadBlob } from "@/lib/download-blob"
 import i18n from "@/i18n"
 import { KnowledgeBaseListPage } from "@/pages/knowledge-base-pages"
 
-vi.mock("@/lib/download-blob", () => ({
+vi.mock("@/lib/download-blob", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/download-blob")>()),
   downloadBlob: vi.fn(),
 }))
 
@@ -99,6 +100,7 @@ describe("task artifact library", () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
@@ -165,7 +167,7 @@ describe("task artifact library", () => {
       )
     ).toBeVisible()
     const tabs = screen.getByRole("tablist", { name: "资料库内容" })
-    expect(tabs).toHaveAttribute("data-variant", "pills")
+    expect(tabs).toHaveAttribute("data-variant", "segmented")
     expect(within(tabs).getByRole("tab", { name: "任务产物" })).toHaveAttribute(
       "data-active",
       ""
@@ -212,7 +214,7 @@ describe("task artifact library", () => {
     }
 
     await interaction.click(
-      screen.getByRole("button", { name: "预览文件 季度总结.pdf" })
+      screen.getByRole("button", { name: /预览文件 季度总结\.pdf/u })
     )
     expect(screen.getByLabelText("产物预览 季度总结.pdf")).toBeVisible()
 

@@ -2,6 +2,7 @@ import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT, WEB_SITE_T
 import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
+import { createLoggerOptions, RunnerLogController } from "../lib/logger.js"
 import { z } from "zod"
 import { runnerRequestIdHeader, runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
@@ -37,7 +38,8 @@ export function buildControllerServer(
     config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   )
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    logController: new RunnerLogController(),
+    logger: createLoggerOptions(),
     bodyLimit: 16 * 1024 * 1024,
   })
 
@@ -68,13 +70,21 @@ export function buildControllerServer(
     const scope = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
     if (!scope.success) return reply.code(400).send({ error_code: "RUNNER_SERVICE_SCOPE_INVALID" })
     if (!scope.data) return
-    if (request.url.startsWith("/internal/connections/")) {
+    const route = request.routeOptions.url ?? ""
+    if (route.startsWith("/internal/connections/")) {
       return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
     }
-    if (request.url.startsWith("/internal/browser-use/") || request.url.startsWith("/internal/local-browser/")) {
+    if (route.startsWith("/internal/browser-use/") || route.startsWith("/internal/local-browser/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/") || request.url.startsWith("/internal/web-sites/")) {
+    if (
+      route.startsWith("/internal/skill-creator/") ||
+      route.startsWith("/internal/skills/") ||
+      route === "/internal/application-builder" ||
+      route === "/internal/web-sites" ||
+      route.startsWith("/internal/web-sites/") ||
+      route.startsWith("/internal/automations/")
+    ) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -169,6 +179,7 @@ export function buildControllerServer(
     "/internal/runner/start-settled",
     "/internal/runner/events",
     "/internal/runner/memory-usage",
+    "/internal/runner/privacy-masking",
     "/internal/runner/process-exit",
     "/internal/image-previews",
     "/internal/file-service/register-artifact",
@@ -182,6 +193,7 @@ export function buildControllerServer(
     "/internal/current-user/info",
     "/internal/browser-use/execute",
     "/internal/local-browser/execute",
+    "/internal/local-tools/execute",
     "/internal/conversation-references/read",
     "/internal/automations/request-stop",
     "/internal/web-search/search",
@@ -191,9 +203,11 @@ export function buildControllerServer(
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
+    "/internal/web-sites",
   ]) {
     const bodyLimit = route === "/internal/connections/execute" ? MICROSOFT_CONNECTION_BODY_LIMIT
       : route === "/internal/automations/execute" ? AUTOMATION_TOOL_BODY_LIMIT
+      : route === "/internal/local-tools/execute" ? 8 * 1024 * 1024
       : route.startsWith("/internal/web-sites/") ? WEB_SITE_TOOL_BODY_LIMIT : undefined
     app.post(route, bodyLimit === undefined ? {} : { bodyLimit }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
@@ -221,7 +235,9 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute" || route.startsWith("/internal/web-sites/")
+            : route === "/internal/local-tools/execute"
+              ? 130_000
+            : route === "/internal/application-builder" || route === "/internal/web-sites" || route.startsWith("/internal/web-sites/") || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
               ? 60_000
             : 15_000,
           controller.signal,

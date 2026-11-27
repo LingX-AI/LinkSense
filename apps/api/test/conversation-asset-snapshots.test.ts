@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type { PrismaClient } from "../src/generated/prisma/client.js";
+import { AppError } from "../src/lib/errors.js";
 import { ConversationAssetSnapshots } from "../src/modules/knowledge/conversation-asset-snapshots.js";
 import { KnowledgeTurnAssetReadService } from "../src/modules/knowledge/turn-asset-read.js";
 import { knowledgeTurnAssetRoutes } from "../src/modules/knowledge/turn-asset-routes.js";
@@ -74,10 +75,10 @@ function harness() {
     $transaction: vi.fn(async (fn) => fn(tx)),
   } as unknown as PrismaClient;
   const storage = {
-    putObject: vi.fn(async (key: string, data: Buffer) => {
+    putObject: vi.fn<Pick<import("../src/adapters/object-storage.js").ObjectStorage, "putObject">["putObject"]>(async (key, data) => {
       objects.set(key, data);
     }),
-    removeObject: vi.fn(async (key: string) => {
+    removeObject: vi.fn<Pick<import("../src/adapters/object-storage.js").ObjectStorage, "removeObject">["removeObject"]>(async (key) => {
       objects.delete(key);
     }),
     getObjectStream: vi.fn(async (key: string) => {
@@ -133,6 +134,7 @@ describe("conversation image snapshot publication", () => {
       expect.stringContaining(`/conversations/`.slice(1)),
       PNG,
       expect.objectContaining({ "knowledge-document-version-id": VERSION }),
+      undefined,
     );
     expect(h.rows.get(ASSET)).toMatchObject({
       conversationId: CONVERSATION,
@@ -201,6 +203,43 @@ describe("conversation image snapshot publication", () => {
       code: "FORBIDDEN",
     });
     expect(h.getAsset).not.toHaveBeenCalled();
+  });
+
+  it("passes cancellation to the upload and cleans up with a fresh signal", async () => {
+    const h = harness();
+    const controller = new AbortController();
+    h.storage.putObject.mockImplementationOnce(async (key, data, _metadata, signal) => {
+      expect(signal).toBe(controller.signal);
+      h.objects.set(key, data);
+      controller.abort();
+      signal?.throwIfAborted();
+    });
+    h.storage.removeObject.mockImplementationOnce(async (key, signal) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+      h.objects.delete(key);
+    });
+    await expect(h.service.capture({ ...request, signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(h.upsert).not.toHaveBeenCalled();
+    expect(h.objects.size).toBe(0);
+  });
+
+  it("checks publication authority after waiting for the database lock", async () => {
+    const h = harness();
+    let allowed = true;
+    h.lockConversation.mockImplementationOnce(async () => {
+      allowed = false;
+      return [{ id: CONVERSATION }];
+    });
+    const checkPublication = vi.fn(async () => {
+      if (!allowed) throw new AppError("FORBIDDEN");
+    });
+    await expect(h.service.capture({ ...request, checkPublication }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(checkPublication).toHaveBeenCalledOnce();
+    expect(h.upsert).not.toHaveBeenCalled();
+    expect(h.objects.size).toBe(0);
   });
 
   it.each(["revoked", "conversation deleted", "database failure"])(

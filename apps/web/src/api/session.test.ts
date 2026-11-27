@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  beginLoginSession,
   captureAccessSessionGuard,
   getAccessToken,
+  getLoginSessionBoundary,
   getStoredAccessSession,
   hasUsableAccessToken,
+  isLoginSessionCurrent,
   readAccessTokenIdentity,
   restoreAccessTokenFromStorage,
   setAccessToken,
@@ -168,6 +171,22 @@ describe("access token session storage", () => {
     unsubscribe()
   })
 
+  it("keeps a login boundary across token rotation and advances it only on replacement", () => {
+    const initialBoundary = getLoginSessionBoundary()
+    setAccessToken("first-token", NOW.getTime() + 60_000)
+    expect(getLoginSessionBoundary()).toBe(initialBoundary)
+
+    setAccessToken("refreshed-token", NOW.getTime() + 120_000)
+    expect(getLoginSessionBoundary()).toBe(initialBoundary)
+    expect(isLoginSessionCurrent(initialBoundary)).toBe(true)
+
+    const nextBoundary = beginLoginSession()
+    expect(nextBoundary).not.toBe(initialBoundary)
+    expect(getLoginSessionBoundary()).toBe(nextBoundary)
+    expect(isLoginSessionCurrent(initialBoundary)).toBe(false)
+    expect(isLoginSessionCurrent(nextBoundary)).toBe(true)
+  })
+
   it("notifies subscribers when the session is explicitly cleared", () => {
     const listener = vi.fn()
     const unsubscribe = subscribeToAccessToken(listener)
@@ -176,11 +195,11 @@ describe("access token session storage", () => {
 
     setAccessToken(null)
 
-    expect(listener).toHaveBeenCalledWith(null)
+    expect(listener).toHaveBeenCalledWith(null, "session")
     unsubscribe()
   })
 
-  it("synchronizes token changes from other tabs through storage events", () => {
+  it("synchronizes token changes from other tabs as storage changes", () => {
     const expiresAt = NOW.getTime() + 20 * 60 * 1000
     const listener = vi.fn()
     const unsubscribe = subscribeToAccessToken(listener)
@@ -193,12 +212,27 @@ describe("access token session storage", () => {
     dispatchStorageChange(nextValue)
 
     expect(getAccessToken()).toBe("other-tab-token")
-    expect(listener).toHaveBeenLastCalledWith("other-tab-token")
+    expect(listener).toHaveBeenLastCalledWith("other-tab-token", "storage")
 
     window.localStorage.removeItem(STORAGE_KEY)
     dispatchStorageChange(null)
     expect(getAccessToken()).toBeNull()
-    expect(listener).toHaveBeenLastCalledWith(null)
+    expect(listener).toHaveBeenLastCalledWith(null, "storage")
+    unsubscribe()
+  })
+
+  it("does not report an empty storage sync as an explicit session change", () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeToAccessToken(listener)
+    setAccessToken("memory-only-token", NOW.getTime() + 60_000)
+    // A cleared storage entry must not present the in-memory token loss to
+    // subscribers as a sign-out decision.
+    window.localStorage.removeItem(STORAGE_KEY)
+    listener.mockClear()
+
+    expect(restoreAccessTokenFromStorage()).toBeNull()
+
+    expect(listener).toHaveBeenCalledWith(null, "storage")
     unsubscribe()
   })
 
@@ -223,7 +257,10 @@ describe("access token session storage", () => {
 
       expect(getAccessToken()).toBe("latest-tab-token")
       expect(window.localStorage.getItem(STORAGE_KEY)).toBe(latestSession)
-      expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+      expect(listener).toHaveBeenCalledExactlyOnceWith(
+        "latest-tab-token",
+        "storage"
+      )
     } finally {
       unsubscribe()
     }
@@ -250,11 +287,17 @@ describe("access token session storage", () => {
         }
 
         if (trigger !== "access token read") {
-          expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+          expect(listener).toHaveBeenCalledExactlyOnceWith(
+            "latest-tab-token",
+            "storage"
+          )
         }
         expect(getAccessToken()).toBe("latest-tab-token")
         expect(window.localStorage.getItem(STORAGE_KEY)).toBe(latestSession)
-        expect(listener).toHaveBeenCalledExactlyOnceWith("latest-tab-token")
+        expect(listener).toHaveBeenCalledExactlyOnceWith(
+          "latest-tab-token",
+          "storage"
+        )
       } finally {
         unsubscribe()
       }

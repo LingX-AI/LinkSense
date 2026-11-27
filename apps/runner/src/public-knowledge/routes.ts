@@ -1,6 +1,6 @@
 import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
 import { z } from "zod";
-import pino from "pino";
+import { createLogger } from "../lib/logger.js";
 import { publicKnowledgeRunnerInputSchema } from "@linksense/shared";
 import type { RunnerConfig } from "../config.js";
 import { PublicKnowledgeRuntime } from "./runtime.js";
@@ -16,7 +16,7 @@ export function registerPublicKnowledgeRuntime(
   const runtime = new PublicKnowledgeRuntime({
     root: config.LINKSENSE_USER_DATA_ROOT,
     command: config.CODEX_BIN,
-    logger: pino({ level: process.env.LOG_LEVEL ?? "info" }),
+    logger: createLogger("public-knowledge"),
     ...(config.LINKSENSE_RUNNER_MODE === "worker" &&
     config.LINKSENSE_WORKER_PROVIDER !== "local-process"
       ? { processIdentity: { uid: 1001, gid: 1000 } }

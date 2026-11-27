@@ -45,7 +45,7 @@ export const webSiteToolRequestSchema = z.discriminatedUnion("tool", [
 ]);
 export type WebSiteToolRequest = z.infer<typeof webSiteToolRequestSchema>;
 
-const linkedSiteSchema = webSiteSchema.omit({ url_path: true }).extend({
+export const linkedSiteSchema = webSiteSchema.omit({ url_path: true }).extend({
   url: z.url({ protocol: /^https?$/u }),
 });
 export type LinkedWebSite = z.infer<typeof linkedSiteSchema>;

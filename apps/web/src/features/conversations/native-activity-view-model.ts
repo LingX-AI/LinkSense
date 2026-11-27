@@ -38,6 +38,7 @@ export type NativeActivitySummaryPart = {
 type NativeFileChange = {
   kind: string
   path?: string
+  artifactId?: string
 }
 
 export type NativeActivityViewModel = {
@@ -92,6 +93,7 @@ export function getNativeActivityPreview(
 export type NativeCommandActivity = {
   item: NativeCodexItem
   method: NativeLifecycleMethod
+  artifactIdsByChange?: Readonly<Record<string, string>>
 }
 
 export type NativeToolActivity = NativeCommandActivity
@@ -178,15 +180,20 @@ function emptyNativeToolSummaryStats(): NativeToolSummaryStats {
 }
 
 function normalizeNativeFileChanges(
-  item: Extract<NativeCodexItem, { type: "fileChange" }>
+  item: Extract<NativeCodexItem, { type: "fileChange" }>,
+  artifactIdsByChange?: Readonly<Record<string, string>>
 ) {
   return [
     ...new Map(
       (item.changes ?? []).map((change, index) => {
         const path = change.path?.trim()
+        const artifactId = change.kind.type === "add" && item.status === "completed"
+          ? artifactIdsByChange?.[index]
+          : undefined
         const normalized = {
           kind: change.kind.type,
           ...(path ? { path } : {}),
+          ...(artifactId ? { artifactId } : {}),
         }
         const key = path
           ? path.replaceAll("\\", "/")
@@ -360,7 +367,7 @@ function buildNativeToolSummaryParts(
 export function buildNativeActivityViewModel(
   item: NativeCodexItem,
   method: NativeLifecycleMethod,
-  options: { stopped?: boolean } = {}
+  options: { stopped?: boolean; artifactIdsByChange?: Readonly<Record<string, string>> } = {}
 ): NativeActivityViewModel {
   let summary: string | null = null
   let summaryKey: string | null = null
@@ -382,7 +389,10 @@ export function buildNativeActivityViewModel(
   }
 
   if (item.type === "fileChange") {
-    fileChanges = normalizeNativeFileChanges(item)
+    fileChanges = normalizeNativeFileChanges(
+      item,
+      method === "item/completed" ? options.artifactIdsByChange : undefined
+    )
     if (fileChanges.length > 0) {
       summaryKey =
         method === "item/started"
@@ -664,7 +674,7 @@ export function buildNativeToolGroupViewModel(
   activities: NativeToolActivity[]
 ): NativeActivityViewModel {
   const activityModels = activities.map((activity) =>
-    buildNativeActivityViewModel(activity.item, activity.method)
+    buildNativeActivityViewModel(activity.item, activity.method, activity)
   )
   const running = activities.some(
     (activity) => activity.method === "item/started"
@@ -682,7 +692,9 @@ export function buildNativeToolGroupViewModel(
         activityModels
           .flatMap((model) => model.fileChanges)
           .map((change, index) => [
-            change.path?.replaceAll("\\", "/") ?? `missing-path-${index}`,
+            change.artifactId
+              ? `\0${change.artifactId}`
+              : (change.path?.replaceAll("\\", "/") ?? `\0${index}`),
             change,
           ])
       ).values(),

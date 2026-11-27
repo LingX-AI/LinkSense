@@ -867,8 +867,11 @@ describe("LinkSense application", () => {
     })
     const interaction = userEvent.setup()
     renderApp()
-    await interaction.click(await screen.findByRole("button", { name: "添加内容" }))
-    await interaction.click(screen.getByText("报告写作"))
+    await interaction.click(
+      await screen.findByRole("button", { name: "添加内容" })
+    )
+    await interaction.click(screen.getByRole("option", { name: "Skill" }))
+    await interaction.click(await screen.findByText("报告写作"))
     await interaction.type(
       screen.getByRole("textbox", { name: "任务输入框" }),
       "补充新的写作要求"

@@ -41,6 +41,52 @@ describe("getErrorMessage", () => {
     )
   })
 
+  it.each(["RUNNER_OPERATION_UNCERTAIN"] as const)(
+    "keeps %s distinct from offline in all locales and uses the Chinese fallback",
+    (code) => {
+      const error = new ApiError({ status: 503, errorCode: code })
+      for (const locale of supportedLocales) {
+        const message = getErrorMessage(error, i18n.getFixedT(locale))
+        expect(message).toBe(localizedErrorMessage(code, locale))
+        expect(message).not.toBe(localizedErrorMessage("RUNNER_UNAVAILABLE", locale))
+      }
+      const instance = i18n.cloneInstance({ forkResourceStore: true })
+      instance.removeResourceBundle("en-US", "translation")
+      expect(getErrorMessage(error, instance.getFixedT("en-US"))).toBe(
+        localizedErrorMessage(code, "zh-CN")
+      )
+    }
+  )
+
+  it("keeps other forbidden responses generic", () => {
+    expect(
+      getErrorMessage(
+        new ApiError({
+          status: 403,
+          errorCode: "FORBIDDEN",
+          messageKey: "errors.common.forbidden",
+        }),
+        i18n.getFixedT("zh-CN")
+      )
+    ).toBe(i18n.t("errors.forbidden", { lng: "zh-CN" }))
+  })
+
+  it("uses the localized server message when an older client does not know the new error", () => {
+    const serverMessage = "这是服务器返回的新错误说明，当前客户端尚未内置翻译。"
+    const error = new ApiError({
+      status: 403,
+      errorCode: "NEW_SERVER_ERROR",
+      messageKey: "errors.someNewError",
+      message: serverMessage,
+    })
+    const legacy = i18n.cloneInstance({ forkResourceStore: true })
+    for (const locale of ["en-US", "zh-CN"] as const)
+      legacy.removeResourceBundle(locale, "translation")
+    expect(getErrorMessage(error, legacy.getFixedT("en-US"))).toBe(
+      serverMessage
+    )
+  })
+
   it.each([
     ["APPLICATION_NOT_FOUND", "notFound"],
     ["APPLICATION_DISABLED", "disabled"],

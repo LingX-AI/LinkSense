@@ -167,9 +167,8 @@ describe("personal quota page", () => {
       "segmented"
     )
     expect(modelGrouping.parentElement).toHaveClass(
-      "rounded-xl",
-      "bg-muted",
-      "p-1"
+      "bg-transparent",
+      "gap-2"
     )
     expect(
       screen.getByRole("tab", { name: "7 天" }).parentElement

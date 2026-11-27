@@ -1806,6 +1806,12 @@ function prismaFixture(capabilities: Array<ReturnType<typeof capability>>) {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     capabilityUserPreference: { findMany: vi.fn(async () => []) },
+    conversation: {
+      findFirst: vi.fn(async (): Promise<{ desktopToolsEnabled: boolean } | null> => null),
+    },
+    desktopDevice: {
+      findFirst: vi.fn(async (): Promise<{ id: string } | null> => null),
+    },
     marketplaceListing: {
       findMany: vi.fn(
         async (): Promise<Array<{ id: string; status: string }>> => [],

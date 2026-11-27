@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchShortcut } from "@/lib/use-search-shortcut"
-import { DesignIcon, type DesignIconName } from "@/components/ui/design-icon"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { SearchShortcut } from "@/components/ui/search-shortcut"
 import {
   ArrowLeftIcon,
   BotIcon,
+  ArchiveIcon,
   BrainIcon,
   ChartNoAxesCombinedIcon,
   FileKey2Icon,
   GaugeIcon,
   HeartPulseIcon,
+  LibraryBigIcon,
   MessageSquareTextIcon,
   MessagesSquareIcon,
   PanelLeftIcon,
   PlugIcon,
+  PuzzleIcon,
   RefreshCwIcon,
   ServerCogIcon,
   Settings2Icon,
@@ -23,6 +26,7 @@ import {
   UserRoundIcon,
   UserRoundCogIcon,
   UsersRoundIcon,
+  VenetianMaskIcon,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -55,7 +59,7 @@ type SettingsNavigationItem = {
   activePaths?: readonly string[]
   labelKey: string
   descriptionKey: string
-  icon: LucideIcon | DesignIconName
+  icon: LucideIcon
 }
 
 const personalSettingsItems: SettingsNavigationItem[] = [
@@ -96,6 +100,12 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     icon: ShieldCheckIcon,
   },
   {
+    to: "/settings/mask",
+    labelKey: "settings.privacyMasking",
+    descriptionKey: "settings.privacyMaskingDescription",
+    icon: VenetianMaskIcon,
+  },
+  {
     to: "/settings/sensitive-data",
     labelKey: "sensitiveData.title",
     descriptionKey: "sensitiveData.userDescription",
@@ -123,7 +133,7 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     to: "/archived",
     labelKey: "nav.archived",
     descriptionKey: "settings.archivedDescription",
-    icon: "archive",
+    icon: ArchiveIcon,
   },
   {
     to: "/settings/feedback",
@@ -151,7 +161,7 @@ const administratorItems: SettingsNavigationItem[] = [
     to: "/admin/capabilities",
     labelKey: "nav.adminCapabilities",
     descriptionKey: "settings.adminCapabilitiesDescription",
-    icon: "plugins",
+    icon: PuzzleIcon,
   },
   {
     to: "/admin/connectors",
@@ -164,7 +174,7 @@ const administratorItems: SettingsNavigationItem[] = [
     activePaths: ["/admin/knowledge-bases", "/admin/knowledge-sources"],
     labelKey: "nav.adminKnowledgeBases",
     descriptionKey: "settings.adminKnowledgeBasesDescription",
-    icon: "library",
+    icon: LibraryBigIcon,
   },
   {
     to: "/admin/models",
@@ -284,7 +294,7 @@ export function SettingsShell() {
   const navigation = (
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
-        <div className="-mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
+        <div className="settings-brand-bar -mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
           <ProductLogo
             productName={productName}
             className="sidebar-brand-logo min-w-0"
@@ -469,11 +479,7 @@ function SettingsNavigationGroup({
               )
             }
           >
-            {typeof Icon === "string" ? (
-              <DesignIcon name={Icon} />
-            ) : (
-              <Icon strokeWidth={2} aria-hidden="true" />
-            )}
+            <Icon strokeWidth={2} aria-hidden="true" />
             <span className="min-w-0 truncate">{t(labelKey)}</span>
           </NavLink>
         ))}

@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
+  Link,
   NavLink,
   Outlet,
   useLocation,
@@ -52,9 +53,9 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { useSignOutConfirmation } from "@/components/auth/use-sign-out-confirmation"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
-import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { notify } from "@/components/feedback/notification"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -126,7 +127,10 @@ import {
   type ProjectAction,
 } from "@/features/projects/project-dialog"
 import { SidebarTaskGroups } from "@/features/projects/sidebar-task-groups"
-import { newProjectNavigationState } from "@/features/projects/new-project-preference"
+import {
+  newProjectNavigationState,
+  rememberNewProject,
+} from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
@@ -411,7 +415,7 @@ function AppSidebarContent({
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const isActiveAdmin = user?.role === "admin" && user.status === "active"
   const setupModelPreferenceQuery = useQuery({
     queryKey: ["me", "model-preference", "new"],
@@ -435,9 +439,13 @@ function AppSidebarContent({
     taskRoute?.params.conversationId ??
       applicationTaskRoute?.params.conversationId
   )
+  const startTaskInProject = (projectId: string) => {
+    if (user?.id) rememberNewProject(user.id, projectId)
+    onNavigate?.()
+    navigate("/conversations/new", { state: { newTaskProjectId: projectId } })
+  }
   const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
-  const [signOutPending, setSignOutPending] = useState(false)
+  const { openSignOutConfirmation, signOutDialog } = useSignOutConfirmation()
   const [locallyReadConversationVersions, setLocallyReadConversationVersions] =
     useState(() => new Map<string, string>())
   const completionReadInFlightIdsRef = useRef(new Set<string>())
@@ -466,6 +474,9 @@ function AppSidebarContent({
 
   const conversationsQuery = useInfiniteQuery({
     queryKey: ["conversations", "sidebar"],
+    // Another client (the Mac app) can create a task while this window is in
+    // the background; always revalidate the list when focus returns.
+    refetchOnWindowFocus: "always",
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       apiRequest("/conversations", {
@@ -865,17 +876,6 @@ function AppSidebarContent({
         })
   const settingsReturnState = conversationSettingsReturnState(location)
 
-  const handleSignOut = async () => {
-    if (signOutPending) return
-    setSignOutPending(true)
-    try {
-      await signOut()
-      navigate("/login", { replace: true })
-    } finally {
-      setSignOutPending(false)
-    }
-  }
-
   const latestAutomationNotification =
     automationNotificationsQuery.data?.latest_unread
   const latestAutomationNotificationId =
@@ -971,40 +971,49 @@ function AppSidebarContent({
         ))}
       <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
         <div className="sidebar-brand-bar -mx-4 flex h-(--conversation-top-bar-height) shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-          <ProductLogo
-            productName={productName}
-            className="sidebar-brand-logo min-w-0"
-          />
-          <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
-            <ShellSidebarActions
-              mobile={!observeBackgroundExecutions}
-              active={notificationSlotActive}
-            />
-            <HeaderIconButton
-              type="button"
-              className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
-              aria-label={t("common.search")}
-              title={t("common.search")}
-              aria-keyshortcuts="Meta+K Control+K"
-              onClick={onSearch}
+          <div className="sidebar-brand-row contents gap-4">
+            <Link
+              to="/conversations/new"
+              state={newTaskNavigationState}
+              onClick={onNavigate}
+              className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              <HeaderIcon name="search" />
-            </HeaderIconButton>
-            {onCollapse && (
-              <div className="sidebar-collapse-group ml-1 flex shrink-0 items-center gap-1.5 before:h-3 before:w-px before:bg-border before:content-['']">
-                <HeaderIconButton
-                  type="button"
-                  className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
-                  aria-label={t("nav.collapseSidebar")}
-                  title={t("nav.collapseSidebar")}
-                  aria-controls="app-sidebar"
-                  aria-expanded="true"
-                  onClick={onCollapse}
-                >
-                  <HeaderIcon name="sidebar" />
-                </HeaderIconButton>
-              </div>
-            )}
+              <ProductLogo
+                productName={productName}
+                className="sidebar-brand-logo min-w-0"
+              />
+            </Link>
+            <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
+              <ShellSidebarActions
+                mobile={!observeBackgroundExecutions}
+                active={notificationSlotActive}
+              />
+              <HeaderIconButton
+                type="button"
+                className="size-9! hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                aria-label={t("common.search")}
+                title={t("common.search")}
+                aria-keyshortcuts="Meta+K Control+K"
+                onClick={onSearch}
+              >
+                <HeaderIcon name="search" />
+              </HeaderIconButton>
+              {onCollapse && (
+                <div className="sidebar-collapse-group ml-1 flex shrink-0 items-center gap-1.5 before:h-3 before:w-px before:bg-border before:content-['']">
+                  <HeaderIconButton
+                    type="button"
+                    className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                    aria-label={t("nav.collapseSidebar")}
+                    title={t("nav.collapseSidebar")}
+                    aria-controls="app-sidebar"
+                    aria-expanded="true"
+                    onClick={onCollapse}
+                  >
+                    <HeaderIcon name="sidebar" />
+                  </HeaderIconButton>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1048,8 +1057,10 @@ function AppSidebarContent({
                     )
                   }
                 >
-                  <DesignIcon name={icon} />
-                  <span>{t(labelKey)}</span>
+                  <DesignIcon name={icon} className="size-(--app-font-15)" />
+                  <span className="text-[length:var(--app-font-13)]">
+                    {t(labelKey)}
+                  </span>
                 </NavLink>
               ))}
           </nav>
@@ -1124,6 +1135,13 @@ function AppSidebarContent({
                 conversationsQuery.isLoading
               }
               onAction={setProjectAction}
+              onStartTask={startTaskInProject}
+              onNewTask={() => {
+                onNavigate?.()
+                navigate("/conversations/new", {
+                  state: newTaskNavigationState,
+                })
+              }}
             >
               {(group) => (
                 <SortableConversationGroup
@@ -1167,23 +1185,6 @@ function AppSidebarContent({
                         actions={
                           <SidebarConversationActions
                             title={title}
-                            projects={projectsQuery.data ?? []}
-                            currentProjectId={conversation.project_id}
-                            moveDisabled={
-                              projectsQuery.isPending ||
-                              projectsQuery.isError ||
-                              moveProjectMutation.isPending
-                            }
-                            onMoveToProject={
-                              conversation.application_development_role ===
-                              "development"
-                                ? undefined
-                                : (projectId) =>
-                                    moveProjectMutation.mutate({
-                                      conversation,
-                                      projectId,
-                                    })
-                            }
                             pinned={pinned}
                             pinDisabled={pinMutation.isPending}
                             archiveDisabled={archiveMutation.isPending}
@@ -1259,7 +1260,7 @@ function AppSidebarContent({
                             )}
                           <span className="flex min-w-0 flex-1 items-center gap-2">
                             <span
-                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-sm font-normal"
+                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-font-13)] font-normal"
                               onDoubleClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()
@@ -1389,13 +1390,17 @@ function AppSidebarContent({
                 />
               }
             >
-              <Avatar className="sidebar-account-avatar size-7 border-0">
+              <Avatar
+                aria-hidden="true"
+                className="sidebar-account-avatar size-7 border-0"
+              >
                 {user?.avatar_url && (
                   <AvatarImage src={user.avatar_url} alt="" />
                 )}
-                <AvatarFallback className="bg-transparent text-[length:var(--app-font-10)] font-semibold">
-                  {initials}
-                </AvatarFallback>
+                <AvatarFallback
+                  data-initials={initials}
+                  className="sidebar-account-initials bg-transparent text-[length:var(--app-font-10)] font-semibold"
+                />
               </Avatar>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-normal">
@@ -1486,7 +1491,7 @@ function AppSidebarContent({
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   className="text-[length:var(--app-ui-font-size)]"
-                  onClick={() => setSignOutConfirmOpen(true)}
+                  onClick={openSignOutConfirmation}
                 >
                   <LogOutIcon className="size-3.5" aria-hidden="true" />
                   {t("common.signOut")}
@@ -1502,6 +1507,7 @@ function AppSidebarContent({
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 rounded-md text-[color:var(--app-text)] hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover) aria-expanded:bg-(--app-sidebar-hover)"
+                  title={t("support.help")}
                   aria-label={t("support.help")}
                 />
               }
@@ -1553,18 +1559,7 @@ function AppSidebarContent({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <ConfirmDialog
-        open={signOutConfirmOpen}
-        onOpenChange={(open) => {
-          if (!signOutPending) setSignOutConfirmOpen(open)
-        }}
-        title={t("auth.signOutTitle")}
-        description={t("auth.signOutDescription", { productName })}
-        confirmLabel={t("common.signOut")}
-        destructive
-        pending={signOutPending}
-        onConfirm={() => void handleSignOut()}
-      />
+      {signOutDialog}
     </SidebarConversationOverlays>
   )
 }

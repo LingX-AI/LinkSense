@@ -6,6 +6,7 @@ import { bootstrapSchema, userSchema } from "@/api/contracts"
 import { AuthContext, type AuthContextValue } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { ProtectedRoute, PublicAuthRoute } from "@/app/route-guards"
+import { browserExtensionSettingsPath } from "@/features/browser-use/settings-path"
 import i18n from "@/i18n"
 
 const applicationPath =
@@ -22,10 +23,10 @@ const bootstrap = bootstrapSchema.parse({ initialized: true })
 
 function LocationProbe() {
   const location = useLocation()
-  return <output data-testid="current-path">{location.pathname}</output>
+  return <output data-testid="current-path">{`${location.pathname}${location.hash}`}</output>
 }
 
-function renderSession(initialStatus: AuthContextValue["status"]) {
+function renderSession(initialStatus: AuthContextValue["status"], initialPath = applicationPath) {
   const tree = (status: AuthContextValue["status"], userId = user.id) => (
     <BootstrapContext.Provider
       value={{ bootstrap, isLoading: false, error: null, refetch: vi.fn() }}
@@ -39,11 +40,12 @@ function renderSession(initialStatus: AuthContextValue["status"]) {
           signOut: vi.fn(),
         }}
       >
-        <MemoryRouter initialEntries={[applicationPath]}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <LocationProbe />
           <Routes>
             <Route element={<ProtectedRoute />}>
               <Route path={applicationPath} element={<p>Interactive app</p>} />
+              <Route path="/settings/general" element={<p>General settings</p>} />
               <Route path="/conversations/new" element={<p>New task</p>} />
             </Route>
             <Route element={<PublicAuthRoute />}>
@@ -94,4 +96,17 @@ describe("account-scoped login destinations", () => {
     expect(await screen.findByText("Interactive app")).toBeVisible()
     expect(screen.getByTestId("current-path").textContent).toBe(applicationPath)
   })
+
+  it.each(["anonymous", "authenticated"] as const)(
+    "opens a browser extension setup link at its settings section from a %s browser",
+    async (initialStatus) => {
+      const updateSession = renderSession(initialStatus, browserExtensionSettingsPath)
+      if (initialStatus === "anonymous") {
+        expect(await screen.findByText("Sign in")).toBeVisible()
+        updateSession("authenticated")
+      }
+      expect(await screen.findByText("General settings")).toBeVisible()
+      expect(screen.getByTestId("current-path")).toHaveTextContent(browserExtensionSettingsPath)
+    }
+  )
 })

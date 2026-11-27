@@ -5,6 +5,7 @@ import type { Logger } from "pino";
 import { relative } from "node:path";
 
 import {
+  browserUseFailure,
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
@@ -14,6 +15,8 @@ import {
   userWorkspacePathSchema,
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
+  runnerPrivacyMaskingCaptureSchema,
+  type BrowserUseRequest,
   type ImagePreviewRegistration,
   type InternalWebSiteToolConfirm,
   type InternalWebSiteToolRequest,
@@ -25,6 +28,7 @@ import type {
   ImageGenerationRequest,
   RunnerMemoryUsageCapture,
   RunnerHeartbeat,
+  RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import type {
   LinkSensePublishedEvent,
@@ -39,6 +43,7 @@ import { skillCreatorErrorFromApi } from "./skill-creator-error.js";
 import { skillManagementErrorFromApi } from "./skill-management-error.js";
 import type { InternalSkillManagementRequest } from "@linksense/shared";
 import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
+import { webSiteErrorFromApi } from "./web-site-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import { automationErrorFromApi } from "./automation-error.js";
 import { webSiteToolErrorFromApi } from "./web-site-tool-error.js";
@@ -83,7 +88,7 @@ export interface RunnerEventSink {
     mimeType?: string;
     artifactKind?: string;
     webRootRelativePath?: string;
-  }): Promise<unknown>;
+  }, signal?: AbortSignal): Promise<unknown>;
   registerImagePreview(input: ImagePreviewRegistration): Promise<unknown>;
   generateImage?(input: {
     conversationId: string;
@@ -97,6 +102,7 @@ export interface RunnerEventSink {
     workspaceRelativePath: string;
   }): Promise<unknown>;
   applicationBuilder?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown>;
+  webSite?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteLegacyToolRequest }): Promise<unknown>;
   confirmSkillInstall?(input: {
     conversationId: string;
     turnId: string;
@@ -129,8 +135,13 @@ export interface RunnerEventSink {
     conversationId: string;
     turnId: string;
   }): Promise<unknown>;
-  readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
-  browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
+  readConversationReference?(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").ReadConversationReferenceInput;
+    signal?: AbortSignal;
+  }): Promise<unknown>;
+  browserUse?(input: { conversationId: string; turnId: string; input: BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
   requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
@@ -145,6 +156,7 @@ export interface RunnerEventSink {
     codexThreadId: string,
   ): Promise<void>;
   recordMemoryUsage?(capture: RunnerMemoryUsageCapture): Promise<void>;
+  recordPrivacyMasking?(capture: RunnerPrivacyMaskingCapture): Promise<void>;
 }
 
 export type ProcessExitReport = {
@@ -272,6 +284,26 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     }
     const entry = await this.memoryUsageOutbox.append(capture);
     this.startMemoryUsageWorker(entry.ownerId);
+  }
+
+  async recordPrivacyMasking(
+    capture: RunnerPrivacyMaskingCapture,
+  ): Promise<void> {
+    if (!this.accepting) return;
+    const { hints, ...counts } = runnerPrivacyMaskingCaptureSchema.parse(capture);
+    const pathname = "/internal/runner/privacy-masking";
+    if (hints.length === 0) {
+      await this.post(pathname, counts, counts.owner_id);
+      return;
+    }
+    const response = await this.request(pathname, { ...counts, hints }, counts.owner_id);
+    const result = await parseResponseBody(response);
+    if (response.ok) return;
+    if (response.status === 400 && asRecord(result).error_code === "VALIDATION_ERROR") {
+      await this.post(pathname, counts, counts.owner_id);
+      return;
+    }
+    throw new Error(`LinkSense internal API request failed (${response.status})`);
   }
 
   async resumeConversation(conversationId: string): Promise<void> {
@@ -435,8 +467,22 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
     return body;
   }
-  async readConversationReference(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown> {
-    const response = await this.request("/internal/conversation-references/read", input, this.workspaceManager.ownerFor(input.conversationId));
+  async webSite(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteLegacyToolRequest }): Promise<unknown> {
+    const response = await this.request("/internal/web-sites", input, this.workspaceManager.ownerFor(input.conversationId));
+    const body = await parseResponseBody(response);
+    if (!response.ok) throw webSiteErrorFromApi(response.status, body);
+    return body;
+  }
+  async readConversationReference(input: {
+    conversationId: string;
+    turnId: string;
+    input: import("@linksense/shared").ReadConversationReferenceInput;
+    signal?: AbortSignal;
+  }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request(
+      "/internal/conversation-references/read", body, this.workspaceManager.ownerFor(input.conversationId), signal,
+    );
     if (!response.ok) throw new ConversationReferenceRequestError(response.status);
     return parseResponseBody(response);
   }
@@ -560,11 +606,11 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     input: ConnectionInput;
     signal?: AbortSignal;
   }): Promise<unknown> {
-    const { signal, ...body } = input;
+    const { signal, conversationId, turnId, input: operation } = input;
     const response = await this.request(
       "/internal/connections/execute",
-      body,
-      this.workspaceManager.ownerFor(input.conversationId),
+      { conversationId, turnId, input: operation },
+      this.workspaceManager.ownerFor(conversationId),
       signal,
     );
     const value = await parseResponseBody(response);
@@ -572,10 +618,10 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return value;
   }
 
-  async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
+  async browserUse(input: { conversationId: string; turnId: string; input: BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
     const response = await this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
-    if (!response.ok) return { ok: false, code: "BROWSER_USE_ACCESS_DENIED", retryable: false, help_path: "/settings/general#browser-extension" };
+    if (!response.ok) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
     return parseResponseBody(response);
   }
 
@@ -775,10 +821,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const receipt = runnerEventBatchReceiptSchema.parse(envelope.data);
     // Only an exact prefix is removable. Reject gaps, reordered ids, unknown
     // ids and oversized receipts without deleting any durable entry.
-    if (receipt.accepted_delivery_ids.some((id, index) => entries[index]?.deliveryId !== id)) {
-      throw new Error("runner event batch acknowledgement is not an ordered prefix");
-    }
-    return receipt.accepted_delivery_ids.length;
+    return acknowledgedEventCount(entries, receipt.accepted_delivery_ids);
   }
 
   private startMemoryUsageWorker(ownerId: string): void {
@@ -875,7 +918,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     ownerId: string,
     callerSignal?: AbortSignal,
   ): Promise<Response> {
-    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled"
+    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled" ||
+      pathname === "/internal/runner/attachments-ready"
       ? 5_000
       : pathname.startsWith("/internal/knowledge/")
       ? deriveKnowledgeSearchTimeouts(
@@ -885,7 +929,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       : pathname.startsWith("/internal/web-search/") ? 75_000
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") || pathname.startsWith("/internal/web-sites/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/web-sites/") || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);
@@ -918,6 +962,16 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+export function acknowledgedEventCount(
+  entries: readonly { deliveryId: string }[],
+  accepted: readonly string[],
+): number {
+  if (accepted.some((id, index) => entries[index]?.deliveryId !== id)) {
+    throw new Error("runner event batch acknowledgement is not an ordered prefix");
+  }
+  return accepted.length;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

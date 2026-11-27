@@ -47,17 +47,25 @@ import { registerClientBuildGuard } from "./plugins/client-build.js";
 import type { AppServices } from "./services.js";
 import { createApiCorsOptions } from "./lib/cors.js";
 import { resolveLocale } from "./lib/locale.js";
-import { errorEnvelope, ok } from "./lib/http.js";
+import { errorEnvelope, ok, requestPathname } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
+import {
+  ApiLogController,
+  createLoggerOptions,
+  sanitizeRequestForLog,
+} from "./lib/logger.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
 import { sensitiveDataRoutes } from "./modules/sensitive-data/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
-import { publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
+import { internalWebSiteRoutes, publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
 import { internalWebSiteToolRoutes } from "./modules/web-sites/internal-routes.js";
 import { WebSiteToolService } from "./modules/web-sites/tool-service.js";
+import { registerWebSiteBackendGateway } from "./modules/web-site-backends/gateway.js";
+import { registerPublicAppGateway } from "./modules/web-site-backends/sandbox-gateway.js";
+import { WebSiteVisitorSessions } from "./modules/web-site-backends/visitor-sessions.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -128,8 +136,16 @@ import { LocalFilesystemObjectStorage } from "./adapters/object-storage.js";
 import { registerLocalObjectStorageRoutes } from "./adapters/local-object-storage-routes.js";
 
 export const SENSITIVE_REQUEST_LOG_PATHS = [
+  'req.headers["x-appwrite-key"]',
+  'req.headers["x-appwrite-session"]',
+  'req.headers["x-appwrite-jwt"]',
+  'req.headers["x-fallback-cookies"]',
+  'req.headers["x-linksense-app-capability"]',
+  'req.headers["x-linksense-file-name"]',
   "req.headers.authorization",
   "req.headers.cookie",
+  "req.body.passcode",
+  "req.body.request.passcode",
   "req.body.password",
   "req.body.initialization_credential",
   "req.body.current_password",
@@ -156,6 +172,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.app_secret",
   "req.body.ticket",
   "req.body.code",
+  "req.body.code_verifier",
   "req.body.pairing.code",
   "req.body.session_id",
   "req.body.renewal_token",
@@ -175,8 +192,9 @@ export async function buildApi(
   );
   const app = Fastify({
     trustProxy: services.config.trustProxy,
+    logController: new ApiLogController(),
     logger: {
-      level: process.env.LOG_LEVEL ?? "info",
+      ...createLoggerOptions(),
       serializers: { req: sanitizeRequestForLog },
       redact: {
         paths: [...SENSITIVE_REQUEST_LOG_PATHS],
@@ -186,6 +204,13 @@ export async function buildApi(
     bodyLimit: maximumMultipartFileSize + 1024 * 1024,
   });
 
+  registerPublicAppGateway(app, services.webSiteBackends, services.webSites,
+    new WebSiteVisitorSessions(services.redis.client, services.config), services.config);
+  const takeUnlockAttempt = (siteId: string, ip: string) => services.redis.takeWebSiteUnlockAttempt(siteId, ip);
+  registerWebSiteBackendGateway(app, services.webSiteBackends, services.webSites, {
+    accessSecret: services.config.jwtSecret, takeUnlockAttempt,
+    ...(services.config.analytics ? { analyticsOrigin: new URL(services.config.analytics.baseUrl).origin } : {}),
+  });
   app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done, { requestId: request.id }); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
@@ -271,7 +296,12 @@ export async function buildApi(
     getAuthenticatedUser: async (request) => {
       await app.authenticate(request);
       if (!request.authUser) throw new Error("authenticated user missing");
-      return authService.getCurrentUser(request.authUser.id);
+      const user = await authService.getCurrentUser(request.authUser.id);
+      if (user.email !== request.authUser.email || user.role !== request.authUser.role ||
+        user.authValidAfter.toISOString() !== request.authUser.authValidAfter.toISOString()) {
+        throw new AppError("AUTH_SESSION_EXPIRED");
+      }
+      return user;
     },
   });
   const samlSettings = new SamlSettingsService(services.prisma, services.config);
@@ -334,6 +364,8 @@ export async function buildApi(
     prefix: "/api/v1/me",
     service: services.users,
     modelProviderSettings: services.modelProviderSettings,
+    privacyMaskingSettings: services.privacyMaskingSettings,
+    privacyMaskingActivity: services.privacyMaskingActivity,
     runner: services.runner,
     authentication: userAuthentication,
   });
@@ -551,8 +583,10 @@ export async function buildApi(
   await app.register(conversationBrowserRoutes, { prefix: "/api/v1/conversations", services });
   await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
   await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
-  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
+  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl, accessSecret: services.config.jwtSecret, takeUnlockAttempt,
+    ...(services.config.analytics ? { analyticsBaseUrl: services.config.analytics.baseUrl } : {}) });
+  await app.register(internalWebSiteRoutes, { prefix: "/internal/web-sites", service: services.webSites, sharedSecret: services.config.runnerSharedSecret, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
     prefix: "/api/v1/automations",
     services,
@@ -644,14 +678,16 @@ export async function buildApi(
     service: services.users,
     sharedSecret: services.config.runnerSharedSecret,
   });
+  const browserStore = new RedisBrowserStore(services.redis.client);
   await registerBrowserUseRoutes(app, {
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
-    service: new BrowserUseService(new RedisBrowserStore(services.redis.client), browserUseEndpoint.href),
+    service: new BrowserUseService(browserStore, browserUseEndpoint.href),
+    webSites: services.webSites,
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${browserUseEndpoint.pathname}/socket`,
-    intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
+    intent: new BrowserUseIntentService(services.prisma, browserStore, services.modelProviderSettings, services.usageAnalytics),
   });
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",
@@ -729,7 +765,7 @@ export function registerResponseSecurityHeaders(app: FastifyInstance): void {
         "camera=(), microphone=(self), geolocation=()",
       );
     }
-    if (!isEmbeddedApplicationFrame(requestPathname(request.url))) {
+    if (!reply.hasHeader("x-frame-options") && !isEmbeddedApplicationFrame(requestPathname(request.url))) {
       reply.header("x-frame-options", "SAMEORIGIN");
     }
     if (!reply.hasHeader("content-security-policy")) {
@@ -756,60 +792,7 @@ export function createContentSecurityPolicy(): string {
   ].join("; ");
 }
 
-export function sanitizeRequestForLog(request: unknown) {
-  const value = asRecord(request);
-  const headers = asRecord(value.headers);
-  const socket = asRecord(value.socket);
-  const raw = asRecord(value.raw);
-  const rawHeaders = asRecord(raw.headers);
-  const rawSocket = asRecord(raw.socket);
-  const host =
-    stringValue(value.host) ??
-    stringValue(headers.host) ??
-    stringValue(rawHeaders.host);
-  const requestId = stringValue(value.id);
-  const remoteAddress =
-    stringValue(value.ip) ??
-    stringValue(value.remoteAddress) ??
-    stringValue(socket.remoteAddress) ??
-    stringValue(rawSocket.remoteAddress);
-  const remotePort =
-    numberValue(value.remotePort) ??
-    numberValue(socket.remotePort) ??
-    numberValue(rawSocket.remotePort);
-  return {
-    method: stringValue(value.method) ?? "UNKNOWN",
-    url: requestPathname(stringValue(value.url) ?? "/").replace(/^\/html-preview\/[^/]+/u, "/html-preview/[redacted]"),
-    ...(host ? { host } : {}),
-    ...(requestId ? { requestId } : {}),
-    ...(remoteAddress ? { remoteAddress } : {}),
-    ...(remotePort !== undefined ? { remotePort } : {}),
-  };
-}
-
-function requestPathname(value: string): string {
-  try {
-    return new URL(value, "http://linksense.invalid").pathname;
-  } catch {
-    return value.split(/[?#]/u, 1)[0] || "/";
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
+export { sanitizeRequestForLog };
 
 function createAuthService(
   app: FastifyInstance,

@@ -17,6 +17,7 @@ import {
 import os from "node:os"
 import path from "node:path"
 
+import { PUBLIC_SITE_SKILL_NAME } from "@linksense/shared"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -29,6 +30,7 @@ import {
   setManagedDirectoryMode,
   WorkspaceBoundaryError,
   WorkspaceManager,
+  WorkspaceOwnerMismatchError,
 } from "../src/workspace/workspace-manager.js"
 import {
   chmodWithFallbackIdentity,
@@ -60,6 +62,30 @@ async function tempRoot(): Promise<string> {
 }
 
 describe("storage-only conversation preparation", () => {
+  it("seeds a workspace with its assigned generation and never replaces it with a competing generation", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const owner = await manager.ensureOwner(ownerA)
+    const assigned = "00000000-0000-4000-8000-000000000003"
+    const otherGeneration = "00000000-0000-4000-8000-000000000004"
+    const initial = await prepareConversationControl(owner, taskA, "workspace", undefined, assigned)
+    expect(initial.runtimeGeneration).toBe(assigned)
+    await expect(prepareConversationControl(owner, taskA, "workspace", undefined, otherGeneration))
+      .rejects.toBeInstanceOf(RuntimeGenerationIntegrityError)
+    const reopened = new WorkspaceManager(root)
+    reopened.bindOwner(taskA, ownerA)
+    expect((await reopened.ensureConversation(taskA)).runtimeGeneration).toBe(assigned)
+
+    const concurrent = await Promise.allSettled(
+      [assigned, otherGeneration].map(value => prepareConversationControl(owner, taskB, "workspace", undefined, value)),
+    )
+    expect(concurrent.map(result => result.status).sort()).toEqual(["fulfilled", "rejected"])
+    reopened.bindOwner(taskB, ownerA)
+    const winner = concurrent.find(result => result.status === "fulfilled")
+    if (!winner) throw new Error("workspace generation was never published")
+    expect(await reopened.readRuntimeGeneration(taskB)).toBe(winner.value.runtimeGeneration)
+  })
+
   it("preserves existing generations and workspace files when the native worker starts later", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
@@ -395,6 +421,14 @@ describe("workspace filesystem helpers", () => {
 })
 
 describe("WorkspaceManager", () => {
+  it("raises a dedicated owner mismatch error for conflicting or unbound owners", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    expect(() => manager.bindOwner(taskA, ownerB)).toThrow(WorkspaceOwnerMismatchError)
+    expect(() => manager.ownerFor(taskB)).toThrow(WorkspaceOwnerMismatchError)
+  })
+
   it("rejects a substituted project parent during preparation and cleanup", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
@@ -1549,6 +1583,8 @@ async function publishedRuntimeFixture() {
   const userHome = path.join(root, "home")
   const controlRoot = path.join(root, "control")
   const skillsRoot = path.join(userHome, ".agents", "skills")
+  const publicSiteSkillRoot = path.join(skillsRoot, PUBLIC_SITE_SKILL_NAME)
+  const publicSiteSkill = path.join(publicSiteSkillRoot, "SKILL.md")
   const pluginsRoot = path.join(userHome, ".agents", "plugin-sources")
   const pluginRoot = path.join(pluginsRoot, "documents")
   const marketplacePath = path.join(
@@ -1579,6 +1615,7 @@ async function publishedRuntimeFixture() {
       recursive: true,
     }),
     mkdir(path.join(skillsRoot, "linksense-interactive-app-builder"), { recursive: true }),
+    mkdir(publicSiteSkillRoot, { recursive: true }),
     mkdir(pluginRoot, { recursive: true }),
     mkdir(path.join(userHome, ".codex", "plugins"), { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
@@ -1628,6 +1665,7 @@ async function publishedRuntimeFixture() {
       "creator",
     ),
     writeFile(path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"), "application builder"),
+    writeFile(publicSiteSkill, "public site"),
     writeFile(path.join(pluginRoot, "plugin.json"), "documents"),
     writeFile(marketplacePath, marketplace),
   ])
@@ -1645,6 +1683,7 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "linksense-knowledge-base"), 0o750],
     [path.join(skillsRoot, "linksense-skill-creator"), 0o750],
     [path.join(skillsRoot, "linksense-interactive-app-builder"), 0o750],
+    [publicSiteSkillRoot, 0o750],
     [path.join(userHome, ".agents", "plugins"), 0o750],
     [path.join(userHome, ".codex"), 0o770],
     [pluginsRoot, 0o750],
@@ -1665,6 +1704,7 @@ async function publishedRuntimeFixture() {
     path.join(skillsRoot, "linksense-knowledge-base", "SKILL.md"),
     path.join(skillsRoot, "linksense-skill-creator", "SKILL.md"),
     path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"),
+    publicSiteSkill,
     path.join(pluginRoot, "plugin.json"),
     marketplacePath,
   ]

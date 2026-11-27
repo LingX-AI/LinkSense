@@ -1,6 +1,6 @@
 import { conversationFormAcceptedOutcome } from "@linksense/shared"
 
-import type { ConversationUserInputRequest } from "@/api/contracts"
+import type { ConversationUserInputRequestView } from "@/api/contracts"
 
 export type ConversationUserInputDisplayStatus =
   | "pending"
@@ -14,10 +14,10 @@ export type ConversationUserInputDisplayStatus =
   | "terminated"
 
 export function selectActiveUserInputRequest(
-  requests: readonly ConversationUserInputRequest[],
+  requests: readonly ConversationUserInputRequestView[],
   runningTurnId?: string,
   hasPendingPlanReview = false
-): ConversationUserInputRequest | undefined {
+): ConversationUserInputRequestView | undefined {
   const pending = requests
     .filter(
       (request) => !hasPendingPlanReview || request.kind !== "async_questions"
@@ -38,7 +38,7 @@ export function selectActiveUserInputRequest(
 }
 
 export function getConversationUserInputDisplayStatus(
-  request: ConversationUserInputRequest
+  request: ConversationUserInputRequestView
 ): ConversationUserInputDisplayStatus {
   if (request.status === "pending") return "pending"
   if (request.status === "answering") return "submitting"

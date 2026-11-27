@@ -182,7 +182,7 @@ export const enUS = {
     automations: "Automations",
     conversations: "Tasks",
     archived: "Archived tasks",
-    capabilities: "Plugin Center",
+    capabilities: "Apps & Tools",
     knowledgeBases: "Resource library",
     pinned: "Pinned",
     projects: "Projects",
@@ -462,8 +462,7 @@ export const enUS = {
     channelAccess: "Message channels",
     channelAccessDescription:
       "Manage Weixin, WeCom, DingTalk, Teams, Feishu, and other channels",
-    capabilitiesDescription:
-      "Browse the Plugin Center and manage personal plugins and Skills",
+    capabilitiesDescription: "Browse and manage apps, sites, and tools",
     archivedDescription: "View archived tasks",
     usersDescription: "Manage user accounts, roles, and status",
     rolesDescription: "Review fixed roles and permission boundaries",
@@ -541,6 +540,77 @@ export const enUS = {
       "This cannot be undone. Your tasks, custom instructions, plugins, and Skills will remain.",
     resettingMemories: "Resetting memories…",
     memoriesReset: "Memories reset",
+    privacyMasking: "Privacy masking",
+    privacyMaskingDescription:
+      "Replace secrets with placeholders before a request goes to the model provider, and restore them before a reply reaches the runtime.",
+    privacyMaskingEnabled: "Enable privacy masking",
+    privacyMaskingEnabledDescription:
+      "Masks text sent through the task model gateway. It does not protect automatic titles, web searches, image generation, or knowledge embeddings. Task history and events still keep the original text.",
+    privacyMaskingSecrets: "Secrets and credentials",
+    privacyMaskingSecretsDescription:
+      "API keys, tokens, private keys, passwords, and Authorization or Cookie header values.",
+    privacyMaskingWords: "Custom words",
+    privacyMaskingWordsDescription:
+      "One word or phrase per line: project names, internal codenames, or names you do not want sent to the provider.",
+    privacyMaskingWordsPlaceholder: "Nightjar project\nAcme internal",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Match any case",
+    privacyMaskingAnyCaseDescription:
+      "Treat nightjar, Nightjar, and NIGHTJAR as the same word.",
+    privacyMaskingWholeWord: "Whole words only",
+    privacyMaskingWholeWordDescription:
+      "Do not mask a word inside a longer word or identifier.",
+    privacyMaskingAllow: "Allowed values",
+    privacyMaskingAllowDescription:
+      "One value per line. A detected value is sent as-is only on a full, case-sensitive match. The custom-word case setting does not affect this list.",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "Privacy masking settings saved.",
+    privacyMaskingSave: "Save privacy masking",
+    privacyMaskingBehaviorNote:
+      "The model sees placeholders instead of the real values. Tasks that must inspect a secret itself may not work until you add that value to the allowed list.",
+    privacyMaskingPageDescription:
+      "Choose what never leaves for the model provider, and test the rules on sample text before a task runs.",
+    privacyMaskingWhatToMask: "What to mask",
+    privacyMaskingTryIt: "Try it",
+    privacyMaskingTryItDescription:
+      "Paste text an agent might send. It is masked here the same way a request is, and nothing is stored.",
+    privacyMaskingTryItPlaceholder:
+      "Deploy with key sk-proj-… and call the staging API",
+    privacyMaskingTryItOutput: "Text preview with draft rules",
+    privacyMaskingTryItEmpty: "Nothing in this text would be masked.",
+    privacyMaskingTryItOffNote:
+      "Masking is off. This preview shows what would be replaced once you turn it on.",
+    privacyMaskingKindPrivateKey: "Private key",
+    privacyMaskingKindApiKey: "API key",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Secret",
+    privacyMaskingKindPassword: "Password",
+    privacyMaskingKindTerm: "Custom word",
+    privacyMaskingKindEmail: "Email address",
+    privacyMaskingKindPhone: "Phone number",
+    privacyMaskingKindIdCard: "ID card number",
+    privacyMaskingKindBankCard: "Bank card number",
+    privacyMaskingActivity: "Masking activity",
+    privacyMaskingActivityDescription:
+      "View requests with replacements from the last 30 days. Records show types, lengths, locations, and counts, never the original values.",
+    privacyMaskingSections: "Settings and activity",
+    privacyMaskingSectionSettings: "Settings",
+    privacyMaskingSectionActivity: "Activity",
+    privacyMaskingActivityPeriod: "Period",
+    privacyMaskingActivity7Days: "7 days",
+    privacyMaskingActivity30Days: "30 days",
+    privacyMaskingActivityMasked: "values replaced",
+    privacyMaskingActivityRequests: "requests",
+    privacyMaskingActivityEmpty:
+      "No requests have been masked in this period yet.",
+    privacyMaskingActivityLoadMore: "Load more",
+    privacyMaskingActivityHintLength: "{{length}} characters",
+    privacyMaskingActivityLocationPrompt: "Prompt",
+    privacyMaskingActivityLocationInstructions: "Instructions",
+    privacyMaskingActivityLocationToolArguments: "Tool arguments",
+    privacyMaskingActivityLocationToolOutput: "Tool output",
+    privacyMaskingActivityLocationTools: "Tool definitions",
+    privacyMaskingActivityLocationOther: "Other",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
     theme: "Theme",
@@ -1908,8 +1978,10 @@ export const enUS = {
     reorderCancelled: "Project dragging cancelled.",
     dragSaving: "Saving project order.",
     dragSaveFailed: "Could not save the project order. Please try again.",
-    delete: "Remove project",
+    delete: "Remove",
+    newTaskNamed: "New task in project “{{title}}”",
     move: "Move to project",
+    moveToPublicWorkspace: "Move to public workspace",
     moveNamed: "Move “{{title}}” to a project",
     name: "Project name",
     namePlaceholder: "Enter a project name",
@@ -2065,12 +2137,12 @@ export const enUS = {
     resetReasoningEffort: "Reset reasoning effort to default",
     modelNotConfigured: "Model service not configured",
     reasoningEffort: "Reasoning effort",
-    modelContextUsageUnknown: "No usage yet",
-    modelContextBadgeLabel: "Background context window: {{value}}",
-    modelContextTitle: "Background context window:",
     modelContextUsagePercent: "{{percent}}% used",
-    modelContextUsageDetail: "{{used}} used, {{total}} total",
-    modelContextUnavailable: "No context usage yet",
+    modelContextUsageLabel: "Context {{used}} / {{total}} ({{percent}}%)",
+    modelContextUsageSummary: "{{used}} / {{total}} ({{percent}}%)",
+    modelContextWindowTitle: "Context window",
+    modelContextWindowOption: "{{size}} context window",
+    modelContextDetailedBreakdown: "See detailed breakdown",
     stop: "Stop",
     interrupting: "Interrupting…",
     attach: "Attach file",
@@ -2126,6 +2198,8 @@ export const enUS = {
     voiceDemoTranscript:
       "[Voice demo] Summarize the key points from today’s meeting and create a list of action items.",
     voiceNotConfigured: "Speech-to-text has not been configured",
+    voiceNotConfiguredHint:
+      "<configure>Configure</configure> speech-to-text",
     voiceServiceUnavailable:
       "Speech-to-text is temporarily unavailable. Try again later.",
     voiceStop: "Stop voice input",
@@ -2325,6 +2399,7 @@ export const enUS = {
       submit: "Submit answers",
       submitting: "Submitting",
       cancel: "Cancel",
+      dismissRequest: "Dismiss request",
       selectPlaceholder: "Select an option",
       datePlaceholder: "Select date",
       clearDate: "Clear date",
@@ -2550,15 +2625,32 @@ export const enUS = {
       sources: "Sources",
       noSources: "No sources yet",
       sourcesError: "Couldn’t load sources. Please try again.",
-      open: "Open task overview",
-      close: "Close task overview",
-      title: "Task overview",
+      open: "Open session rail",
+      close: "Close session rail",
+      title: "Session rail",
       subagents: "Subagents",
       subagentsUsed: "{{count}} subagents used",
       subagentsCompleted: "{{count}} completed",
       subagentsProgress: "{{completed}} / {{count}} completed",
       outputFiles: "Output files",
       noOutputFiles: "No output files yet",
+      context: "Context",
+      contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}} ({{percent}}%)",
+      tokenInput: "Input",
+      tokenCachedInput: "Cached input",
+      tokenOutput: "Output",
+      tokenReasoning: "Reasoning",
+      freeSpace: "Free space",
+      untilAutoCompact: "{{tokens}} until auto-compact",
+      readyToCompact: "Ready to auto-compact",
+      compactSession: "Compact session",
+      compacting: "Compacting…",
+      changes: "Changes",
+      changedFiles_one: "{{count}} file changed",
+      changedFiles_other: "{{count}} files changed",
+      noChanges: "No changes yet",
+      backgroundTasks: "Background tasks",
     },
     capabilitiesUsed: "Turn plugins/Skills",
     loaded: "Loaded",
@@ -2641,6 +2733,8 @@ export const enUS = {
       exitedReviewMode: "Exited review mode",
       contextCompactionRunning: "Compacting context",
       contextCompactionCompleted: "Context compacted",
+      contextCompactionCompletedSavedTokens:
+        "Context compacted · saved {{tokens}} tokens",
       contextCompactionIncomplete: "Context compaction did not complete",
       collabAgentRunning: "Coordinating subagents",
       collabAgentCompleted: "Coordinated subagents",
@@ -2891,10 +2985,40 @@ export const enUS = {
     createTypeDescription: "Choose how to create your application.",
     creation: {
       recommended: "Recommended",
-      interactiveTitle: "Create an interactive app through chat",
+      interactiveTitle: "Create an app through chat",
       interactiveDescription:
         "Share your idea and let LinkSense bring it to life.",
+      publicSiteTitle: "Create a Web app",
+      publicSiteDescription:
+        "Create a public website or application and deliver a link to open or copy.",
       start: "Start creating",
+    },
+    conversationCreation: {
+      title: "Create an app through chat",
+      description:
+        "Describe your goal. We will clarify access, data and reminders only when needed.",
+      goal: "What would you like to achieve?",
+      goalPlaceholder:
+        "For example: a water assistant. Preview the page first and decide about reminders later.",
+      defaultGoal: "Clarify only requirements that change the outcome.",
+      start: "Start conversation",
+      prompt:
+        "Help me achieve this goal: {{goal}}. Reuse information I have already provided and ask only about unresolved requirements that change the outcome. Start with a usable draft; do not publish publicly or activate schedules by default.",
+    },
+    publicSiteCreation: {
+      title: "Create a Web app",
+      description:
+        "Create a public website or dynamic application. Add account, data and business requirements in the conversation.",
+      name: "Site name",
+      goal: "What should the site do? (optional)",
+      goalPlaceholder: "For example: make an event schedule with a date filter",
+      defaultGoal: "Ask me what content and interactions the site needs.",
+      start: "Create and publish",
+      openLocally: "Open in my browser after publishing",
+      openInstruction:
+        "After publishing, use Browser Use to open the site once in my local browser.",
+      prompt:
+        "Create a public website or application for me. Name: {{name}}. Requirements: {{goal}}. Choose a static site or self-hosted dynamic backend as needed, publish the result, and give me its link.",
     },
     createStandardApp: "Create standard app",
     createStandardAppDescription:
@@ -3229,6 +3353,7 @@ export const enUS = {
       "The new package will replace the current skill. Existing files missing from the new package will be deleted. Upload a complete package containing every file the skill needs.",
     identifierHint: "The skill identifier stays the same during an update.",
     content: "Skill instructions",
+    descriptionRequired: "Enter a skill description.",
     contentRequired: "Enter the skill instructions.",
     contentTooLarge:
       "These instructions are too long to edit online. Download the complete skill package, edit it and upload it again.",
@@ -3251,7 +3376,7 @@ export const enUS = {
     confirmDeletions: "I confirm deleting these {{count}} files",
   },
   marketplace: {
-    title: "Plugin Center",
+    title: "Apps & Tools",
     description:
       "Browse public plugins and Skills, and manage installed content, personal content, and MCP connections in one place.",
     personalAccountDescription:
@@ -3267,7 +3392,7 @@ export const enUS = {
       reviews: "Listing reviews",
       listings: "All listings",
     },
-    catalogTabsLabel: "Plugin Center content categories",
+    catalogTabsLabel: "Apps & Tools categories",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Skills",
@@ -3406,6 +3531,7 @@ export const enUS = {
     skillMarkdown: "SKILL.md content",
     skillIdentifier: "Skill identifier",
     skillNameRequired: "Enter a skill identifier.",
+    skillDescriptionRequired: "Enter a skill description.",
     skillNameTooLong: "The skill identifier cannot exceed 64 characters.",
     skillNameInvalid:
       "Use only lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively.",
@@ -3425,7 +3551,7 @@ export const enUS = {
       "The current personal plugin or skill is copied into an immutable snapshot and submitted for administrator review.",
     sourceCapability: "Personal plugin/skill source",
     noPublishableSource:
-      "No publishable personal plugin or skill has the same name and type as this listing. Import or update the source in the Plugin Center first.",
+      "No publishable personal plugin or skill has the same name and type as this listing. Import or update the source in Apps & Tools first.",
     immutableSnapshotNotice:
       "Review applies to an independent immutable snapshot. Later edits to your personal plugin or skill cannot change this pending release.",
     submitForReview: "Submit for review",
@@ -3438,7 +3564,7 @@ export const enUS = {
       "You have not submitted any applications, plugins, or skills yet.",
     publicationsDescription:
       "Manage your submitted applications, plugins, and skills, track reviews, and publish updates.",
-    backToCenter: "Back to plugin center",
+    backToCenter: "Back to Apps & Tools",
     manageApplicationListing: "Manage listing",
     selectApplication: "Select an application to list",
     selectApplicationDescription:
@@ -3776,6 +3902,11 @@ export const enUS = {
         name: "{{productName}} Interactive Application Development",
         description:
           "Create and edit applications through conversation, with live preview, debugging and installation.",
+      },
+      publicSite: {
+        name: "{{productName}} Public Site Development",
+        description:
+          "Build public websites or self-hosted dynamic applications and deliver their links.",
       },
       skillCreator: {
         name: "{{productName}} Skill Creator",
@@ -4797,7 +4928,8 @@ export const enUS = {
       cachedInputPrice: "Cached input price",
       outputPrice: "Output price",
       contextWindow: "Model context length",
-      contextWindowPlaceholder: "Auto detect",
+      contextWindowPlaceholder: "Leave empty to auto-detect",
+      contextWindowShortcuts: "Context length shortcuts",
       contextWindowInvalid:
         "Enter an integer greater than 0, or leave blank to auto-detect.",
       priceUnit: "USD / 1M tokens",
@@ -4810,6 +4942,8 @@ export const enUS = {
         "The model will be deleted immediately after confirmation. Historical tasks and usage records are not affected.",
       modelDeleted: "Model deleted.",
       supportedEfforts: "Supported reasoning efforts",
+      reasoningEffortsAutoHint:
+        "Matched to the model automatically; adjust only if needed.",
       selectedEfforts: "{{count}} selected",
       defaultEffort: "Default reasoning effort",
       defaultModel: "Conversation default model",
@@ -5399,15 +5533,27 @@ export const enUS = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "en-US"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "en-US"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "en-US"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "en-US"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "en-US"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "en-US"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "en-US"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "en-US"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "en-US"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "en-US"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "en-US"),
+    },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "en-US"
+      ),
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
@@ -5440,6 +5586,12 @@ export const enUS = {
       resourcesMissing:
         errorCatalog.WEB_SITE_RESOURCES_MISSING.messages["en-US"],
       bundleInvalid: errorCatalog.WEB_SITE_BUNDLE_INVALID.messages["en-US"],
+      analyticsNotConfigured:
+        errorCatalog.WEB_SITE_ANALYTICS_NOT_CONFIGURED.messages["en-US"],
+      analyticsUnavailable:
+        errorCatalog.WEB_SITE_ANALYTICS_UNAVAILABLE.messages["en-US"],
+      analyticsUnpublished:
+        errorCatalog.WEB_SITE_ANALYTICS_UNPUBLISHED.messages["en-US"],
     },
     feishu: {
       connectionNotFound:
@@ -5719,6 +5871,10 @@ export const enUS = {
     artifactNotFound: "The artifact was not found.",
     downloadForbidden: "You do not have permission to download this artifact.",
     runnerUnavailable: "The execution service is unavailable. Try again later.",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "en-US"
+    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["en-US"],
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",

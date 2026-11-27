@@ -75,6 +75,7 @@ const actionMessages = {
   conversation_artifact_registered: ["已登记任务产物", "Task artifact registered"],
   conversation_attachment_uploaded: ["已上传任务附件", "Task attachment uploaded"],
   conversation_context_compaction_started: ["已开始压缩任务上下文", "Task context compaction started"],
+  conversation_continued: ["已继续任务", "Task continued"],
   conversation_created: ["已创建任务", "Task created"],
   conversation_deleted: ["已删除任务", "Task deleted"],
   conversation_forked: ["已派生任务", "Task forked"],

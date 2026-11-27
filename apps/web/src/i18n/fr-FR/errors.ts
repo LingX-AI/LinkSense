@@ -13,6 +13,12 @@ export const errors = {
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "fr-FR"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "fr-FR"),
     },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "fr-FR"
+      ),
+    },
   skillManagement: {
     uninstallNotAllowed: localizedErrorMessage(
       "SKILL_UNINSTALL_NOT_ALLOWED",
@@ -46,6 +52,12 @@ export const errors = {
       "Une ressource de la page manque ({{path}}). Demandez à l’assistant de la tâche source d’enregistrer la page avec ses ressources avant de publier",
     bundleInvalid:
       "Le paquet de la page est incomplet ou contient des fichiers non pris en charge. Corrigez-le dans la tâche source et réessayez",
+    analyticsNotConfigured:
+      "Un administrateur doit configurer le service de statistiques du site",
+    analyticsUnavailable:
+      "Le service de statistiques est temporairement indisponible. Réessayez plus tard",
+    analyticsUnpublished:
+      "Seul un site publié peut activer les statistiques de visites",
   },
   feishu: {
     connectionNotFound: "Connexion Feishu introuvable. Connectez-la à nouveau.",
@@ -326,6 +338,10 @@ export const errors = {
     "Vous n’avez pas l’autorisation de télécharger ce fichier produit.",
   runnerUnavailable:
     "Le service d’exécution est indisponible. Réessayez plus tard.",
+  runnerOperationUncertain: localizedErrorMessage(
+    "RUNNER_OPERATION_UNCERTAIN",
+    "fr-FR"
+  ),
   turnStartClosed:
     "La soumission précédente est terminée. Cette demande n’a pas été exécutée. Envoyez-la à nouveau.",
   deploymentStopped:

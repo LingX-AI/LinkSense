@@ -10,6 +10,28 @@ const TURN_ID = "40000000-0000-4000-8000-000000000001";
 const MESSAGE_ID = "50000000-0000-4000-8000-000000000001";
 
 describe("ConversationShareService", () => {
+  it("serves readable descriptions without resource bindings from stored rich snapshots", async () => {
+    const fileId = "60000000-0000-4000-8000-000000000042";
+    const source = conversationDetail();
+    const message = source.messages[2]!;
+    message.content_text = `\`\`\`json-render\n${JSON.stringify({
+      version: 1, summary: "The analysis is complete.",
+      spec: { root: "result", elements: {
+        result: { type: "Panel", props: { title: "Deliverables" }, children: ["files"] },
+        files: { type: "ResourceList", props: { title: "Report", items: [{ fileId, label: "Quarterly analysis" }] } },
+      } },
+    })}\n\`\`\``;
+    const service = new ConversationShareService(
+      { conversationShare: { findUnique: vi.fn(async () => ({ ...shareRow(), snapshotJson: source })) } } as never,
+      { get: vi.fn() },
+    );
+    const saved = await service.get(SHARE_ID);
+    const answer = saved.snapshot.messages.find((item) => item.id === message.id);
+    expect(answer?.content_text).toContain("Quarterly analysis");
+    expect(answer?.content_text).not.toContain(fileId);
+    expect(answer?.content_text).not.toContain("json-render");
+  });
+
   it("shares a completed plan from the preview even when the native event excludes it from the source share projection", async () => {
     const detail = conversationDetail();
     const plan = {

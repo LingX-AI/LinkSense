@@ -297,7 +297,7 @@ describe("LinkSense application", () => {
     })
     renderApp()
 
-    await screen.findByRole("button", { name: "预览文件 old.pdf" })
+    await screen.findByRole("button", { name: /预览文件 old\.pdf/u })
     expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
   })
 
@@ -667,7 +667,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       await screen.findByRole("button", {
-        name: "预览文档 EdTech出差费用明细表.xlsx",
+        name: /预览文档 EdTech出差费用明细表\.xlsx/u,
       })
     )
 
@@ -733,7 +733,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       await screen.findByRole("button", {
-        name: "预览演示文稿 ai-introduction.pptx",
+        name: /预览演示文稿 ai-introduction\.pptx/u,
       })
     )
 
@@ -918,7 +918,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       await screen.findByRole("button", {
-        name: "预览演示文稿 ai-introduction.pptx",
+        name: /预览演示文稿 ai-introduction\.pptx/u,
       })
     )
 
@@ -1054,7 +1054,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       await screen.findByRole("button", {
-        name: "预览演示文稿 ai-introduction.pptx",
+        name: /预览演示文稿 ai-introduction\.pptx/u,
       })
     )
     await interaction.click(

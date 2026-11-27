@@ -4,6 +4,11 @@ import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { pathToFileURL } from "node:url";
 
+const optionalEnvironmentKeys = ["LINKSENSE_APPWRITE_ENDPOINT", "LINKSENSE_APPWRITE_ADMIN_EMAIL", "LINKSENSE_APPWRITE_ADMIN_PASSWORD", "LINKSENSE_APPWRITE_ORGANIZATION_ID", "LINKSENSE_DYNAMIC_APPS_BASE_URL", "LINKSENSE_TINYTRAFFIC_URL", "LINKSENSE_TINYTRAFFIC_API_KEY"];
+const optionalEnvironmentPattern = new RegExp(
+  `^[ \\t]*(?:export[ \\t]+)?(${optionalEnvironmentKeys.join("|")})[ \\t]*[=:][ \\t]*(?:"(?:[^"\\\\]|\\\\[\\s\\S])*"|'(?:[^'\\\\]|\\\\[\\s\\S])*'|[^\\r\\n]*)[^\\r\\n]*(?:\\r?\\n|$)`, "gm",
+);
+
 export function prepareUat(root, { revision, project = "linksense-uat", publicUrl, port = "19090", cachedBaselines = false }) {
   if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error("A committed source revision is required");
   if (!/^[a-z][a-z0-9_-]{2,40}$/u.test(project)) throw new Error("Invalid UAT project name");
@@ -14,7 +19,14 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = resolve(directory, "runtime.env");
   if (existsSync(file) && !lstatSync(file).isFile()) throw new Error("UAT environment must be a regular file");
-  const previous = existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {};
+  const optionalAssignments = [];
+  const presentOptionalKeys = new Set();
+  // Compose's quoting and interpolation differ from Node's; keep operator values opaque.
+  const previous = parseEnv((existsSync(file) ? readFileSync(file, "utf8") : "").replace(optionalEnvironmentPattern, (assignment, key) => {
+    optionalAssignments.push(assignment.endsWith("\n") ? assignment : `${assignment}\n`);
+    presentOptionalKeys.add(key);
+    return "";
+  }));
   if (previous.COMPOSE_PROJECT_NAME && previous.COMPOSE_PROJECT_NAME !== project) throw new Error("Refusing to reuse another project's UAT credentials");
   const baseline = JSON.parse(readFileSync(resolve(root, "deploy/baselines/images.lock.json"), "utf8"));
   const version = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
@@ -69,6 +81,13 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
     LINKSENSE_MINIO_MEMORY_MB: "512",
     LINKSENSE_WORKER_IMAGE_REVISION: revision,
   };
+  for (const key of optionalEnvironmentKeys) {
+    const value = process.env[key];
+    if (!presentOptionalKeys.has(key) && value) {
+      const quoted = value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", () => "$$");
+      optionalAssignments.push(`${key}="${quoted}"\n`);
+    }
+  }
   for (const role of ["API", "WEB", "MIGRATE", "RUNNER", "WORKER"]) environment[`LINKSENSE_${role}_IMAGE`] = `${project}-${role.toLowerCase()}:${tag}`;
   for (const role of ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY"]) {
     const image = baseline.services[role];
@@ -81,7 +100,7 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
   }
   for (const [role, suffix] of Object.entries({ INTERNAL: "internal", WORKER_CONTROL: "worker-control", WORKER_EGRESS: "worker-egress" })) environment[`LINKSENSE_${role}_NETWORK`] = `${project}-${suffix}`;
   const temporary = `${file}.tmp`;
-  writeFileSync(temporary, Object.entries(environment).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n") + "\n", { mode: 0o600 });
+  writeFileSync(temporary, Object.entries(environment).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n") + "\n" + optionalAssignments.join(""), { mode: 0o600 });
   renameSync(temporary, file);
   const credentialFile = resolve(directory, "initialization.txt");
   if (!existsSync(credentialFile)) writeFileSync(credentialFile, environment.LINKSENSE_INITIALIZATION_TOKEN + "\n", { mode: 0o600, flag: "wx" });

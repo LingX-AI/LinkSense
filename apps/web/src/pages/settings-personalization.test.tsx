@@ -218,7 +218,7 @@ describe("personalization settings", () => {
     "omits environment settings and does not request the removed endpoint in %s",
     async (language) => {
       await i18n.changeLanguage(language)
-      const fetchMock = vi.fn(async () =>
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
         envelope({
           custom_instructions: "saved instructions",
           memories_enabled: true,
@@ -236,7 +236,11 @@ describe("personalization settings", () => {
           name: /保持工作环境运行|Keep your environment running/,
         })
       ).not.toBeInTheDocument()
-      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input]) => String(input) === "/api/v1/me/personalization"
+        )
+      ).toHaveLength(1)
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/me/personalization",
         expect.anything()
@@ -458,6 +462,60 @@ describe("personalization settings", () => {
     ).toBeVisible()
   })
 
+  it("discards the unsaved draft and restores the saved instructions when confirming a same-route query navigation", async () => {
+    const settings = {
+      custom_instructions: "此前保存的指令",
+      memories_enabled: true,
+      show_reasoning: false,
+      task_auto_naming: "first_message",
+    }
+    const fetchMock = vi.fn<typeof fetch>(async () => envelope(settings))
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { router } = renderPage()
+
+    const instructions = await screen.findByRole("textbox", {
+      name: "自定义指令",
+    })
+    expect(instructions).toHaveValue("此前保存的指令")
+    await user.clear(instructions)
+    await user.type(instructions, "尚未保存的草稿")
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled()
+
+    await act(() =>
+      router.navigate("/settings/personalization?section=memory#memory")
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "放弃未保存的修改？",
+    })
+    await user.click(within(dialog).getByRole("button", { name: "留在此页" }))
+    expect(instructions).toHaveValue("尚未保存的草稿")
+
+    await act(() =>
+      router.navigate("/settings/personalization?section=memory#memory")
+    )
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "放弃修改",
+      })
+    )
+
+    await waitFor(() =>
+      expect(router.state.location.search).toBe("?section=memory")
+    )
+    expect(router.state.location.hash).toBe("#memory")
+    expect(screen.getByRole("textbox", { name: "自定义指令" })).toHaveValue(
+      "此前保存的指令"
+    )
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled()
+    const beforeUnloadEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(beforeUnloadEvent)
+    expect(beforeUnloadEvent.defaultPrevented).toBe(false)
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")
+    ).toHaveLength(0)
+  })
+
   it.each([
     ["zh-CN", "首次对话时", "每次对话时"],
     ["en-US", "First message", "Every message"],
@@ -507,7 +565,11 @@ describe("personalization settings", () => {
       expect(select.closest('[data-layout="settings"]')).toBeInTheDocument()
       await user.click(select)
       await user.click(await screen.findByRole("option", { name: first }))
-      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(
+        fetchMock.mock.calls.filter(
+          ([, init]) => init?.method === "PATCH"
+        )
+      ).toHaveLength(0)
       await user.click(select)
       await user.click(await screen.findByRole("option", { name: every }))
       expect(select).toBeDisabled()

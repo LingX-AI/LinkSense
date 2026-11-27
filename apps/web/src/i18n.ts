@@ -3,6 +3,7 @@ import { browserPanelMessages } from "@/features/browser-panel/messages"
 import { monitoringMessages } from "@/features/automations/monitoring-messages"
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
 import { taskReferenceMessages } from "@/features/conversations/task-reference-messages"
+import { richOutputMessages } from "@/features/conversations/rich-output-messages"
 import { webSearchMessages } from "@/features/admin/web-search-messages"
 import { sensitiveDataMessages } from "@/features/sensitive-data/messages"
 import i18n from "i18next"
@@ -24,6 +25,7 @@ import { applicationSetupMessages } from "@/features/applications/application-se
 import { accountAccessMessages } from "@/components/auth/account-access-messages"
 import { workspaceHomeMessages } from "@/features/conversations/workspace-home-messages"
 import { settingsInterfaceMessages } from "@/components/settings/interface-messages"
+import { privacyMaskingRuleMessages } from "@/features/privacy-masking/rule-messages"
 import { adminConnectionMessages } from "@/features/connections/admin-messages"
 
 export const supportedLanguages = supportedLocales
@@ -57,20 +59,22 @@ export function resolveBrowserLanguage(
   return "en-US"
 }
 
-function resolveInitialLanguage(): SupportedLanguage {
-  let stored: SupportedLanguage | null
+function readStoredLanguage(): string | null {
   try {
-    stored = normalizeLanguage(
-      window.localStorage?.getItem(LANGUAGE_STORAGE_KEY)
-    )
+    return window.localStorage?.getItem(LANGUAGE_STORAGE_KEY) ?? null
   } catch {
-    stored = null
+    return null
   }
+}
+
+export function resolveInitialLanguage(input: {
+  stored?: string | null
+  languages?: readonly string[]
+  language?: string | null
+}): SupportedLanguage {
+  const stored = normalizeLanguage(input.stored)
   if (stored) return stored
-  return resolveBrowserLanguage(
-    window.navigator.languages,
-    window.navigator.language
-  )
+  return resolveBrowserLanguage(input.languages, input.language)
 }
 
 void i18n.use(initReactI18next).init({
@@ -83,9 +87,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["zh-CN"],
         workspaceHome: workspaceHomeMessages["zh-CN"],
         settingsInterface: settingsInterfaceMessages["zh-CN"],
+        privacyMaskingRules: privacyMaskingRuleMessages["zh-CN"],
         browserPanel: browserPanelMessages["zh-CN"],
         monitoring: monitoringMessages["zh-CN"],
         taskReferences: taskReferenceMessages["zh-CN"],
+        richOutput: richOutputMessages["zh-CN"],
         automationNotifications: automationNotificationMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
         adminConnections: adminConnectionMessages["zh-CN"],
@@ -102,9 +108,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["en-US"],
         workspaceHome: workspaceHomeMessages["en-US"],
         settingsInterface: settingsInterfaceMessages["en-US"],
+        privacyMaskingRules: privacyMaskingRuleMessages["en-US"],
         browserPanel: browserPanelMessages["en-US"],
         monitoring: monitoringMessages["en-US"],
         taskReferences: taskReferenceMessages["en-US"],
+        richOutput: richOutputMessages["en-US"],
         automationNotifications: automationNotificationMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
         adminConnections: adminConnectionMessages["en-US"],
@@ -121,9 +129,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["es-ES"],
         workspaceHome: workspaceHomeMessages["es-ES"],
         settingsInterface: settingsInterfaceMessages["es-ES"],
+        privacyMaskingRules: privacyMaskingRuleMessages["es-ES"],
         browserPanel: browserPanelMessages["es-ES"],
         monitoring: monitoringMessages["es-ES"],
         taskReferences: taskReferenceMessages["es-ES"],
+        richOutput: richOutputMessages["es-ES"],
         automationNotifications: automationNotificationMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
         adminConnections: adminConnectionMessages["es-ES"],
@@ -140,9 +150,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["pt-BR"],
         workspaceHome: workspaceHomeMessages["pt-BR"],
         settingsInterface: settingsInterfaceMessages["pt-BR"],
+        privacyMaskingRules: privacyMaskingRuleMessages["pt-BR"],
         browserPanel: browserPanelMessages["pt-BR"],
         monitoring: monitoringMessages["pt-BR"],
         taskReferences: taskReferenceMessages["pt-BR"],
+        richOutput: richOutputMessages["pt-BR"],
         automationNotifications: automationNotificationMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
         adminConnections: adminConnectionMessages["pt-BR"],
@@ -159,9 +171,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["fr-FR"],
         workspaceHome: workspaceHomeMessages["fr-FR"],
         settingsInterface: settingsInterfaceMessages["fr-FR"],
+        privacyMaskingRules: privacyMaskingRuleMessages["fr-FR"],
         browserPanel: browserPanelMessages["fr-FR"],
         monitoring: monitoringMessages["fr-FR"],
         taskReferences: taskReferenceMessages["fr-FR"],
+        richOutput: richOutputMessages["fr-FR"],
         automationNotifications: automationNotificationMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
         adminConnections: adminConnectionMessages["fr-FR"],
@@ -178,9 +192,11 @@ void i18n.use(initReactI18next).init({
         accountAccess: accountAccessMessages["ja-JP"],
         workspaceHome: workspaceHomeMessages["ja-JP"],
         settingsInterface: settingsInterfaceMessages["ja-JP"],
+        privacyMaskingRules: privacyMaskingRuleMessages["ja-JP"],
         browserPanel: browserPanelMessages["ja-JP"],
         monitoring: monitoringMessages["ja-JP"],
         taskReferences: taskReferenceMessages["ja-JP"],
+        richOutput: richOutputMessages["ja-JP"],
         automationNotifications: automationNotificationMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
         adminConnections: adminConnectionMessages["ja-JP"],
@@ -190,7 +206,11 @@ void i18n.use(initReactI18next).init({
       },
     },
   },
-  lng: resolveInitialLanguage(),
+  lng: resolveInitialLanguage({
+    stored: readStoredLanguage(),
+    languages: window.navigator.languages,
+    language: window.navigator.language,
+  }),
   fallbackLng: "zh-CN",
   supportedLngs: supportedLanguages,
   interpolation: { escapeValue: false },
@@ -205,10 +225,7 @@ i18n.on("languageChanged", (language) => {
 document.documentElement.lang =
   normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
 
-export async function setAppLanguage(
-  language: SupportedLanguage,
-  options: { persist?: boolean } = {}
-) {
+async function changeDisplayedLanguage(language: SupportedLanguage) {
   const currentLanguage = normalizeLanguage(
     i18n.language ?? i18n.resolvedLanguage
   )
@@ -217,12 +234,23 @@ export async function setAppLanguage(
   } else if (document.documentElement.lang !== language) {
     document.documentElement.lang = language
   }
+}
+
+export async function setAppLanguage(
+  language: SupportedLanguage,
+  options: { persist?: boolean } = {}
+) {
+  await changeDisplayedLanguage(language)
   if (options.persist === false) return
   try {
     window.localStorage?.setItem(LANGUAGE_STORAGE_KEY, language)
   } catch {
     // Language switching remains available when browser storage is disabled.
   }
+}
+
+export function getStoredLanguagePreference(): SupportedLanguage | null {
+  return normalizeLanguage(readStoredLanguage())
 }
 
 export function hasStoredLanguagePreference() {

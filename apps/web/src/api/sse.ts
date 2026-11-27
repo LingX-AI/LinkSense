@@ -10,6 +10,10 @@ import {
   type ConversationEvent,
   type ConversationEventHistoryPage,
 } from "@/api/contracts"
+import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+} from "@/api/session"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 
 export type ConversationEventHandlers = {
@@ -102,6 +106,12 @@ export function connectConversationEvents(
   options?: ConversationEventConnectionOptions
 ) {
   const controller = new AbortController()
+  // Each authenticated connector belongs to the login that started it. A
+  // replacement login must not inherit its cursor, refresh, replay, or token
+  // clear. Explicit public credentials are not tied to a login session.
+  const loginSessionBoundary = getLoginSessionBoundary()
+  const isAbandonedLogin = () =>
+    !options?.publicSession && !isLoginSessionCurrent(loginSessionBoundary)
   let lastEventId = options?.replayHistory
     ? ""
     : (options?.initialEventId ?? readLastEventId(conversationId))
@@ -119,6 +129,7 @@ export function connectConversationEvents(
     persistScheduled = false
     if (!dirtyCursor) return
     dirtyCursor = false
+    if (isAbandonedLogin()) return
     saveLastEventId(conversationId, lastEventId)
   }
 
@@ -156,7 +167,7 @@ export function connectConversationEvents(
     pending.push(cursor)
     pendingIds.add(cursor.id)
     const commitCursor = () => {
-      if (cursor.committed) return
+      if (cursor.committed || isAbandonedLogin()) return
       cursor.committed = true
       let consumed = 0
       for (const entry of pending) {
@@ -195,7 +206,10 @@ export function connectConversationEvents(
         if (options?.publicSession) {
           const headers = new Headers({ Accept: "text/event-stream" })
           if (options.publicSession.token) {
-            headers.set("Authorization", `Bearer ${options.publicSession.token}`)
+            headers.set(
+              "Authorization",
+              `Bearer ${options.publicSession.token}`
+            )
           }
           if (lastEventId) headers.set("Last-Event-ID", lastEventId)
           response = await fetch(
@@ -219,10 +233,20 @@ export function connectConversationEvents(
             return
           }
         } else {
+          // The shared request routine owns refresh, retry, build validation,
+          // and login-session ownership for the authenticated stream.
           response = await apiEventStreamRequest(
             `/conversations/${conversationId}/events`,
-            { lastEventId, signal: controller.signal }
+            {
+              lastEventId,
+              signal: controller.signal,
+              loginSessionBoundary,
+            }
           )
+          if (isAbandonedLogin()) {
+            controller.abort()
+            return
+          }
         }
 
         if (!response.ok || !response.body)
@@ -238,6 +262,12 @@ export function connectConversationEvents(
           let processingStartedAt = performance.now()
           while (!controller.signal.aborted) {
             const chunk = await reader.read()
+            // A chunk (or EOF) that arrives after the login was replaced must
+            // not be handled, replayed, or acknowledged for the new login.
+            if (isAbandonedLogin()) {
+              controller.abort()
+              return
+            }
             if (chunk.done) break
             buffer += decoder.decode(chunk.value, { stream: true })
             const frames = buffer.split(/\r?\n\r?\n/u)
@@ -261,6 +291,10 @@ export function connectConversationEvents(
                 processingStartedAt = performance.now()
               }
               if (controller.signal.aborted) return
+              if (isAbandonedLogin()) {
+                controller.abort()
+                return
+              }
               processedFrames += 1
               if (rawFrame.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
                 throw new Error("SSE_FRAME_TOO_LARGE")
@@ -278,6 +312,10 @@ export function connectConversationEvents(
           reader.releaseLock()
         }
       } catch (error) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         if (
           error instanceof ApiError &&
           error.errorCode === "CLIENT_UPDATE_REQUIRED"
@@ -290,8 +328,16 @@ export function connectConversationEvents(
       }
 
       if (!controller.signal.aborted) {
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         handlers.onConnectionChange?.("reconnecting")
         await waitForSseReconnectDelay(reconnectDelay, controller.signal)
+        if (isAbandonedLogin()) {
+          controller.abort()
+          return
+        }
         reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
       }
     }

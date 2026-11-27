@@ -17,7 +17,7 @@ export function useConnectionAuthorization() {
     }) => {
       try {
         const { authorization_url } = await connectionsApi.authorize(provider)
-        if (!tab.closed) tab.location.replace(authorization_url)
+        tab.location.replace(authorization_url)
       } catch (error) {
         tab.close()
         throw error

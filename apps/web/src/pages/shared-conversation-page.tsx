@@ -14,7 +14,10 @@ import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { buttonVariants } from "@/components/ui/button"
 import { publicConversationShareSchema } from "@/features/conversations/conversation-share-contracts"
 import { projectConversationForSharing } from "@/features/conversations/conversation-share-content"
-import { ConversationThread } from "@/features/conversations/conversation-thread"
+import {
+  ConversationContentPolicyProvider,
+  ConversationThread,
+} from "@/features/conversations/conversation-thread"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -133,12 +136,14 @@ export function SharedConversationPage() {
               className="pointer-events-none hidden size-30 shrink-0 sm:block"
             />
           </section>
-          <ConversationThread
-            conversation={projectConversationForSharing(share.snapshot)}
-            onDownload={() => undefined}
-            editingDisabled
-            embedded
-          />
+          <ConversationContentPolicyProvider richOutputTextOnly>
+            <ConversationThread
+              conversation={projectConversationForSharing(share.snapshot)}
+              onDownload={() => undefined}
+              editingDisabled
+              embedded
+            />
+          </ConversationContentPolicyProvider>
           <p className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm leading-[var(--app-line-22)] text-muted-foreground">
             <InfoIcon aria-hidden="true" className="mt-px size-5 shrink-0" />
             {t("conversation.share.snapshotNotice")}

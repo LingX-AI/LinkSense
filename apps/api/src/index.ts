@@ -10,6 +10,7 @@ import { isFullAppConfig, parseConfig } from "./config.js";
 import { createPrismaClient } from "./db.js";
 import { LinkSenseRedis } from "./adapters/redis.js";
 import { RunnerClient } from "./adapters/runner.js";
+import { AppError } from "./lib/errors.js";
 import { runtimePlacementForWorkspace } from "./lib/user-runtime-paths.js";
 import { createObjectStorage } from "./adapters/object-storage.js";
 import type { AppServices } from "./services.js";
@@ -142,10 +143,11 @@ export async function main(): Promise<void> {
   const prisma = createPrismaClient(config.databaseUrl);
   const redis = new LinkSenseRedis(config);
   const runner = new RunnerClient(config, async (ownerId, conversationId) => {
-    const conversation = await prisma.conversation.findFirst({
-      where: { id: conversationId, ownerId },
-      select: { workspaceRelPath: true },
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { workspaceRelPath: true, ownerId: true },
     });
+    if (conversation && conversation.ownerId !== ownerId) throw new AppError("CONVERSATION_NOT_FOUND");
     return conversation ? runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath) : null;
   });
   const storage = createObjectStorage(config);

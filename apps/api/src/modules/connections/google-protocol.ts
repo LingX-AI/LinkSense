@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ConnectionProvider, ConnectionConfiguration } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 import {
+  connectionDiscoveryOptions,
   connectionIdentityProvider,
   connectionScopes,
   hasConnectionWriteAccess,
@@ -26,13 +27,14 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
   }
   private configuration(
     settings: ConnectionConfiguration,
+    signal?: AbortSignal,
   ): Promise<oidc.Configuration> {
     return oidc.discovery(
       new URL("https://accounts.google.com"),
       settings.client_id,
       settings.client_secret,
       oidc.ClientSecretPost(settings.client_secret),
-      { timeout: 8, execute: [oidc.enableNonRepudiationChecks] },
+      connectionDiscoveryOptions(signal),
     );
   }
   async start(
@@ -100,10 +102,11 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
     provider: ConnectionProvider,
     settings: ConnectionConfiguration,
     current: ConnectionToken,
+    signal?: AbortSignal,
   ): Promise<ConnectionToken> {
     try {
       const result = await oidc.refreshTokenGrant(
-        await this.configuration(settings),
+        await this.configuration(settings, signal),
         current.refreshToken,
       );
       const scopes = result.scope ? result.scope.split(/\s+/u) : current.scopes;
@@ -119,6 +122,7 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
         scopes,
       });
     } catch (error) {
+      signal?.throwIfAborted();
       if (error instanceof AppError) throw error;
       if (
         error instanceof oidc.ResponseBodyError &&
@@ -160,7 +164,8 @@ export class ProviderConnectionProtocol implements ConnectionProtocol {
     provider: ConnectionProvider,
     config: ConnectionConfiguration,
     token: ConnectionToken,
+    signal?: AbortSignal,
   ): Promise<ConnectionToken> {
-    return this.for(provider).refresh(provider, config, token);
+    return this.for(provider).refresh(provider, config, token, signal);
   }
 }

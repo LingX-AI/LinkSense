@@ -7,6 +7,11 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./privacy-masking-engine": {
+      "types": "./src/privacy-masking-engine/index.ts",
+      "development": "./src/privacy-masking-engine/index.ts",
+      "import": "./dist/privacy-masking-engine/index.js"
+    },
     "./local-browser": {
       "types": "./src/local-browser.ts",
       "development": "./src/local-browser.ts",
@@ -16,6 +21,11 @@
       "types": "./src/browser-use.ts",
       "development": "./src/browser-use.ts",
       "import": "./dist/browser-use.js"
+    },
+    "./logging": {
+      "types": "./src/logging.ts",
+      "development": "./src/logging.ts",
+      "import": "./dist/logging.js"
     },
     ".": {
       "types": "./src/index.ts",
@@ -33,12 +43,18 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "es-toolkit": "1.50.0",
-    "semver": "7.8.5",
-    "zod": "^4.6.6"
+    "es-toolkit": "1.53.2",
+    "libphonenumber-js": "1.13.17",
+    "mdast-util-from-markdown": "2.1.0",
+    "pino": "^9.14.0",
+    "re2js": "2.10.0",
+    "semver": "7.8.6",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "@types/semver": "7.8.0",
+    "pino-pretty": "^13.2.0",
     "typescript": "~6",
     "vitest": "^4.1.10"
   }

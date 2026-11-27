@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   ArrowRightIcon,
   FileArchiveIcon,
+  GlobeIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
   BookOpenIcon,
@@ -19,7 +20,11 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { cn } from "@/lib/utils"
 
 export type ApplicationCreationMethod =
-  "development" | "standard" | "interactive" | "public_knowledge"
+  | "development"
+  | "public_site"
+  | "standard"
+  | "interactive"
+  | "public_knowledge"
 
 export function ApplicationCreateDialog({
   open,
@@ -82,6 +87,14 @@ export function ApplicationCreateDialog({
             title={t("applications.creation.interactiveTitle")}
             description={t("applications.creation.interactiveDescription")}
             icon={SparklesIcon}
+            onChoose={onChoose}
+          />
+          <ApplicationCreationChoice
+            id={id}
+            method="public_site"
+            title={t("applications.creation.publicSiteTitle")}
+            description={t("applications.creation.publicSiteDescription")}
+            icon={GlobeIcon}
             onChoose={onChoose}
           />
           <div

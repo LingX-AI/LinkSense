@@ -11,23 +11,29 @@ import {
   claimBrowserNotificationDelivery,
   clearBrowserNotificationFeedCursor,
   hasBrowserNotificationDelivery,
+  isLinkSenseActivelyUsed,
   readBrowserNotificationFeedCursor,
   saveBrowserNotificationFeedCursor,
+  BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS,
   showBrowserNotification,
+  withBrowserNotificationLock,
 } from "@/features/browser-notifications/browser-notification-preference"
 import { useBrowserNotificationPreference } from "@/features/browser-notifications/use-browser-notification-preference"
 
-export const completionNotificationRefetchIntervalMs = 5_000
 let nextBrowserNotificationQueryInstanceId = 0
 
 export function BrowserNotificationCenter() {
   const { status, user } = useAuth()
   const preference = useBrowserNotificationPreference(user?.id)
-  if (status !== "authenticated" || !user || !preference.effectiveEnabled) {
-    return null
-  }
+  const authenticated = status === "authenticated" && user !== null
 
-  return <ActiveBrowserNotificationCenter key={user.id} userId={user.id} />
+  return (
+    <>
+      {authenticated && preference.effectiveEnabled && (
+        <ActiveBrowserNotificationCenter key={user.id} userId={user.id} />
+      )}
+    </>
+  )
 }
 
 function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
@@ -56,6 +62,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
           },
           signal,
         })
+        signal.throwIfAborted()
         cursorRef.current = feed.next_cursor
         saveBrowserNotificationFeedCursor(userId, feed.next_cursor)
         return { feed, requestedCursor }
@@ -72,7 +79,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
       }
     },
     gcTime: 0,
-    refetchInterval: completionNotificationRefetchIntervalMs,
+    refetchInterval: BROWSER_NOTIFICATION_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: true,
   })
   const { data: completionData, refetch } = completionQuery
@@ -87,11 +94,12 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!completionData) return
-    let cancelled = false
+    const delivery = new AbortController()
+    const { signal } = delivery
 
     const deliverNotifications = async () => {
       for (const item of completionData.feed.items) {
-        if (cancelled) return
+        if (signal.aborted) return
         const notificationId = `${item.source}:${item.turn_id}`
         if (deliveredInThisTabRef.current.has(notificationId)) continue
         if (hasBrowserNotificationDelivery(userId, notificationId)) continue
@@ -119,7 +127,7 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
           onClick: () => navigate(target),
         })
         if (!notification) continue
-        if (cancelled) {
+        if (signal.aborted) {
           notification.close()
           return
         }
@@ -131,22 +139,23 @@ function ActiveBrowserNotificationCenter({ userId }: { userId: string }) {
         }
       }
 
-      if (!cancelled && completionData.requestedCursor === null) {
+      if (!signal.aborted && completionData.requestedCursor === null) {
         void refetch()
       }
     }
 
     void deliverNotifications()
-    return () => {
-      cancelled = true
-    }
-  }, [completionData, navigate, productName, refetch, t, userId])
+    return () => delivery.abort()
+  }, [
+    completionData,
+    navigate,
+    productName,
+    refetch,
+    t,
+    userId,
+  ])
 
   return null
-}
-
-function isLinkSenseActivelyUsed(): boolean {
-  return document.visibilityState === "visible" && document.hasFocus()
 }
 
 async function createClaimedBrowserNotification(input: {
@@ -156,28 +165,22 @@ async function createClaimedBrowserNotification(input: {
   body: string
   onClick: () => void
 }): Promise<Notification | null> {
-  const deliver = async () => {
-    if (hasBrowserNotificationDelivery(input.userId, input.notificationId)) {
-      return null
+  return withBrowserNotificationLock(
+    input.userId,
+    input.notificationId,
+    async () => {
+      if (hasBrowserNotificationDelivery(input.userId, input.notificationId)) {
+        return null
+      }
+      const notification = await showBrowserNotification({
+        title: input.title,
+        body: input.body,
+        tag: `${input.userId}:${input.notificationId}`,
+        onClick: input.onClick,
+      })
+      if (!notification) return null
+      claimBrowserNotificationDelivery(input.userId, input.notificationId)
+      return notification
     }
-    const notification = await showBrowserNotification({
-      title: input.title,
-      body: input.body,
-      tag: `${input.userId}:${input.notificationId}`,
-      onClick: input.onClick,
-    })
-    if (!notification) return null
-    claimBrowserNotificationDelivery(input.userId, input.notificationId)
-    return notification
-  }
-
-  try {
-    if (!navigator.locks) return deliver()
-    return await navigator.locks.request(
-      `linksense-browser-notification:${input.userId}:${input.notificationId}`,
-      deliver
-    )
-  } catch {
-    return deliver()
-  }
+  )
 }

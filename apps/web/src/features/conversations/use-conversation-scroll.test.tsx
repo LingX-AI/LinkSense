@@ -112,6 +112,15 @@ function ScrollHarness({
       >
         <div ref={contentRef} data-testid="scroll-content">
           <div id="target-message" data-testid="target-message" />
+          <input
+            type="radio"
+            aria-label="选项"
+            onPointerDown={preserveScrollPositionForInteraction}
+          />
+          <div data-slot="rich-output">
+            <input type="search" aria-label="筛选结果" />
+            <button type="button">显示数据表</button>
+          </div>
         </div>
         {showScrollToBottom && (
           <button type="button" onClick={() => scrollToBottom("smooth")}>
@@ -121,12 +130,6 @@ function ScrollHarness({
       </div>
       <button type="button" onClick={pauseAutoFollow}>
         暂停自动跟随
-      </button>
-      <button
-        type="button"
-        onPointerDown={preserveScrollPositionForInteraction}
-      >
-        原地交互
       </button>
       <button type="button" onClick={() => scrollToBottom("auto")}>
         减少动态效果时回到底部
@@ -457,6 +460,39 @@ describe("conversation scroll behavior", () => {
     expect(animationFrames.size).toBe(0)
   })
 
+  it("keeps the reading position when selecting a radio option makes a reply taller", () => {
+    render(
+      <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+    )
+    const container = screen.getByTestId("scroll-container")
+    const scrollTop = container.scrollTop
+
+    fireEvent.click(screen.getByRole("radio", { name: "选项" }))
+    layout.scrollHeight += 48
+    triggerContentResize()
+
+    expect(container.scrollTop).toBe(scrollTop)
+  })
+
+  it.each(["filter", "view"])(
+    "keeps the reading position when a rich result changes by %s",
+    (interaction) => {
+      render(
+        <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+      )
+      const container = screen.getByTestId("scroll-container")
+      const scrollTop = container.scrollTop
+      if (interaction === "filter")
+        fireEvent.input(screen.getByRole("searchbox", { name: "筛选结果" }), {
+          target: { value: "one" },
+        })
+      else fireEvent.click(screen.getByRole("button", { name: "显示数据表" }))
+      layout.scrollHeight += 48
+      triggerContentResize()
+      expect(container.scrollTop).toBe(scrollTop)
+    }
+  )
+
   it("stops a streaming follow animation when the task becomes historical", () => {
     const view = render(<ScrollHarness conversationId="task" />)
     const container = screen.getByTestId("scroll-container")
@@ -471,12 +507,14 @@ describe("conversation scroll behavior", () => {
     expect(animationFrames.size).toBe(0)
   })
 
-  it("keeps the current position when a focused form control tries to scroll its container", () => {
+  it("restores the reading position when selecting a form radio moves focus", () => {
     render(<ScrollHarness conversationId="conversation-1" />)
     const container = screen.getByTestId("scroll-container")
+    const option = screen.getByRole("radio", { name: "选项" })
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "原地交互" }))
+    fireEvent.pointerDown(option)
     container.scrollTop = 0
+    fireEvent.click(option)
 
     runAnimationFrame(16)
 

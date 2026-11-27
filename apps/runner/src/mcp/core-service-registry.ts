@@ -11,12 +11,13 @@ import { documentConversionCoreMcpModule } from "./core-services/document-conver
 import { fileServiceCoreMcpModule } from "./core-services/file-service.js"
 import { imageGenerationCoreMcpModule } from "./core-services/image-generation-service.js"
 import { interactiveFormCoreMcpModule } from "./core-services/interactive-form-service.js"
+import { richOutputCoreMcpModule } from "./core-services/rich-output-service.js"
 import { knowledgeCoreMcpModule } from "./core-services/knowledge-service.js"
 import { skillCreatorCoreMcpModule } from "./core-services/skill-creator-service.js"
 import { skillManagementReadCoreMcpModule, skillManagementWriteCoreMcpModule } from "./core-services/skill-management-service.js"
 import { applicationBuilderCoreMcpModule } from "./core-services/application-builder-service.js"
-import { automationCoreMcpModule } from "./core-services/automation-service.js"
 import { webSiteCoreMcpModule } from "./core-services/web-site-service.js"
+import { automationCoreMcpModule } from "./core-services/automation-service.js"
 import type {
   CoreMcpCollaborationMode,
   CoreMcpModuleContext,
@@ -38,12 +39,13 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,
+  richOutputCoreMcpModule,
   skillCreatorCoreMcpModule,
   skillManagementReadCoreMcpModule,
   skillManagementWriteCoreMcpModule,
   applicationBuilderCoreMcpModule,
-  automationCoreMcpModule,
   webSiteCoreMcpModule,
+  automationCoreMcpModule,
 ]
 
 export class CoreMcpToolUnavailableError extends Error {
@@ -72,6 +74,8 @@ export function coreMcpToolNamesFor(
 export function createCoreMcpRegistry(
   input: Partial<CoreMcpModuleContext> & {
     mode?: CoreMcpCollaborationMode
+    /** Explicit fixture-only modules; production registration stays negotiated. */
+    extraModules?: readonly CoreMcpModuleDefinition[]
   } = {},
 ): CoreMcpRegistry {
   const environment = input.environment ?? process.env
@@ -83,9 +87,10 @@ export function createCoreMcpRegistry(
     workspaceRoot: input.workspaceRoot ?? process.cwd(),
     fetch: input.fetch ?? globalThis.fetch,
   }
-  const definitions = coreMcpModuleRegistry.filter((definition) =>
-    definition.modes.includes(mode),
-  )
+  const definitions = [
+    ...coreMcpModuleRegistry,
+    ...(input.extraModules ?? []),
+  ].filter((definition) => definition.modes.includes(mode))
   const modules = definitions.map((definition) => definition.create(context))
   const toolsByName = new Map<string, CoreMcpToolModule>()
 

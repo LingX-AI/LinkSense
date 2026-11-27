@@ -1,6 +1,14 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: "O limite de backends de aplicativos dinâmicos foi atingido. Peça a um administrador para revisar os recursos mantidos.",
+  WEB_SITE_BACKEND_NOT_CONFIGURED: "Um administrador precisa configurar o serviço de aplicativos dinâmicos auto-hospedado.",
+  WEB_SITE_BACKEND_UNAVAILABLE: "O backend do aplicativo está temporariamente indisponível. Tente novamente mais tarde.",
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: "Outra aplicação dinâmica já usa este endereço. Escolha outro.",
+  WEB_SITE_BACKEND_PENDING: "Os recursos ou as funções do backend ainda não estão prontos. Verifique o estado da compilação antes de publicar.",
+  WEB_SITE_ANALYTICS_NOT_CONFIGURED: "Um administrador precisa configurar o serviço de estatísticas do site.",
+  WEB_SITE_ANALYTICS_UNAVAILABLE: "O serviço de estatísticas está temporariamente indisponível. Tente novamente mais tarde.",
+  WEB_SITE_ANALYTICS_UNPUBLISHED: "Somente um site publicado pode ativar as estatísticas de visitas.",
   AUTOMATION_EXPIRATION_IN_PAST: "A data de expiração não pode ser anterior a hoje no fuso horário da automação. Selecione outra data.",
   BROWSER_USE_PAIR_RATE_LIMITED: "Muitas solicitações de pareamento do navegador. Tente novamente mais tarde.",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "Muitas solicitações de pareamento do navegador. Tente novamente mais tarde.",
@@ -17,6 +25,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RATE_LIMITED: "Há muitas solicitações de pesquisa. Tente novamente mais tarde.",
   WEB_SEARCH_RESPONSE_INVALID: "O serviço retornou resultados inválidos. Contate o administrador.",
   WEB_SEARCH_TIMEOUT: "A pesquisa excedeu o tempo limite. Tente novamente mais tarde.",
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "As configurações de mascaramento de privacidade estão temporariamente indisponíveis. Para evitar o envio de conteúdo sem máscara, tente novamente mais tarde ou contate um administrador.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
@@ -50,6 +59,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "WEB_SITE_RESOURCES_MISSING": "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "O pacote da página está incompleto ou contém arquivos não compatíveis. Atualize-o na tarefa de origem e tente novamente",
   "CLIENT_UPDATE_REQUIRED": "O sistema foi atualizado. Atualize esta página para continuar.",
+
   "SERVICE_TEMPORARILY_UNAVAILABLE": "O sistema está temporariamente indisponível. Tente novamente em breve.",
   "APPLICATION_VERSION_TOO_LOW": "A versão deve ser maior que a maior versão existente, v{{version}}. Escolha uma versão maior.",
   "APPLICATION_RUNTIME_BUSY": "Este aplicativo tem tarefas comuns em andamento e não pode ser salvo nem atualizado. Interrompa-as ou aguarde a conclusão e tente novamente.",
@@ -220,6 +230,8 @@ export const errorMessages: Record<ErrorCode, string> = {
   "EXTERNAL_IMAGE_DOWNLOAD_FAILED": "Não foi possível baixar a imagem externa. Verifique a URL da imagem e tente novamente.",
   "TURN_START_CLOSED": "O envio anterior foi encerrado. Esta solicitação não foi executada. Envie-a novamente.",
   "RUNNER_UNAVAILABLE": "O serviço de execução está indisponível. Tente novamente mais tarde.",
+  "RUNNER_OPERATION_UNCERTAIN": "Ainda não foi confirmado se o seu Mac executou esta operação. Aguarde a atualização do status antes de enviá-la novamente.",
+
   "DEPLOYMENT_STOPPED": "Esta tarefa foi interrompida para uma atualização do sistema. O conteúdo existente foi mantido. Revise o progresso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "As versões do serviço de execução são incompatíveis. Tente novamente mais tarde. Se o problema persistir, entre em contato com um administrador.",
   "AUTH_INVALID_CREDENTIALS": "E-mail ou senha inválidos.",
@@ -352,6 +364,7 @@ export const auditMessages = {
     "conversation_artifact_registered": "Arquivo gerado pela tarefa registrado",
     "conversation_attachment_uploaded": "Anexo da tarefa enviado",
     "conversation_context_compaction_started": "Compactação do contexto da tarefa iniciada",
+    "conversation_continued": "Tarefa continuada",
     "conversation_created": "Tarefa criada",
     "conversation_deleted": "Tarefa excluída",
     "conversation_forked": "Tarefa ramificada",

@@ -15,6 +15,8 @@ import {
   capabilitySnapshotSchema,
   type CapabilitySnapshot,
   linksenseRuntimeIdentity,
+  PUBLIC_SITE_SKILL_NAME,
+  publicSiteRuntimeSkillName,
 } from "@linksense/shared"
 
 import { NATIVE_PLUGIN_MARKETPLACE_NAME } from "../codex/native-plugin-manager.js"
@@ -458,7 +460,9 @@ export class CapabilityRuntimeManager {
     authorizedSkillNames: ReadonlySet<string>,
   ): Promise<void> {
     const expected = [
-      ...this.#enabledBuiltInSkillNames,
+      ...this.#enabledBuiltInSkillNames.map((name) =>
+        name === PUBLIC_SITE_SKILL_NAME ? publicSiteRuntimeSkillName(authorizedSkillNames) : name,
+      ),
       ...authorizedSkillNames,
     ].sort()
     const published = (await readdir(skillsRoot)).sort()

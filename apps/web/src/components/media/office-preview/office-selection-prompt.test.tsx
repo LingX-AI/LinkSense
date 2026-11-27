@@ -1,7 +1,15 @@
 import { useRef } from "react"
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router-dom"
 
 import { OfficeSelectionPrompt } from "@/components/media/office-preview/office-selection-prompt"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
@@ -241,7 +249,11 @@ describe("OfficeSelectionPrompt", () => {
 
   it("disables the inline microphone and explains when speech to text is not configured", async () => {
     const user = userEvent.setup()
-    render(<PromptFixture voiceTranscriptionAvailability="not_configured" />)
+    render(
+      <MemoryRouter>
+        <PromptFixture voiceTranscriptionAvailability="not_configured" />
+      </MemoryRouter>
+    )
 
     await user.click(screen.getByRole("button", { name: /Ask LinkSense/u }))
     const voiceButton = screen.getByRole("button", { name: "语音输入" })
@@ -250,7 +262,7 @@ describe("OfficeSelectionPrompt", () => {
 
     await user.hover(voiceButton.parentElement!)
     const tooltip = await screen.findByRole("tooltip", {
-      name: "语音转文字服务尚未配置",
+      name: "配置语音转文字服务",
     })
     expect(tooltip).toBeVisible()
     expect(tooltip).toHaveClass(
@@ -259,7 +271,9 @@ describe("OfficeSelectionPrompt", () => {
       "bg-[var(--app-popover)]",
       "text-[var(--app-text)]"
     )
-    expect(tooltip.childElementCount).toBe(0)
+    expect(
+      within(tooltip).getByRole("link", { name: "配置" })
+    ).toHaveAttribute("href", "/admin/models?tab=voiceTranscription")
     expect(voiceInput.startRecording).not.toHaveBeenCalled()
   })
 

@@ -28,6 +28,7 @@ import { ok, sendAppError } from "../../lib/http.js";
 import { normalizeLocale } from "../../lib/locale.js";
 import type { AppServices } from "../../services.js";
 import type { RequestActor } from "../capabilities/types.js";
+import { createReplayPump } from "../events/replay-pump.js";
 import { KnowledgeCitationReadService } from "../knowledge/citation-read.js";
 import { sendVoiceTranscription } from "../voice/http.js";
 import type {
@@ -548,99 +549,33 @@ window.__vite_plugin_react_preamble_installed__ = true
     await subscriber.connect();
 
     const channel = `linksense:conversation-events:${session.conversationId}`;
-    let lastWrittenSequence = after;
-    let observedSequence = after;
-    let confirmedSequence = after;
-    let replayGapRetryAttempt = 0;
-    let pumping = false;
-    let closed = false;
-    let streamReady = false;
     let heartbeat: NodeJS.Timeout | null = null;
     const response = reply.raw;
 
-    const cleanup = () => {
-      if (closed) return;
-      closed = true;
-      if (heartbeat) clearInterval(heartbeat);
-      void closeEventSubscriber(subscriber, channel);
-    };
-
-    const closeForReplay = () => {
-      cleanup();
-      if (!response.destroyed) response.destroy();
-    };
-
-    const pump = async () => {
-      if (pumping || closed) return;
-      pumping = true;
-      try {
-        while (!closed) {
-          const previousLastWrittenSequence = lastWrittenSequence;
-          const previousConfirmedSequence = confirmedSequence;
-          const page = await services.events.historyPage(
-            session.ownerId,
-            session.conversationId,
-            {
-              afterSequence: lastWrittenSequence,
-              limit: EMBED_SSE_HISTORY_PAGE_SIZE,
-            },
-          );
-          if (page.confirmed_sequence > confirmedSequence) {
-            confirmedSequence = page.confirmed_sequence;
-          }
-          for (const event of page.items) {
-            const sequence = BigInt(event.sequence_no);
-            if (sequence <= lastWrittenSequence) continue;
-            const written = await writeEmbedEvent(response, event);
-            if (!written) return;
-            lastWrittenSequence = sequence;
-          }
-          if (
-            lastWrittenSequence > previousLastWrittenSequence ||
-            confirmedSequence > previousConfirmedSequence
-          ) {
-            replayGapRetryAttempt = 0;
-          }
-          if (page.next_cursor) continue;
-          if (lastWrittenSequence >= observedSequence) return;
-          const retryDelay =
-            EMBED_SSE_REPLAY_GAP_RETRY_DELAYS_MS[replayGapRetryAttempt];
-          if (retryDelay !== undefined) {
-            replayGapRetryAttempt += 1;
-            await waitForEmbedReplayProjection(retryDelay);
-            continue;
-          }
-          if (confirmedSequence < observedSequence) {
-            request.log.warn(
-              {
-                conversationId: session.conversationId,
-                lastWrittenSequence: lastWrittenSequence.toString(),
-                observedSequence: observedSequence.toString(),
-                confirmedSequence: confirmedSequence.toString(),
-              },
-              "embed conversation SSE replay projection remained behind",
-            );
-            closeForReplay();
-          }
-          return;
-        }
-      } catch (error) {
-        request.log.warn(
-          { err: error, conversationId: session.conversationId },
-          "embed conversation SSE replay failed",
-        );
-        closeForReplay();
-      } finally {
-        pumping = false;
-        if (
-          !closed &&
-          observedSequence > lastWrittenSequence &&
-          observedSequence > confirmedSequence
-        ) {
-          void pump();
-        }
-      }
-    };
+    const pump = createReplayPump({
+      conversationId: session.conversationId,
+      initialSequence: after,
+      pageSize: EMBED_SSE_HISTORY_PAGE_SIZE,
+      gapRetryDelaysMs: EMBED_SSE_REPLAY_GAP_RETRY_DELAYS_MS,
+      loadPage: ({ afterSequence, limit }) =>
+        services.events.historyPage(session.ownerId, session.conversationId, {
+          afterSequence,
+          limit,
+        }),
+      writeEvent: (event) => writeEmbedEvent(response, event),
+      isDestroyed: () => response.destroyed,
+      closeStream: (destroy) => {
+        if (heartbeat) clearInterval(heartbeat);
+        void closeEventSubscriber(subscriber, channel);
+        if (destroy && !response.destroyed) response.destroy();
+      },
+      logWarn: (details, message) => request.log.warn(details, message),
+      logMessages: {
+        replayFailed: "embed conversation SSE replay failed",
+        projectionBehind:
+          "embed conversation SSE replay projection remained behind",
+      },
+    });
 
     const onMessage = (_channel: string, value: string) => {
       try {
@@ -651,9 +586,7 @@ window.__vite_plugin_react_preamble_installed__ = true
         ) {
           return;
         }
-        const sequence = BigInt(parsed.data.sequence_no);
-        if (sequence > observedSequence) observedSequence = sequence;
-        if (streamReady) void pump();
+        pump.observe(BigInt(parsed.data.sequence_no));
       } catch {
         // Ignore malformed fan-out data; persisted events remain replayable.
       }
@@ -673,15 +606,15 @@ window.__vite_plugin_react_preamble_installed__ = true
       ),
     });
     response.flushHeaders();
-    streamReady = true;
+    pump.markReady();
     heartbeat = setInterval(() => {
       if (!response.writableNeedDrain && !response.destroyed) {
         response.write(": keepalive\n\n");
       }
     }, 15_000);
     heartbeat.unref();
-    response.once("close", cleanup);
-    void pump();
+    response.once("close", () => pump.close());
+    pump.wake();
   });
 
   if (knowledgeServices) {
@@ -911,13 +844,6 @@ async function authenticateEmbedRequest(
 
 const EMBED_SSE_HISTORY_PAGE_SIZE = 250;
 const EMBED_SSE_REPLAY_GAP_RETRY_DELAYS_MS = [25, 50, 100, 200, 400] as const;
-
-function waitForEmbedReplayProjection(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref();
-  });
-}
 
 function parseEventSequence(
   conversationId: string,

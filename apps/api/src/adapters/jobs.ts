@@ -6,6 +6,7 @@ import { relative, resolve, sep } from "node:path"
 import { Queue, Worker, type ConnectionOptions, type RedisOptions, type Job } from "bullmq"
 import { z } from "zod"
 
+
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
 import type { ObjectStorage } from "./object-storage.js"
@@ -85,7 +86,7 @@ const MAINTENANCE_QUEUE_NAME = "linksense-maintenance"
 
 export type MaintenanceQueueControl = Pick<
   MaintenanceQueue,
-  "add" | "close" | "getJob" | "getJobs" | "upsertJobScheduler"
+  "add" | "addBulk" | "close" | "getJob" | "getJobs" | "upsertJobScheduler"
 >
 
 export type CleanupFailure = {
@@ -445,7 +446,7 @@ export class BackgroundJobs {
       return { delivered: true }
     }
     if (data.type === "object-delete") {
-      await this.storage.removeObject(data.objectKey)
+      await this.storage.removeObject(data.objectKey, AbortSignal.timeout(30_000))
       return { deleted: true }
     }
     if (data.type === "conversation-prewarm") {

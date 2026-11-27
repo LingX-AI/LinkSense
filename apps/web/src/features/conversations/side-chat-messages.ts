@@ -18,6 +18,7 @@ export const sideChatMessages = {
     retry: "重试",
     opening: "正在打开旁聊…",
     independent: "独立回复，主任务继续运行",
+    localQuoteWait: "本地旁聊空闲且处于默认模式时，才能发送引用。",
   },
   "en-US": {
     title: "Side chat",
@@ -39,6 +40,8 @@ export const sideChatMessages = {
     retry: "Try again",
     opening: "Opening side chat…",
     independent: "Independent replies while the main task continues",
+    localQuoteWait:
+      "You can send a quote when this local side chat is idle and in Default mode.",
   },
   "es-ES": {
     title: "Chat lateral",
@@ -62,6 +65,8 @@ export const sideChatMessages = {
     opening: "Abriendo chat lateral…",
     independent:
       "Respuestas independientes mientras continúa la tarea principal",
+    localQuoteWait:
+      "Puedes enviar una cita cuando este chat lateral local esté inactivo y en el modo predeterminado.",
   },
   "pt-BR": {
     title: "Conversa lateral",
@@ -83,6 +88,8 @@ export const sideChatMessages = {
     retry: "Tentar novamente",
     opening: "Abrindo conversa lateral…",
     independent: "Respostas independentes enquanto a tarefa principal continua",
+    localQuoteWait:
+      "Você pode enviar uma citação quando esta conversa lateral local estiver ociosa e no modo padrão.",
   },
   "fr-FR": {
     title: "Discussion parallèle",
@@ -106,6 +113,8 @@ export const sideChatMessages = {
     opening: "Ouverture de la discussion parallèle…",
     independent:
       "Réponses indépendantes pendant que la tâche principale continue",
+    localQuoteWait:
+      "Vous pouvez envoyer une citation quand cette discussion parallèle locale est inactive et en mode par défaut.",
   },
   "ja-JP": {
     title: "サイドチャット",
@@ -128,5 +137,7 @@ export const sideChatMessages = {
     retry: "再試行",
     opening: "サイドチャットを開いています…",
     independent: "メインタスクを続けながら独立して回答",
+    localQuoteWait:
+      "ローカルのサイドチャットが処理中でなく、既定モードの場合に引用を送信できます。",
   },
 } as const

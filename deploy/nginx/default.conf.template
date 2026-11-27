@@ -90,7 +90,29 @@ server {
     proxy_send_timeout 1h;
   }
 
+  location ^~ /app/ {
+    add_header Cache-Control "no-store" always;
+    proxy_pass http://api:4000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
   location ^~ /web/ {
+    location ^~ /web/_protected/ {
+      access_log off;
+      error_log /dev/null;
+      proxy_pass http://api:4000;
+    }
+
     add_header Cache-Control "no-store" always;
     proxy_pass http://api:4000;
     proxy_http_version 1.1;
@@ -107,6 +129,9 @@ server {
     proxy_send_timeout 1h;
   }
 
+
+
+
   location = /api/v1/local-browser/socket {
     proxy_pass http://api:4000;
     proxy_http_version 1.1;
@@ -117,7 +142,6 @@ server {
     proxy_buffering off;
     proxy_read_timeout 1h;
   }
-
   location = /api/v1/browser-use/socket {
     proxy_pass http://api:4000;
     proxy_http_version 1.1;
@@ -130,6 +154,30 @@ server {
   }
 
   location /api/ {
+    proxy_pass http://api:4000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
+  location ^~ /api/v1/interactive-app-runtime/ {
+    # Runtime URLs carry a scoped ticket in the path; keep it out of access logs.
+    access_log off;
+    # Interactive packages are trusted web applications and the API removes the
+    # portal CSP. A location-level header stops the server policy from being
+    # inherited, so only framing is restricted; API content and cache headers
+    # pass through unchanged. The ^~ modifier also keeps proxied *.mjs assets
+    # out of the local ES module regex location below.
+    add_header Content-Security-Policy "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com" always;
     proxy_pass http://api:4000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

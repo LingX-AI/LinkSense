@@ -8,7 +8,10 @@ import { createMicrosoftFilesModule } from "./connection-services/microsoft-file
 
 import { createWorkspaceModule } from "./connection-services/workspace.js";
 const provider = process.argv.at(-1) ?? "";
-const context = { environment: process.env, workspaceRoot: process.cwd() };
+const context = {
+  environment: process.env,
+  workspaceRoot: process.cwd(),
+};
 const module =
   provider === "microsoft-files"
     ? createMicrosoftFilesModule(context)

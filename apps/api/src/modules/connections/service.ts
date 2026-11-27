@@ -237,18 +237,48 @@ export class ConnectionService {
     input: ConnectionInput,
     signal?: AbortSignal,
   ): Promise<ConnectionResult> {
+    return (await this.executeScoped(ownerId, conversationId, turnId, input, signal)).data;
+  }
+
+  async executeScoped(
+    ownerId: string,
+    conversationId: string,
+    turnId: string,
+    input: ConnectionInput,
+    signal?: AbortSignal,
+  ): Promise<{ data: ConnectionResult; assertCurrent: () => Promise<void> }> {
     const write = isConnectionWrite(input);
-    await this.options.repository.assertTurn(
+    const assertTurn = () => this.options.repository.assertTurn(
       ownerId,
       conversationId,
       turnId,
       write,
     );
-    if (input.operation === "list_connections")
-      return { kind: "connections", items: await this.list(ownerId) };
-    const { token, revision } = await this.access(ownerId, input.provider);
-    if (write && !hasConnectionWriteAccess(input.provider, token.scopes))
+    signal?.throwIfAborted();
+    await assertTurn();
+    if (input.operation === "list_connections") {
+      const items = await this.list(ownerId);
+      return {
+        data: { kind: "connections", items },
+        assertCurrent: async () => {
+          signal?.throwIfAborted();
+          await assertTurn();
+          if (JSON.stringify(await this.list(ownerId)) !== JSON.stringify(items)) throw new AppError("CONNECTION_REQUIRED");
+        },
+      };
+    }
+    const { provider } = input;
+    const { token, revision } = await this.access(ownerId, provider, signal);
+    if (write && !hasConnectionWriteAccess(provider, token.scopes))
       throw new AppError("CONNECTION_WRITE_REQUIRED");
+    const assertCurrent = async () => {
+      signal?.throwIfAborted();
+      await assertTurn();
+      const current = await this.options.repository.get(ownerId, provider);
+      if (current?.status !== "connected" || current.revision !== revision) {
+        throw new AppError("CONNECTION_REQUIRED");
+      }
+    };
     const { cursor, ...query } =
       "cursor" in input ? input : { ...input, cursor: undefined };
     const requestHash = sha256(JSON.stringify(query));
@@ -269,6 +299,7 @@ export class ConnectionService {
         throw new AppError("VALIDATION_ERROR");
       }
     }
+    signal?.throwIfAborted();
     let page;
     try {
       if (isWorkspaceInput(input)) {
@@ -288,6 +319,7 @@ export class ConnectionService {
           signal,
         );
     } catch (error) {
+      signal?.throwIfAborted();
       if (error instanceof AppError && error.code === "CONNECTION_REQUIRED")
         await this.requireReconnect(ownerId, input.provider, revision);
       throw error;
@@ -299,19 +331,7 @@ export class ConnectionService {
       result: "success",
       metadata: { provider: input.provider, operation: input.operation },
     });
-    await this.options.repository.assertTurn(
-      ownerId,
-      conversationId,
-      turnId,
-      write,
-    );
-    const current = await this.options.repository.get(ownerId, input.provider);
-    if (
-      !current ||
-      current.status !== "connected" ||
-      current.revision !== revision
-    )
-      throw new AppError("CONNECTION_REQUIRED");
+    await assertCurrent();
     if (
       (page.result.kind === "page" || page.result.kind === "workspace_data") &&
       page.nextLink
@@ -325,18 +345,21 @@ export class ConnectionService {
         },
         `cursor:${ownerId}:${input.provider}`,
       );
-    return page.result;
+    return { data: page.result, assertCurrent };
   }
 
   private async access(
     ownerId: string,
     provider: ConnectionProvider,
+    signal?: AbortSignal,
   ): Promise<{ token: ConnectionToken; revision: number }> {
     const row = await this.options.repository.mutate(
       ownerId,
       provider,
       async (current) => {
+        signal?.throwIfAborted();
         const settings = await this.settings(provider);
+        signal?.throwIfAborted();
         if (
           !current ||
           current.status !== "connected" ||
@@ -358,6 +381,7 @@ export class ConnectionService {
             provider,
             settings,
             token,
+            signal,
           );
           return {
             ...current,
@@ -368,8 +392,10 @@ export class ConnectionService {
             encryptionKeyId: this.options.keyId,
           };
         } catch (error) {
-          if (error instanceof AppError && error.code === "CONNECTION_REQUIRED")
+          signal?.throwIfAborted();
+          if (error instanceof AppError && error.code === "CONNECTION_REQUIRED") {
             return this.reconnectWrite(current);
+          }
           throw error;
         }
       },
@@ -389,11 +415,11 @@ export class ConnectionService {
     provider: ConnectionProvider,
     revision: number,
   ): Promise<void> {
-    await this.options.repository.mutate(ownerId, provider, async (row) =>
-      row?.revision === revision
+    await this.options.repository.mutate(ownerId, provider, async (row) => {
+      return row?.revision === revision
         ? this.reconnectWrite(row)
-        : (row ?? disconnectedConnection(0)),
-    );
+        : (row ?? disconnectedConnection(0));
+    });
   }
   private reconnectWrite(row: ConnectionRecord): ConnectionWrite {
     return {

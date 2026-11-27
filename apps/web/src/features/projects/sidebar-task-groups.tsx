@@ -42,6 +42,8 @@ export function SidebarTaskGroups({
   sortModes = defaultSidebarTaskSortModes,
   onSortModeChange,
   onAction,
+  onStartTask,
+  onNewTask,
   children,
 }: {
   userId: string | undefined
@@ -57,6 +59,8 @@ export function SidebarTaskGroups({
     mode: SidebarTaskSortMode
   ) => void
   onAction: (action: ProjectAction) => void
+  onStartTask?: (projectId: string) => void
+  onNewTask?: () => void
   children: (group: SidebarTaskGroupData) => ReactNode
 }) {
   const { t } = useTranslation()
@@ -136,6 +140,7 @@ export function SidebarTaskGroups({
               variant="ghost"
               size="icon"
               className="hover:bg-transparent aria-expanded:bg-transparent"
+              title={t("projects.create")}
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
@@ -164,6 +169,7 @@ export function SidebarTaskGroups({
                     !reconnectFailedConversationIds?.has(conversation.id)
                 )}
               onAction={onAction}
+              onStartTask={onStartTask}
             >
               {renderProject(project.id)}
               {!loadingMore && !byProject.get(project.id)?.length && (
@@ -196,7 +202,26 @@ export function SidebarTaskGroups({
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"
         label={t("nav.recent")}
-        action={sortMenu("recent", t("nav.recent"))}
+        action={
+          <>
+            {sortMenu("recent", t("nav.recent"))}
+            {onNewTask && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="hover:bg-transparent aria-expanded:bg-transparent"
+                title={t("nav.newConversation")}
+                aria-label={t("nav.newConversation")}
+                onClick={onNewTask}
+              >
+                <SidebarActionIcon>
+                  <PlusIcon className="size-3.5" aria-hidden="true" />
+                </SidebarActionIcon>
+              </Button>
+            )}
+          </>
+        }
       >
         {byProject.has(null) && renderProject(null)}
         {!loadingMore && !byProject.has(null) && (

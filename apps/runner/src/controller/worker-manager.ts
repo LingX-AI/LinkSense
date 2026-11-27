@@ -130,6 +130,11 @@ const taskOwnedDirectoryPreparationDependencies: TaskOwnedDirectoryPreparationDe
 }
 
 export class WorkerManager {
+  private get runtimeIdentities(): RuntimeIdentities {
+    const identity = this.provider.capabilities.workspaceIdentity
+    if (!identity) throw new Error("worker provider requires a workspace identity")
+    return identity
+  }
   private readonly workers = new Map<string, ManagedWorker>()
   private readonly locks = new Map<string, Promise<void>>()
   private idleTimer: NodeJS.Timeout | undefined
@@ -326,7 +331,7 @@ export class WorkerManager {
       if (this.options.prepareUserDirectories) await this.options.prepareUserDirectories(ownerId)
       else await this.prepareUserDirectories(ownerId, serviceSessionId)
       const directories = this.userDirectories(ownerId, serviceSessionId)
-      const identity = this.provider.capabilities.workspaceIdentity
+      const identity = this.runtimeIdentities
       const workspace = path.join(directories.home, workspacePath)
       const workspaceDirectories = [workspace, ...["attachments", "artifacts", "temp"].map(name => path.join(workspace, name))]
       for (const directory of workspaceDirectories) {
@@ -859,7 +864,7 @@ export class WorkerManager {
 
   private async prepareUserDirectories(ownerId: string, serviceSessionId?: string): Promise<void> {
     const directories = this.userDirectories(ownerId, serviceSessionId)
-    const identities = this.provider.capabilities.workspaceIdentity
+    const identities = this.runtimeIdentities
     await assertSafeDirectory(directories.root, directories.root)
     let parent = directories.root
     for (const segment of path.relative(directories.root, directories.owner).split(path.sep)) {
@@ -963,8 +968,8 @@ export class WorkerManager {
     if (this.options.prepareUserDirectories) return
     const managedAgentsRoot = this.userDirectories(ownerId, serviceSessionId).managedAgents
     const apiIdentity = {
-      uid: this.provider.capabilities.workspaceIdentity.apiUid,
-      gid: this.provider.capabilities.workspaceIdentity.sharedGid,
+      uid: this.runtimeIdentities.apiUid,
+      gid: this.runtimeIdentities.sharedGid,
     }
     if (this.provider.capabilities.isolation === "container") {
       await repairRootOwnedManagedProjectionBoundary(
@@ -988,7 +993,7 @@ export class WorkerManager {
 
   private async prepareEmptyManagedProjection(ownerId: string, serviceSessionId?: string): Promise<void> {
     const directories = this.userDirectories(ownerId, serviceSessionId)
-    const identities = this.provider.capabilities.workspaceIdentity
+    const identities = this.runtimeIdentities
     for (const directory of [
       directories.managed,
       directories.managedAgents,

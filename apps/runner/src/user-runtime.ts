@@ -134,6 +134,7 @@ export async function initializeUserRuntime(
   root: string,
   options: {
     pythonCommand?: string
+    skipPythonBootstrap?: boolean
     basePythonSitePackages?: string
     baseNodeProject?: string
     nodeRegisterHook?: string
@@ -175,7 +176,7 @@ export async function initializeUserRuntime(
     )
   }
 
-  if (!(await exists(path.join(paths.pythonEnvironment, "pyvenv.cfg")))) {
+  if (!options.skipPythonBootstrap && !(await exists(path.join(paths.pythonEnvironment, "pyvenv.cfg")))) {
     await runCommand(
       options.pythonCommand ??
         basePythonCommand(options.basePythonSitePackages) ??

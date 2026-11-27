@@ -9,7 +9,7 @@ ClawHub is an external source of Skills. LinkSense displays metadata synchronize
 
 ## Find and inspect a Skill
 
-Go to **Plugin Center → ClawHub Skill repository**, search by name, and optionally sort by downloads or stars. Open the details to inspect the author, version, update time, topics, platform requirements, changelog, and canonical ClawHub page.
+Go to **Apps & Tools → ClawHub Skill repository**, search by name, and optionally sort by downloads or stars. Open the details to inspect the author, version, update time, topics, platform requirements, changelog, and canonical ClawHub page.
 
 Download and star counts can provide context about usage, but they are not a security review.
 

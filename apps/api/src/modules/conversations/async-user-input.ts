@@ -27,7 +27,7 @@ const deliverySchema = z.discriminatedUnion("method", [
 ]);
 export type AsyncAnswerDelivery = z.infer<typeof deliverySchema>;
 
-/** Same bounded question framing as Codex 0.154's AnsweredQuestion fragment. */
+/** Same bounded question framing as Codex's AnsweredQuestion fragment. */
 export function asyncAnswerText(
   questionsJson: unknown,
   response: ConversationUserInputResponse,

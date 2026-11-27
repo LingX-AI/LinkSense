@@ -13,7 +13,10 @@ import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 
-import type { RunnerMemoryUsageCapture } from "@linksense/shared";
+import {
+  modelImageOmittedPlaceholder,
+  type RunnerMemoryUsageCapture,
+} from "@linksense/shared";
 
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
 import type { SensitiveDataRelay } from "../src/model-gateway/sensitive-data.js";
@@ -369,7 +372,7 @@ describe("ModelGateway", () => {
     const lease = gateway.issueLease({
       ...leaseMetering, conversationId: "image-protocol", revision: 1,
       upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
-      protocolMode, model: "model-a",
+      protocolMode, model: "model-a", supportsImageInput: true,
     });
 
     const response = await requestGateway(gateway, lease.token, { model: "model-a", input: [{ role: "user", content: [image, { type: "input_text", text: "Read this image." }] }] });
@@ -380,6 +383,126 @@ describe("ModelGateway", () => {
     expect(wireBody).toContain("Read this image.");
     expect(Buffer.byteLength(wireBody)).toBeLessThanOrEqual(8 * 1024);
     expect(image.image_url).toMatch(/^data:image\/png;base64,/u);
+  });
+
+  it.each(["native_responses", "responses_tool_compat", "chat_completions_bridge"] as const)(
+    "forwards a screenshot from parallel tool history without putting image data in tool text through %s",
+    async (protocolMode) => {
+      const png = await sharp({
+        create: { width: 2, height: 2, channels: 3, background: "#abcdee" },
+      }).png().toBuffer();
+      const image = {
+        type: "input_image",
+        image_url: `data:image/png;base64,${png.toString("base64")}`,
+        detail: "original",
+      };
+      const screenshotCall = {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "screenshot-call",
+        input: "view screenshot",
+      };
+      const inspectCall = {
+        type: "function_call",
+        name: "inspect",
+        call_id: "inspect-call",
+        arguments: "{}",
+      };
+      const screenshotResult = {
+        type: "custom_tool_call_output",
+        call_id: screenshotCall.call_id,
+        output: [{ type: "input_text", text: "Screenshot captured." }, image],
+      };
+      const inspectResult = {
+        type: "function_call_output",
+        call_id: inspectCall.call_id,
+        output: "Inspection complete.",
+      };
+      const followUp = {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Use both results." }],
+      };
+      const input = [screenshotCall, inspectCall, screenshotResult, inspectResult, followUp];
+      let wireBody: JsonObject = {};
+      const gateway = await startGateway({ fetch: async (_url, init) => {
+        wireBody = JSON.parse(String(init?.body));
+        return Response.json(protocolMode === "chat_completions_bridge"
+          ? { id: "completion-images", choices: [{ message: { content: "Done." } }] }
+          : { id: "resp-images", status: "completed", output: [] });
+      } });
+      const lease = gateway.issueLease({
+        ...leaseMetering, conversationId: "parallel-image-history", revision: 1,
+        upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+        protocolMode, model: "model-a", supportsImageInput: true,
+      });
+
+      const response = await requestGateway(gateway, lease.token, {
+        model: "model-a",
+        tools: [{ type: "custom", name: "exec" }, { type: "function", name: "inspect" }],
+        input,
+      });
+      expect(response.status).toBe(200);
+      await response.text();
+
+      if (protocolMode === "chat_completions_bridge") {
+        expect(wireBody.messages).toMatchObject([
+          { role: "assistant", tool_calls: [{ id: screenshotCall.call_id }, { id: inspectCall.call_id }] },
+          { role: "tool", tool_call_id: screenshotCall.call_id, content: "Screenshot captured." },
+          { role: "tool", tool_call_id: inspectCall.call_id, content: "Inspection complete." },
+          { role: "user", content: [
+            { type: "text", text: expect.stringContaining(screenshotCall.call_id) },
+            { type: "image_url", image_url: { url: image.image_url } },
+          ] },
+          { role: "user", content: [{ type: "text", text: "Use both results." }] },
+        ]);
+      } else if (protocolMode === "responses_tool_compat") {
+        expect(wireBody.input).toEqual([
+          { type: "function_call", name: "exec", call_id: screenshotCall.call_id, arguments: '{"input":"view screenshot"}' },
+          inspectCall,
+          { ...screenshotResult, type: "function_call_output" },
+          inspectResult,
+          followUp,
+        ]);
+      } else {
+        expect(wireBody.input).toEqual(input);
+      }
+    },
+  );
+
+  it("replaces image inputs with text before forwarding to a text-only model", async () => {
+    const image = {
+      type: "input_image",
+      image_url: "data:image/png;base64,AAAA",
+    };
+    let wireBody = "";
+    const gateway = await startGateway({ fetch: async (_url, init) => {
+      wireBody = String(init?.body);
+      return Response.json({ id: "resp-text-only", status: "completed", output: [] });
+    } });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "text-only-image", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: [
+        { role: "user", content: [image, { type: "input_text", text: "Read this image." }] },
+        {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: [{ type: "input_text", text: "Script completed" }, image],
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(wireBody).not.toContain("base64");
+    expect(wireBody).toContain(modelImageOmittedPlaceholder);
+    expect(wireBody).toContain("Read this image.");
   });
 
   it.each(["native_responses", "responses_tool_compat"] as const)("prepares WebSocket images and keeps the connection usable after invalid input in %s", async (protocolMode) => {
@@ -394,6 +517,7 @@ describe("ModelGateway", () => {
     const lease = gateway.issueLease({
       ...leaseMetering, conversationId: "image-ws", revision: 1,
       upstreamBaseUrl: `${upstream.baseUrl}/v1`, apiKey: "provider-key", protocolMode, model: "model-a",
+      supportsImageInput: true,
     });
     const downstream = await connectGatewayWebSocket(gateway, lease.token);
     const send = (input: unknown, model = "model-a") => {
@@ -424,7 +548,7 @@ describe("ModelGateway", () => {
     const lease = gateway.issueLease({
       ...leaseMetering, conversationId: "image-errors", revision: 1,
       upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
-      protocolMode: "native_responses", model: "model-a",
+      protocolMode: "native_responses", model: "model-a", supportsImageInput: true,
     });
     const secret = "private-image-diagnostic";
     const body = { model: "model-a", input: [{ type: "input_image", image_url: `data:image/png;base64,${Buffer.from(secret.repeat(1024)).toString("base64")}` }] };
@@ -468,7 +592,7 @@ describe("ModelGateway", () => {
     const lease = gateway.issueLease({
       ...leaseMetering, conversationId: "old-image-history", revision: 1,
       upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
-      protocolMode: "native_responses", model: "model-a",
+      protocolMode: "native_responses", model: "model-a", supportsImageInput: true,
     });
     const body = { model: "model-a", input };
     expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(32 * 1024 * 1024);

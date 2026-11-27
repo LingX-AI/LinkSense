@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
 import { StatusBanner } from "@/components/feedback/status-banner"
@@ -23,6 +24,7 @@ type ConfirmDialogProps = {
   pendingLabel?: string
   destructive?: boolean
   destructiveNotice?: string
+  children?: ReactNode
   pending?: boolean
   onConfirm: () => void
 }
@@ -37,6 +39,7 @@ export function ConfirmDialog({
   pendingLabel,
   destructive,
   destructiveNotice,
+  children,
   pending,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -57,6 +60,7 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {children}
         {destructive && destructiveNotice ? (
           <StatusBanner variant="error">{destructiveNotice}</StatusBanner>
         ) : null}

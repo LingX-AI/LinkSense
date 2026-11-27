@@ -73,6 +73,22 @@ describe("help center routing", () => {
     )
   })
 
+  it("opens the publishing guide only from the sites application tab", () => {
+    expect(
+      buildHelpCenterHref(
+        "/capabilities",
+        "en-US",
+        "?section=application&app_scope=sites"
+      )
+    ).toBe("/help/en-US/user-guide/tasks/publish-websites/")
+    expect(
+      resolveHelpDocumentPath(
+        "/capabilities",
+        "?section=plugin&app_scope=sites"
+      )
+    ).toBe("user-guide/plugin-center/discover-and-install")
+  })
+
   it("uses the active application language and keeps trailing slashes", () => {
     expect(buildHelpCenterHref("/settings/security", "zh-CN")).toBe(
       "/help/user-guide/settings/security/"

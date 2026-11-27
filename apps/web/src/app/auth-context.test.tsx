@@ -26,8 +26,11 @@ import { setAppLanguage } from "@/i18n"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
+  listeners: new Set<
+    (token: string | null, reason: "session" | "storage") => void
+  >(),
+  loginSessionBoundary: 0,
   revision: 0,
-  listeners: new Set<(token: string | null) => void>(),
 }))
 
 vi.mock("@/api/client", () => ({
@@ -37,22 +40,34 @@ vi.mock("@/api/client", () => ({
   refreshSession: vi.fn(),
 }))
 
-vi.mock(import("@/api/session"), async (importOriginal) => ({
-  ...(await importOriginal()),
+vi.mock("@/api/session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/session")>()),
+  beginLoginSession: vi.fn(() => {
+    sessionState.loginSessionBoundary += 1
+    return sessionState.loginSessionBoundary
+  }),
   captureAccessSessionGuard: () => {
     const { revision } = sessionState
     return () => sessionState.revision === revision
   },
   getAccessToken: vi.fn(() => sessionState.token),
+  getLoginSessionBoundary: vi.fn(() => sessionState.loginSessionBoundary),
+  isLoginSessionCurrent: vi.fn(
+    (boundary: number) => boundary === sessionState.loginSessionBoundary
+  ),
   setAccessToken: vi.fn((token: string | null) => {
     if (!token || token !== sessionState.token) sessionState.revision += 1
     sessionState.token = token
-    sessionState.listeners.forEach((listener) => listener(token))
+    sessionState.listeners.forEach((listener) => listener(token, "session"))
   }),
-  subscribeToAccessToken: vi.fn((listener: (token: string | null) => void) => {
-    sessionState.listeners.add(listener)
-    return () => sessionState.listeners.delete(listener)
-  }),
+  subscribeToAccessToken: vi.fn(
+    (
+      listener: (token: string | null, reason: "session" | "storage") => void
+    ) => {
+      sessionState.listeners.add(listener)
+      return () => sessionState.listeners.delete(listener)
+    }
+  ),
 }))
 
 vi.mock("@/i18n", () => ({
@@ -103,16 +118,32 @@ const bootstrap = bootstrapSchema.parse({
   default_language: "zh-CN",
 })
 
-function AuthProbe({ session }: { session?: AccessSession }) {
-  const { status, user: currentUser, signOut, acceptSession } = useAuth()
+function AuthProbe({
+  nextSession,
+  session,
+  onSignOutError,
+}: {
+  nextSession?: AccessSession
+  session?: AccessSession
+  onSignOutError?: (error: unknown) => void
+}) {
+  const { status, user: currentUser, acceptSession, signOut } = useAuth()
   return (
     <>
       <output data-testid="auth-status">{status}</output>
       <output data-testid="auth-user">{currentUser?.email ?? ""}</output>
       <output data-testid="auth-role">{currentUser?.role ?? ""}</output>
-      <button type="button" onClick={() => void signOut()}>
+      <button
+        type="button"
+        onClick={() => void signOut().catch((error) => onSignOutError?.(error))}
+      >
         sign out
       </button>
+      {nextSession && (
+        <button type="button" onClick={() => void acceptSession(nextSession)}>
+          accept next session
+        </button>
+      )}
       {session && (
         <button type="button" onClick={() => void acceptSession(session)}>
           sign in
@@ -178,6 +209,7 @@ describe("AuthProvider session restoration", () => {
     sessionState.token = null
     sessionState.revision = 0
     sessionState.listeners.clear()
+    sessionState.loginSessionBoundary = 0
     vi.mocked(apiRequest).mockReset()
     vi.mocked(refreshSession).mockReset()
     vi.mocked(isDefinitiveAuthenticationError).mockReset()
@@ -204,6 +236,27 @@ describe("AuthProvider session restoration", () => {
     expect(apiRequest).toHaveBeenCalledWith("/me", expect.any(Object))
     expect(refreshSession).not.toHaveBeenCalled()
     expect(setAccessToken).not.toHaveBeenCalledWith(null)
+  })
+
+  it("clears the local session before completing sign-out when the API is unreachable", async () => {
+    sessionState.token = "persisted-access-token"
+    const unavailable = new Error("network unavailable")
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/logout") throw unavailable
+      return user
+    })
+    const onSignOutError = vi.fn()
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <AuthProbe onSignOutError={onSignOutError} />
+    )
+    await expectAuthStatus("authenticated")
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
+    await waitFor(() =>
+      expect(onSignOutError).toHaveBeenCalledWith(unavailable)
+    )
+    await expectAuthStatus("anonymous")
+    expect(sessionState.token).toBeNull()
   })
 
   it("applies the database language before exposing the restored session", async () => {
@@ -295,6 +348,95 @@ describe("AuthProvider session restoration", () => {
     })
 
     expect(onRender).toHaveBeenCalledTimes(renderCountAfterRestore)
+  })
+
+  it("does not let an earlier sign-out clear a replacement login that arrives while logout is pending", async () => {
+    sessionState.token = "old-login-token"
+    const replacement: AccessSession = {
+      access_token: "replacement-login-token",
+      access_token_expires_at: "2099-01-01T00:00:00.000Z",
+    }
+    const replacementUser: User = {
+      ...user,
+      id: "user-2",
+      email: "two@example.com",
+    }
+    let finishLogout!: () => void
+    const logoutResponse = new Promise<unknown>((resolve) => {
+      finishLogout = () => resolve(null)
+    })
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/logout") return logoutResponse
+      return sessionState.token === replacement.access_token
+        ? replacementUser
+        : user
+    })
+    const queryClient = createAuthQueryClient()
+    queryClient.setQueryData(["conversations", "sidebar"], {
+      pages: [{ items: [{ id: "replacement-login-task" }] }],
+    })
+    renderAuthProvider(queryClient, <AuthProbe nextSession={replacement} />)
+    await expectAuthStatus("authenticated")
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(user.email)
+
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        "/auth/logout",
+        expect.objectContaining({ skipRefresh: true })
+      )
+    )
+    fireEvent.click(screen.getByRole("button", { name: "accept next session" }))
+    await waitFor(() =>
+      expect(screen.getByTestId("auth-user")).toHaveTextContent(
+        replacementUser.email
+      )
+    )
+    expect(sessionState.token).toBe(replacement.access_token)
+
+    await act(async () => {
+      finishLogout()
+      await logoutResponse
+    })
+
+    await expectAuthStatus("authenticated")
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(
+      replacementUser.email
+    )
+    expect(sessionState.token).toBe(replacement.access_token)
+    expect(
+      queryClient.getQueryData(["conversations", "sidebar"])
+    ).toMatchObject({
+      pages: [{ items: [{ id: "replacement-login-task" }] }],
+    })
+  })
+
+  it("removes account-scoped data at the same time a live session loses its token", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValue(user)
+    const queryClient = createAuthQueryClient()
+    queryClient.setQueryData(["system", "bootstrap"], bootstrap)
+    queryClient.setQueryData(["conversations", "sidebar"], {
+      pages: [{ items: [{ id: "account-a-task" }] }],
+    })
+
+    renderAuthProvider(queryClient)
+    await expectAuthStatus("authenticated")
+
+    act(() => {
+      setAccessToken(null)
+      // The ended login's data must be gone before any later task can run;
+      // waiting for an asynchronous cancellation would leave it in the cache.
+      expect(
+        queryClient.getQueryData(["conversations", "sidebar"])
+      ).toBeUndefined()
+      expect(queryClient.getQueryData(["system", "bootstrap"])).toEqual(
+        bootstrap
+      )
+    })
+
+    await expectAuthStatus("anonymous")
+    expect(screen.getByTestId("auth-user")).toBeEmptyDOMElement()
   })
 
   it("clears account queries and model preferences before signing out", async () => {
@@ -672,5 +814,48 @@ describe("AuthProvider session restoration", () => {
       session.access_token_expires_at
     )
     expect(apiRequest).toHaveBeenCalledOnce()
+  })
+
+  it("advances the login generation when a live session loses its token, but not on rotation", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValue(user)
+    const queryClient = createAuthQueryClient()
+    queryClient.setQueryData(["conversations", "sidebar"], {
+      pages: [{ items: [{ id: "account-a-task" }] }],
+    })
+
+    renderAuthProvider(queryClient)
+    await expectAuthStatus("authenticated")
+    const authenticatedBoundary = sessionState.loginSessionBoundary
+
+    act(() => setAccessToken("rotated-access-token"))
+    expect(sessionState.loginSessionBoundary).toBe(authenticatedBoundary)
+    expect(screen.getByTestId("auth-status")).toHaveTextContent("authenticated")
+    expect(queryClient.getQueryData(["conversations", "sidebar"])).toBeDefined()
+
+    act(() => setAccessToken(null))
+    expect(sessionState.loginSessionBoundary).toBe(authenticatedBoundary + 1)
+    await expectAuthStatus("anonymous")
+    expect(
+      queryClient.getQueryData(["conversations", "sidebar"])
+    ).toBeUndefined()
+    expect(screen.getByTestId("auth-user")).toBeEmptyDOMElement()
+  })
+
+  it("does not advance the login generation for a storage-only token sync", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValue(user)
+
+    renderAuthProvider()
+    await expectAuthStatus("authenticated")
+    const authenticatedBoundary = sessionState.loginSessionBoundary
+
+    act(() => {
+      sessionState.token = null
+      sessionState.listeners.forEach((listener) => listener(null, "storage"))
+    })
+
+    expect(sessionState.loginSessionBoundary).toBe(authenticatedBoundary)
+    await expectAuthStatus("anonymous")
   })
 })

@@ -10,11 +10,20 @@ import {
   isRetryableApiError,
   refreshSession,
 } from "@/api/client"
+import { SERVER_BUILD_HEADER } from "@linksense/shared"
 import {
+  beginLoginSession,
   getAccessToken,
+  getLoginSessionBoundary,
   getStoredAccessSession,
   setAccessToken,
 } from "@/api/session"
+
+beforeEach(() => {
+  // This file runs in the isolated component project; start each test with no
+  // access session or refresh lease carried over from a previous case.
+  window.localStorage.clear()
+})
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -26,7 +35,7 @@ function json(data: unknown, status = 200) {
 it("passes low priority to optional background requests", async () => {
   const fetch = vi.fn().mockResolvedValue(json({ success: true, data: true }))
   vi.stubGlobal("fetch", fetch)
-  await apiRequest("/conversations/task/browser-use-intent", {
+  await apiRequest("/conversations/task", {
     method: "POST",
     body: { message_id: "message" },
     schema: z.boolean(),
@@ -219,6 +228,128 @@ describe("API retry classification", () => {
   })
 })
 
+it("does not deliver a download whose body completes after the login changed", async () => {
+  vi.resetModules()
+  const client = await import("./client")
+  const session = await import("./session")
+  let finishBody!: () => void
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("account-a-file"))
+      finishBody = () => controller.close()
+    },
+  })
+  const request = vi
+    .fn()
+    .mockResolvedValue(new Response(body, { status: 200 }))
+  vi.stubGlobal("fetch", request)
+
+  try {
+    session.setAccessToken("account-a", Date.now() + 60_000)
+    const download = client
+      .downloadApiFile("/conversations/c1/files/f1/download")
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce())
+    // Header checks have passed while A is current; the body is still pending.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    session.beginLoginSession()
+    session.setAccessToken("account-b", Date.now() + 60_000)
+    finishBody()
+
+    await expect(download).resolves.toMatchObject({ name: "AbortError" })
+    expect(session.getAccessToken()).toBe("account-b")
+  } finally {
+    session.setAccessToken(null)
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  }
+})
+
+it("does not apply a stale browser upload build response to the replacement login", async () => {
+  const oldBuild = "a".repeat(64)
+  const newBuild = "b".repeat(64)
+  vi.resetModules()
+  vi.stubEnv("VITE_LINKSENSE_BUILD_ID", oldBuild)
+  const client = await import("./client")
+  const session = await import("./session")
+  const build = await import("@/app/client-build")
+  const onUploadProgress = vi.fn()
+  const deferredRequest: {
+    current: {
+      respond(status: number, response: unknown): void
+      progress(): void
+    } | null
+  } = { current: null }
+
+  class DeferredUploadRequest extends EventTarget {
+    responseType: XMLHttpRequestResponseType = ""
+    status = 0
+    response: unknown = null
+    withCredentials = false
+    readonly upload = new EventTarget()
+
+    open() {}
+    setRequestHeader() {}
+    getResponseHeader(name: string) {
+      return name.toLowerCase() === SERVER_BUILD_HEADER ? newBuild : null
+    }
+    send() {
+      deferredRequest.current = this
+    }
+    abort() {
+      this.dispatchEvent(new Event("abort"))
+    }
+    progress() {
+      this.upload.dispatchEvent(
+        new ProgressEvent("progress", {
+          lengthComputable: true,
+          loaded: 5,
+          total: 10,
+        })
+      )
+    }
+    respond(status: number, response: unknown) {
+      this.status = status
+      this.response = response
+      this.dispatchEvent(new Event("load"))
+    }
+  }
+
+  vi.stubGlobal("XMLHttpRequest", DeferredUploadRequest)
+  try {
+    session.setAccessToken("web-account-a", Date.now() + 60_000)
+    const upload = client
+      .apiUploadRequest("/capabilities/import", {
+        method: "POST",
+        body: new FormData(),
+        schema: z.object({ id: z.string() }),
+        onUploadProgress,
+      })
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(deferredRequest.current).not.toBeNull())
+
+    // Account A's delayed XHR progress and headers arrive after B signs in.
+    session.beginLoginSession()
+    session.setAccessToken("web-account-b", Date.now() + 60_000)
+    deferredRequest.current?.progress()
+    deferredRequest.current?.respond(200, {
+      success: true,
+      data: { id: "account-a-upload" },
+    })
+
+    await expect(upload).resolves.toMatchObject({ name: "AbortError" })
+    expect(onUploadProgress).not.toHaveBeenCalled()
+    expect(build.getPendingClientBuild()).toBeNull()
+    expect(session.getAccessToken()).toBe("web-account-b")
+  } finally {
+    session.setAccessToken(null)
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  }
+})
+
 describe("authenticated API recovery", () => {
   beforeEach(() => {
     installImmediateWebLock()
@@ -296,6 +427,161 @@ describe("authenticated API recovery", () => {
     expect(
       window.localStorage.getItem("linksense.auth.refresh-lease.v1")
     ).toBeNull()
+  })
+
+  it("treats a refresh rejection that settles after the login changed as local cancellation", async () => {
+    const loginSessionA = getLoginSessionBoundary()
+    let resolveRefresh!: (response: Response) => void
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const refreshRequests: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/auth/refresh") {
+          refreshRequests.push(new Headers(init?.headers).get("Authorization"))
+          return refreshResponse
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const pendingRefresh = refreshSession(
+      "stale-access-token",
+      loginSessionA
+    ).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(refreshRequests).toHaveLength(1))
+    expect(refreshRequests[0]).toBeNull()
+
+    beginLoginSession()
+    setAccessToken("replacement-login-token", Date.now() + 60_000)
+    // The server's genuine 401 belongs to the previous login and settles late.
+    resolveRefresh(
+      json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+    )
+
+    const error = await pendingRefresh
+    expect(error).toMatchObject({ name: "AbortError" })
+    expect(error).not.toBeInstanceOf(ApiError)
+    expect(getAccessToken()).toBe("replacement-login-token")
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("treats a refresh success that settles after the login changed as local cancellation", async () => {
+    const loginSessionA = getLoginSessionBoundary()
+    let resolveRefresh!: (response: Response) => void
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/auth/refresh") return refreshResponse
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const pendingRefresh = refreshSession(
+      "stale-access-token",
+      loginSessionA
+    ).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+
+    beginLoginSession()
+    setAccessToken("replacement-login-token", Date.now() + 60_000)
+    resolveRefresh(
+      json({
+        success: true,
+        data: authSession("old-login-refreshed-token".padEnd(48, "x")),
+      })
+    )
+
+    const error = await pendingRefresh
+    expect(error).toMatchObject({ name: "AbortError" })
+    expect(getAccessToken()).toBe("replacement-login-token")
+  })
+
+  it("releases its own fallback refresh lease immediately when the login changed during verification", async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    })
+    const leaseKey = "linksense.auth.refresh-lease.v1"
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      const loginSessionA = getLoginSessionBoundary()
+      const pendingRefresh = refreshSession(
+        "stale-access-token",
+        loginSessionA
+      ).catch((error: unknown) => error)
+      const acquiredLease = JSON.parse(
+        window.localStorage.getItem(leaseKey) ?? "null"
+      ) as { ownerId: string; expiresAt: number }
+      expect(acquiredLease.ownerId).toBeTypeOf("string")
+      expect(acquiredLease.expiresAt).toBeGreaterThan(Date.now())
+
+      // The replacement login wins while the 100ms verification wait is held.
+      beginLoginSession()
+      setAccessToken("replacement-login-token", Date.now() + 60_000)
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(window.localStorage.getItem(leaseKey)).toBeNull()
+      const error = await pendingRefresh
+      expect(error).toMatchObject({ name: "AbortError" })
+      // The stale flow never starts renewal or a refresh request.
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(window.localStorage.getItem(leaseKey)).toBeNull()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(getAccessToken()).toBe("replacement-login-token")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not release another tab's fallback refresh lease when a stale generation wakes", async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    })
+    const leaseKey = "linksense.auth.refresh-lease.v1"
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      const loginSessionA = getLoginSessionBoundary()
+      const pendingRefresh = refreshSession(
+        "stale-access-token",
+        loginSessionA
+      ).catch((error: unknown) => error)
+      expect(window.localStorage.getItem(leaseKey)).not.toBeNull()
+      const otherLease = {
+        ownerId: "another-tab-owner",
+        expiresAt: Date.now() + 10_000,
+      }
+      window.localStorage.setItem(leaseKey, JSON.stringify(otherLease))
+
+      beginLoginSession()
+      setAccessToken("replacement-login-token", Date.now() + 60_000)
+      await vi.advanceTimersByTimeAsync(100)
+
+      const error = await pendingRefresh
+      expect(error).toMatchObject({ name: "AbortError" })
+      expect(
+        JSON.parse(window.localStorage.getItem(leaseKey) ?? "null")
+      ).toEqual(otherLease)
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(
+        JSON.parse(window.localStorage.getItem(leaseKey) ?? "null")
+      ).toEqual(otherLease)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it.each(["successful", "definitive failure"])(
@@ -620,6 +906,500 @@ describe("authenticated API recovery", () => {
     expect(getAccessToken()).toBe(refreshedAccessToken)
   })
 
+  it("runs the optional attempt guard before each physical attempt and can stop the post-refresh retry", async () => {
+    const guard = vi.fn()
+    guard
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new ApiError({ status: 409, errorCode: "WRITE_CLOSED" })
+      })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+      )
+      .mockResolvedValueOnce(
+        json({
+          success: true,
+          data: authSession(refreshedAccessToken),
+        })
+      )
+      .mockResolvedValueOnce(json({ success: true, data: { id: "created" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      apiRequest("/conversations", {
+        method: "POST",
+        body: {},
+        schema: z.unknown(),
+        beforeAttempt: guard,
+      })
+    ).rejects.toMatchObject({ status: 409, errorCode: "WRITE_CLOSED" })
+
+    expect(guard).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBe(refreshedAccessToken)
+  })
+
+  it("keeps an opted-in write when its attempt guard allows both attempts", async () => {
+    const guard = vi.fn()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+      )
+      .mockResolvedValueOnce(
+        json({
+          success: true,
+          data: authSession(refreshedAccessToken),
+        })
+      )
+      .mockResolvedValueOnce(json({ success: true, data: { id: "created" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      apiRequest("/conversations", {
+        method: "POST",
+        body: {},
+        schema: z.object({ id: z.string() }),
+        beforeAttempt: guard,
+      })
+    ).resolves.toEqual({ id: "created" })
+
+    expect(guard).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(getAccessToken()).toBe(refreshedAccessToken)
+  })
+
+  it("keeps authentication untouched when an auth-shaped attempt guard rejects", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const rejectBeforeRequest = () => {
+      throw new ApiError({ status: 401, errorCode: "AUTH_REQUIRED" })
+    }
+
+    // A local eligibility rejection is not an HTTP response, so it must not
+    // rotate the session before the first physical attempt.
+    await expect(
+      apiRequest("/conversations", {
+        method: "POST",
+        body: {},
+        schema: z.unknown(),
+        beforeAttempt: rejectBeforeRequest,
+      })
+    ).rejects.toMatchObject({ status: 401, errorCode: "AUTH_REQUIRED" })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(getAccessToken()).toBe("stale-access-token")
+
+    // The post-refresh attempt guard runs outside the retry's authentication
+    // catch, so its rejection keeps the session refreshed a moment earlier.
+    const guard = vi
+      .fn()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new ApiError({ status: 401, errorCode: "AUTH_REQUIRED" })
+      })
+    fetchMock
+      .mockResolvedValueOnce(
+        json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+      )
+      .mockResolvedValueOnce(
+        json({
+          success: true,
+          data: authSession(refreshedAccessToken),
+        })
+      )
+
+    await expect(
+      apiRequest("/conversations", {
+        method: "POST",
+        body: {},
+        schema: z.unknown(),
+        beforeAttempt: guard,
+      })
+    ).rejects.toMatchObject({ status: 401, errorCode: "AUTH_REQUIRED" })
+    expect(guard).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBe(refreshedAccessToken)
+  })
+
+  it("does not apply a refresh, retry, or token clear from a replaced login session", async () => {
+    const loginSessionBoundary = getLoginSessionBoundary()
+    let resolveRefresh!: (response: Response) => void
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+      )
+      .mockImplementationOnce(() => refreshResponse)
+      .mockResolvedValueOnce(json({ success: true, data: { id: "stale" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const request = apiRequest("/conversations/task", {
+      method: "POST",
+      body: {},
+      schema: z.unknown(),
+      loginSessionBoundary,
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    expect(beginLoginSession()).not.toBe(loginSessionBoundary)
+    setAccessToken("replacement-login-token", Date.now() + 60_000)
+    resolveRefresh(json(authSession("old-login-refreshed-token")))
+
+    await expect(request).rejects.toMatchObject({
+      status: 401,
+      errorCode: "AUTH_SESSION_EXPIRED",
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBe("replacement-login-token")
+  })
+
+  it("does not refresh or clear a replacement login when an ordinary request fails after sign-out", async () => {
+    let resolveAttempt!: (response: Response) => void
+    const firstAttempt = new Promise<Response>((resolve) => {
+      resolveAttempt = resolve
+    })
+    const attempts: Array<string | null> = []
+    const refreshRequests: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        const authorization = new Headers(init?.headers).get("Authorization")
+        if (path === "/api/v1/auth/refresh") {
+          refreshRequests.push(authorization)
+          throw new Error("refresh must not start after sign-out")
+        }
+        if (path === "/api/v1/conversations/task") {
+          attempts.push(authorization)
+          if (attempts.length === 1) return firstAttempt
+          return Promise.resolve(
+            json({ success: true, data: { id: "replayed" } })
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    // No loginSessionBoundary option: ownership is captured at request start.
+    const request = apiRequest("/conversations/task", {
+      method: "POST",
+      body: {},
+      schema: z.unknown(),
+    }).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(attempts).toHaveLength(1))
+    expect(attempts[0]).toBe("Bearer stale-access-token")
+
+    beginLoginSession()
+    setAccessToken("replacement-login-token", Date.now() + 60_000)
+    resolveAttempt(
+      json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+    )
+
+    await expect(request).resolves.toMatchObject({
+      status: 401,
+      errorCode: "AUTH_SESSION_EXPIRED",
+    })
+    // No replay with the replacement credentials.
+    expect(attempts).toHaveLength(1)
+    expect(refreshRequests).toHaveLength(0)
+    expect(getAccessToken()).toBe("replacement-login-token")
+  })
+
+  it.each(["refreshed", "definitively rejected"] as const)(
+    "does not apply an ordinary request's old refresh after sign-out when it is %s",
+    async (refreshOutcome) => {
+      let resolveRefresh!: (response: Response) => void
+      const refreshResponse = new Promise<Response>((resolve) => {
+        resolveRefresh = resolve
+      })
+      const attempts: Array<string | null> = []
+      const refreshRequests: Array<string | null> = []
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+          const path = new URL(String(input), window.location.origin).pathname
+          const authorization = new Headers(init?.headers).get("Authorization")
+          if (path === "/api/v1/auth/refresh") {
+            refreshRequests.push(authorization)
+            return refreshResponse
+          }
+          if (path === "/api/v1/conversations/task") {
+            attempts.push(authorization)
+            if (attempts.length === 1) {
+              return Promise.resolve(
+                json(
+                  { success: false, error_code: "AUTH_SESSION_EXPIRED" },
+                  401
+                )
+              )
+            }
+            return Promise.resolve(
+              json({ success: true, data: { id: "replayed" } })
+            )
+          }
+          throw new Error(`unexpected request ${path}`)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+
+      const request = apiRequest("/conversations/task", {
+        method: "POST",
+        body: {},
+        schema: z.unknown(),
+      }).catch((error: unknown) => error)
+      await vi.waitFor(() => expect(refreshRequests).toHaveLength(1))
+      expect(refreshRequests[0]).toBeNull()
+
+      beginLoginSession()
+      setAccessToken("replacement-login-token", Date.now() + 60_000)
+      resolveRefresh(
+        refreshOutcome === "refreshed"
+          ? json({
+              success: true,
+              data: authSession("old-login-refreshed-token".padEnd(48, "x")),
+            })
+          : json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+      )
+
+      await expect(request).resolves.toMatchObject({
+        status: 401,
+        errorCode: "AUTH_SESSION_EXPIRED",
+      })
+      // No replay with the replacement credentials and no clear of its token.
+      expect(attempts).toHaveLength(1)
+      expect(getAccessToken()).toBe("replacement-login-token")
+    }
+  )
+
+  it("does not clear a replacement login when an ordinary retry from the previous login fails", async () => {
+    const refreshedLoginToken = "first-login-refreshed-token".padEnd(48, "x")
+    let resolveRetry!: (response: Response) => void
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve
+    })
+    const attempts: Array<string | null> = []
+    const refreshRequests: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        const authorization = new Headers(init?.headers).get("Authorization")
+        if (path === "/api/v1/auth/refresh") {
+          refreshRequests.push(authorization)
+          return Promise.resolve(
+            json({
+              success: true,
+              data: authSession(refreshedLoginToken),
+            })
+          )
+        }
+        if (path === "/api/v1/conversations/task") {
+          attempts.push(authorization)
+          if (attempts.length === 1) {
+            return Promise.resolve(
+              json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+            )
+          }
+          return retryResponse
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const request = apiRequest("/conversations/task", {
+      method: "POST",
+      body: {},
+      schema: z.unknown(),
+    }).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(attempts).toHaveLength(2))
+    expect(attempts[1]).toBe(`Bearer ${refreshedLoginToken}`)
+
+    beginLoginSession()
+    setAccessToken("replacement-login-token", Date.now() + 60_000)
+    resolveRetry(
+      json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+    )
+
+    await expect(request).resolves.toMatchObject({
+      status: 401,
+      errorCode: "AUTH_SESSION_EXPIRED",
+    })
+    expect(attempts).toHaveLength(2)
+    expect(refreshRequests).toHaveLength(1)
+    expect(getAccessToken()).toBe("replacement-login-token")
+  })
+
+  it("keeps refresh single-flight within each login generation and does not reuse A's refresh for B", async () => {
+    const accountAToken = "refresh-generation-account-a-token"
+    const accountBToken = "refresh-generation-account-b-token"
+    const accountARefreshed = "refresh-generation-account-a-refreshed"
+    const accountBRefreshed = "refresh-generation-account-b-refreshed"
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    const loginSessionA = getLoginSessionBoundary()
+
+    let resolveRefreshA!: (response: Response) => void
+    let resolveRefreshB!: (response: Response) => void
+    const refreshA = new Promise<Response>((resolve) => {
+      resolveRefreshA = resolve
+    })
+    const refreshB = new Promise<Response>((resolve) => {
+      resolveRefreshB = resolve
+    })
+    const refreshRequests: { authorization: string | null }[] = []
+    const raceRequests: { path: string; authorization: string | null }[] = []
+    const raceAttempts = new Map<string, number>()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      const authorization = new Headers(init?.headers).get("Authorization")
+      if (path === "/api/v1/auth/refresh") {
+        refreshRequests.push({ authorization })
+        return refreshRequests.length === 1 ? refreshA : refreshB
+      }
+      if (path === "/api/v1/race/a" || path === "/api/v1/race/b") {
+        const attempt = (raceAttempts.get(path) ?? 0) + 1
+        raceAttempts.set(path, attempt)
+        raceRequests.push({ path, authorization })
+        if (attempt > 1 && authorization === `Bearer ${accountBRefreshed}`) {
+          return Promise.resolve(json({ success: true, data: { ok: true } }))
+        }
+        return Promise.resolve(
+          json({ success: false, error_code: "AUTH_SESSION_EXPIRED" }, 401)
+        )
+      }
+      throw new Error(`unexpected request ${path}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const requestA = apiRequest("/race/a", {
+      method: "POST",
+      schema: z.object({ ok: z.boolean() }),
+      loginSessionBoundary: loginSessionA,
+    }).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(refreshRequests).toHaveLength(1))
+    expect(refreshRequests[0]?.authorization).toBeNull()
+
+    const loginSessionB = beginLoginSession()
+    expect(loginSessionB).not.toBe(loginSessionA)
+    setAccessToken(accountBToken, Date.now() + 60_000)
+
+    const requestB = apiRequest("/race/b", {
+      method: "POST",
+      schema: z.object({ ok: z.boolean() }),
+      loginSessionBoundary: loginSessionB,
+    })
+    let requestBSettled = false
+    void requestB.then(
+      () => {
+        requestBSettled = true
+      },
+      () => {
+        requestBSettled = true
+      }
+    )
+    await vi.waitFor(() => expect(refreshRequests).toHaveLength(2))
+    expect(refreshRequests[1]?.authorization).toBeNull()
+    expect(requestBSettled).toBe(false)
+
+    resolveRefreshA(
+      json({ success: true, data: authSession(accountARefreshed) })
+    )
+    await expect(requestA).resolves.toMatchObject({
+      status: 401,
+      errorCode: "AUTH_SESSION_EXPIRED",
+    })
+    expect(getAccessToken()).toBe(accountBToken)
+    expect(requestBSettled).toBe(false)
+
+    // A's finally callback has run by now. A second refresh for the still-live
+    // B generation must join B's pending refresh instead of starting a third.
+    const secondBRefresh = refreshSession(accountBToken, loginSessionB).catch(
+      (error: unknown) => error
+    )
+    expect(refreshRequests).toHaveLength(2)
+
+    resolveRefreshB(
+      json({ success: true, data: authSession(accountBRefreshed) })
+    )
+    await expect(requestB).resolves.toEqual({ ok: true })
+    await expect(secondBRefresh).resolves.toMatchObject({
+      access_token: accountBRefreshed,
+    })
+    const bRaceRequests = raceRequests.filter(
+      (request) => request.path === "/api/v1/race/b"
+    )
+    expect(bRaceRequests).toHaveLength(2)
+    expect(bRaceRequests[1]?.authorization).toBe(`Bearer ${accountBRefreshed}`)
+    expect(
+      raceRequests.filter((request) => request.path === "/api/v1/race/a")
+    ).toHaveLength(1)
+    expect(getAccessToken()).toBe(accountBRefreshed)
+  })
+
+  it("keeps the current generation's pending refresh when a stale login's late 401 attempts refresh", async () => {
+    const accountAToken = "late-401-account-a-token".padEnd(48, "x")
+    const accountBToken = "late-401-account-b-token".padEnd(48, "x")
+    const accountBRefreshed = "late-401-account-b-refreshed".padEnd(48, "x")
+    setAccessToken(accountAToken, Date.now() + 60_000)
+    const loginSessionA = getLoginSessionBoundary()
+
+    const loginSessionB = beginLoginSession()
+    expect(loginSessionB).not.toBe(loginSessionA)
+    setAccessToken(accountBToken, Date.now() + 60_000)
+
+    let resolveRefreshB!: () => void
+    const refreshB = new Promise<void>((resolve) => {
+      resolveRefreshB = resolve
+    })
+    const refreshRequests: Array<string | null> = []
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/auth/refresh") {
+          refreshRequests.push(new Headers(init?.headers).get("Authorization"))
+          return refreshB.then(() =>
+            json({ success: true, data: authSession(accountBRefreshed) })
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const firstBRefresh = refreshSession(accountBToken, loginSessionB)
+    await vi.waitFor(() => expect(refreshRequests).toHaveLength(1))
+    expect(refreshRequests[0]).toBeNull()
+
+    // A's terminal 401 arrives after B owns the session. It must reject as
+    // local cancellation without taking over or clearing B's shared slot.
+    const staleAError = await refreshSession(
+      accountAToken,
+      loginSessionA
+    ).catch((error: unknown) => error)
+    expect(staleAError).toMatchObject({ name: "AbortError" })
+    expect(refreshRequests).toHaveLength(1)
+
+    // A current B waiter arriving before the first B refresh settles must join
+    // that refresh instead of issuing a second POST.
+    const secondBRefresh = refreshSession(accountBToken, loginSessionB)
+    const refreshPostsWhileBPending = refreshRequests.length
+
+    resolveRefreshB()
+
+    const [firstRefresh, secondRefresh] = await Promise.all([
+      firstBRefresh,
+      secondBRefresh,
+    ])
+    expect(refreshPostsWhileBPending).toBe(1)
+    expect(refreshRequests).toHaveLength(1)
+    expect(firstRefresh.access_token).toBe(accountBRefreshed)
+    expect(secondRefresh.access_token).toBe(accountBRefreshed)
+    expect(getAccessToken()).toBe(accountBRefreshed)
+  })
+
   it("clears the token only when refresh is definitively expired", async () => {
     vi.stubGlobal(
       "fetch",
@@ -661,6 +1441,70 @@ describe("authenticated API recovery", () => {
     })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(getAccessToken()).toBe("stale-access-token")
+  })
+
+  it("retries an upload once with the same login's rotated token", async () => {
+    const requests: Array<{
+      respond(status: number, response: unknown): void
+      authorization(): string | null
+    }> = []
+
+    class UploadRequest extends EventTarget {
+      responseType: XMLHttpRequestResponseType = ""
+      status = 0
+      response: unknown = null
+      withCredentials = false
+      readonly upload = new EventTarget()
+      private readonly requestHeaders = new Map<string, string>()
+
+      open() {}
+      setRequestHeader(name: string, value: string) {
+        this.requestHeaders.set(name.toLowerCase(), value)
+      }
+      getResponseHeader() {
+        return null
+      }
+      send() {
+        requests.push(this)
+      }
+      abort() {
+        this.dispatchEvent(new Event("abort"))
+      }
+      authorization() {
+        return this.requestHeaders.get("authorization") ?? null
+      }
+      respond(status: number, response: unknown) {
+        this.status = status
+        this.response = response
+        this.dispatchEvent(new Event("load"))
+      }
+    }
+
+    vi.stubGlobal("XMLHttpRequest", UploadRequest)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        json({ success: true, data: authSession(refreshedAccessToken) })
+      )
+    )
+    const upload = apiUploadRequest("/capabilities/import", {
+      method: "POST",
+      body: new FormData(),
+      schema: z.object({ id: z.string() }),
+    })
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]?.authorization()).toBe("Bearer stale-access-token")
+    requests[0]?.respond(401, {
+      success: false,
+      error_code: "AUTH_SESSION_EXPIRED",
+    })
+
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    requests[1]?.respond(200, { success: true, data: { id: "upload-1" } })
+
+    await expect(upload).resolves.toEqual({ id: "upload-1" })
+    expect(requests[1]?.authorization()).toBe(`Bearer ${refreshedAccessToken}`)
+    expect(getAccessToken()).toBe(refreshedAccessToken)
   })
 
   it("refreshes once and retries an authenticated streaming request", async () => {

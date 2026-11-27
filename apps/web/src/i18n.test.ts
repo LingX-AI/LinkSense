@@ -7,7 +7,9 @@ import {
 } from "@linksense/shared"
 
 import i18n, {
+  getStoredLanguagePreference,
   resolveBrowserLanguage,
+  resolveInitialLanguage,
   setAppLanguage,
   supportedLanguages,
 } from "@/i18n"
@@ -57,6 +59,23 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each([
+    ["zh-CN", "包括大小写"],
+    ["en-US", "case-sensitive"],
+    ["es-ES", "mayúsculas y minúsculas"],
+    ["pt-BR", "maiúsculas de minúsculas"],
+    ["fr-FR", "respecte la casse"],
+    ["ja-JP", "大文字と小文字"],
+  ])("explains case-sensitive allowlist matching in %s", (locale, phrase) => {
+    const key = "settings.privacyMaskingAllowDescription"
+    expect(i18n.getResource(locale, "translation", key)).toContain(phrase)
+    if (locale !== "zh-CN") {
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      fallback.removeResourceBundle(locale, "translation")
+      expect(fallback.t(key, { lng: locale })).toBe(i18n.t(key, { lng: "zh-CN" }))
+    }
+  })
+
   it.each([
     ["zh-CN", "1 条新回复", "2 条新回复"],
     ["en-US", "1 new reply", "2 new replies"],
@@ -710,6 +729,64 @@ describe("i18n resources", () => {
     }
   })
 
+  it("prefers a validated saved preference over native and browser languages", () => {
+    expect(
+      resolveInitialLanguage({
+        stored: "fr-CA",
+        languages: ["pt-BR"],
+        language: "pt-BR",
+      })
+    ).toBe("fr-FR")
+  })
+
+  it("falls back to the browser when no valid preference is stored", () => {
+    expect(
+      resolveInitialLanguage({
+        languages: ["pt-BR"],
+        language: "en-US",
+      })
+    ).toBe("pt-BR")
+    expect(
+      resolveInitialLanguage({
+        stored: "not-a-language",
+        languages: ["ja-JP"],
+        language: "en-US",
+      })
+    ).toBe("ja-JP")
+    expect(
+      resolveInitialLanguage({
+        languages: undefined,
+        language: undefined,
+      })
+    ).toBe("en-US")
+  })
+
+  it("reads only a validated saved preference", () => {
+    window.localStorage.removeItem("linksense.language")
+    expect(getStoredLanguagePreference()).toBeNull()
+    window.localStorage.setItem("linksense.language", "de-DE")
+    expect(getStoredLanguagePreference()).toBeNull()
+    window.localStorage.setItem("linksense.language", "pt-PT")
+    expect(getStoredLanguagePreference()).toBe("pt-BR")
+    window.localStorage.removeItem("linksense.language")
+  })
+
+  it("keeps the latest overlapping persisted choice", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+
+    try {
+      await Promise.all([setAppLanguage("fr-FR"), setAppLanguage("ja-JP")])
+
+      expect(i18n.language).toBe("ja-JP")
+      expect(document.documentElement.lang).toBe("ja-JP")
+      expect(window.localStorage.getItem("linksense.language")).toBe("ja-JP")
+    } finally {
+      await i18n.changeLanguage("zh-CN")
+      window.localStorage.removeItem("linksense.language")
+    }
+  })
+
   it("keeps zh-CN and en-US key sets aligned", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
   })
@@ -975,7 +1052,9 @@ describe("i18n resources", () => {
       zhCN.publicKnowledge.selectConversation,
       "首次对话时",
       "每次对话时",
-      "用对话创建交互式应用",
+      "用对话创建应用",
+      "开始对话",
+      "创建公开网站或动态应用。可在对话里补充账号、数据和业务需求。",
       "显示对话",
       "安装后使用创建者提供的应用资源。以后有新版本时，需要你手动安装更新；对话和工作文件会保留。",
       "更新会覆盖你对应用内容的修改，保留对话、工作文件和个人凭据。请先结束该应用的所有正式任务。",
@@ -1052,7 +1131,7 @@ describe("i18n resources", () => {
     )
   })
 
-  it("uses Plugin Center terminology in every user-visible translation", () => {
+  it("keeps publication governance and catalog categories distinct from the workspace name", () => {
     expect(
       leafStrings(zhCN).filter((value) => /(商店|商城)/u.test(value))
     ).toEqual([])
@@ -1061,9 +1140,7 @@ describe("i18n resources", () => {
         /\b(?:marketplace|store)\b/iu.test(value)
       )
     ).toEqual([])
-    expect(zhCN.nav.capabilities).toBe("插件中心")
     expect(zhCN.nav.adminCapabilities).toBe("插件中心")
-    expect(zhCN.marketplace.title).toBe("插件中心")
     expect(zhCN.marketplace.adminTitle).toBe("插件中心")
     expect(zhCN.marketplace.catalogTabs).toEqual({
       plugin: "插件",
@@ -1072,9 +1149,7 @@ describe("i18n resources", () => {
       mcp: "MCP",
       application: "应用",
     })
-    expect(enUS.nav.capabilities).toBe("Plugin Center")
     expect(enUS.nav.adminCapabilities).toBe("Plugin Center")
-    expect(enUS.marketplace.title).toBe("Plugin Center")
     expect(enUS.marketplace.adminTitle).toBe("Plugin Center")
     expect(enUS.marketplace.catalogTabs).toEqual({
       plugin: "Plugins",
@@ -1089,6 +1164,29 @@ describe("i18n resources", () => {
     expect(
       leafStrings(enUS).filter((value) => /Skill Center/iu.test(value))
     ).toEqual([])
+  })
+
+  it.each([
+    ["zh-CN", "应用与工具"],
+    ["en-US", "Apps & Tools"],
+    ["es-ES", "Apps y herramientas"],
+    ["pt-BR", "Apps e ferramentas"],
+    ["fr-FR", "Applications et outils"],
+    ["ja-JP", "アプリとツール"],
+  ])("uses the localized workspace name in %s", (locale, label) => {
+    const keys = [
+      "nav.capabilities",
+      "marketplace.title",
+      "marketplace.backToCenter",
+      "marketplace.catalogTabsLabel",
+      "marketplace.noPublishableSource",
+    ]
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    if (locale !== "zh-CN") fallback.removeResourceBundle(locale, "translation")
+    for (const key of keys) {
+      expect(i18n.getResource(locale, "translation", key)).toContain(label)
+      expect(fallback.t(key, { lng: locale })).toContain("应用与工具")
+    }
   })
 
   it("uses audit log terminology in navigation and page titles", () => {

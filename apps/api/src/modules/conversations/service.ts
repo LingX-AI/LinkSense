@@ -58,7 +58,7 @@ import {
   resolveConversationWorkspaceEntry,
   resolveConversationWorkspaceRoot,
 } from "../../lib/user-runtime-paths.js";
-import type { AuditContext, AuditService } from "../audit/service.js";
+import { AuditService, type AuditContext } from "../audit/service.js";
 import type { KnowledgeStore } from "../knowledge/types.js";
 import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
 import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
@@ -139,9 +139,11 @@ import type { CapabilityRuntimeVerification } from "../capabilities/user-home-ma
 import { nextConversationEventSequence } from "../events/sequence.js";
 import type {
   ModelRuntimeSettingsReader,
+  ModelSelectionSource,
   ResolvedModelTransitionRuntime,
   ResolvedModelRuntime,
 } from "../system/model-provider-settings.js";
+import type { PrivacyMaskingSettingsService } from "../privacy-masking/service.js";
 import {
   buildOfficeAnnotationRunnerContext,
   inspectOfficeAnnotationPrompt,
@@ -164,6 +166,7 @@ import { respondToAsyncUserInput } from "./async-user-input.js";
 import { respondToFormUserInput } from "./form-user-input.js";
 import { buildReasoningEventsQuery } from "./reasoning-events-query.js";
 import { forkImageFileBinding, includeReferencedImageAttachments, referencedImageTurnIds } from "./image-preview-files.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "./start-intent-policy.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -267,6 +270,7 @@ export interface ConversationPreflight {
   ): Promise<void>;
   resolveRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -275,6 +279,7 @@ export interface ConversationPreflight {
   }>;
   resolveStartIntentRecovery(input: {
     userId: string;
+    conversationId?: string;
     capabilities: PersistedTurnCapability[];
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
@@ -755,6 +760,7 @@ type StartedRunnerTurn = {
   codexThreadId: string;
   codexTurnId: string;
   goal?: RunnerCodexGoal | undefined;
+  forkedFromId?: string | undefined;
 };
 
 export type ExecutionConcurrencySettingsReader = {
@@ -804,6 +810,10 @@ export class ConversationService {
       "scheduleForUserMessage"
     >,
     private readonly developmentInstructions?: (ownerId: string, conversationId: string) => Promise<string | null>,
+    private readonly privacyMaskingSettings?: Pick<
+      PrivacyMaskingSettingsService,
+      "runtimeForUser"
+    >,
     private readonly runnerColdStartBudgetMs = workerColdStartTimeoutMs(DEFAULT_WORKER_READY_TIMEOUT_SECONDS),
   ) {}
 
@@ -881,7 +891,10 @@ export class ConversationService {
       userId,
       conversationId,
     );
-    return this.withObservedAutoCompaction(userId, conversationId, runtime);
+    return this.withPrivacyMasking(
+      userId,
+      await this.withObservedAutoCompaction(userId, conversationId, runtime),
+    );
   }
 
   private async modelRuntimeForSelection(
@@ -889,6 +902,7 @@ export class ConversationService {
     conversationId: string | undefined,
     model: string,
     reasoningEffort: ResolvedModelRuntime["reasoningEffort"],
+    source?: ModelSelectionSource,
   ): Promise<ResolvedModelRuntime> {
     if (!this.modelRuntimeSettings) {
       throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED");
@@ -896,8 +910,26 @@ export class ConversationService {
     const runtime = await this.modelRuntimeSettings.resolveRuntimeForSelection(
       model,
       reasoningEffort,
+      source,
     );
-    return this.withObservedAutoCompaction(userId, conversationId, runtime);
+    return this.withPrivacyMasking(
+      userId,
+      await this.withObservedAutoCompaction(userId, conversationId, runtime),
+    );
+  }
+
+  private async hasPersistedConversationReference(
+    conversationId: string,
+  ): Promise<boolean> {
+    const event = await this.prisma.conversationEvent.findFirst({
+      where: {
+        conversationId,
+        eventType: USER_MESSAGE_DISPLAY_EVENT_TYPE,
+        payloadJson: { path: ["display", "kind"], equals: "conversation_reference" },
+      },
+      select: { id: true },
+    });
+    return event !== null;
   }
 
   private async modelRuntimeForIntent(
@@ -909,6 +941,7 @@ export class ConversationService {
         intent.conversationId,
         intent.model,
         intent.reasoningEffort,
+        "persisted",
       );
     }
     return this.modelRuntimeForUser(intent.ownerId, intent.conversationId);
@@ -961,6 +994,20 @@ export class ConversationService {
     };
   }
 
+  private async withPrivacyMasking(
+    userId: string,
+    runtime: ResolvedModelRuntime,
+  ): Promise<ResolvedModelRuntime> {
+    if (!this.privacyMaskingSettings) return runtime;
+    const privacyMasking =
+      await this.privacyMaskingSettings.runtimeForUser(userId);
+    if (!privacyMasking) return runtime;
+    return {
+      ...runtime,
+      provider: { ...runtime.provider, privacyMasking },
+    };
+  }
+
   private async modelTransitionSourceForIntent(
     intent: TurnStartIntent,
     currentModel: string,
@@ -970,7 +1017,7 @@ export class ConversationService {
       intent.conversationId,
       currentModel,
       codexThreadId,
-      intent.regenerationJson?.turnSequenceNo,
+      intent.regenerationJson ? { beforeSequenceNo: intent.regenerationJson.turnSequenceNo } : undefined,
     );
   }
 
@@ -978,38 +1025,28 @@ export class ConversationService {
     conversationId: string,
     currentModel: string,
     codexThreadId: string | null,
-    beforeSequenceNo?: number,
+    { beforeSequenceNo }: { beforeSequenceNo?: number } = {},
   ): Promise<ResolvedModelTransitionRuntime | null> {
     if (!codexThreadId) return null;
-    const establishedSourceTurn = await this.prisma.conversationTurn.findFirst({
-      where: {
-        conversationId,
-        codexThreadId,
-        model: { not: null },
-        status: "completed",
-        ...(beforeSequenceNo === undefined
-          ? {}
-          : { sequenceNo: { lt: beforeSequenceNo } }),
-      },
+    const threadScope = {
+      conversationId,
+      codexThreadId,
+      ...(beforeSequenceNo === undefined ? {} : { sequenceNo: { lt: beforeSequenceNo } }),
+    };
+    const projectedSourceTurn = await this.prisma.conversationTurn.findFirst({
+      where: { ...threadScope, model: { not: null }, status: "completed" },
       orderBy: { sequenceNo: "desc" },
       select: { model: true },
     });
-    const fallbackSourceTurn = establishedSourceTurn
+    const fallbackSourceTurn = projectedSourceTurn
       ? null
       : await this.prisma.conversationTurn.findFirst({
-          where: {
-            conversationId,
-            codexThreadId,
-            model: { not: null },
-            ...(beforeSequenceNo === undefined
-              ? {}
-              : { sequenceNo: { lt: beforeSequenceNo } }),
-          },
+          where: { ...threadScope, model: { not: null } },
           orderBy: { sequenceNo: "desc" },
           select: { model: true },
         });
     const sourceModel = (
-      establishedSourceTurn ?? fallbackSourceTurn
+      projectedSourceTurn ?? fallbackSourceTurn
     )?.model?.trim();
     if (!sourceModel || sourceModel === currentModel) return null;
     if (!this.modelRuntimeSettings) {
@@ -1018,9 +1055,12 @@ export class ConversationService {
     try {
       return await this.modelRuntimeSettings.resolveModelTransitionRuntime(sourceModel);
     } catch (error) {
-      // Historical turns may reference a model that has since been removed
-      // from provider settings; the transition hint is best-effort.
-      if (error instanceof AppError && error.code === "MODEL_SELECTION_INVALID") {
+      // Transition hints are best-effort for historical turns whose model was
+      // removed.
+      if (
+        error instanceof AppError &&
+        error.code === "MODEL_SELECTION_INVALID"
+      ) {
         return null;
       }
       throw error;
@@ -1159,7 +1199,7 @@ export class ConversationService {
       }),
       applicationRuntime?.model && applicationRuntime.reasoningEffort
         ? this.modelRuntimeForSelection(input.ownerId, input.conversationId,
-            applicationRuntime.model, applicationRuntime.reasoningEffort)
+            applicationRuntime.model, applicationRuntime.reasoningEffort, "persisted")
         : this.modelRuntimeForUser(
         input.ownerId,
         existing ? input.conversationId : undefined,
@@ -1242,6 +1282,9 @@ export class ConversationService {
     const [resolved, modelRuntime] = await Promise.all([
       this.preflight.resolveRecovery({
         userId: ownerId,
+        ...(parsed.data.conversationId
+          ? { conversationId: parsed.data.conversationId }
+          : {}),
         capabilities: parsed.data.capabilitiesJson,
         mcpServers: parsed.data.mcpServersJson,
         ...(recoveryApplication?.applicationId
@@ -1254,6 +1297,7 @@ export class ConversationService {
             parsed.data.conversationId,
             parsed.data.model,
             parsed.data.reasoningEffort,
+            "persisted",
           )
         : this.modelRuntimeForUser(ownerId, parsed.data.conversationId),
     ]);
@@ -1679,7 +1723,10 @@ export class ConversationService {
     }
   }
 
-  async settleStartOperation(ownerId: string, input: RunnerStartSettled): Promise<boolean> {
+  async settleStartOperation(
+    ownerId: string,
+    input: RunnerStartSettled,
+  ): Promise<boolean> {
     bindTaskLatency({ conversationId: input.conversationId, turnId: input.projectionTurnId });
     const stored = await this.prisma.conversationTurnStartIntent.findUnique({
       where: { projectionTurnId: input.projectionTurnId },
@@ -1691,7 +1738,9 @@ export class ConversationService {
       throw new AppError("CONVERSATION_NOT_FOUND");
     }
     if (intent.runtimeGeneration !== input.runtimeGeneration) throw new AppError("CONFLICT");
-    return (await measureTaskStage("start_projection", () => this.recoverStartIntent(input.projectionTurnId, { resubmitNonTerminal: false }))) !== "pending";
+    return (await measureTaskStage("start_projection", () => this.recoverStartIntent(input.projectionTurnId, {
+      resubmitNonTerminal: false,
+    }))) !== "pending";
   }
 
   async recoverStartIntent(
@@ -1724,6 +1773,12 @@ export class ConversationService {
         await this.finishReleasePendingStartIntent(intent);
         return "released";
       }
+      const inspect = () => this.runner.inspectStartOperation(
+        intent.conversationId, intent.projectionTurnId, intent.ownerId,
+      );
+      const seal = () => this.runner.sealStartOperation(
+        intent.conversationId, intent.projectionTurnId, intent.ownerId, intent.runtimeGeneration,
+      );
       if (intent.runnerStatus === "slot_pending") {
         const hasExactSlot = await this.redis.hasTurnSlot(
           intent.conversationId,
@@ -1733,19 +1788,10 @@ export class ConversationService {
         if (hasExactSlot) {
           intent = await this.markStartIntentSlotAcquired(intent);
         } else {
-          let operation = await this.runner.inspectStartOperation(
-            intent.conversationId,
-            intent.projectionTurnId,
-            intent.ownerId,
-          );
+          let operation = await inspect();
           assertMatchingStartOperation(intent, operation);
           if (operation === null) {
-            operation = await this.runner.sealStartOperation(
-              intent.conversationId,
-              intent.projectionTurnId,
-              intent.ownerId,
-              intent.runtimeGeneration,
-            );
+            operation = await seal();
             assertMatchingStartOperation(intent, operation);
           }
           if (
@@ -1753,14 +1799,22 @@ export class ConversationService {
             (operation.status === "starting" ||
               operation.status === "uncertain")
           ) {
-            const resumed = await this.resumeDurableStartIntent(intent);
-            if (resumed === null) {
-              const deleted =
-                await this.deleteUnacquiredMissingStartIntent(intent);
-              return deleted ? "released" : "pending";
+            try {
+              const resumed = await this.resumeDurableStartIntent(intent);
+              if (resumed === undefined) return "pending";
+              if (resumed === null) {
+                const deleted =
+                  await this.deleteUnacquiredMissingStartIntent(intent);
+                return deleted ? "released" : "pending";
+              }
+              operation = resumed;
+              assertMatchingStartOperation(intent, operation);
+            } catch (error) {
+              // A Runner that still reports uncertain is a recovery outcome,
+              // not a reason to abort the whole pass and block API startup.
+              if (!isStartResumeOutcomeError(error)) throw error;
+              return "pending";
             }
-            operation = resumed;
-            assertMatchingStartOperation(intent, operation);
           }
           if (
             operation.status === "starting" ||
@@ -1798,38 +1852,78 @@ export class ConversationService {
         return "projected";
       }
 
-      let operation = await this.runner.inspectStartOperation(
-        intent.conversationId,
-        intent.projectionTurnId,
-        intent.ownerId,
-      );
+      let operation = await inspect();
       assertMatchingStartOperation(intent, operation);
       let sealedMissingOperation = false;
       if (operation === null) {
         sealedMissingOperation = true;
-        operation = await this.runner.sealStartOperation(
-          intent.conversationId,
-          intent.projectionTurnId,
-          intent.ownerId,
-          intent.runtimeGeneration,
-        );
+        operation = await seal();
         assertMatchingStartOperation(intent, operation);
       }
       if (
         resubmitNonTerminal &&
         (operation.status === "starting" || operation.status === "uncertain")
       ) {
-        const resumed = await this.resumeDurableStartIntent(intent);
-        if (resumed === null) {
-          const releasing = await this.markStartIntentForRelease(intent);
-          await this.finishReleasePendingStartIntent(releasing);
-          return "released";
+        try {
+          const resumed = await this.resumeDurableStartIntent(intent);
+          if (resumed === undefined) return "pending";
+          if (resumed === null) {
+            const releasing = await this.markStartIntentForRelease(intent);
+            await this.finishReleasePendingStartIntent(releasing);
+            return "released";
+          }
+          operation = resumed;
+          assertMatchingStartOperation(intent, operation);
+        } catch (error) {
+          // The Runner can still report uncertain, or settle to a sealed or
+          // failed start, while resuming. That is an outcome to verify below,
+          // not a reason to fail the whole recovery pass.
+          if (!isStartResumeOutcomeError(error)) throw error;
         }
-        operation = resumed;
-        assertMatchingStartOperation(intent, operation);
       }
       if (operation.status === "starting" || operation.status === "uncertain") {
-        return "pending";
+        if (
+          Date.now() - Date.parse(operation.updatedAt) >=
+            START_INTENT_UNSETTLED_RELEASE_MILLISECONDS
+        ) {
+          // The window authorizes verification, never release by itself. The
+          // operation may already have settled since the earlier inspection.
+          let settled = await inspect();
+          assertMatchingStartOperation(intent, settled);
+          if (settled?.status === "starting" || settled?.status === "uncertain") {
+            // Publish the interrupt marker so a live start stops at its next
+            // checkpoint, then confirm what actually settled. The interrupt
+            // receipt alone does not prove that no native turn exists.
+            try {
+              await this.runner.interruptStartOperation(
+                intent.conversationId,
+                intent.projectionTurnId,
+                intent.ownerId,
+                intent.runtimeGeneration,
+              );
+            } catch {
+              return "pending";
+            }
+            settled = await inspect();
+            assertMatchingStartOperation(intent, settled);
+          }
+          if (settled?.status === "succeeded") {
+            // A native turn exists. Keep its real result and let the native
+            // terminal flow finish instead of reporting a start failure.
+            const succeeded = await this.recordSucceededStartIntent(
+              intent,
+              settled.result,
+            );
+            await this.publishStartProjection(succeeded, settled.result);
+            return "projected";
+          }
+          // Only a definite failure proves the start cannot produce a native
+          // turn. Anything else stays pending so a late result is not erased.
+          if (settled?.status !== "failed") return "pending";
+          operation = settled;
+        } else {
+          return "pending";
+        }
       }
       if (operation.status === "succeeded") {
         const succeeded = await this.recordSucceededStartIntent(
@@ -1868,7 +1962,7 @@ export class ConversationService {
 
   private async resumeDurableStartIntent(
     intent: TurnStartIntent,
-  ): Promise<RunnerStartOperation | null> {
+  ): Promise<RunnerStartOperation | null | undefined> {
     const [conversation, owner] = await Promise.all([
       this.prisma.conversation.findFirst({
         where: { id: intent.conversationId, ownerId: intent.ownerId },
@@ -1914,6 +2008,7 @@ export class ConversationService {
       const resolved = await Promise.all([
         this.preflight.resolveStartIntentRecovery({
           userId: intent.ownerId,
+          conversationId: intent.conversationId,
           capabilities: intent.capabilitiesJson,
           mcpServers: intent.mcpServersJson,
           ...(intent.applicationId
@@ -1954,9 +2049,11 @@ export class ConversationService {
     );
   }
 
-  private trackAcceptedStartRecovery(projectionTurnId: string): void {
-    if (this.acceptedStartRecoveries.has(projectionTurnId)) return;
-    const recovery = this.recoverAcceptedStartUntilSettled(projectionTurnId);
+  private trackAcceptedStartRecovery(projectionTurnId: string, dispatch?: () => Promise<boolean>): boolean {
+    if (this.acceptedStartRecoveries.has(projectionTurnId)) return false;
+    const recovery = (async () => {
+      if (!dispatch || await dispatch()) await this.recoverAcceptedStartUntilSettled(projectionTurnId);
+    })();
     const tracked = recovery
       .catch(async () => {
         await this.audit
@@ -1979,6 +2076,7 @@ export class ConversationService {
     // deduplicated. The durable pending-intent dispatcher handles this exact
     // operation if the API exits or this bounded fast path times out.
     this.acceptedStartRecoveries.set(projectionTurnId, tracked);
+    return true;
   }
 
   private async recoverAcceptedStartUntilSettled(
@@ -2806,7 +2904,9 @@ export class ConversationService {
       turn_id: start.projectionTurnId,
       task_kind: start.taskKind,
       idempotency_key: start.idempotencyKey,
-      input_text: start.inputText,
+      input_text: start.messageDisplayJson?.kind === "conversation_reference"
+        ? officeAnnotationRequestText(start.messageDisplayJson)
+        : start.inputText,
       created_at: start.createdAt.toISOString(),
       message_display: start.messageDisplayJson,
       attachments: start.attachmentsJson.map((file) => ({
@@ -2835,6 +2935,7 @@ export class ConversationService {
           detailEvents,
           new Set(messages.map((message) => message.id)),
         );
+    const projectedEvents = detailEvents.map(projectStoredEvent);
     return {
       conversation: {
         ...projectConversation(
@@ -2878,7 +2979,7 @@ export class ConversationService {
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       plan_reviews: planReviews.map(projectPlanReview),
       files: files.map(projectFile),
-      events: detailEvents.map(projectStoredEvent),
+      events: projectedEvents,
       model_context_usage: projectModelContextUsage(latestModelContextUsage),
       ...(runningTurn
         ? {
@@ -3716,9 +3817,6 @@ export class ConversationService {
     const lock = await this.acquireConversationLock(conversationId);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM conversations WHERE id = ${conversationId}::uuid FOR UPDATE
-      `;
         const running = await tx.conversationTurn.findFirst({
           where: { conversationId, status: "running" },
         });
@@ -3747,16 +3845,17 @@ export class ConversationService {
         });
         if (existing.length >= 5)
           throw new AppError("PENDING_REQUEST_LIMIT_REACHED");
-        if (inputText.trim().length === 0) {
+        const stagedAttachments = {
+          conversationId,
+          pendingRequestId: null,
+          turnId: null,
+          status: "staged",
+          source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
+        };
+        const emptyInput = inputText.trim().length === 0;
+        if (emptyInput) {
           const attachment = await tx.conversationFile.findFirst({
-            where: {
-              conversationId,
-              pendingRequestId: null,
-              turnId: null,
-              kind: "attachment",
-              status: "staged",
-              source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
-            },
+            where: { ...stagedAttachments, kind: "attachment" },
             select: { id: true },
           });
           if (!attachment) throw new AppError("VALIDATION_ERROR");
@@ -3786,13 +3885,7 @@ export class ConversationService {
         }
         if (!preservesStagedAttachments) {
           await tx.conversationFile.updateMany({
-            where: {
-              conversationId,
-              pendingRequestId: null,
-              turnId: null,
-              status: "staged",
-              source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
-            },
+            where: stagedAttachments,
             data: {
               pendingRequestId: pending.id,
               status: "pending",
@@ -3882,7 +3975,9 @@ export class ConversationService {
         const unchanged = currentIds.every(
           (id, index) => id === pendingIds[index],
         );
-        if (unchanged) return { items: current, event: null };
+        if (unchanged) {
+          return { items: current, event: null };
+        }
 
         const protectedByStartIntent =
           await tx.conversationTurnStartIntent.findFirst({
@@ -3894,10 +3989,14 @@ export class ConversationService {
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
 
+        // Move every row above both ranges to keep the positive and unique constraints valid.
+        const lastQueueNo = current.at(-1)?.queueNo ?? 0n;
+        const finalQueueNo = BigInt(pendingIds.length);
+        const temporaryBase = lastQueueNo > finalQueueNo ? lastQueueNo : finalQueueNo;
         for (const [index, pendingId] of pendingIds.entries()) {
           await tx.pendingRequest.update({
             where: { id: pendingId },
-            data: { queueNo: BigInt(-(index + 1)) },
+            data: { queueNo: temporaryBase + BigInt(index + 1) },
           });
         }
         for (const [index, pendingId] of pendingIds.entries()) {
@@ -3940,7 +4039,9 @@ export class ConversationService {
         return { items, event };
       });
 
-      if (!result.event) return { items: result.items.map(projectPending) };
+      if (!result.event) {
+        return { items: result.items.map(projectPending) };
+      }
       await this.audit.write({
         ...context,
         actorId: ownerId,
@@ -4084,8 +4185,10 @@ export class ConversationService {
         });
         if (!pending) throw new AppError("NOT_FOUND");
         if (pending.status === "steering") throw new AppError("CONFLICT");
-        // A plain composer cannot safely restore the original structured selection.
-        if (inspectOfficeAnnotationPrompt(pending.inputText).suspected) throw new AppError("CONFLICT");
+        const pendingAnnotation = inspectOfficeAnnotationPrompt(pending.inputText);
+        if (pendingAnnotation?.suspected) {
+          throw new AppError("CONFLICT");
+        }
         const protectedByStartIntent =
           await tx.conversationTurnStartIntent.findFirst({
             where: {
@@ -4189,9 +4292,22 @@ export class ConversationService {
     const lock = await this.acquireConversationLock(conversationId, "turn-start");
     let lockTransferred = false;
     try {
-      const projectedTurnId = deterministicUuid(
+      const pendingForRetry = await this.prisma.pendingRequest.findFirst({
+        where: {
+          id: pendingId,
+          conversationId,
+          submittedBy: ownerId,
+        },
+        select: {
+          status: true,
+          blockCode: true,
+          lastStartCheckedAt: true,
+        },
+      });
+      const projectedTurnId = pendingStartProjectionTurnId(
         conversationId,
-        `pending-start:${pendingId}`,
+        pendingId,
+        pendingForRetry,
       );
       const projected = await this.prisma.conversationTurn.findUnique({
         where: { id: projectedTurnId },
@@ -4466,6 +4582,7 @@ export class ConversationService {
                 conversationId,
                 persistedState.model,
                 persistedState.reasoningEffort,
+                "persisted",
               )
             : this.modelRuntimeForUser(ownerId, conversationId),
           this.applicationRuntimeForConversation(
@@ -5202,7 +5319,9 @@ export class ConversationService {
         const turn = await this.prisma.conversationTurn.findFirst({
           where: { id: localTurnId, conversationId },
         });
-        if (!turn) throw new AppError("TURN_STEER_REQUEST_FAILED");
+        if (!turn) {
+          throw new AppError("TURN_STEER_REQUEST_FAILED");
+        }
 
         const messageId = deterministicUuid(
           turn.id,
@@ -5231,7 +5350,6 @@ export class ConversationService {
           }
           return { turn_id: localTurnId, accepted: true };
         }
-
         const accepted = await this.runner.steer({
           conversationId,
           operationId,
@@ -5369,7 +5487,6 @@ export class ConversationService {
       }
       return { turn_id: existingMessage.turnId, accepted: true };
     }
-
     const lock = await this.acquireConversationLock(conversationId);
     let pendingToAdvance: string | null = null;
     let errorToThrow: unknown;
@@ -5858,15 +5975,14 @@ export class ConversationService {
     if (turn.status !== "running") {
       throw new AppError("TURN_INTERRUPT_REQUEST_FAILED");
     }
-    const interrupt =
-      turn.taskKind === "goal"
-        ? await this.runner.interrupt(
-            conversationId,
-            ownerId,
-            turn.codexTurnId,
-            turn.id,
-          )
-        : await this.runner.interrupt(conversationId, ownerId, turn.codexTurnId);
+    const interrupt = turn.taskKind === "goal"
+      ? await this.runner.interrupt(
+          conversationId,
+          ownerId,
+          turn.codexTurnId,
+          turn.id,
+        )
+      : await this.runner.interrupt(conversationId, ownerId, turn.codexTurnId);
     return this.recordTurnInterruptRequest(
       ownerId,
       conversationId,
@@ -6085,6 +6201,7 @@ export class ConversationService {
         response,
       });
     } catch (error) {
+      // The answer may have arrived. Native resolution or turn termination will settle it.
       await this.prisma.conversationUserInputRequest.updateMany({
         where: { id: request.id, status: "answering" },
         data:
@@ -6624,6 +6741,7 @@ export class ConversationService {
             conversationId,
             turn.model,
             reasoningEffortSchema.parse(turn.reasoningEffort),
+            "persisted",
           )
         : await this.modelRuntimeForUser(ownerId, conversationId);
     const authorizedAgentKeys = await this.authorizedSubAgentKeysForTurn(
@@ -7478,7 +7596,7 @@ export class ConversationService {
       const prewarmedRuntime = claimedPrewarm
         ? await this.runner.inspectPrewarmedConversation(id, ownerId).catch(() => null)
         : null;
-      let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
+      let runtime: { agentsTemplateVersion: string | null; runtimeGeneration: string };
       if (prewarmedRuntime) {
         runtime = prewarmedRuntime;
       } else {
@@ -9089,30 +9207,11 @@ export class ConversationService {
       data: { turnId: null, visibility: "internal_sanitized" },
     });
     if (!intent.pendingRequestId) {
-      const sequenceNo = await nextConversationEventSequence(
-        tx,
-        intent.conversationId,
-      );
-      return tx.conversationEvent.create({
-        data: {
-          conversationId: intent.conversationId,
-          sequenceNo,
-          eventType: "conversation.error",
-          visibility: "user_visible",
-          payloadJson: conversationStartFailurePayloadSchema.parse({
-            schema_version: 1,
-            error_code: failureCode,
-            message_key: failureCode === "TURN_START_CLOSED"
-              ? "errors.turnStartClosed"
-              : "errors.runnerUnavailable",
-            retryable: true,
-            start_failure: {
-              turn_id: intent.projectionTurnId,
-              idempotency_key: intent.idempotencyKey,
-            },
-          }),
-          sseEventId: `${intent.conversationId}:${sequenceNo}`,
-        },
+      return recordUnstartedTurnFailure(tx, {
+        conversationId: intent.conversationId,
+        turnId: intent.projectionTurnId,
+        idempotencyKey: intent.idempotencyKey,
+        failureCode,
       });
     }
     const ownerStatus = await executionPrincipalStatus(tx, intent.ownerId);
@@ -9310,8 +9409,13 @@ export class ConversationService {
   ) {
     const lock =
       existingLock ?? (await this.acquireConversationLock(conversationId, "turn-start"));
+    const unlock = () => this.redis.releaseConversationLock(conversationId, lock).catch(() => undefined);
+    // Resolve the transition source before any durable reservation so the
+    // exact checked runtime is the one Runner compacts and forks with.
+    let checkedModelTransitionSource: ResolvedModelTransitionRuntime | null | undefined;
     try {
       const conversation = await this.assertOwner(ownerId, conversationId);
+      const submittedAnnotation = submissionOfficeAnnotation(submission);
       if (
         submission.expectedCodexThreadId !== undefined &&
         conversation.codexThreadId !== submission.expectedCodexThreadId
@@ -9342,7 +9446,7 @@ export class ConversationService {
       if (attachmentIds?.length) {
         await this.assertInteractiveFileAccess(ownerId, conversationId);
       }
-      const officeAnnotation = submissionOfficeAnnotation(submission);
+      const officeAnnotation = submittedAnnotation;
       const preservesStagedAttachments =
         Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference" && officeAnnotation.kind !== "task_references") ||
         (submission.preserveStagedAttachments === true &&
@@ -9576,8 +9680,22 @@ export class ConversationService {
         throw error;
       }
 
+      const pendingStart = pendingId
+        ? await this.prisma.pendingRequest.findFirst({
+            where: {
+              id: pendingId,
+              conversationId,
+              submittedBy: ownerId,
+            },
+            select: {
+              status: true,
+              blockCode: true,
+              lastStartCheckedAt: true,
+            },
+          })
+        : null;
       const projectionTurnId = pendingId
-        ? deterministicUuid(conversationId, `pending-start:${pendingId}`)
+        ? pendingStartProjectionTurnId(conversationId, pendingId, pendingStart)
         : input.idempotencyKey
           ? deterministicUuid(
               conversationId,
@@ -9636,142 +9754,127 @@ export class ConversationService {
         throw new AppError("CONFLICT");
       }
 
-      let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
-      let resolved: Awaited<ReturnType<ConversationPreflight["resolve"]>>;
+      let runtime: { runtimeGeneration: string; agentsTemplateVersion: string | null };
+      let resolved: Awaited<ReturnType<ConversationPreflight["resolve"]>> | undefined;
       let modelRuntime: ResolvedModelRuntime;
       try {
-        const authorizationPromise = this.preflight.resolve({
-          userId: ownerId,
-          conversationId,
-          priorityCapabilityIds: input.priorityCapabilityIds,
-          ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
-        });
-        // Dynamic Worker creation must happen after the API has atomically
-        // published managed/agents. Keeping the dependency in this promise
-        // preserves parallel attachment/model checks without racing Subpath.
-        const runtimeInspectionPromise = this.runner.inspectRuntime(
-          conversationId,
-          ownerId,
-          runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath),
-        );
-        const runtimePromise = Promise.all([
-          authorizationPromise,
-          runtimeInspectionPromise,
-        ]).then(async ([, inspected]) => {
-          if (
-            inspected &&
-            inspected.runtimeGeneration === conversation.runtimeGeneration &&
-            inspected.agentsTemplateVersion ===
-              conversation.agentsTemplateVersion
-          ) {
-            return inspected;
-          }
-          const placement = runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath);
-          return this.runner.prepareRuntime(conversationId, ownerId, placement.workspacePath, placement.serviceSessionId);
-        });
-        const [
-          runtimeResult,
-          authorizationResult,
-          attachmentsResult,
-          modelRuntimeResult,
-        ] = await Promise.allSettled([
-          runtimePromise,
-          authorizationPromise,
-          Promise.all(
-            files.map(async (file) => {
-              if (!file.workspaceRelativePath || !file.workspaceRootRelPath) {
-                throw new AppError("ATTACHMENT_UPLOAD_INVALID");
-              }
-              let candidate: string;
-              try {
-                candidate = resolveConversationWorkspaceEntry(
-                  this.workspaceRoot,
-                  ownerId,
-                  file.workspaceRootRelPath,
-                  file.workspaceRelativePath,
-                );
-              } catch {
-                throw new AppError("ATTACHMENT_UPLOAD_INVALID");
-              }
-              await access(candidate, constants.R_OK).catch(() => {
-                throw new AppError("ATTACHMENT_UPLOAD_INVALID");
-              });
-            }),
-          ),
-          applicationRuntime !== null &&
-          applicationRuntime.model !== null &&
-          applicationRuntime.reasoningEffort !== null
+      const authorizationPromise = this.preflight.resolve({
+        userId: ownerId,
+        conversationId,
+        priorityCapabilityIds: input.priorityCapabilityIds,
+        ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
+      });
+      // Dynamic Worker creation must happen after the API has atomically
+      // published managed/agents. Keeping the dependency in this promise
+      // preserves parallel attachment/model checks without racing Subpath.
+      const runtimeInspectionPromise = this.runner.inspectRuntime(
+        conversationId,
+        ownerId,
+        runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath),
+      );
+      const runtimePromise = Promise.all([
+        authorizationPromise,
+        runtimeInspectionPromise,
+      ]).then(async ([, inspected]) => {
+        if (
+          inspected &&
+          inspected.runtimeGeneration === conversation.runtimeGeneration &&
+          inspected.agentsTemplateVersion ===
+            conversation.agentsTemplateVersion
+        ) {
+          return inspected;
+        }
+        const placement = runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath);
+        return this.runner.prepareRuntime(conversationId, ownerId, placement.workspacePath, placement.serviceSessionId);
+      });
+      const [
+        runtimeResult,
+        authorizationResult,
+        attachmentsResult,
+        modelRuntimeResult,
+      ] = await Promise.allSettled([
+        runtimePromise,
+        authorizationPromise,
+        Promise.all(
+          files.map(async (file) => {
+            if (!file.workspaceRelativePath || !file.workspaceRootRelPath) {
+              throw new AppError("ATTACHMENT_UPLOAD_INVALID");
+            }
+            let candidate: string;
+            try {
+              candidate = resolveConversationWorkspaceEntry(
+                this.workspaceRoot,
+                ownerId,
+                file.workspaceRootRelPath,
+                file.workspaceRelativePath,
+              );
+            } catch {
+              throw new AppError("ATTACHMENT_UPLOAD_INVALID");
+            }
+            await access(candidate, constants.R_OK).catch(() => {
+              throw new AppError("ATTACHMENT_UPLOAD_INVALID");
+            });
+          }),
+        ),
+        applicationRuntime !== null &&
+        applicationRuntime.model !== null &&
+        applicationRuntime.reasoningEffort !== null
+          ? this.modelRuntimeForSelection(
+              ownerId,
+              conversationId,
+              applicationRuntime.model,
+              applicationRuntime.reasoningEffort,
+              "persisted",
+            )
+          : submission.modelPreference
             ? this.modelRuntimeForSelection(
                 ownerId,
                 conversationId,
-                applicationRuntime.model,
-                applicationRuntime.reasoningEffort,
+                submission.modelPreference.modelId,
+                submission.modelPreference.reasoningEffort,
               )
-            : submission.modelPreference
-              ? this.modelRuntimeForSelection(
-                  ownerId,
-                  conversationId,
-                  submission.modelPreference.modelId,
-                  submission.modelPreference.reasoningEffort,
-                )
-              : this.modelRuntimeForUser(ownerId, conversationId),
-        ]);
-        if (runtimeResult.status === "rejected") throw runtimeResult.reason;
-        if (authorizationResult.status === "rejected") {
-          await this.runner
-            .closeRuntimeProcess(conversationId, ownerId)
-            .catch(() => undefined);
-          throw authorizationResult.reason;
-        }
-        if (attachmentsResult.status === "rejected") {
-          throw attachmentsResult.reason;
-        }
-        if (modelRuntimeResult.status === "rejected") {
-          throw modelRuntimeResult.reason;
-        }
-        runtime = runtimeResult.value;
-        resolved = authorizationResult.value;
-        modelRuntime = modelRuntimeResult.value;
-        if (runtime.agentsTemplateVersion !== conversation.agentsTemplateVersion ||
-            runtime.runtimeGeneration !== conversation.runtimeGeneration) {
-          const refreshed = await this.prisma.conversation.updateMany({
-          where: { id: conversationId, ownerId },
-          data: {
-            agentsTemplateVersion: runtime.agentsTemplateVersion,
-            runtimeGeneration: runtime.runtimeGeneration,
-          },
-        });
-          if (refreshed.count !== 1) throw new AppError("CONVERSATION_NOT_FOUND");
-        }
+            : this.modelRuntimeForUser(ownerId, conversationId),
+      ]);
+      if (runtimeResult.status === "rejected") throw runtimeResult.reason;
+      if (authorizationResult.status === "rejected") {
+        await this.runner
+          .closeRuntimeProcess(conversationId, ownerId)
+          .catch(() => undefined);
+        throw authorizationResult.reason;
+      }
+      if (attachmentsResult.status === "rejected") {
+        throw attachmentsResult.reason;
+      }
+      if (modelRuntimeResult.status === "rejected") {
+        throw modelRuntimeResult.reason;
+      }
+      runtime = runtimeResult.value;
+      resolved = authorizationResult.value;
+      modelRuntime = modelRuntimeResult.value;
+      if (runtime.agentsTemplateVersion !== conversation.agentsTemplateVersion ||
+          runtime.runtimeGeneration !== conversation.runtimeGeneration) {
+        const refreshed = await this.prisma.conversation.updateMany({
+        where: { id: conversationId, ownerId },
+        data: {
+          agentsTemplateVersion: runtime.agentsTemplateVersion,
+          runtimeGeneration: runtime.runtimeGeneration,
+        },
+      });
+        if (refreshed.count !== 1) throw new AppError("CONVERSATION_NOT_FOUND");
+      }
       } catch (error) {
         await this.recordPendingStartBlock(conversationId, pendingId, error);
         throw error;
       }
 
       const executionConcurrency = await this.executionConcurrencyForStart();
-      let startIntent = await this.preflight.withCapabilityStartBarrier(
-        {
-          userId: ownerId,
-          conversationId,
-          priorityCapabilityIds: input.priorityCapabilityIds,
-          capabilities: resolved.capabilities,
-          capabilityGeneration: resolved.capabilityGeneration,
-          capabilityVerification: resolved.capabilityVerification,
-          mcpServers: resolved.mcpServers ?? [],
-          mcpGeneration: resolved.mcpGeneration ?? EMPTY_MCP_GENERATION,
-          environment: resolved.environment ?? {},
-          credentialUsageReceipts: resolved.credentialUsageReceipts ?? [],
-          mcpCredentialUsageReceipts: resolved.mcpCredentialUsageReceipts ?? [],
-          ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
-        },
-        () =>
-          this.createStartIntentWithResourceLease({
+      const createIntent = () => this.createStartIntentWithResourceLease({
             projectionTurnId,
             ownerId,
             conversationId,
             expectedRuntimeGeneration: runtime.runtimeGeneration,
-            capabilityGeneration: resolved.capabilityGeneration,
-            mcpGeneration: resolved.mcpGeneration ?? EMPTY_MCP_GENERATION,
+            capabilityGeneration: resolved?.capabilityGeneration ?? EMPTY_MCP_GENERATION,
+            mcpGeneration: resolved?.mcpGeneration ?? EMPTY_MCP_GENERATION,
             modelRuntime,
             applicationRuntime,
             expectedCodexThreadId: conversation.codexThreadId,
@@ -9781,19 +9884,32 @@ export class ConversationService {
             regeneration: regeneration ?? null,
             attachments: files.map(snapshotTurnStartAttachment),
             capabilities: snapshotStartIntentCapabilities(
-              resolved.capabilities,
+              resolved?.capabilities ?? [],
             ),
-            mcpServers: resolved.mcpServers ?? [],
+            mcpServers: resolved?.mcpServers ?? [],
             credentialUsageReceipts: snapshotCredentialUsageReceipts(
-              resolved.credentialUsageReceipts ?? [],
+              resolved?.credentialUsageReceipts ?? [],
               ownerId,
             ),
             mcpCredentialUsageReceipts:
-              resolved.mcpCredentialUsageReceipts ?? [],
+              resolved?.mcpCredentialUsageReceipts ?? [],
             audit: context,
             planReviewAction: planReviewAction ?? null,
-          }),
-      );
+      });
+      let startIntent = resolved
+        ? await this.preflight.withCapabilityStartBarrier({
+            ...resolved,
+            userId: ownerId,
+            conversationId,
+            priorityCapabilityIds: input.priorityCapabilityIds,
+            mcpServers: resolved.mcpServers ?? [],
+            mcpGeneration: resolved.mcpGeneration ?? EMPTY_MCP_GENERATION,
+            environment: resolved.environment ?? {},
+            credentialUsageReceipts: resolved.credentialUsageReceipts ?? [],
+            mcpCredentialUsageReceipts: resolved.mcpCredentialUsageReceipts ?? [],
+            ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
+          }, createIntent)
+        : await createIntent();
       const acquired = await this.redis.acquireTurnSlot(
         conversationId,
         projectionTurnId,
@@ -9896,17 +10012,21 @@ export class ConversationService {
       }
 
       let runnerTurn: StartedRunnerTurn | undefined;
-      const modelTransitionSource = await this.modelTransitionSourceForIntent(
-        startIntent,
-        modelRuntime.model,
-        conversation.codexThreadId,
-      );
+      if (checkedModelTransitionSource === undefined) {
+        checkedModelTransitionSource =
+          await this.modelTransitionSourceForIntent(
+            startIntent,
+            modelRuntime.model,
+            conversation.codexThreadId,
+          );
+      }
+      const modelTransitionSource = checkedModelTransitionSource;
       try {
         const runnerStartInput = buildRunnerStartInputFromIntent(
           startIntent,
           conversation.codexThreadId,
-          resolved.capabilities,
-          resolved.environment ?? {},
+          resolved?.capabilities ?? [],
+          resolved?.environment ?? {},
           modelRuntime,
           modelTransitionSource,
           executionConcurrency,
@@ -9939,7 +10059,8 @@ export class ConversationService {
             startIntent,
             startedTurn,
           );
-        } catch {
+        } catch (error) {
+          if (!resolved) throw error;
           await this.runner.reconcile({
             conversationId,
             ownerId,
@@ -10023,9 +10144,7 @@ export class ConversationService {
         throw error;
       }
     } finally {
-      await this.redis
-        .releaseConversationLock(conversationId, lock)
-        .catch(() => undefined);
+      await unlock();
     }
   }
 
@@ -10353,30 +10472,33 @@ export function projectTaskTitle(
   return title;
 }
 
-function projectPending(row: {
-  id: string;
-  conversationId: string;
-  queueNo: bigint;
-  submittedBy: string;
-  inputText: string;
-  priorityCapabilityIdsJson: unknown;
-  knowledgeBaseIdsJson: unknown;
-  collaborationMode: string;
-  status: string;
-  blockCode: string | null;
-  idempotencyKey: string | null;
-  lastStartCheckedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function projectPending(
+  row: {
+    id: string;
+    conversationId: string;
+    queueNo: bigint;
+    submittedBy: string;
+    inputText: string;
+    priorityCapabilityIdsJson: unknown;
+    knowledgeBaseIdsJson: unknown;
+    collaborationMode: string;
+    status: string;
+    blockCode: string | null;
+    idempotencyKey: string | null;
+    lastStartCheckedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+) {
   const inspected = inspectOfficeAnnotationPrompt(row.inputText);
+  const structuredAnnotation = inspected?.suspected ? inspected : null;
   return {
     id: row.id,
     conversation_id: row.conversationId,
     queue_no: Number(row.queueNo),
     submitted_by: row.submittedBy,
-    input_text: inspected.suspected ? (inspected.request ?? "") : row.inputText,
-    ...(inspected.display ? { display: inspected.display } : {}),
+    input_text: structuredAnnotation ? (structuredAnnotation.request ?? "") : row.inputText,
+    ...(structuredAnnotation?.display ? { display: structuredAnnotation.display } : {}),
     priority_capability_ids: jsonStringArray(row.priorityCapabilityIdsJson),
     knowledge_base_ids: jsonStringArray(row.knowledgeBaseIdsJson),
     collaboration_mode: conversationCollaborationModeSchema.parse(
@@ -11727,6 +11849,19 @@ function assertMatchingStartOperation(
   }
 }
 
+/**
+ * Runner-side start outcomes that recovery must verify rather than treat as
+ * infrastructure failures. Letting these abort a bulk pass would keep the API
+ * from starting while the durable intent remains for the recovery worker.
+ */
+function isStartResumeOutcomeError(error: unknown): boolean {
+  return (
+    error instanceof RunnerStartOperationUncertainError ||
+    (error instanceof AppError &&
+      (error.code === "TURN_START_CLOSED" || error.code === "RUNNER_UNAVAILABLE"))
+  );
+}
+
 function matchesStartIntentSubmission(
   intent: TurnStartIntent,
   input: {
@@ -11910,7 +12045,37 @@ function mapPreflightBlockCode(code: string): string | null {
   return null;
 }
 
-function deterministicUuid(namespace: string, name: string): string {
+async function recordUnstartedTurnFailure(
+  tx: Prisma.TransactionClient,
+  { id, conversationId, turnId, idempotencyKey, failureCode }: {
+    id?: string;
+    conversationId: string;
+    turnId: string;
+    idempotencyKey: string | null;
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE";
+  },
+): Promise<Parameters<typeof projectStoredEvent>[0]> {
+  const sequenceNo = await nextConversationEventSequence(tx, conversationId);
+  return tx.conversationEvent.create({
+    data: {
+      ...(id && { id }),
+      conversationId,
+      sequenceNo,
+      eventType: "conversation.error",
+      visibility: "user_visible",
+      payloadJson: conversationStartFailurePayloadSchema.parse({
+        schema_version: 1,
+        error_code: failureCode,
+        message_key: failureCode === "TURN_START_CLOSED" ? "errors.turnStartClosed" : "errors.runnerUnavailable",
+        retryable: true,
+        start_failure: { turn_id: turnId, idempotency_key: idempotencyKey },
+      }),
+      sseEventId: `${conversationId}:${sequenceNo}`,
+    },
+  });
+}
+
+export function deterministicUuid(namespace: string, name: string): string {
   const namespaceBytes = Buffer.from(namespace.replaceAll("-", ""), "hex");
   if (namespaceBytes.length !== 16) throw new AppError("VALIDATION_ERROR");
   const digest = createHash("sha1")
@@ -11927,4 +12092,32 @@ function deterministicUuid(namespace: string, name: string): string {
     hex.slice(16, 20),
     hex.slice(20, 32),
   ].join("-");
+}
+
+/**
+ * A queued request keeps its deterministic turn id until a release leaves the
+ * Runner operation sealed. Rotating the id from the release check time lets a
+ * user retry start a fresh Runner operation instead of hitting the sealed one.
+ */
+export function pendingStartProjectionTurnId(
+  conversationId: string,
+  pendingId: string,
+  pending: {
+    status: string;
+    blockCode: string | null;
+    lastStartCheckedAt: Date | null;
+  } | null,
+): string {
+  const retryAt =
+    pending?.status === "blocked_preflight" &&
+    pending.blockCode === "runner_unavailable" &&
+    pending.lastStartCheckedAt
+      ? pending.lastStartCheckedAt.getTime()
+      : null;
+  return deterministicUuid(
+    conversationId,
+    retryAt === null
+      ? `pending-start:${pendingId}`
+      : `pending-start:${pendingId}:retry:${retryAt}`,
+  );
 }

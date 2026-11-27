@@ -50,10 +50,10 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
   const [detected, setDetected] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
   const queryKey = ["browser-use", userId] as const
-  const status = useQuery({
+  const { data, isError } = useQuery({
     queryKey,
-    queryFn: () =>
-      apiRequest("/browser-use", { schema: browserUseStatusSchema }),
+    queryFn: ({ signal }) =>
+      apiRequest("/browser-use", { schema: browserUseStatusSchema, signal }),
     enabled: Boolean(userId) && supportedBrowser,
     refetchInterval: 5000,
   })
@@ -113,7 +113,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey, exact: true }),
   })
   const copyAddress = async (address: string, message = t("common.copied")) => {
     try {
@@ -123,6 +123,11 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
       notify.error(t("browserUse.addressCopyFailed"))
     }
   }
+  const connectionLabel = !data?.connected
+    ? t("browserUse.disconnected")
+    : t("browserUse.connected", {
+        browser: data.browser === "edge" ? "Edge" : "Chrome",
+      })
   return (
     <SettingsCard
       id="browser-extension"
@@ -191,12 +196,10 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
           </StatusBanner>
         )}
         {supportedBrowser && (
-          <p role="status" aria-live="polite" className="text-sm font-medium">
-            {status.data?.connected
-              ? t("browserUse.connected", {
-                  browser: status.data.browser === "edge" ? "Edge" : "Chrome",
-                })
-              : t("browserUse.disconnected")}
+          <p className="text-sm font-medium">
+            <span role="status" aria-atomic="true">
+              {connectionLabel}
+            </span>
           </p>
         )}
         <p className="text-sm text-muted-foreground">
@@ -207,9 +210,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         </p>
         {supportedBrowser && (
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold">
-              {t("browserUse.install")}
-            </h3>
+            <h3 className="text-sm font-semibold">{t("browserUse.install")}</h3>
             <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
               <Trans
                 i18nKey="browserUse.steps"
@@ -257,13 +258,11 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             )}
           </p>
         )}
-        {pending && !status.data?.connected && (
+        {pending && !data?.connected && (
           <StatusBanner>{t("browserUse.pending")}</StatusBanner>
         )}
-        {(action.isError || status.isError) && (
-          <StatusBanner variant="error">
-            {t("browserUse.failed")}
-          </StatusBanner>
+        {(action.isError || isError) && (
+          <StatusBanner variant="error">{t("browserUse.failed")}</StatusBanner>
         )}
         <div className="flex flex-wrap gap-2">
           <Button
@@ -280,7 +279,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
           >
             {t("browserUse.connect")}
           </Button>
-          {status.data?.connected && (
+          {data?.connected && (
             <Button
               variant="outline"
               disabled={action.isPending}

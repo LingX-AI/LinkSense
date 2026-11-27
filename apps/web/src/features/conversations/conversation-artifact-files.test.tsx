@@ -321,7 +321,7 @@ describe("conversation artifact files", () => {
     )
 
     const previewButton = screen.getByRole("button", {
-      name: "预览演示文稿 ai-introduction.pptx",
+      name: /预览演示文稿 ai-introduction\.pptx/u,
     })
     const presentationTile = previewButton.closest(
       ".artifact-presentation-tile"
@@ -379,13 +379,13 @@ describe("conversation artifact files", () => {
     )
 
     await userEvent.click(
-      screen.getByRole("button", { name: "预览文档 proposal.docx" })
+      screen.getByRole("button", { name: /预览文档 proposal\.docx/u })
     )
     await userEvent.click(
-      screen.getByRole("button", { name: "预览文档 budget.xlsx" })
+      screen.getByRole("button", { name: /预览文档 budget\.xlsx/u })
     )
     await userEvent.click(
-      screen.getByRole("button", { name: "预览 HTML 文档 landing.html" })
+      screen.getByRole("button", { name: /预览 HTML 文档 landing\.html/u })
     )
 
     expect(onPreviewOfficeDocument).toHaveBeenNthCalledWith(1, word)
@@ -408,7 +408,7 @@ describe("conversation artifact files", () => {
     )
 
     await userEvent.click(
-      screen.getByRole("button", { name: "预览压缩包 deliverables.zip" })
+      screen.getByRole("button", { name: /预览压缩包 deliverables\.zip/u })
     )
     expect(onPreviewOfficeDocument).toHaveBeenCalledWith(archive)
     expect(onDownload).not.toHaveBeenCalled()
@@ -420,7 +420,7 @@ describe("conversation artifact files", () => {
 
     await i18n.changeLanguage("en-US")
     expect(
-      screen.getByRole("button", { name: "Preview archive deliverables.zip" })
+      screen.getByRole("button", { name: /Preview archive deliverables\.zip/u })
     ).toBeVisible()
   })
 
@@ -443,10 +443,10 @@ describe("conversation artifact files", () => {
     )
 
     await userEvent.click(
-      screen.getByRole("button", { name: "预览文件 server.ts" })
+      screen.getByRole("button", { name: /预览文件 server\.ts/u })
     )
     await userEvent.click(
-      screen.getByRole("button", { name: "预览文件 report.pdf" })
+      screen.getByRole("button", { name: /预览文件 report\.pdf/u })
     )
     await userEvent.click(
       await screen.findByRole("button", { name: "预览图片 cover.png" })

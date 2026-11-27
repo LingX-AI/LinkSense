@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 
 import type { ConversationEvent } from "@/api/contracts"
 import {
+  selectContextCompactionSavedTokens,
   selectConversationModelContextUsage,
+  selectLatestConversationContextBreakdown,
   selectLatestConversationModelContextUsage,
 } from "@/features/conversations/conversation-context-usage"
 
@@ -31,6 +33,43 @@ describe("selectLatestConversationModelContextUsage", () => {
       turnId: "turn-2",
       usedTokens: 155_000,
       modelContextWindow: 258_000,
+    })
+  })
+
+  it("selects the latest native context breakdown", () => {
+    expect(
+      selectLatestConversationContextBreakdown([
+        tokenUsageEvent({
+          id: "event-1",
+          sequenceNo: 1,
+          turnId: "turn-1",
+          cumulativeTokens: 1_000,
+          lastTokens: 1_000,
+          modelContextWindow: 1_000_000,
+          cachedInputTokens: 300,
+          outputTokens: 200,
+          reasoningOutputTokens: 50,
+        }),
+        tokenUsageEvent({
+          id: "event-2",
+          sequenceNo: 2,
+          turnId: "turn-2",
+          cumulativeTokens: 2_000,
+          lastTokens: 2_000,
+          modelContextWindow: 1_000_000,
+          cachedInputTokens: 500,
+          outputTokens: 400,
+          reasoningOutputTokens: 100,
+        }),
+      ])
+    ).toEqual({
+      turnId: "turn-2",
+      usedTokens: 2_000,
+      modelContextWindow: 1_000_000,
+      inputTokens: 2_000,
+      cachedInputTokens: 500,
+      outputTokens: 400,
+      reasoningOutputTokens: 100,
     })
   })
 
@@ -108,6 +147,9 @@ function tokenUsageEvent({
   cumulativeTokens,
   lastTokens,
   modelContextWindow,
+  cachedInputTokens = 0,
+  outputTokens = 0,
+  reasoningOutputTokens = 0,
 }: {
   id: string
   sequenceNo: number
@@ -115,6 +157,9 @@ function tokenUsageEvent({
   cumulativeTokens: number
   lastTokens: number
   modelContextWindow: number | null
+  cachedInputTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
 }): ConversationEvent {
   const total = {
     totalTokens: cumulativeTokens,
@@ -126,9 +171,9 @@ function tokenUsageEvent({
   const last = {
     totalTokens: lastTokens,
     inputTokens: lastTokens,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    reasoningOutputTokens: 0,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
   }
   return {
     id,
@@ -152,3 +197,191 @@ function tokenUsageEvent({
     },
   }
 }
+
+function compactionItemEvent({
+  id,
+  sequenceNo,
+  method,
+  itemId = "context-compaction-1",
+}: {
+  id: string
+  sequenceNo: number
+  method: "item/started" | "item/completed"
+  itemId?: string
+}): ConversationEvent {
+  return {
+    id,
+    type: method,
+    turn_id: "turn-1",
+    sequence_no: sequenceNo,
+    created_at: "2026-08-15T00:00:00.000Z",
+    payload: {
+      schema_version: 2,
+      source: "codex_app_server",
+      method,
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: { id: itemId, type: "contextCompaction" },
+      },
+    },
+  }
+}
+
+describe("selectContextCompactionSavedTokens", () => {
+  const itemId = "context-compaction-1"
+  const beforeCompaction = tokenUsageEvent({
+    id: "usage-before",
+    sequenceNo: 1,
+    turnId: "turn-1",
+    cumulativeTokens: 508_329,
+    lastTokens: 440_528,
+    modelContextWindow: 258_000,
+  })
+  const compactionRequest = tokenUsageEvent({
+    id: "usage-compaction-request",
+    sequenceNo: 3,
+    turnId: "turn-1",
+    cumulativeTokens: 512_688,
+    lastTokens: 435_922,
+    modelContextWindow: 258_000,
+  })
+  const afterCompaction = tokenUsageEvent({
+    id: "usage-after",
+    sequenceNo: 4,
+    turnId: "turn-1",
+    cumulativeTokens: 512_688,
+    lastTokens: 37_261,
+    modelContextWindow: 258_000,
+  })
+
+  it("reports the tokens the compaction saved", () => {
+    expect(
+      selectContextCompactionSavedTokens(
+        [
+          beforeCompaction,
+          compactionItemEvent({
+            id: "compaction-started",
+            sequenceNo: 2,
+            method: "item/started",
+          }),
+          compactionRequest,
+          afterCompaction,
+          compactionItemEvent({
+            id: "compaction-completed",
+            sequenceNo: 5,
+            method: "item/completed",
+          }),
+        ],
+        itemId
+      )
+    ).toBe(403_267)
+  })
+
+  it("ignores context growth after the compaction", () => {
+    expect(
+      selectContextCompactionSavedTokens(
+        [
+          beforeCompaction,
+          compactionItemEvent({
+            id: "compaction-started",
+            sequenceNo: 2,
+            method: "item/started",
+          }),
+          afterCompaction,
+          tokenUsageEvent({
+            id: "usage-later",
+            sequenceNo: 5,
+            turnId: "turn-1",
+            cumulativeTokens: 560_000,
+            lastTokens: 90_000,
+            modelContextWindow: 258_000,
+          }),
+        ],
+        itemId
+      )
+    ).toBe(403_267)
+  })
+
+  it("ignores sizes reported for a later compaction", () => {
+    expect(
+      selectContextCompactionSavedTokens(
+        [
+          beforeCompaction,
+          compactionItemEvent({
+            id: "compaction-started",
+            sequenceNo: 2,
+            method: "item/started",
+          }),
+          afterCompaction,
+          compactionItemEvent({
+            id: "compaction-completed",
+            sequenceNo: 5,
+            method: "item/completed",
+          }),
+          compactionItemEvent({
+            id: "next-compaction-started",
+            sequenceNo: 6,
+            method: "item/started",
+            itemId: "context-compaction-2",
+          }),
+          tokenUsageEvent({
+            id: "usage-after-next-compaction",
+            sequenceNo: 7,
+            turnId: "turn-2",
+            cumulativeTokens: 520_000,
+            lastTokens: 900,
+            modelContextWindow: 258_000,
+          }),
+        ],
+        itemId
+      )
+    ).toBe(403_267)
+  })
+
+  it("returns null when no size is reported after the compaction started", () => {
+    expect(
+      selectContextCompactionSavedTokens(
+        [
+          beforeCompaction,
+          compactionItemEvent({
+            id: "compaction-started",
+            sequenceNo: 2,
+            method: "item/started",
+          }),
+        ],
+        itemId
+      )
+    ).toBeNull()
+  })
+
+  it("returns null when the context did not shrink", () => {
+    expect(
+      selectContextCompactionSavedTokens(
+        [
+          beforeCompaction,
+          compactionItemEvent({
+            id: "compaction-started",
+            sequenceNo: 2,
+            method: "item/started",
+          }),
+          tokenUsageEvent({
+            id: "usage-larger",
+            sequenceNo: 3,
+            turnId: "turn-1",
+            cumulativeTokens: 512_688,
+            lastTokens: 460_000,
+            modelContextWindow: 258_000,
+          }),
+        ],
+        itemId
+      )
+    ).toBeNull()
+  })
+
+  it("returns null without a compaction item id", () => {
+    expect(
+      selectContextCompactionSavedTokens([beforeCompaction], undefined)
+    ).toBeNull()
+  })
+})

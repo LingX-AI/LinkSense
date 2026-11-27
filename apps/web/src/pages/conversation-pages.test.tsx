@@ -20,10 +20,15 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
-import { setAccessToken } from "@/api/session"
+import { beginLoginSession, setAccessToken } from "@/api/session"
+import { notify } from "@/components/feedback/notification"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
 import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
-import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
+import {
+  readLocalConversationDraft,
+  writeLocalConversationDraft,
+} from "@/features/conversations/conversation-local-draft"
+import { writeNativeReconnectSnapshot } from "@/features/conversations/native-reconnect-simulation"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
 import {
@@ -142,6 +147,199 @@ function createDeferred<T>() {
   return { promise, resolve, reject }
 }
 
+/**
+ * Renders a real ConversationPage whose local/cloud turn is still running
+ * while its native stream has exhausted every reconnect attempt.
+ */
+function renderRunningTurnWithExhaustedStream({
+  showComposer = true,
+  showHeader = true,
+  completed = false,
+}: {
+  showComposer?: boolean
+  showHeader?: boolean
+  completed?: boolean
+}) {
+  const conversationId = "conversation-exhausted"
+  const turnId = "40000000-0000-4000-8000-000000000021"
+  const startedAt = "2026-11-19T00:00:00.000Z"
+  const interruptedAt = "2026-11-19T00:00:04.000Z"
+  const completedAt = "2026-11-21T00:00:04.000Z"
+  const interruptRequests: Array<{ method: string; path: string }> = []
+  const turnStartRequests: Array<{ method: string; path: string }> = []
+  let terminal = false
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const path = new URL(url, window.location.origin).pathname
+    const method = init?.method ?? "GET"
+    if (url.includes("/events")) {
+      return Promise.resolve(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        })
+      )
+    }
+    if (path.endsWith("/conversations/prewarm")) {
+      return Promise.resolve(
+        envelope({
+          accepted: true,
+          conversation_id: "71000000-0000-4000-8000-000000000001",
+        })
+      )
+    }
+    if (path.endsWith("/model-preference")) {
+      return Promise.resolve(envelope(modelPreference()))
+    }
+    if (path.endsWith("/capabilities")) {
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    }
+    if (path.endsWith("/knowledge-bases/search-capability")) {
+      return Promise.resolve(
+        envelope({
+          status: "available",
+          reason_code: null,
+          checked_at: startedAt,
+        })
+      )
+    }
+    if (path.endsWith("/knowledge-bases")) {
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    }
+    if (method === "POST" && path.endsWith("/interrupt")) {
+      interruptRequests.push({ method, path })
+      return Promise.resolve(
+        path.endsWith(
+          `/conversations/${conversationId}/turns/${turnId}/interrupt`
+        )
+          ? envelope({ code: RUNNER_TURN_INTERRUPT_REQUESTED })
+          : new Response(null, { status: 404 })
+      )
+    }
+    if (method === "POST" && path.endsWith("/turns")) {
+      turnStartRequests.push({ method, path })
+      return Promise.resolve(
+        path.endsWith(`/conversations/${conversationId}/turns`)
+          ? envelope({ turn_id: turnId, accepted: true, status: "starting" })
+          : new Response(null, { status: 404 })
+      )
+    }
+    if (path.endsWith(`/conversations/${conversationId}`)) {
+      const turn = {
+        id: turnId,
+        status: completed
+          ? "completed"
+          : terminal
+            ? "interrupted"
+            : "running",
+        collaboration_mode: "default",
+        started_at: startedAt,
+        ...(completed
+          ? { completed_at: completedAt }
+          : terminal
+            ? { completed_at: interruptedAt, interrupted_at: interruptedAt }
+            : {}),
+      }
+      return Promise.resolve(
+        envelope({
+          project_id: null,
+          id: conversationId,
+          title: "本地运行任务",
+          archived: false,
+          execution_status: completed
+            ? "completed"
+            : terminal
+              ? "interrupted"
+              : "running",
+          updated_at: startedAt,
+          messages: [
+            {
+              id: "message-exhausted-stream",
+              role: "user",
+              turn_id: turnId,
+              content: "继续处理这个任务",
+              created_at: startedAt,
+            },
+            ...(completed
+              ? [
+                  {
+                    id: "message-terminal-assistant",
+                    role: "assistant",
+                    turn_id: turnId,
+                    content: "任务已完成。",
+                    created_at: completedAt,
+                  },
+                ]
+              : []),
+          ],
+          turns: [turn],
+          running_turn: completed || terminal ? null : turn,
+          pending_requests: [],
+          attachments: [],
+          artifacts: [],
+        })
+      )
+    }
+    return Promise.resolve(new Response(null, { status: 404 }))
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  if (!completed)
+    writeNativeReconnectSnapshot(window.localStorage, {
+      version: 2,
+      conversationId,
+      turnId,
+      phase: "failed",
+      round: 3,
+      attempt: 5,
+      startedAtMs: Date.now() - 75_000,
+      nextAttemptAtMs: null,
+    })
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+  render(
+    <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route
+            path="/conversations/:conversationId"
+            element={
+              <ConversationPage
+                conversationId={conversationId}
+                showComposer={showComposer}
+                showHeader={showHeader}
+              />
+            }
+          />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+  return {
+    conversationId,
+    turnId,
+    interruptPath:
+      `/api/v1/conversations/${conversationId}/turns/${turnId}/interrupt`,
+    interruptRequests,
+    turnStartRequests,
+    markTurnInterrupted: () => {
+      terminal = true
+    },
+    refreshConversation: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["conversation", conversationId],
+        exact: true,
+      }),
+  }
+}
+
+function renderTerminalTask() {
+  return renderRunningTurnWithExhaustedStream({ completed: true })
+}
+
 function conversation(id: string, title: string) {
   return {
     project_id: null,
@@ -233,7 +431,7 @@ describe("archived conversation pagination", () => {
     renderPrewarmPage()
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     await interaction.click(
       screen.getByRole("button", { name: "测试切换已有任务" })
@@ -241,7 +439,7 @@ describe("archived conversation pagination", () => {
 
     await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
   })
 
@@ -524,6 +722,333 @@ describe("archived conversation pagination", () => {
   })
 })
 
+describe("conversation file downloads", () => {
+  afterEach(() => {
+    cleanup()
+    setAccessToken(null)
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    { entry: "artifact", bodyResult: "completed" },
+    { entry: "artifact", bodyResult: "failed" },
+    { entry: "source preview", bodyResult: "completed" },
+    { entry: "source preview", bodyResult: "failed" },
+  ] as const)(
+    "keeps a $bodyResult $entry download from the previous login silent and reports a current failure on retry",
+    async ({ entry, bodyResult }) => {
+      setAccessToken("test-account-a")
+      await i18n.changeLanguage("zh-CN")
+      const conversationId = "conversation-download"
+      const route = `/conversations/${conversationId}`
+      const artifact = {
+        id: "artifact-1",
+        filename: "report.mp3",
+        mime_type: "audio/mpeg",
+        kind: "artifact",
+        downloadable: true,
+      }
+      const artifactPath = `/api/v1${route}/files/${artifact.id}`
+      const pendingBody = createDeferred<Blob>()
+      const response = new Response()
+      const readBody = vi
+        .spyOn(response, "blob")
+        .mockReturnValue(pendingBody.promise)
+      const requestFile = vi
+        .fn<() => Promise<Response>>()
+        .mockResolvedValueOnce(response)
+        .mockResolvedValueOnce(errorEnvelope(404, "ARTIFACT_NOT_FOUND"))
+      const createObjectURL = vi.fn(() => "blob:conversation-download")
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL = createObjectURL
+          static revokeObjectURL = vi.fn()
+        }
+      )
+      const notifyError = vi.spyOn(notify, "error").mockReturnValue("error")
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path === `${artifactPath}/download`) return requestFile()
+          if (path === `${artifactPath}/preview`) {
+            return envelope({
+              url: "https://files.example.test/report.mp3",
+              expires_at: "2999-01-01T00:00:00.000Z",
+            })
+          }
+          if (path === `/api/v1${route}`) {
+            return envelope({
+              id: conversationId,
+              project_id: null,
+              title: "报告任务",
+              updated_at: "2026-09-08T00:00:00.000Z",
+              execution_status: "idle",
+              messages: [
+                {
+                  id: "message-1",
+                  role: "assistant",
+                  content: "报告已生成。",
+                  artifacts: [artifact],
+                },
+              ],
+            })
+          }
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events")) {
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          }
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })
+      render(
+        <MemoryRouter initialEntries={[route]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      const interaction = userEvent.setup()
+      const reply = await screen.findByRole("article", { name: "助手回复" })
+      let download: HTMLElement
+      if (entry === "source preview") {
+        await interaction.click(
+          within(reply).getByRole("button", { name: /预览文件 report\.mp3/u })
+        )
+        download = await screen.findByRole("button", {
+          name: "下载文档 report.mp3",
+        })
+      } else {
+        download = within(reply).getByRole("button", { name: "下载 report.mp3" })
+      }
+      await interaction.click(download)
+      await waitFor(() => expect(readBody).toHaveBeenCalledOnce())
+
+      await act(async () => {
+        beginLoginSession()
+        setAccessToken("test-account-b")
+        if (bodyResult === "failed") {
+          pendingBody.reject(new Error("File body read failed"))
+        } else {
+          pendingBody.resolve(new Blob(["old file"]))
+        }
+      })
+      expect(createObjectURL).not.toHaveBeenCalled()
+      expect(notifyError).not.toHaveBeenCalled()
+
+      await interaction.click(download)
+      await waitFor(() =>
+        expect(notifyError).toHaveBeenCalledExactlyOnceWith("未找到该产物。", {
+          id: "conversation-file-download-error",
+        })
+      )
+      expect(requestFile).toHaveBeenCalledTimes(2)
+      expect(createObjectURL).not.toHaveBeenCalled()
+    }
+  )
+})
+
+describe("existing task actions", () => {
+  const id = "71000000-0000-4000-8000-000000000001"
+  const completedTurnId = "40000000-0000-4000-8000-000000000001"
+  const projectId = "31000000-0000-4000-8000-000000000001"
+  const endpoint = `/conversations/${id}`
+  const updatedAt = "2026-11-20T00:00:00.000Z"
+
+  function renderExistingTask({
+    windowSize = 128_000,
+    running = false,
+  }: { windowSize?: number | null; running?: boolean } = {}) {
+    let currentProjectId: string | null = projectId
+    const turn = {
+      id: completedTurnId,
+      status: running ? "running" : "completed",
+      collaboration_mode: "default",
+      started_at: updatedAt,
+    }
+    const detail = {
+      id,
+      title: "Existing task",
+      archived: false,
+      updated_at: updatedAt,
+      execution_status: running ? "running" : "idle",
+      messages: [
+        {
+          id: "message-1",
+          role: "user",
+          content: "Earlier prompt",
+          turn_id: completedTurnId,
+          created_at: updatedAt,
+        },
+      ],
+      turns: [turn],
+      running_turn: running ? turn : null,
+      model_context_usage: {
+        used_tokens: 10_000,
+        model_context_window: windowSize,
+        updated_at: updatedAt,
+      },
+    }
+    const preference = modelPreference()
+    const compact = vi.fn(() =>
+      envelope({
+        accepted: true,
+        turn_id: "40000000-0000-4000-8000-000000000002",
+        status: "starting",
+      })
+    )
+    const patch = vi.fn<(body: unknown) => void>()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path.endsWith(`${endpoint}/compact`)) return compact()
+        if (path.endsWith(endpoint)) {
+          if (init?.method === "PATCH") {
+            patch(JSON.parse(String(init.body)))
+            currentProjectId = null
+          }
+          return envelope({ ...detail, project_id: currentProjectId })
+        }
+        if (path.endsWith("/events"))
+          return new Response("", {
+            headers: { "content-type": "text/event-stream" },
+          })
+        if (path.endsWith("/model-preference"))
+          return envelope({
+            ...preference,
+            models: preference.models.map((model) => ({
+              ...model,
+              context_window: 128_000,
+            })),
+          })
+        return envelope({ items: [], next_cursor: null })
+      })
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <MemoryRouter initialEntries={[endpoint]}>
+        <QueryClientProvider client={queryClient}>
+          <Routes>
+            <Route
+              path="/conversations/:conversationId"
+              element={<ConversationPage />}
+            />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>
+    )
+    return { queryClient, compact, patch }
+  }
+
+  beforeEach(async () => {
+    // Clear first so the access token is persisted alongside the in-memory
+    // session; the account guard requires a consistent credential slot.
+    window.localStorage.clear()
+    setAccessToken("existing-task-test-token")
+    await i18n.changeLanguage("zh-CN")
+  })
+
+  afterEach(() => {
+    cleanup()
+    setAccessToken(null)
+    vi.unstubAllGlobals()
+  })
+
+  it("retains unsent text in the composer and in the saved draft after overview compaction", async () => {
+    const draft = "Review the next section"
+    seedLocalDraft(id, { input: draft })
+    const { queryClient, compact } = renderExistingTask()
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    await waitFor(() => expect(composer).toHaveValue(draft))
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    )
+    await waitFor(() => expect(compact).toHaveBeenCalledOnce())
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0))
+    expect(composer).toHaveValue(draft)
+    expect(readLocalConversationDraft(window.localStorage, "user-1", id).input)
+      .toBe(draft)
+  })
+
+  it("clears the submitted compaction command after acceptance", async () => {
+    seedLocalDraft(id, { input: "/compact" })
+    const { queryClient, compact } = renderExistingTask()
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    await waitFor(() => expect(composer).toHaveValue("/compact"))
+    await userEvent.click(composer)
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => expect(compact).toHaveBeenCalledOnce())
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0))
+    expect(composer).toHaveValue("")
+    expect(readLocalConversationDraft(window.localStorage, "user-1", id).input)
+      .toBe("")
+  })
+
+  it("uses the model catalog window for the overview when the usage window is missing", async () => {
+    renderExistingTask({ windowSize: null })
+    const overview = await screen.findByRole("region", {
+      name: i18n.t("conversation.taskOverview.title"),
+    })
+    expect(
+      await within(overview).findByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    ).toBeEnabled()
+    expect(within(overview).getByText("8% 已用")).toBeVisible()
+  })
+
+  it("moves an existing project task to the public workspace from the keyboard", async () => {
+    const { patch } = renderExistingTask()
+    const user = userEvent.setup()
+    const actions = await screen.findByRole("button", {
+      name: i18n.t("common.actions"),
+    })
+    actions.focus()
+    await user.keyboard("{Enter}")
+    const move = await screen.findByRole("menuitem", {
+      name: "移至公共空间",
+    })
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}")
+    expect(move).toHaveFocus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ project_id: null }))
+    await user.click(actions)
+    expect(
+      screen.queryByRole("menuitem", { name: /公共空间/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not move a project task while its turn is running", async () => {
+    const { patch } = renderExistingTask({ running: true })
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole("button", { name: i18n.t("common.actions") })
+    )
+    const move = await screen.findByRole("menuitem", { name: "移至公共空间" })
+    expect(move).toHaveAttribute("aria-disabled", "true")
+    await user.click(move)
+    expect(patch).not.toHaveBeenCalled()
+  })
+})
+
 describe("conversation knowledge base snapshots", () => {
   beforeEach(async () => {
     window.localStorage.clear()
@@ -716,11 +1241,12 @@ describe("conversation knowledge base snapshots", () => {
           screen.queryByRole("button", { name: "添加知识库" })
         ).not.toBeInTheDocument()
       } else {
-        expect(screen.getByRole("button", { name: "添加知识库" })).toBeVisible()
+        await userEvent.click(screen.getByRole("button", { name: "添加内容" }))
+        expect(screen.getByRole("option", { name: "知识库" })).toBeVisible()
       }
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       client.clear()
     }
@@ -839,7 +1365,7 @@ describe("conversation knowledge base snapshots", () => {
         })
       ).not.toBeInTheDocument()
       expect(
-        header.getByRole("button", { name: /^(打开|关闭)任务概览$/u })
+        header.getByRole("button", { name: /^(打开|关闭)会话侧栏$/u })
       ).toBeVisible()
       expect(
         dialog.queryByRole("textbox", { name: "任务输入框" })
@@ -874,6 +1400,27 @@ describe("conversation knowledge base snapshots", () => {
       client.clear()
     }
   )
+
+  it("keeps an exhausted cloud stream on its existing stop path", async () => {
+    const fixture = renderRunningTurnWithExhaustedStream({})
+    const disconnectText = i18n.t(
+      "conversation.streamDisconnectedBeforeCompletion"
+    )
+
+    await waitFor(() => expect(screen.getByText(disconnectText)).toBeVisible())
+    await waitFor(() => expect(fixture.interruptRequests).toHaveLength(1))
+    const summary = screen.getByTestId(`turn-summary-${fixture.turnId}`)
+    expect(
+      within(summary).getByText(i18n.t("statuses.interrupted"), {
+        exact: true,
+      })
+    ).toBeVisible()
+    expect(fixture.interruptRequests).toEqual([
+      { method: "POST", path: fixture.interruptPath },
+    ])
+    expect(fixture.turnStartRequests).toHaveLength(0)
+    expect(screen.getAllByText(disconnectText)).toHaveLength(1)
+  })
 
   it("shows a Goal card immediately, waits for native timing, and yields to a fast completion", async () => {
     const conversationId = "conversation-native-goal"
@@ -1007,7 +1554,7 @@ describe("conversation knowledge base snapshots", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      screen.queryByRole("link", { name: "Powered by LinkSense" })
     ).not.toBeInTheDocument()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
@@ -1362,6 +1909,21 @@ describe("conversation knowledge base snapshots", () => {
     expect(
       within(screen.getByRole("article", { name: "助手回复" })).getByText(
         "已在 30s 内达成目标"
+      )
+    ).toBeVisible()
+  })
+
+  it("offers Branch for terminal cloud tasks", async () => {
+    renderTerminalTask()
+    const reply = await screen.findByRole("article", { name: "助手回复" })
+    expect(within(reply).getByRole("button", { name: "复制消息" })).toBeVisible()
+    expect(
+      within(reply).getByRole("button", { name: "分支到新聊天" })
+    ).toBeVisible()
+    expect(
+      within(screen.getByRole("article", { name: "用户消息" })).getByRole(
+        "button",
+        { name: "编辑消息" }
       )
     ).toBeVisible()
   })
@@ -1949,13 +2511,12 @@ describe("conversation knowledge base snapshots", () => {
         screen
           .getByTestId(`turn-summary-${firstTurnId}`)
           .querySelector(".turn-status")
-      ).toHaveTextContent("正在处理")
-    )
-    expect(screen.getAllByText("正在压缩上下文", { exact: true })).toHaveLength(
-      1
+      ).toHaveTextContent("正在压缩上下文")
     )
     expect(
-      screen.getByText("正在压缩上下文").closest(".native-activity-item")
+      screen
+        .getByTestId(`turn-summary-${firstTurnId}`)
+        .querySelector(".native-activity-item")
     ).toBeVisible()
     expect(
       screen.queryByText("正在思考", { exact: true })
@@ -3574,7 +4135,7 @@ describe("conversation knowledge base snapshots", () => {
 
       expect(await screen.findByText(expectedLabel)).toBeVisible()
       expect(
-        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "Powered by LinkSense" })
       ).not.toBeInTheDocument()
       const managedLabel = "此任务由应用“AISG学校政策问答助手”管理"
       expect(screen.queryByText(managedLabel)).toBeNull()
@@ -3586,7 +4147,7 @@ describe("conversation knowledge base snapshots", () => {
       })
       const hideChatButton = screen.getByRole("button", { name: "隐藏聊天" })
       const taskOverviewButton = screen.getByRole("button", {
-        name: /^(打开|关闭)任务概览$/u,
+        name: /^(打开|关闭)会话侧栏$/u,
       })
       expect(
         taskOverviewButton.compareDocumentPosition(hideChatButton) &

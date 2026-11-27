@@ -8,6 +8,8 @@ import {
   uuidSchema,
 } from "./common.js";
 
+export const PUBLIC_SITE_SKILL_NAME = "linksense-public-site";
+
 export const builtInSkillNames = [
   "linksense-browser",
   "linksense-local-browser",
@@ -18,12 +20,24 @@ export const builtInSkillNames = [
   "linksense-knowledge-base",
   "linksense-skill-creator",
   "linksense-interactive-app-builder",
+  PUBLIC_SITE_SKILL_NAME,
 ] as const;
 export const builtInSkillNameSchema = z.enum(builtInSkillNames);
 export type BuiltInSkillName = z.infer<typeof builtInSkillNameSchema>;
 
 export const CAPABILITY_PACKAGE_NAME_MAX_LENGTH = 64;
-const reservedCapabilityNames = new Set<string>(builtInSkillNames);
+const reservedCapabilityNames = new Set<string>(
+  builtInSkillNames.filter((name) => name !== PUBLIC_SITE_SKILL_NAME),
+);
+
+/** Keep the built-in ID stable without taking a name already used by a custom Skill. */
+export function publicSiteRuntimeSkillName(occupied: ReadonlySet<string>): string {
+  let name: string = PUBLIC_SITE_SKILL_NAME;
+  for (let suffix = 1; occupied.has(name); suffix++) {
+    name = `${PUBLIC_SITE_SKILL_NAME}-builtin-${suffix}`;
+  }
+  return name;
+}
 
 export const capabilityPackageNameSchema = z
   .string()

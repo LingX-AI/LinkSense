@@ -401,7 +401,8 @@ export const admin = {
     cachedInputPrice: "Prix d’entrée en cache",
     outputPrice: "Prix de sortie",
     contextWindow: "Longueur du contexte du modèle",
-    contextWindowPlaceholder: "Détection automatique",
+    contextWindowPlaceholder: "Laisser vide pour détecter automatiquement",
+    contextWindowShortcuts: "Valeurs rapides de longueur de contexte",
     contextWindowInvalid:
       "Saisissez un entier supérieur à 0, ou laissez vide pour détecter automatiquement.",
     priceUnit: "USD / million de jetons",
@@ -414,6 +415,8 @@ export const admin = {
       "Le modèle sera supprimé immédiatement après confirmation. L’historique des tâches et de l’utilisation n’est pas affecté.",
     modelDeleted: "Modèle supprimé.",
     supportedEfforts: "Efforts de raisonnement pris en charge",
+    reasoningEffortsAutoHint:
+      "Adapté automatiquement au modèle ; modifiez-le uniquement si nécessaire.",
     selectedEfforts: "{{count}} sélectionnés",
     defaultEffort: "Effort de raisonnement par défaut",
     defaultModel: "Modèle de conversation par défaut",

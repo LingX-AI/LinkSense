@@ -39,8 +39,29 @@ export interface ConnectionProtocol {
     provider: ConnectionProvider,
     config: ConnectionConfiguration,
     token: ConnectionToken,
+    signal?: AbortSignal,
   ): Promise<ConnectionToken>;
 }
+
+export function connectionDiscoveryOptions(signal?: AbortSignal): oidc.DiscoveryRequestOptions {
+  const options: oidc.DiscoveryRequestOptions = {
+    timeout: 8,
+    execute: [oidc.enableNonRepudiationChecks],
+  };
+  if (signal) {
+    options[oidc.customFetch] = (url, { body, signal: deadline, ...request }) => {
+      const requestSignal = deadline ? AbortSignal.any([deadline, signal]) : signal;
+      requestSignal.throwIfAborted();
+      return globalThis.fetch(url, {
+        ...request,
+        body: body instanceof Uint8Array ? new Uint8Array(body) : body ?? null,
+        signal: requestSignal,
+      });
+    };
+  }
+  return options;
+}
+
 export const personalMicrosoftTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
 export const connectionScopes = {
   onedrive: [
@@ -140,6 +161,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
   private configuration(
     provider: ConnectionProvider,
     settings: ConnectionConfiguration,
+    signal?: AbortSignal,
   ): Promise<oidc.Configuration> {
     // openid-client's Entra discovery support validates the tenant-specific
     // issuer, audience, nonce and signature, including common/organizations.
@@ -150,7 +172,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
       settings.client_id,
       settings.client_secret,
       oidc.ClientSecretPost(settings.client_secret),
-      { timeout: 8, execute: [oidc.enableNonRepudiationChecks] },
+      connectionDiscoveryOptions(signal),
     );
   }
   async start(
@@ -223,10 +245,11 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
     provider: ConnectionProvider,
     settings: ConnectionConfiguration,
     value: ConnectionToken,
+    signal?: AbortSignal,
   ): Promise<MicrosoftToken> {
     const current = microsoftTokenSchema.parse(value);
     try {
-      const config = await this.configuration(provider, settings);
+      const config = await this.configuration(provider, settings, signal);
       const tokens = await oidc.refreshTokenGrant(
         config,
         current.refreshToken,
@@ -247,6 +270,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
           : current.scopes,
       });
     } catch (error) {
+      signal?.throwIfAborted();
       if (
         error instanceof oidc.ResponseBodyError &&
         error.error === "invalid_grant"

@@ -75,6 +75,7 @@ async function fixture(
     endpoint,
   );
   const intent = { detect: vi.fn().mockResolvedValue(true) };
+  const webSites = { publishedSlugForOwner: vi.fn().mockResolvedValue("sample-site") };
   await registerBrowserUseRoutes(app, {
     redis: rateLimitRedis,
     rateLimitHmacSecret: "test-browser-use-rate-limit-secret",
@@ -83,10 +84,32 @@ async function fixture(
     sharedSecret: "runner-secret",
     socketPath: "/api/v1/browser-use/socket",
     intent,
+    webSites,
   });
   await app.ready();
-  return { app, service, prisma, intent };
+  return { app, service, prisma, intent, webSites };
 }
+
+it("only dispatches a server-resolved site slug for the owner in a running Default turn", async () => {
+  const { app, service, prisma, webSites } = await fixture();
+  const siteId = "50000000-0000-4000-8000-000000000001";
+  const execute = vi.spyOn(service, "execute").mockResolvedValue({ ok: true, browser: "local", data: {} });
+  const call = (input: unknown) => app.inject({
+    method: "POST", url: "/internal/browser-use/execute",
+    headers: { authorization: "Bearer runner-secret", "x-linksense-owner-id": owner },
+    payload: { conversationId: task, turnId, input },
+  });
+  expect((await call({ action: "open_site", site_id: siteId, url: "https://example.test" })).statusCode).toBe(400);
+  prisma.conversationTurn.findFirst.mockResolvedValueOnce({ id: turnId, collaborationMode: "plan" });
+  expect((await call({ action: "open_site", site_id: siteId })).json()).toMatchObject({ ok: false });
+  expect(webSites.publishedSlugForOwner).not.toHaveBeenCalled();
+  webSites.publishedSlugForOwner.mockRejectedValueOnce(new AppError("WEB_SITE_NOT_FOUND"));
+  expect((await call({ action: "open_site", site_id: siteId })).statusCode).toBe(404);
+  expect(execute).not.toHaveBeenCalled();
+  expect((await call({ action: "open_site", site_id: siteId })).json()).toMatchObject({ ok: true });
+  expect(webSites.publishedSlugForOwner).toHaveBeenLastCalledWith(owner, siteId);
+  expect(execute).toHaveBeenCalledExactlyOnceWith(owner, task, { action: "open_site_window", slug: "sample-site" }, expect.any(AbortSignal));
+});
 it("requires login for browser settings and returns uncached status", async () => {
   const { app } = await fixture();
   expect(
@@ -389,7 +412,7 @@ it.each(["cancel", "revoke"])("notifies the extension after %s invalidates a dis
   await once(socket, "open");
   const ready = once(socket, "message");
   socket.send(JSON.stringify({ token, browser: "chrome" }));
-  await ready;
+  const { connection_id: connectionId } = JSON.parse(String((await ready)[0])) as { connection_id: string };
   const controller = new AbortController();
   const delivery = once(socket, "message");
   const running = service.execute(
@@ -409,6 +432,6 @@ it.each(["cancel", "revoke"])("notifies the extension after %s invalidates a dis
     type: "cancel",
     id: command.id,
   });
-  expect(await service.activeCommand(owner)).toBeNull();
+  expect(await service.activeCommand(owner, connectionId)).toBeNull();
   socket.close();
 });

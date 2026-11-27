@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ConversationEventHandlers } from "@/api/sse"
 import type { ConversationEvent } from "@/api/contracts"
+import { beginLoginSession } from "@/api/session"
 import {
   conversationReconnectingWarningDelayMs,
   conversationStreamFrameFallbackDelayMs,
@@ -371,6 +372,49 @@ describe("useConversationEvents", () => {
 
     expect(onEvent).not.toHaveBeenCalled()
     expect(commitCursor).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it("drops deferred events and does not reconnect after the login changes before unmount", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible")
+    const onEvent = vi.fn()
+    const { unmount } = renderHook(() =>
+      useConversationEvents("conversation-1", onEvent, "conversation-1:1")
+    )
+    const handlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    const commitCursor = vi.fn()
+
+    act(() =>
+      handlers.onEvent(
+        {
+          ...nativeAgentDelta(2, "上一个登录的内容"),
+          id: "conversation-1:2",
+        },
+        commitCursor
+      )
+    )
+
+    beginLoginSession()
+    // The animation-frame or timer flush must not deliver the previous
+    // login's buffered event before React can unmount this effect.
+    runAnimationFrame(16)
+    act(() => vi.advanceTimersByTime(conversationStreamFrameFallbackDelayMs))
+
+    expect(onEvent).not.toHaveBeenCalled()
+    expect(commitCursor).not.toHaveBeenCalled()
+
+    act(() => {
+      visibility.mockReturnValue("hidden")
+      document.dispatchEvent(new Event("visibilitychange"))
+      visibility.mockReturnValue("visible")
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledOnce()
+    expect(disconnects[0]).toHaveBeenCalledOnce()
     unmount()
   })
 

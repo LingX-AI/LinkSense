@@ -62,6 +62,9 @@ const containerEnvironment = {
 test("development logs include this startup without replaying failures from earlier sessions", () => {
   const since = "2026-09-17T14:37:00.000Z";
   assert.deepEqual(developmentApplicationLogCommand(since), [
+    "logs", "--follow", "--since", since, "api", "runner", "web", "dev-gateway",
+  ]);
+  assert.deepEqual(developmentApplicationLogCommand(since, true), [
     "logs", "--follow", "--since", since, "api", "runner", "web", "docs", "dev-gateway",
   ]);
 });
@@ -478,6 +481,11 @@ test("development startup attaches source watch before waiting for health", () =
   ]);
   assert.deepEqual(developmentApplicationStartCommands(), {
     initial: [
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "dev-gateway"],
+    ],
+  });
+  assert.deepEqual(developmentApplicationStartCommands(true), {
+    initial: [
       ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs", "dev-gateway"],
     ],
   });
@@ -722,9 +730,12 @@ test("development reattach readiness tolerates transient unhealthy services", as
   );
   assert.equal(targets[0].url, "http://127.0.0.1:4010/health/ready");
   assert.equal(targets[2].url, "http://127.0.0.1:18172/");
-  assert.equal(targets.length, 13);
-  assert.equal(targets[3].url, "http://127.0.0.1:18172/help/");
-  assert.equal(targets[4].url, "http://127.0.0.1:18172/help/en-US/");
+  assert.equal(targets.length, 11);
+  assert.equal(targets[3].url, "http://127.0.0.1:18172/src/main.tsx");
+  const docsTargets = developmentReadinessTargets(environment, { docs: true });
+  assert.equal(docsTargets.length, 13);
+  assert.equal(docsTargets[3].url, "http://127.0.0.1:18172/help/");
+  assert.equal(docsTargets[4].url, "http://127.0.0.1:18172/help/en-US/");
   assert.deepEqual(calls[0].headers, {
     authorization: "Bearer runner-secret",
   });
@@ -807,6 +818,7 @@ test("readiness rejects an application fallback page in place of the English Hel
   await assert.rejects(waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
     timeoutMs: 25,
     intervalMs: 1,
+    docs: true,
     fetchImplementation: async () => new Response('<html lang="zh-CN"></html>'),
   }), /Help Center \(en-US\).*Unexpected page content/u);
 });
@@ -834,7 +846,7 @@ test("readiness rechecks previously healthy services until every service passes 
     },
   });
   // The first round cannot reach API proxy routes while the API is unhealthy.
-  assert.deepEqual([...attempts.values()], [...Array(9).fill(3), 2, 2, 2, 2]);
+  assert.deepEqual([...attempts.values()], [...Array(7).fill(3), 2, 2, 2, 2]);
 });
 
 test("readiness cancellation aborts active probes without another retry", async () => {
@@ -851,7 +863,7 @@ test("readiness cancellation aborts active probes without another retry", async 
   });
   controller.abort(new Error("watch stopped"));
   await assert.rejects(ready, /watch stopped/u);
-  assert.equal(calls, 9);
+  assert.equal(calls, 7);
 });
 
 test("watch startup waits for initial synchronization and rejects early exit or timeout", async () => {

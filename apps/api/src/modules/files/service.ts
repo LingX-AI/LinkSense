@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
+  open,
   realpath,
   rm,
   writeFile,
@@ -1033,128 +1034,27 @@ export class FileService {
             cleanup: (key) => this.removeObjectOrEnqueue(input.conversationId, key),
           });
         }
-        const file = await this.prisma.$transaction(async (tx) => {
-          const eventSequence = await nextConversationEventSequence(
-            tx,
-            input.conversationId,
-          );
-          const downloadCardEventId = randomUUID();
-          const systemCapabilityEventId = randomUUID();
-          const created = await tx.conversationFile.create({
-            data: {
-              id,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              kind: "artifact",
-              source: "agent_generated",
-              status: "registered",
-              filename: displayName,
-              mimeType,
-              sizeBytes: BigInt(data.byteLength),
-              checksumSha256: sha256(data),
-              storageBackend: "minio",
-              minioObjectKey: objectKey,
-              downloadable: true,
-              downloadCardEventId,
-            },
-          });
-          if (webBundle) await tx.webArtifactBundle.create({ data: { fileId: id, ownerId: input.ownerId, conversationId: input.conversationId, manifestJson: webBundle } });
-          await tx.conversationEvent.create({
-            data: {
-              id: systemCapabilityEventId,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              sequenceNo: eventSequence,
-              eventType: "conversation.system_capability.used",
-              visibility: "user_collapsed",
-              payloadJson: {
-                schema_version: 1,
-                system_capability_key: "linksense_file_service",
-                usage_type: "system_file_service",
-                name: "LinkSense File Service",
-                safe_summary: "registered downloadable artifact",
-              },
-              sseEventId: `${input.conversationId}:${eventSequence}`,
-            },
-          });
-          await tx.conversationEvent.create({
-            data: {
-              id: downloadCardEventId,
-              conversationId: input.conversationId,
-              turnId: turn.id,
-              sequenceNo: eventSequence + 1n,
-              eventType: "conversation.artifact.created",
-              visibility: "user_visible",
-              payloadJson: {
-                schema_version: 1,
-                file_id: created.id,
-                display_name: created.filename,
-                mime_type: created.mimeType,
-                size_bytes: Number(created.sizeBytes),
-              },
-              sseEventId: `${input.conversationId}:${eventSequence + 1n}`,
-            },
-          });
-          await tx.auditLog.create({
-            data: {
-              actorId: turn.submittedBy,
-              action: "conversation_artifact_registered",
-              targetType: "conversation_file",
-              targetId: created.id,
-              result: "success",
-              metadataJson: sanitizeAuditMetadata(
-                "conversation_artifact_registered",
-                {
-                  conversation_id: input.conversationId,
-                  turn_id: turn.id,
-                  size_bytes: Number(created.sizeBytes),
-                  mime_type: created.mimeType,
-                },
-              ),
-            },
-          });
-          return { created, eventSequence, systemCapabilityEventId };
-        });
-        const systemCapabilityEvent = {
-          id: file.systemCapabilityEventId,
-          conversation_id: input.conversationId,
-          turn_id: turn.id,
-          sequence_no: Number(file.eventSequence),
-          event_type: "conversation.system_capability.used",
-          visibility: "user_collapsed",
-          payload: {
-            schema_version: 1,
-            system_capability_key: "linksense_file_service",
-            usage_type: "system_file_service",
-            name: "LinkSense File Service",
-            safe_summary: "registered downloadable artifact",
-          },
-          sse_event_id: `${input.conversationId}:${file.eventSequence}`,
-          created_at: new Date().toISOString(),
-        };
-        const artifactEvent = {
-          id: file.created.downloadCardEventId,
-          conversation_id: input.conversationId,
-          turn_id: turn.id,
-          sequence_no: Number(file.eventSequence + 1n),
-          event_type: "conversation.artifact.created",
-          visibility: "user_visible",
-          payload: {
-            schema_version: 1,
-            file_id: file.created.id,
-            display_name: file.created.filename,
-            mime_type: file.created.mimeType,
-            size_bytes: Number(file.created.sizeBytes),
-          },
-          sse_event_id: `${input.conversationId}:${file.eventSequence + 1n}`,
-          created_at: new Date().toISOString(),
-        };
-        await this.redis
-          .publishConversationEvent(input.conversationId, systemCapabilityEvent)
-          .catch(() => undefined);
-        await this.redis
-          .publishConversationEvent(input.conversationId, artifactEvent)
-          .catch(() => undefined);
+        const file = await this.prisma.$transaction((tx) =>
+          this.createArtifactRecord(tx, {
+            ownerId: input.ownerId,
+            conversationId: input.conversationId,
+            turnId: turn.id,
+            fileId: id,
+            displayName,
+            mimeType,
+            sizeBytes: BigInt(data.byteLength),
+            checksumSha256: sha256(data),
+            objectKey,
+            webBundle,
+          }),
+        );
+        await this.publishArtifactEvents(
+          input.conversationId,
+          turn.id,
+          file.created,
+          file.eventSequence,
+          file.systemCapabilityEventId,
+        );
         return {
           success: true,
           artifact_id: file.created.id,
@@ -1168,6 +1068,172 @@ export class FileService {
         throw error;
       }
     });
+  }
+
+  /**
+   * The single artifact publication path: file row, optional web bundle,
+   * capability event, download-card event, and audit row commit together or
+   * not at all.
+   */
+  private async createArtifactRecord(
+    tx: Prisma.TransactionClient,
+    input: {
+      ownerId: string;
+      conversationId: string;
+      turnId: string;
+      fileId: string;
+      displayName: string;
+      mimeType: string;
+      sizeBytes: bigint;
+      checksumSha256: string;
+      objectKey: string;
+      webBundle?: WebBundleManifest | null;
+    },
+  ) {
+    const eventSequence = await nextConversationEventSequence(
+      tx,
+      input.conversationId,
+    );
+    const downloadCardEventId = randomUUID();
+    const systemCapabilityEventId = randomUUID();
+    const created = await tx.conversationFile.create({
+      data: {
+        id: input.fileId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        kind: "artifact",
+        source: "agent_generated",
+        status: "registered",
+        filename: input.displayName,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        checksumSha256: input.checksumSha256,
+        storageBackend: "minio",
+        minioObjectKey: input.objectKey,
+        downloadable: true,
+        downloadCardEventId,
+      },
+    });
+    if (input.webBundle) {
+      await tx.webArtifactBundle.create({
+        data: {
+          fileId: input.fileId,
+          ownerId: input.ownerId,
+          conversationId: input.conversationId,
+          manifestJson: input.webBundle,
+        },
+      });
+    }
+    await tx.conversationEvent.create({
+      data: {
+        id: systemCapabilityEventId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        sequenceNo: eventSequence,
+        eventType: "conversation.system_capability.used",
+        visibility: "user_collapsed",
+        payloadJson: {
+          schema_version: 1,
+          system_capability_key: "linksense_file_service",
+          usage_type: "system_file_service",
+          name: "LinkSense File Service",
+          safe_summary: "registered downloadable artifact",
+        },
+        sseEventId: `${input.conversationId}:${eventSequence}`,
+      },
+    });
+    await tx.conversationEvent.create({
+      data: {
+        id: downloadCardEventId,
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        sequenceNo: eventSequence + 1n,
+        eventType: "conversation.artifact.created",
+        visibility: "user_visible",
+        payloadJson: {
+          schema_version: 1,
+          file_id: created.id,
+          display_name: created.filename,
+          mime_type: created.mimeType,
+          size_bytes: Number(created.sizeBytes),
+        },
+        sseEventId: `${input.conversationId}:${eventSequence + 1n}`,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: input.ownerId,
+        action: "conversation_artifact_registered",
+        targetType: "conversation_file",
+        targetId: created.id,
+        result: "success",
+        metadataJson: sanitizeAuditMetadata(
+          "conversation_artifact_registered",
+          {
+            conversation_id: input.conversationId,
+            turn_id: input.turnId,
+            size_bytes: Number(created.sizeBytes),
+            mime_type: created.mimeType,
+          },
+        ),
+      },
+    });
+    return { created, eventSequence, systemCapabilityEventId };
+  }
+
+  private async publishArtifactEvents(
+    conversationId: string,
+    turnId: string,
+    created: {
+      id: string;
+      filename: string;
+      mimeType: string | null;
+      sizeBytes: bigint;
+      downloadCardEventId: string | null;
+    },
+    eventSequence: bigint,
+    systemCapabilityEventId: string,
+  ): Promise<void> {
+    const systemCapabilityEvent = {
+      id: systemCapabilityEventId,
+      conversation_id: conversationId,
+      turn_id: turnId,
+      sequence_no: Number(eventSequence),
+      event_type: "conversation.system_capability.used",
+      visibility: "user_collapsed",
+      payload: {
+        schema_version: 1,
+        system_capability_key: "linksense_file_service",
+        usage_type: "system_file_service",
+        name: "LinkSense File Service",
+        safe_summary: "registered downloadable artifact",
+      },
+      sse_event_id: `${conversationId}:${eventSequence}`,
+      created_at: new Date().toISOString(),
+    };
+    const artifactEvent = {
+      id: created.downloadCardEventId,
+      conversation_id: conversationId,
+      turn_id: turnId,
+      sequence_no: Number(eventSequence + 1n),
+      event_type: "conversation.artifact.created",
+      visibility: "user_visible",
+      payload: {
+        schema_version: 1,
+        file_id: created.id,
+        display_name: created.filename,
+        mime_type: created.mimeType,
+        size_bytes: Number(created.sizeBytes),
+      },
+      sse_event_id: `${conversationId}:${eventSequence + 1n}`,
+      created_at: new Date().toISOString(),
+    };
+    await this.redis
+      .publishConversationEvent(conversationId, systemCapabilityEvent)
+      .catch(() => undefined);
+    await this.redis
+      .publishConversationEvent(conversationId, artifactEvent)
+      .catch(() => undefined);
   }
 
   async createDownloadLink(
@@ -1861,6 +1927,48 @@ function resolveArtifactMimeType(
     specificReportedMimeType ??
     DEFAULT_ARTIFACT_MIME_TYPE
   );
+}
+
+/**
+ * Resolves the verified metadata for artifact bytes whose size and checksum the
+ * caller already checked. Artifact registration and the API upload-confirmation
+ * controller share this policy so neither can persist a name/type combination
+ * the other would reject: the same content parser, MIME normalization, safe
+ * filename rules, and extension reconciliation apply before any object write.
+ *
+ * The declared filename is treated as a display name; only its basename is kept.
+ */
+export async function resolveVerifiedArtifactMetadata(input: {
+  filename: string;
+  displayName?: string;
+  reportedMimeType?: string;
+  signal?: AbortSignal;
+} & ({ data: Buffer; verifiedPath?: never } | { data?: never; verifiedPath: string })): Promise<{ filename: string; mimeType: string }> {
+  const detectedMimeType = normalizeMime(
+    (await (input.data ? detectFileType(input.data) : detectVerifiedArtifactFile(input.verifiedPath, input.signal)))?.mime,
+  );
+  const inferredMimeType = mimeTypeFromFilename(input.filename);
+  const reportedMimeType = normalizeMime(input.reportedMimeType);
+  const mimeType = resolveArtifactMimeType(
+    detectedMimeType,
+    inferredMimeType,
+    reportedMimeType,
+  );
+  return { filename: artifactDisplayName(input.displayName ?? input.filename, mimeType), mimeType };
+}
+
+async function detectVerifiedArtifactFile(filename: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const prefix = Buffer.alloc(MAXIMUM_CFBF_CLSID_PROBE_BYTES);
+  await using handle = await open(filename, "r");
+  const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
+  if (bytesRead < 2) return undefined;
+  const useCfbf = shouldUseCfbfDetector(prefix.subarray(0, bytesRead));
+  return new FileTypeParser({
+    ...(useCfbf && { customDetectors: [detectCfbf] }),
+    maxBufferSize: 16 * 1024 * 1024,
+    ...(signal && { signal }),
+  }).fromFile(filename);
 }
 
 function isStructuredMimeType(value: string | undefined): value is string {

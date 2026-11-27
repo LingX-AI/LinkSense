@@ -3,8 +3,10 @@ import {
   newProjectNavigationState,
   newProjectStorageKey,
   readNewProject,
+  readNewTaskProject,
   readNewTaskSource,
   rememberNewProject,
+  withoutNewTaskProject,
   withoutNewTaskSource,
 } from "./new-project-preference"
 
@@ -55,5 +57,12 @@ describe("new task project preference", () => {
     ).toBeUndefined()
     expect(withoutNewTaskSource(state)).toEqual({ other: true })
     expect(newProjectNavigationState("first", "new")).toBeNull()
+  })
+  it("validates a requested project without discarding other route state", () => {
+    const state = { newTaskProjectId: projectId, other: true }
+    expect(readNewTaskProject(state)).toBe(projectId)
+    expect(readNewTaskProject({ newTaskProjectId: "not-a-uuid" })).toBeUndefined()
+    expect(withoutNewTaskProject(state)).toEqual({ other: true })
+    expect(withoutNewTaskProject("invalid")).toBeNull()
   })
 })

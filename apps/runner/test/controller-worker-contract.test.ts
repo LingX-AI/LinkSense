@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { imagePreviewRegistrationSchema } from "@linksense/shared";
+import {
+  imagePreviewRegistrationSchema,
+  runnerPrivacyMaskingCaptureSchema,
+  type RunnerPrivacyMaskingCapture,
+} from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -94,6 +98,67 @@ describe("controller and dynamic worker HTTP contracts", () => {
     },
   );
 
+  it.each([
+    { serviceSessionId: undefined, legacyApi: false },
+    { serviceSessionId: "01900000-0000-7000-8000-000000000006", legacyApi: false },
+    { serviceSessionId: undefined, legacyApi: true },
+  ])(
+    "relays privacy masking captures through the controller ($serviceSessionId, legacy API: $legacyApi)",
+    async ({ serviceSessionId, legacyApi }) => {
+      const capture: RunnerPrivacyMaskingCapture = {
+        request_id: "01900000-0000-7000-8000-000000000020",
+        owner_id: ownerId,
+        conversation_id: conversationId,
+        turn_id: null,
+        model: "test-model",
+        kinds: { TERM: 1 },
+        masked_count: 1,
+        hints: [{ kind: "TERM", length: 4, location: "prompt", count: 1 }],
+        observed_at: "2026-11-20T00:00:00.000Z",
+      };
+      const api = Fastify({ logger: false });
+      const record = vi.fn();
+      api.post("/internal/runner/privacy-masking", async (request, reply) => {
+        expect(request.headers.authorization).toBe(`Bearer ${globalSecret}`);
+        expect(request.headers["x-linksense-owner-id"]).toBe(ownerId);
+        expect(request.headers["x-linksense-service-session"]).toBe(serviceSessionId);
+        if (legacyApi && Object.hasOwn(Object(request.body), "hints")) {
+          return reply.code(400).send({ success: false, error_code: "VALIDATION_ERROR" });
+        }
+        record(runnerPrivacyMaskingCaptureSchema.parse(request.body));
+        return { recorded: true };
+      });
+      const apiUrl = await api.listen({ host: "127.0.0.1", port: 0 });
+      const workers = { request: vi.fn<WorkerManager["request"]>() } as unknown as WorkerManager;
+      const controller = buildControllerServer(parseRunnerConfig({
+        LINKSENSE_RUNNER_MODE: "controller",
+        LINKSENSE_USER_DATA_ROOT: path.join(root, "users"),
+        LINKSENSE_RUNNER_SHARED_SECRET: globalSecret,
+        LINKSENSE_API_INTERNAL_URL: apiUrl,
+      }), workers);
+      let sink: HttpRunnerEventSink | undefined;
+      try {
+        const controllerUrl = await controller.listen({ host: "127.0.0.1", port: 0 });
+        const workspaceManager = new WorkspaceManager(path.join(root, "users"));
+        workspaceManager.bindOwner(conversationId, ownerId);
+        sink = new HttpRunnerEventSink(
+          controllerUrl,
+          ownerWorkerSecret(ownerId, globalSecret, serviceSessionId),
+          workspaceManager,
+          serviceSessionId ? { serviceSessionId } : {},
+        );
+
+        await expect(sink.recordPrivacyMasking(capture)).resolves.toBeUndefined();
+        expect(record).toHaveBeenCalledExactlyOnceWith(legacyApi ? { ...capture, hints: [] } : capture);
+        expect(workers.request).not.toHaveBeenCalled();
+      } finally {
+        await sink?.close();
+        await controller.close();
+        await api.close();
+      }
+    },
+  );
+
   it("uses a request-specific worker transport timeout when provided", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     vi.stubGlobal(
@@ -119,7 +184,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(110_000);
   });
 
-  it("preserves capability metadata and the separate memory model route over Fetch", async () => {
+  it("preserves capability metadata, the memory route and privacy masking over Fetch", async () => {
     const memoryExtraction = {
       model: "memory-model",
       reasoningEffort: "low",
@@ -131,6 +196,18 @@ describe("controller and dynamic worker HTTP contracts", () => {
         cached_input_price_per_million: "0.02",
         output_price_per_million: "0.5",
       },
+    };
+    const privacyMasking = {
+      revision: 3,
+      secrets: true,
+      personal: false,
+      kinds: {},
+      words: ["Nightjar"],
+      words_any_case: true,
+      words_whole: true,
+      actions: {},
+      allow: [],
+      placeholder_key: "b".repeat(64),
     };
     const controllerConfig = parseRunnerConfig({
       LINKSENSE_RUNNER_MODE: "controller",
@@ -245,6 +322,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
               protocolMode: "native_responses",
               apiKey: "test-provider-key",
               memoryExtraction,
+              privacyMasking,
             },
             expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
             capabilityGeneration: "a".repeat(64),
@@ -294,7 +372,7 @@ describe("controller and dynamic worker HTTP contracts", () => {
           capabilityGeneration: "a".repeat(64),
           codexThreadId: null,
           environment: {},
-          modelProvider: { memoryExtraction },
+          modelProvider: { memoryExtraction, privacyMasking },
           context: {
             requireFinalResponse: true,
             selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],

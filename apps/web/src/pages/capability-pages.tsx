@@ -967,6 +967,11 @@ function CapabilityImportDialog({
     ? undefined
     : t("errors.importReasons.skill_display_name_invalid")
   const [description, setDescription] = useState("")
+  const [descriptionTouched, setDescriptionTouched] = useState(false)
+  const descriptionError =
+    descriptionTouched && !description.trim()
+      ? t("marketplace.skillDescriptionRequired")
+      : undefined
   const [skillMarkdown, setSkillMarkdown] = useState("")
   const [preview, setPreview] = useState<CapabilityImportPreview | null>(null)
   const [importProgress, setImportProgress] =
@@ -992,6 +997,7 @@ function CapabilityImportDialog({
     setNameTouched(false)
     setDisplayNameOverride(null)
     setDescription("")
+    setDescriptionTouched(false)
     setSkillMarkdown("")
     setPreview(null)
     setImportProgress(null)
@@ -1029,7 +1035,7 @@ function CapabilityImportDialog({
           type: "skill",
           name: name.trim(),
           display_name: displayName.trim() || null,
-          description: description.trim() || null,
+          description: description.trim(),
           skill_markdown: skillMarkdown,
         },
         schema: capabilityImportPreviewSchema,
@@ -1057,6 +1063,7 @@ function CapabilityImportDialog({
     (source === "manual_skill" &&
       nameValidation.success &&
       displayNameValidation.success &&
+      description.trim().length > 0 &&
       skillMarkdown.trim().length > 0)
 
   const startConfirmImport = (nextPreview: CapabilityImportPreview) => {
@@ -1302,13 +1309,26 @@ function CapabilityImportDialog({
                 <FieldShell
                   id="capability-description"
                   label={t("common.description")}
+                  required
+                  error={descriptionError}
                 >
                   <Textarea
                     id="capability-description"
+                    aria-required="true"
+                    aria-invalid={descriptionError ? true : undefined}
+                    aria-describedby={
+                      descriptionError
+                        ? "capability-description-error"
+                        : undefined
+                    }
                     value={description}
                     className="max-h-40 overflow-y-auto"
                     maxLength={4_000}
-                    onChange={(event) => setDescription(event.target.value)}
+                    onChange={(event) => {
+                      setDescription(event.target.value)
+                      setDescriptionTouched(true)
+                    }}
+                    onBlur={() => setDescriptionTouched(true)}
                   />
                 </FieldShell>
                 <FieldShell
@@ -2092,7 +2112,7 @@ function PersonalMcpPanel({
             return (
               <article
                 key={server.id}
-                className="capability-library-row min-h-15! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
+                className="capability-library-row min-h-15! min-h-16! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
                 aria-label={server.name}
               >
                 <div className="capability-library-body">
@@ -2158,6 +2178,7 @@ function MarketplaceCatalogPanel({
   const normalizedPersonalPath = capabilityCenterPath(catalogLocation)
   useEffect(() => {
     if (
+      section === "application" ||
       organizationMarketplaceEnabled ||
       requestedCatalogLocation.scope !== "public" ||
       `${location.pathname}${location.search}` === normalizedPersonalPath
@@ -2172,6 +2193,7 @@ function MarketplaceCatalogPanel({
     normalizedPersonalPath,
     organizationMarketplaceEnabled,
     requestedCatalogLocation.scope,
+    section,
   ])
   const deferredSearch = useDeferredValue(search.trim())
   const updateCatalogLocation = (
@@ -2749,39 +2771,41 @@ function MarketplaceCatalogPanel({
                     }))
                   }
                 />
-                <div className="capability-center-scope-row">
-                  <Tabs
-                    value={scope}
-                    onValueChange={(value) => {
-                      if (
-                        (value === "public" && publicScopeAvailable) ||
-                        value === "personal" ||
-                        (value === "clawhub" && section === "skill")
-                      ) {
-                        updateCatalogLocation({ scope: value })
-                      }
-                    }}
-                  >
-                    <TabsList
-                      variant="catalog"
-                      aria-label={t("marketplace.catalogScopesLabel")}
+                {/* A single scope has nothing to switch between; only render the switcher when there is a choice. */}
+                {(publicScopeAvailable || section === "skill") && (
+                  <div className="capability-center-scope-row">
+                    <Tabs
+                      value={scope}
+                      onValueChange={(value) => {
+                        if (
+                          (value === "public" && publicScopeAvailable) ||
+                          value === "personal" ||
+                          (value === "clawhub" && section === "skill")
+                        ) {
+                          updateCatalogLocation({ scope: value })
+                        }
+                      }}
                     >
-                      <TabsTrigger value="personal">
-                        {t("marketplace.scopes.personal")}
-                      </TabsTrigger>
-                      {publicScopeAvailable && (
-                        <TabsTrigger value="public">
-                          {t("marketplace.scopes.public")}
+                      <TabsList
+                        aria-label={t("marketplace.catalogScopesLabel")}
+                      >
+                        <TabsTrigger value="personal">
+                          {t("marketplace.scopes.personal")}
                         </TabsTrigger>
-                      )}
-                      {section === "skill" && (
-                        <TabsTrigger value="clawhub">
-                          {t("clawHub.repository")}
-                        </TabsTrigger>
-                      )}
-                    </TabsList>
-                  </Tabs>
-                </div>
+                        {publicScopeAvailable && (
+                          <TabsTrigger value="public">
+                            {t("marketplace.scopes.public")}
+                          </TabsTrigger>
+                        )}
+                        {section === "skill" && (
+                          <TabsTrigger value="clawhub">
+                            {t("clawHub.repository")}
+                          </TabsTrigger>
+                        )}
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                )}
                 <section
                   className="capability-center-directory"
                   aria-label={t(
@@ -3682,6 +3706,10 @@ export function CapabilityManagementPage() {
   const { section } = capabilityCenterLocationFromSearch(location.search)
   const organizationMarketplaceEnabled =
     user?.registration_source === "organization_invitation"
+  const applicationTab = applicationWorkspaceScope(
+    new URLSearchParams(location.search),
+    organizationMarketplaceEnabled
+  )
   const [view, setView] = useState<UserCapabilityView>("store")
   const [error, setError] = useState<string | null>(null)
   const feedback = (message: string, isError = false) => {
@@ -3757,16 +3785,15 @@ export function CapabilityManagementPage() {
         )}
         description={t(
           view === "store"
-            ? `marketplace.catalogDescriptions.${section}`
+            ? section === "application" && applicationTab === "sites"
+              ? "webSites.description"
+              : `marketplace.catalogDescriptions.${section}`
             : "marketplace.publicationsDescription"
         )}
         actions={
           view === "store" &&
           section === "application" &&
-          applicationWorkspaceScope(
-            new URLSearchParams(location.search),
-            organizationMarketplaceEnabled
-          ) === "owned" ? (
+          (applicationTab === "owned" || applicationTab === "sites") ? (
             <ApplicationCreateButton onFeedback={feedback} />
           ) : undefined
         }

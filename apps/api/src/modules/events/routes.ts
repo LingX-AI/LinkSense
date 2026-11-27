@@ -3,11 +3,9 @@ import { timingSafeEqual } from "node:crypto"
 import {
   conversationEventSchema,
   runnerMemoryUsageCaptureSchema,
+  runnerPrivacyMaskingCaptureSchema,
   runnerEventBatchSchema,
   publicKnowledgeRunnerProgressSchema,
-  runnerTextDeltaBatchKey,
-  isRunnerTextDeltaEvent,
-  type RunnerTextDeltaEvent,
   runnerHeartbeatSchema,
   runnerStartSettledSchema,
   runtimeServiceSessionHeader,
@@ -23,6 +21,8 @@ import { AppError } from "../../lib/errors.js"
 import { ok } from "../../lib/http.js"
 import type { AuthenticatedRequest } from "../../plugins/authentication.js"
 import type { AppServices } from "../../services.js"
+import { createReplayPump } from "./replay-pump.js"
+import { projectRunnerEventBatch } from "./runner-batch.js"
 
 const interactiveApplicationCustomEventSchema = z.strictObject({
   conversationId: z.uuid(),
@@ -98,37 +98,20 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         return reply.send(ok({ accepted_delivery_ids: entries.map(({ deliveryId }) => deliveryId) }, request.id));
       }
       await services.conversations.assertOwner(ownerId, body.conversationId)
-      const acceptedDeliveryIds: string[] = []
-      for (let index = 0; index < body.events.length;) {
-        const entry = body.events[index]
-        if (!entry) break
-        if (request.raw.aborted || reply.raw.destroyed) break
-        const textEntries: Array<{ deliveryId: string; event: RunnerTextDeltaEvent }> = []
-        const key = runnerTextDeltaBatchKey(entry.event)
-        if (key !== null) {
-          for (const next of body.events.slice(index)) {
-            if (!isRunnerTextDeltaEvent(next.event) || runnerTextDeltaBatchKey(next.event) !== key) break
-            textEntries.push({ deliveryId: next.deliveryId, event: next.event })
-          }
-        }
-        const groupSize = Math.max(1, textEntries.length)
-        try {
+      const acceptedDeliveryIds = await projectRunnerEventBatch(body.events,
+        async (entry, textEntries) => {
+          if (request.raw.aborted || reply.raw.destroyed) return false
           const result = textEntries.length > 1
             ? await services.events.ingestTextDeltaBatch(body.conversationId, textEntries)
             : await services.events.ingest(body.conversationId, entry.event, entry.deliveryId)
-          if (!result.accepted) break
-          acceptedDeliveryIds.push(...body.events.slice(index, index + groupSize).map(item => item.deliveryId))
-          index += groupSize
-        } catch (error) {
-          if (acceptedDeliveryIds.length === 0) throw error
-          request.log.error({
+          return result.accepted === true
+        },
+        (error, deliveryId) => request.log.error({
             conversationId: body.conversationId,
-            deliveryId: entry.deliveryId,
+            deliveryId,
             errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR",
-          }, "runner event batch stopped before acknowledgement")
-          break
-        }
-      }
+        }, "runner event batch stopped before acknowledgement"),
+      )
       return reply.send(ok({ accepted_delivery_ids: acceptedDeliveryIds }, request.id))
     })
 
@@ -201,6 +184,16 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         observedAt: new Date(body.observed_at),
       })
       return reply.send(ok(result, request.id))
+    })
+
+    app.post("/runner/privacy-masking", async (request, reply) => {
+      const ownerId = parseRunnerOwnerId(request)
+      const body = runnerPrivacyMaskingCaptureSchema.parse(request.body)
+      if (body.owner_id !== ownerId) {
+        throw new AppError("FORBIDDEN")
+      }
+      await services.privacyMaskingActivity.record(body)
+      return reply.send(ok({ recorded: true }, request.id))
     })
 
     app.post("/image-previews", async (request, reply) => {
@@ -284,104 +277,36 @@ export const sseRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
       await subscriber.connect()
 
       const channel = `linksense:conversation-events:${id}`
-      let lastWrittenSequence = after
-      let observedSequence = after
-      let confirmedSequence = after
-      let replayGapRetryAttempt = 0
-      let pumping = false
-      let closed = false
-      let streamReady = false
       let heartbeat: NodeJS.Timeout | null = null
       const response = reply.raw
 
-      const cleanup = () => {
-        if (closed) return
-        closed = true
-        if (heartbeat) clearInterval(heartbeat)
-        void closeSubscriber(subscriber, channel)
-      }
-
-      const closeForReplay = () => {
-        cleanup()
-        if (!response.destroyed) response.destroy()
-      }
-
-      const pump = async () => {
-        if (pumping || closed) return
-        pumping = true
-        try {
-          while (!closed) {
-            const previousLastWrittenSequence = lastWrittenSequence
-            const previousConfirmedSequence = confirmedSequence
-            const page = await services.events.historyPage(user.id, id, {
-              afterSequence: lastWrittenSequence,
-              limit: SSE_HISTORY_PAGE_SIZE,
-            })
-            if (page.confirmed_sequence > confirmedSequence) {
-              confirmedSequence = page.confirmed_sequence
-            }
-            for (const event of page.items) {
-              const sequence = BigInt(event.sequence_no)
-              if (sequence <= lastWrittenSequence) continue
-              const written = await writeEventWithBackpressure(response, event)
-              if (!written) return
-              lastWrittenSequence = sequence
-            }
-            if (
-              lastWrittenSequence > previousLastWrittenSequence ||
-              confirmedSequence > previousConfirmedSequence
-            ) {
-              replayGapRetryAttempt = 0
-            }
-            if (page.next_cursor) continue
-            if (lastWrittenSequence >= observedSequence) return
-            // Let a model-switch branch projection settle before falling back to
-            // cursor replay. Persisted but filtered gaps keep this stream open.
-            const retryDelay = SSE_REPLAY_GAP_RETRY_DELAYS_MS[replayGapRetryAttempt]
-            if (retryDelay !== undefined) {
-              replayGapRetryAttempt += 1
-              await waitForReplayProjection(retryDelay)
-              continue
-            }
-            if (confirmedSequence < observedSequence) {
-              request.log.warn(
-                {
-                  conversationId: id,
-                  lastWrittenSequence: lastWrittenSequence.toString(),
-                  observedSequence: observedSequence.toString(),
-                  confirmedSequence: confirmedSequence.toString(),
-                },
-                "conversation SSE replay projection remained behind",
-              )
-              closeForReplay()
-            }
-            return
-          }
-        } catch (error) {
-          request.log.warn(
-            { err: error, conversationId: id },
-            "conversation SSE replay failed",
-          )
-          closeForReplay()
-        } finally {
-          pumping = false
-          if (
-            !closed &&
-            observedSequence > lastWrittenSequence &&
-            observedSequence > confirmedSequence
-          ) {
-            void pump()
-          }
-        }
-      }
+      const pump = createReplayPump({
+        conversationId: id,
+        initialSequence: after,
+        pageSize: SSE_HISTORY_PAGE_SIZE,
+        gapRetryDelaysMs: SSE_REPLAY_GAP_RETRY_DELAYS_MS,
+        loadPage: ({ afterSequence, limit }) =>
+          services.events.historyPage(user.id, id, { afterSequence, limit }),
+        writeEvent: (event) => writeEventWithBackpressure(response, event),
+        isDestroyed: () => response.destroyed,
+        closeStream: (destroy) => {
+          if (heartbeat) clearInterval(heartbeat)
+          void closeSubscriber(subscriber, channel)
+          if (destroy && !response.destroyed) response.destroy()
+        },
+        logWarn: (details, message) => request.log.warn(details, message),
+        logMessages: {
+          replayFailed: "conversation SSE replay failed",
+          projectionBehind:
+            "conversation SSE replay projection remained behind",
+        },
+      })
 
       const onMessage = (_channel: string, value: string) => {
         try {
           const parsed = conversationEventSchema.safeParse(JSON.parse(value))
           if (!parsed.success || parsed.data.conversation_id !== id) return
-          const sequence = BigInt(parsed.data.sequence_no)
-          if (sequence > observedSequence) observedSequence = sequence
-          if (streamReady) void pump()
+          pump.observe(BigInt(parsed.data.sequence_no))
         } catch {
           // Ignore malformed fan-out data; persisted events remain replayable.
         }
@@ -401,32 +326,25 @@ export const sseRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
         ),
       })
       response.flushHeaders()
-      streamReady = true
+      pump.markReady()
       heartbeat = setInterval(() => {
-        if (closed) return
+        if (pump.isClosed()) return
         if (!response.writableNeedDrain && !response.destroyed) {
           response.write(": keepalive\n\n")
         }
         // Redis fan-out is a wake-up signal, not the durable event source.
         // Replay on heartbeat so a missed notification cannot stall an open stream.
-        void pump()
+        pump.wake()
       }, 15_000)
       heartbeat.unref()
-      response.once("close", cleanup)
-      void pump()
+      response.once("close", () => pump.close())
+      pump.wake()
     },
   )
 }
 
 const SSE_HISTORY_PAGE_SIZE = 250
 const SSE_REPLAY_GAP_RETRY_DELAYS_MS = [25, 50, 100, 200, 400] as const
-
-function waitForReplayProjection(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds)
-    timer.unref()
-  })
-}
 
 function parseSequence(conversationId: string, eventId?: string): bigint | null {
   if (!eventId) return 0n

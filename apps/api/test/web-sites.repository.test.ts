@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient, Prisma } from "../src/generated/prisma/client.js";
 import { WebSiteRepository } from "../src/modules/web-sites/repository.js";
-import { fileId, ownerId, releaseId, siteFixture, siteId } from "./web-sites.fixture.js";
+import { fileId, ownerId, releaseId, siteFixture, siteId, taskId } from "./web-sites.fixture.js";
 
 function fixture(owned = true) {
   const tx = {
@@ -82,5 +82,113 @@ describe("website lookup by original HTML file", () => {
     expect(findSites).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ ownerId, originFileId: fileId }),
     }));
+  });
+});
+
+describe("dynamic publication fencing", () => {
+  function enhancementFixture(currentBackend: string | null = null, mode: string | null = "sandbox", bound = 0) {
+    const row = siteFixture().row;
+    const tx = {
+      $queryRaw: vi.fn(async (query: Prisma.Sql) => query.sql.includes("FROM conversations")
+        ? [{ id: taskId, title: "Updated" }] : query.sql.includes("FROM web_sites")
+          ? [{ id: siteId, backendId: currentBackend }] : [{ id: backendId }]),
+      conversationFile: { count: vi.fn().mockResolvedValue(1) },
+      webSiteBackend: { findUnique: vi.fn().mockResolvedValue({ runtimeMode: mode }) },
+      webSite: { count: vi.fn().mockResolvedValue(bound), update: vi.fn().mockResolvedValue(row.site) },
+      webSiteRelease: { create: vi.fn().mockResolvedValue(row.release) },
+      auditLog: { create: vi.fn() },
+    };
+    const repository = new WebSiteRepository({
+      $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    } as unknown as PrismaClient);
+    return { repository, tx, row };
+  }
+  const backendId = "60000000-0000-4000-8000-000000000001";
+
+  it("atomically associates a ready unused sandbox backend with the new release while retaining application metadata", async () => {
+    const f = enhancementFixture();
+    await f.repository.publish(ownerId, siteId, taskId, fileId, releaseId, siteFixture().manifest, undefined, backendId);
+    expect(f.tx.webSite.update).toHaveBeenCalledWith({ where: { id: siteId }, data: {
+      backendId, currentReleaseId: releaseId, sourceFileId: fileId, conversationId: taskId, sourceTaskTitle: "Updated",
+    } });
+    const lock = f.tx.$queryRaw.mock.calls.at(-1)![0];
+    expect(lock.values).toContain(ownerId);
+    expect(lock.sql).toContain("status='ready'");
+    expect(f.tx.webSite.count).toHaveBeenCalledWith({ where: { backendId } });
+  });
+
+  it.each([
+    ["another backend", "70000000-0000-4000-8000-000000000001", "sandbox", 0],
+    ["legacy origin mode", null, null, 0],
+    ["a backend already bound elsewhere", null, "sandbox", 1],
+  ] as const)("rejects %s before writing a release or changing the static app", async (_label, current, mode, bound) => {
+    const f = enhancementFixture(current, mode, bound);
+    await expect(f.repository.publish(ownerId, siteId, taskId, fileId, releaseId,
+      siteFixture().manifest, undefined, backendId)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.tx.webSiteRelease.create).not.toHaveBeenCalled();
+    expect(f.tx.webSite.update).not.toHaveBeenCalled();
+  });
+
+  it("preserves the previous page when building the enhanced release fails", async () => {
+    const f = enhancementFixture();
+    f.tx.webSiteRelease.create.mockRejectedValueOnce(new Error("storage unavailable"));
+    await expect(f.repository.publish(ownerId, siteId, taskId, fileId, releaseId,
+      siteFixture().manifest, undefined, backendId)).rejects.toThrow("storage unavailable");
+    expect(f.tx.webSite.update).not.toHaveBeenCalled();
+  });
+  it.each(["publish", "restore"] as const)(
+    "rejects %s before writing when the backend publication lease is lost",
+    async (operation) => {
+      const { manifest } = siteFixture();
+      const backendId = "60000000-0000-4000-8000-000000000001";
+      const lease = new Date(Date.now() + 60_000);
+      const query = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
+      if (operation === "publish") query.mockResolvedValueOnce([{ id: taskId, title: "Source" }]);
+      query.mockResolvedValueOnce([{ id: siteId, backendId }]).mockResolvedValueOnce([]);
+      const tx = {
+        $queryRaw: query,
+        conversationFile: { count: vi.fn().mockResolvedValue(1) },
+        webSite: { update: vi.fn() },
+        webSiteRelease: { create: vi.fn() },
+        auditLog: { create: vi.fn() },
+      };
+      const repository = new WebSiteRepository({
+        $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+      } as unknown as PrismaClient);
+
+      await expect(operation === "publish"
+        ? repository.publish(ownerId, siteId, taskId, fileId, releaseId, manifest, lease)
+        : repository.update(ownerId, siteId, { status: "published" }, lease)
+      ).rejects.toMatchObject({ code: "WEB_SITE_BACKEND_PENDING" });
+      expect(query.mock.calls.at(-1)?.[0].values).toContain(lease);
+      expect(tx.webSite.update).not.toHaveBeenCalled();
+      expect(tx.webSiteRelease.create).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("public application addresses", () => {
+  it("resolves a retired slug through its reserved application identity", async () => {
+    const row = siteFixture().row;
+    const db = {
+      webSite: { findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(row.site) },
+      webSiteAddress: { findUnique: vi.fn().mockResolvedValue({ slug: "previous", siteId }) },
+      webSiteRelease: { findFirst: vi.fn().mockResolvedValue(row.release) },
+      user: { count: vi.fn().mockResolvedValue(1) },
+    };
+    const repo = new WebSiteRepository(db as unknown as PrismaClient);
+    await expect(repo.publicSite("previous")).resolves.toEqual(row);
+    expect(db.webSite.findFirst).toHaveBeenLastCalledWith({ where: { id: siteId, status: "published" } });
+  });
+
+  it.each([0, 1])("rejects an inactive owner or unavailable application for active-owner count %s", async active => {
+    const db = {
+      webSite: { findFirst: vi.fn().mockResolvedValue(active ? null : siteFixture().row.site) },
+      user: { count: vi.fn().mockResolvedValue(active) },
+      webSiteRelease: { findFirst: vi.fn() },
+    };
+    await expect(new WebSiteRepository(db as unknown as PrismaClient).publicSiteById(siteId))
+      .rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
+    expect(db.webSiteRelease.findFirst).not.toHaveBeenCalled();
   });
 });

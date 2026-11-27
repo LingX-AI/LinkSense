@@ -207,6 +207,7 @@ export const publicKnowledgeRunnerInputSchema = z.strictObject({
     pricing: modelTokenPricingSchema.optional(),
     modelContextWindow: z.number().int().positive().optional(),
     modelAutoCompactTokenLimit: z.number().int().positive().optional(),
+    supportsImageInput: z.boolean().optional(),
   }),
 });
 export const publicKnowledgeRunnerResultSchema = z.strictObject({

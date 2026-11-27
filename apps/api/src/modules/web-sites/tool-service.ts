@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  linkedSiteSchema,
   webSiteTargetSchema,
   type InternalWebSiteToolConfirm,
   type InternalWebSiteToolRequest,
@@ -129,8 +130,9 @@ export class WebSiteToolService {
   }
 
   private linkedSite(site: WebSite): LinkedWebSite {
-    const { url_path, ...details } = site;
-    return { ...details, url: new URL(url_path, this.publicBaseUrl).href };
+    // The public slug page is the tool-facing alias; the canonical
+    // application path stays on the site API projection.
+    return linkedSiteSchema.parse({ ...site, url: new URL(`/web/${site.slug}`, this.publicBaseUrl).href });
   }
 
   private approval(

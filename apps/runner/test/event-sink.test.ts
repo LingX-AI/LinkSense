@@ -12,7 +12,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runnerEventBatchSchema } from "@linksense/shared";
+import {
+  runnerEventBatchSchema,
+  type RunnerPrivacyMaskingCapture,
+} from "@linksense/shared";
 
 import { HttpRunnerEventSink } from "../src/event-sink.js";
 import type {
@@ -96,6 +99,8 @@ describe("HttpRunnerEventSink", () => {
       expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
       fetchMock.mockResolvedValueOnce(Response.json({ error_code: "CONNECTION_REQUIRED", message: "private-token-detail" }, { status: 409 }));
       await expect(sink.accessConnection(body)).rejects.toMatchObject({ code: "CONNECTION_REQUIRED", message: "CONNECTION_REQUIRED", retryable: false });
+      fetchMock.mockResolvedValueOnce(Response.json({ error_code: "VALIDATION_ERROR" }, { status: 400 }));
+      await expect(sink.accessConnection(body)).rejects.toMatchObject({ code: "VALIDATION_ERROR", retryable: false });
     } finally { await sink.close(); }
   });
   it("projects a settled start outside the blocked event queue and wakes delivery immediately", async () => {
@@ -901,6 +906,45 @@ describe("HttpRunnerEventSink", () => {
     );
     await recoveredSink.close();
   });
+});
+
+it("posts a counts-only privacy masking capture with the owner header", async () => {
+  const { workspaceManager } = await createWorkspaceManager();
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      jsonResponse({ success: true, data: { recorded: true } }),
+    );
+  const sink = new HttpRunnerEventSink(
+    "http://api:4000",
+    "runner-secret",
+    workspaceManager,
+    { fetch: fetchMock },
+  );
+  const capture: RunnerPrivacyMaskingCapture = {
+    request_id: "01900000-0000-7000-8000-000000000003",
+    owner_id: ownerId,
+    conversation_id: conversationId,
+    turn_id: "turn-1",
+    model: "model-a",
+    kinds: { API_KEY: 2 },
+    masked_count: 2,
+    hints: [{ kind: "API_KEY", length: 40, location: "prompt", count: 2 }],
+    observed_at: "2026-11-17T08:00:00.000Z",
+  };
+  await sink.recordPrivacyMasking(capture);
+  expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    "http://api:4000/internal/runner/privacy-masking",
+  );
+  expect(
+    new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+      "x-linksense-owner-id",
+    ),
+  ).toBe(ownerId);
+  expect(
+    JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+  ).toEqual(capture);
+  await sink.close();
 });
 
 async function createWorkspaceManager() {

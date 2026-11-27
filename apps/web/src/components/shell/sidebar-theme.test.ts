@@ -79,7 +79,7 @@ describe("sidebar theme", () => {
     )
     expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
     expect(lightTheme).toContain(
-      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);"
+      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);"
     )
     expect(lightTheme).toContain("--app-user-surface: #f2f7ff;")
     expect(lightTheme).toContain("--primary: #0874ff;")
@@ -241,8 +241,14 @@ describe("sidebar theme", () => {
     expect(
       cssRule('.app-shell[data-sidebar-collapsed="true"] .conversation-top-bar')
     ).toContain("padding-left: 52px;")
+    expect(sidebarStyles).toMatch(
+      /html\[data-desktop-platform="darwin"\]\s+\.app-shell\[data-sidebar-collapsed="true"\]\s+\.app-top-bar,\s+html\[data-desktop-platform="darwin"\]\s+\.app-shell\[data-sidebar-collapsed="true"\]\s+\.conversation-top-bar,\s+html\[data-desktop-platform="darwin"\]\s+\.app-shell\[data-sidebar-collapsed="true"\]\s+\[data-slot="page-top-bar"\]\s*\{[^}]*padding-left:\s*calc\(52px \+ var\(--mygo-titlebar-inset-left, 0px\)\);/u
+    )
     expect(cssRule(".desktop-sidebar-trigger")).toContain("top: 11px;")
     expect(cssRule(".desktop-sidebar-trigger")).toContain("left: 10px;")
+    expect(sidebarStyles).toMatch(
+      /html\[data-desktop-platform="darwin"\] \.mobile-shell-trigger,\s*html\[data-desktop-platform="darwin"\] \.desktop-sidebar-trigger\s*\{[^}]*left:\s*calc\(10px \+ var\(--mygo-titlebar-inset-left, 0px\)\);/u
+    )
     expect(
       cssRule(
         '.app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger'
@@ -256,6 +262,33 @@ describe("sidebar theme", () => {
         '.sidebar-nav-item.sidebar-collapse-control[aria-expanded="true"]'
       )
     ).toContain("background: transparent;")
+  })
+
+  it("scopes the macOS title-bar behavior to the darwin host marker", () => {
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] .sidebar-brand-bar,'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] .conversation-top-bar,'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] [data-slot="account-access-layout"],'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] [data-slot="public-failure-screen"],'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] .account-access-top-row {'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] .settings-mobile-header {'
+    )
+    expect(sidebarStyles).toContain(
+      'html[data-desktop-platform="darwin"] [data-slot="page-top-bar"] {'
+    )
+    expect(sidebarStyles).not.toMatch(/(?:^|\n)\.sidebar-brand-bar\s*[,{]/u)
+    expect(sidebarStyles).not.toMatch(/(?:^|\n)\.account-access-top-row\s*\{/u)
+    expect(sidebarStyles).not.toMatch(/(?:^|\n)\.settings-brand-bar\s*[,{]/u)
   })
 
   it("uses the configured UI font size for primary sidebar text", () => {

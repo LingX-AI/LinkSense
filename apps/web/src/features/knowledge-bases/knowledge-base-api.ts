@@ -16,6 +16,11 @@ import {
   validateUploadResponseBuild,
 } from "@/api/client"
 import {
+  getLoginSessionBoundary,
+  isLoginSessionCurrent,
+  type LoginSessionBoundary,
+} from "@/api/session"
+import {
   knowledgeBasePageSchema,
   knowledgeBaseCreationCapabilitySchema,
   knowledgeBaseEntryPageSchema,
@@ -574,6 +579,16 @@ export type KnowledgeUploadOptions = {
   onProgress?: (percent: number) => void
 } & KnowledgeUploadConflictOptions
 
+function createSupersededUploadError() {
+  // A replacement login owns the session now, so this is a local cancellation
+  // rather than a server authentication decision. The upload dialog ignores
+  // AbortError without presenting a result or failure.
+  return new DOMException(
+    "Upload superseded by a newer login session",
+    "AbortError"
+  )
+}
+
 export async function uploadKnowledgeDocument(
   options: KnowledgeUploadOptions
 ): Promise<KnowledgeUploadResult> {
@@ -582,16 +597,36 @@ export async function uploadKnowledgeDocument(
       await import("./knowledge-ui-demo-data")
     rejectKnowledgeUiDemoWrite()
   }
-  return requestWithSessionRetry(
-    `/knowledge-bases/${options.knowledgeBaseId}/documents`,
-    options,
-    (token) => uploadWithToken(options, token)
-  ).catch((error: unknown) => resolveUploadConflict(options, error))
+  // The upload belongs to the login that sent it. A replacement login must not
+  // inherit its refresh, replay, retry conflict lookup, or token clear.
+  const loginSessionBoundary = getLoginSessionBoundary()
+  const assertLoginSessionCurrent = () => {
+    if (isLoginSessionCurrent(loginSessionBoundary)) return
+    throw createSupersededUploadError()
+  }
+  try {
+    const result = await requestWithSessionRetry(
+      `/knowledge-bases/${options.knowledgeBaseId}/documents`,
+      {
+        signal: options.signal,
+        loginSessionBoundary,
+      },
+      (token) => uploadWithToken(options, token, loginSessionBoundary)
+    )
+    assertLoginSessionCurrent()
+    return result
+  } catch (error) {
+    assertLoginSessionCurrent()
+    // The conflict lookup may outlive the login that produced the 409; it must
+    // never present its document or failure to the replacement login.
+    return resolveUploadConflict(options, error, assertLoginSessionCurrent)
+  }
 }
 
 async function resolveUploadConflict(
   options: KnowledgeUploadOptions,
-  error: unknown
+  error: unknown,
+  assertLoginSessionCurrent: () => void
 ): Promise<KnowledgeUploadResult> {
   if (
     error instanceof ApiError &&
@@ -600,10 +635,20 @@ async function resolveUploadConflict(
   ) {
     const existingDocumentId = error.params?.existing_document_id
     if (typeof existingDocumentId === "string" && existingDocumentId) {
-      const existingDocument = await getKnowledgeDocument(
-        options.knowledgeBaseId,
-        existingDocumentId
-      )
+      let existingDocument: Awaited<ReturnType<typeof getKnowledgeDocument>>
+      try {
+        existingDocument = await getKnowledgeDocument(
+          options.knowledgeBaseId,
+          existingDocumentId
+        )
+      } catch (lookupError) {
+        assertLoginSessionCurrent()
+        throw lookupError
+      }
+      // The lookup may finish after another login replaced the one that
+      // produced this conflict. Never present its document or failure to the
+      // new login.
+      assertLoginSessionCurrent()
       return {
         status:
           error.errorCode === "KNOWLEDGE_DOCUMENT_DUPLICATE"
@@ -631,8 +676,24 @@ const errorEnvelopeSchema = z.object({
 
 function uploadWithToken(
   options: KnowledgeUploadOptions,
-  token: string | null
+  token: string | null,
+  loginSessionBoundary: LoginSessionBoundary
 ): Promise<KnowledgeUploadResult> {
+  const formData = new FormData()
+  if (options.conflictResolution) {
+    formData.set("conflict_resolution", options.conflictResolution)
+  }
+  if (options.replaceDocumentId) {
+    formData.set("replace_document_id", options.replaceDocumentId)
+  }
+  if (options.relativePath) {
+    formData.set("relative_path", options.relativePath)
+  }
+  if (options.parentEntryId) {
+    formData.set("parent_entry_id", options.parentEntryId)
+  }
+  formData.set("ocr_enabled", String(options.ocrEnabled ?? false))
+  formData.set("file", options.file, options.file.name)
   const buildHeaders = new Headers()
   prepareClientBuildRequest(buildHeaders)
   return new Promise((resolve, reject) => {
@@ -650,29 +711,19 @@ function uploadWithToken(
     }
     if (token) request.setRequestHeader("Authorization", `Bearer ${token}`)
 
-    const formData = new FormData()
-    if (options.conflictResolution) {
-      formData.set("conflict_resolution", options.conflictResolution)
-    }
-    if (options.replaceDocumentId) {
-      formData.set("replace_document_id", options.replaceDocumentId)
-    }
-    if (options.relativePath) {
-      formData.set("relative_path", options.relativePath)
-    }
-    if (options.parentEntryId) {
-      formData.set("parent_entry_id", options.parentEntryId)
-    }
-    formData.set("ocr_enabled", String(options.ocrEnabled ?? false))
-    formData.set("file", options.file, options.file.name)
-
     request.upload.addEventListener("progress", (event) => {
+      if (!isLoginSessionCurrent(loginSessionBoundary)) return
       if (!event.lengthComputable || event.total <= 0) return
       options.onProgress?.(
         Math.min(10, Math.round((event.loaded / event.total) * 10))
       )
     })
     request.addEventListener("load", () => {
+      // Reject before the Web build observer can apply A's response to B.
+      if (!isLoginSessionCurrent(loginSessionBoundary)) {
+        reject(createSupersededUploadError())
+        return
+      }
       try {
         validateUploadResponseBuild(request)
       } catch (error) {

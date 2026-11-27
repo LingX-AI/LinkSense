@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserUseService } from "../src/modules/browser-use/service.js";
 import { MemoryBrowserStore } from "./browser-use-store.js";
 import { createHash } from "node:crypto";
+import { browserUseOpenSiteCapability } from "@linksense/shared";
+import { z } from "zod";
 
 const owner = "10000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";
@@ -18,7 +20,79 @@ async function fixture() {
   const connection = await service.connect(owner, token, "chrome");
   return { store, service, token, connection, pairing };
 }
+
 describe("local browser connection and delivery", () => {
+  it("keeps new extension connections readable by pre-upgrade API replicas", async () => {
+    const { service, store, token } = await fixture();
+    const connection = await service.connect(owner, token, "chrome", browserUseOpenSiteCapability);
+    // Previous API replicas strictly validate this shared Redis record.
+    const previousConnectionSchema = z.strictObject({
+      id: z.uuid(),
+      browser: z.enum(["chrome", "edge"]),
+      credential_hash: z.string(),
+      approval_id: z.uuid().optional(),
+    });
+    const value = await store.get(`local-browser:${owner}:connection`);
+    expect(previousConnectionSchema.parse(JSON.parse(value ?? "null"))).toMatchObject({
+      id: connection,
+      browser: "chrome",
+    });
+    const otherReplica = new BrowserUseService(store, service.endpoint);
+    expect(await otherReplica.status(owner)).toMatchObject({ connected: true, connection_id: connection });
+    expect(await otherReplica.maintain(owner, connection)).toBe(true);
+  });
+  it("renews site-window capability only with its current connection and denies it after expiry", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { service, token } = await fixture();
+    const connection = await service.connect(owner, token, "chrome", browserUseOpenSiteCapability);
+    const request = { action: "open_site_window", slug: "sample-site" } as const;
+    const cancelled = AbortSignal.abort();
+    vi.setSystemTime(Date.now() + 30_000);
+    expect(await service.maintain(owner, connection)).toBe(true);
+    vi.setSystemTime(Date.now() + 30_000);
+    await expect(service.execute(owner, task, request, cancelled)).resolves.toMatchObject({
+      code: "BROWSER_USE_CANCELLED",
+    });
+    vi.setSystemTime(Date.now() + 45_001);
+    await expect(service.execute(owner, task, request, cancelled)).resolves.toMatchObject({
+      code: "BROWSER_USE_NOT_CONNECTED",
+    });
+  });
+  it("does not carry site-window capability into a replacement legacy extension connection", async () => {
+    const { service, token } = await fixture();
+    const upgraded = await service.connect(owner, token, "chrome", browserUseOpenSiteCapability);
+    const legacy = await service.connect(owner, token, "edge");
+    expect(await service.maintain(owner, upgraded)).toBe(false);
+    await service.disconnect(owner, upgraded);
+    expect(await service.status(owner)).toMatchObject({ connection_id: legacy });
+    await expect(service.execute(owner, task, {
+      action: "open_site_window", slug: "sample-site",
+    })).resolves.toMatchObject({ code: "BROWSER_USE_ACCESS_DENIED" });
+    expect(await service.next(owner, legacy)).toBeNull();
+  });
+  it("does not send site-window commands to an older connected extension", async () => {
+    const { service, store, connection, token } = await fixture();
+    const request = { action: "open_site_window", slug: "sample-site" } as const;
+    await expect(service.execute(owner, task, request)).resolves.toMatchObject({ ok: false, code: "BROWSER_USE_ACCESS_DENIED" });
+    expect(await service.next(owner, connection)).toBeNull();
+    const upgraded = await service.connect(owner, token, "chrome", browserUseOpenSiteCapability);
+    const controller = new AbortController();
+    const result = service.execute(owner, task, request, controller.signal);
+    try {
+      await vi.waitFor(async () => expect(await service.activeCommand(owner, upgraded)).not.toBeNull());
+      // Pre-upgrade API replicas read only the original command and request keys.
+      expect(await store.get(`local-browser:${owner}:request`)).toBeNull();
+      expect(await store.get(`local-browser:${owner}:command`)).toBeNull();
+      const command = await service.next(owner, upgraded);
+      expect(command?.request).toEqual(request);
+      if (!command) throw new Error("Missing site-window command");
+      await service.reply(owner, upgraded, { id: command.id, result: { ok: true, browser: "local", data: {} } });
+      await expect(result).resolves.toMatchObject({ ok: true });
+    } finally {
+      controller.abort();
+      await result;
+    }
+  });
   it("keeps real pre-rename Redis credentials, approval and connection usable without re-pairing", async () => {
     const store = new MemoryBrowserStore();
     const token = "t".repeat(43);
@@ -107,6 +181,7 @@ describe("local browser connection and delivery", () => {
     expect(await running).toMatchObject({ ok: true, data: { tab_id: 1 } });
     expect(await service.store.get(`local-browser:${owner}:lock`)).toBeNull();
   });
+
   it("rejects stale commands after reconnection and cannot revive the old connection", async () => {
     const { service, connection, token } = await fixture();
     const next = await service.connect(owner, token, "edge");
@@ -154,9 +229,9 @@ describe("local browser connection and delivery", () => {
       expect(await service.store.get(`local-browser:${owner}:command`)).not.toBeNull(),
     );
     const command = await service.next(owner, connection);
-    expect(await service.activeCommand(owner)).toBe(command!.id);
+    expect(await service.activeCommand(owner, connection)).toBe(command!.id);
     await service.revoke(owner);
-    const active = await service.activeCommand(owner);
+    const active = await service.activeCommand(owner, connection);
     await running;
     expect(active).toBeNull();
   });

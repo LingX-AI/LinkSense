@@ -459,7 +459,13 @@ export const ConversationTaskReferenceCommandMenu = forwardRef<
     onSelect: (task: TaskReference) => void
   }
 >(function ConversationTaskReferenceCommandMenu(
-  { id, query: search, currentConversationId, selected, onSelect },
+  {
+    id,
+    query: search,
+    currentConversationId,
+    selected,
+    onSelect,
+  },
   ref
 ) {
   const { t } = useTranslation()

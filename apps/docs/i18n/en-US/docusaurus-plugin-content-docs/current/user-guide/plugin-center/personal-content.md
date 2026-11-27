@@ -9,7 +9,7 @@ Personal capabilities belong to you and are not automatically visible to other u
 
 ## Import a ZIP package
 
-1. Open **Plugin Center → Personal** and choose **Add capability**.
+1. Open **Apps & Tools → Personal** and choose **Add capability**.
 2. Select a local ZIP package.
 3. Wait while LinkSense parses its source, files, manifest, and risk declarations.
 4. Review the preview and confirm the risks before installation.
@@ -28,11 +28,11 @@ A Skill generated in a task must first be validated and registered as a complete
 
 ## View and uninstall Skills in a conversation
 
-Ask the assistant to “list all my enabled skills.” The list includes available built-in Skills and personal Skills you created, imported, or installed from Plugin Center or ClawHub, whether or not they are selected for the current task. Disabled or failed Skills, complete plugin packages, and Skills bundled inside those plugins are excluded.
+Ask the assistant to “list all my enabled skills.” The list includes available built-in Skills and personal Skills you created, imported, or installed from Apps & Tools or ClawHub, whether or not they are selected for the current task. Disabled or failed Skills, complete plugin packages, and Skills bundled inside those plugins are excluded.
 
 To remove a personal Skill, say “uninstall my meeting notes skill.” If the name is unclear or matches multiple Skills, the assistant will ask you to identify the intended one. Built-in Skills are provided by the system and cannot be uninstalled. Plan mode can list Skills but cannot uninstall them.
 
-Uninstallation permanently removes your installation copy, Skill files, associated personal settings and credential bindings. Task history, audit records, other users’ installations and published Plugin Center releases are preserved. A running task may continue using its loaded Skills; subsequent turns load the updated installation state.
+Uninstallation permanently removes your installation copy, Skill files, associated personal settings and credential bindings. Task history, audit records, other users’ installations and published Apps & Tools releases are preserved. A running task may continue using its loaded Skills; subsequent turns load the updated installation state.
 
 ## Manage lifecycle
 
@@ -54,4 +54,4 @@ Editing cannot be submitted without changes. If the instructions are too long fo
 
 Choose an owned capability in **My publications**, add release notes, and submit it. LinkSense creates an immutable snapshot for administrator review; later changes to your personal copy do not alter the snapshot.
 
-Each release requires a separate decision. You may withdraw a pending release. After approval, the release becomes the current Plugin Center version.
+Each release requires a separate decision. You may withdraw a pending release. After approval, the release becomes the current Apps & Tools version.

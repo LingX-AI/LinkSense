@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 
 export interface BrowserStore {
   get(key: string): Promise<string | null>;
+  getMany(...keys: string[]): Promise<Array<string | null>>;
   put(
     key: string,
     value: string,
@@ -15,6 +16,7 @@ export interface BrowserStore {
     ttl: number,
     guard: string,
     expected: string,
+    exclusive?: boolean,
   ): Promise<boolean>;
   takeIf(key: string, guard: string, expected: string): Promise<string | null>;
   touch(key: string, expected: string, ttl: number): Promise<boolean>;
@@ -25,6 +27,9 @@ export class RedisBrowserStore implements BrowserStore {
   constructor(private readonly redis: Redis) {}
   get(key: string): Promise<string | null> {
     return this.redis.get(key);
+  }
+  getMany(...keys: string[]): Promise<Array<string | null>> {
+    return this.redis.mget(...keys);
   }
   async put(
     key: string,
@@ -47,16 +52,18 @@ export class RedisBrowserStore implements BrowserStore {
     ttl: number,
     guard: string,
     expected: string,
+    exclusive = false,
   ): Promise<boolean> {
     return (
       (await this.redis.eval(
-        "if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end; redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3]); return 1",
+        "if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end; if ARGV[4] == '1' then return redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3], 'NX') and 1 or 0 end; redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3]); return 1",
         2,
         key,
         guard,
         expected,
         value,
         String(ttl),
+        exclusive ? "1" : "0",
       )) === 1
     );
   }

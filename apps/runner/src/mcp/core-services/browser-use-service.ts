@@ -26,6 +26,7 @@ const tool: Tool = {
           "status",
           "tabs",
           "open",
+          "open_site",
           "navigate",
           "snapshot",
           "screenshot",
@@ -38,6 +39,11 @@ const tool: Tool = {
         ],
       },
       tab_id: { type: "integer", minimum: 1 },
+      site_id: {
+        type: "string",
+        format: "uuid",
+        description: "For open_site only: ID of an owned published LinkSense site. Opens a new local window without granting page control. Call once only when the user explicitly asks to open the site.",
+      },
       url: { type: "string", maxLength: 4096 },
       ref: {
         type: "string",
@@ -121,7 +127,7 @@ export const browserUseCoreMcpModule: CoreMcpModuleDefinition = {
               authorization: `Bearer ${z.string().min(32).parse(environment.LINKSENSE_CURRENT_USER_TOKEN)}`,
               "content-type": "application/json",
             },
-            body: JSON.stringify(request),
+            body: JSON.stringify(input.nativeCallId ? { input: request, nativeCallId: input.nativeCallId } : request),
             signal: withRequestTimeout(input.signal, 40_000),
           });
           if (!response.ok)
@@ -142,6 +148,18 @@ export const browserUseCoreMcpModule: CoreMcpModuleDefinition = {
   },
 };
 function asTool(result: z.infer<typeof browserUseResultSchema>) {
+  if (!result.ok && result.code === "BROWSER_USE_SCREENSHOT_MODEL_UNSUPPORTED") {
+    return { ...successToolResult(result), isError: true, content: [
+      { type: "text" as const, text: JSON.stringify(result) },
+      { type: "text" as const, text: "This model connection cannot receive browser screenshots. Use a DOM snapshot for page elements or choose an image-capable Responses model for visual inspection." },
+    ] };
+  }
+  if (!result.ok && result.code === "RUNNER_OPERATION_UNCERTAIN") {
+    return { ...successToolResult(result), isError: true, content: [
+      { type: "text" as const, text: JSON.stringify(result) },
+      { type: "text" as const, text: "The browser may have already performed this action. Do not repeat it. Check the current browser state before continuing." },
+    ] };
+  }
   if (result.ok && result.data.image) {
     const { image, ...metadata } = result.data;
     return {

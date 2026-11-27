@@ -56,10 +56,14 @@ export function ConversationWorkspace() {
         ) : undefined
       }
     >
-      <ConversationPage
-        development={Boolean(development.data)}
-        annotationSubmitRef={annotationSubmitRef}
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">
+          <ConversationPage
+            development={Boolean(development.data)}
+            annotationSubmitRef={annotationSubmitRef}
+          />
+        </div>
+      </div>
     </ApplicationDevelopmentLayout>
   )
 }

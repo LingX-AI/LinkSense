@@ -26,14 +26,23 @@ import type {
   ModelProviderProtocolMode,
   ModelTokenPricing,
   LocalModelUsage,
+  PrivacyMaskingHint,
+  PrivacyMaskingRuntime,
   RunnerMemoryUsageCapture,
+  RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import {
+  CONTEXT_LENGTH_EXCEEDED,
+  PRIVACY_MASKING_ACTIVITY_HINT_LIMIT,
   createModelProviderFetch,
+  isContextLengthExceededError,
   isModelProviderEndpointMissing,
   modelProviderFallbackUrl,
   modelGatewayErrorMessages,
   modelGatewayFailureCode,
+  modelTransitionCompactionFromTurnMetadata,
+  omitUnsupportedModelImages,
+  type ModelTransitionCompactionAuthorization,
 } from "@linksense/shared";
 
 import {
@@ -58,13 +67,23 @@ import {
   type ToolCompatibilityContext,
 } from "./tool-compat.js";
 import {
+  PrivacyMasker,
+  PrivacyRestorer,
+  maskResponsesRequest,
+  restoreJsonValue,
+  withChatPlaceholderNote,
+  withPlaceholderNote,
+  type MaskRequestHit,
+  type PrivacyMaskHit,
+  type RestoredEvent,
+} from "../privacy-masking/index.js";
+import {
   resolveSensitiveDataRequest,
   SensitiveDataRequestBlocked,
   type SensitiveDataRelay,
 } from "./sensitive-data.js";
 
 const DEFAULT_REQUEST_BODY_LIMIT = 128 * 1024 * 1024;
-const MODEL_TRANSITION_NONCE_METADATA_KEY = "linksense_transition_nonce";
 const DEFAULT_UPSTREAM_HEADER_TIMEOUT_MS = 30_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 120_000;
 const DEFAULT_UPSTREAM_WEBSOCKET_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -85,7 +104,6 @@ const SAFE_WEBSOCKET_RESPONSE_HEADERS = [
   "x-reasoning-included",
   "x-request-id",
 ] as const;
-const CONTEXT_LENGTH_EXCEEDED = "context_length_exceeded";
 const CONTEXT_LENGTH_EXCEEDED_MESSAGE =
   "The request exceeded the model context window.";
 
@@ -102,7 +120,11 @@ export type ModelGatewayLeaseInput = {
   protocolMode: ModelProviderProtocolMode;
   model: string;
   pricing: ModelTokenPricing;
+  /** Provider model settings; when absent the model is treated as text only. */
+  supportsImageInput?: boolean;
   memoryExtraction?: MemoryExtractionRuntime;
+  /** Present only while the owner's privacy masking is enabled. */
+  privacyMasking?: PrivacyMaskingRuntime;
 };
 
 export type ModelGatewayTransitionSource = Omit<
@@ -211,6 +233,13 @@ type ModelGatewayRequestContext = {
   leaseTurnCorrelation: StoredLease["turnCorrelation"] | null;
   memoryOperation: MemoryGenerationOperation | null;
   abortSource: ModelGatewayAbortSource | null;
+  /** Counts only: never a value, a word or an allowlisted entry. */
+  masking?: {
+    values: number;
+    kinds: JsonObject;
+    actions: JsonObject;
+    tookMs: number;
+  };
 };
 
 type ModelGatewayRequestAbort = {
@@ -229,6 +258,10 @@ type ModelGatewayOptions = {
   closeGraceMs?: number;
   fetch?: typeof fetch;
   onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+  /** Counts only; reported after a request had values replaced. */
+  onPrivacyMasking?: (
+    capture: RunnerPrivacyMaskingCapture,
+  ) => Promise<void>;
   sensitiveDataRelay?: SensitiveDataRelay;
 };
 
@@ -261,6 +294,8 @@ class WebSocketBackpressureError extends Error {
 
 export class ModelGateway implements ModelGatewayRuntime {
   private readonly leases = new Map<string, StoredLease>();
+  /** One placeholder registry per lease, so values survive across turns. */
+  private readonly privacyMaskers = new Map<string, PrivacyMasker>();
   private readonly webSocketSessions = new Set<ModelGatewayWebSocketSession>();
   private readonly webSocketServer: WebSocketServer;
   private readonly webSocketResponseHeaders = new WeakMap<
@@ -371,6 +406,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (!this.listeningBaseUrl || this.closing) {
       throw new Error("model gateway is unavailable");
     }
+    const masker = input.privacyMasking ? new PrivacyMasker(input.privacyMasking) : null;
     const token = randomBytes(32).toString("base64url");
     const turnCorrelation: StoredLease["turnCorrelation"] = { current: null };
     const transitionSource: StoredLease["transitionSource"] = {
@@ -391,6 +427,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         localInference,
       }),
     );
+    if (masker) this.privacyMaskers.set(token, masker);
     let released = false;
     return {
       token,
@@ -434,6 +471,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         if (released) return;
         released = true;
         this.leases.delete(token);
+        this.privacyMaskers.delete(token);
         this.terminateWebSocketSessionsForToken(token);
       },
     };
@@ -443,6 +481,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (this.closePromise) return this.closePromise;
     this.closing = true;
     this.leases.clear();
+    this.privacyMaskers.clear();
     this.terminateAllWebSocketSessions();
     this.server.closeIdleConnections();
     const serverClosePromise = new Promise<void>((resolve, reject) => {
@@ -505,7 +544,10 @@ export class ModelGateway implements ModelGatewayRuntime {
     applyTurnCorrelation(context, lease.turnCorrelation.current);
     context.memoryOperation = memoryOperationFromHeaders(request.headers);
 
-    if (!modelGatewaySupportsWebSockets(lease.protocolMode)) {
+    if (
+      !modelGatewaySupportsWebSockets(lease.protocolMode) ||
+      lease.privacyMasking
+    ) {
       rejectWebSocketUpgrade(socket, 426, "websocket_transport_unavailable");
       return;
     }
@@ -1110,7 +1152,11 @@ export class ModelGateway implements ModelGatewayRuntime {
         downstream.close(1012, "HTTP transport required");
         return;
       }
-      await this.prepareRequestImages(source, preparationAbort.signal);
+      await this.prepareRequestImages(
+        source,
+        preparationAbort.signal,
+        authorizedLease.supportsImageInput === true,
+      );
     } catch (error) {
       if (!(error instanceof GatewayHttpError)) throw error;
       await sendWebSocketError(
@@ -1306,7 +1352,9 @@ export class ModelGateway implements ModelGatewayRuntime {
     }
     const token = bearerToken(request.headers.authorization);
     const lease = token ? this.leases.get(token) : undefined;
-    if (!lease) throw new GatewayHttpError(401, "invalid_gateway_token");
+    if (!token || !lease) {
+      throw new GatewayHttpError(401, "invalid_gateway_token");
+    }
     context.conversationId = lease.conversationId;
     context.leaseTurnCorrelation = lease.turnCorrelation;
     applyTurnCorrelation(context, lease.turnCorrelation.current);
@@ -1393,7 +1441,43 @@ export class ModelGateway implements ModelGatewayRuntime {
         }
       }
       upstreamAbort.controller.signal.throwIfAborted();
-      await this.prepareRequestImages(body, upstreamAbort.controller.signal);
+      await this.prepareRequestImages(
+        body,
+        upstreamAbort.controller.signal,
+        authorizedLease.supportsImageInput === true,
+      );
+      const masker = this.privacyMaskers.get(token) ?? null;
+      if (authorizedLease.privacyMasking && !masker) {
+        throw new GatewayHttpError(503, "privacy_masking_unavailable");
+      }
+      if (masker) {
+        const began = performance.now();
+        try {
+          const hits = maskResponsesRequest(body, masker);
+          if (hits.some((hit) => hit.action === "block")) {
+            throw new GatewayHttpError(422, "privacy_masking_blocked");
+          }
+          context.masking = maskingLogFields(
+            hits,
+            performance.now() - began,
+          );
+          this.reportPrivacyMasking(hits, authorizedLease, context);
+        } catch (error) {
+          if (error instanceof GatewayHttpError) throw error;
+          this.options.logger.warn(
+            {
+              ...requestLogFields(context),
+              errorClass:
+                error instanceof Error ? error.name : "unknown",
+            },
+            "privacy masking failed",
+          );
+          throw new GatewayHttpError(503, "privacy_masking_unavailable");
+        }
+        if (authorizedLease.protocolMode !== "chat_completions_bridge") {
+          body = withPlaceholderNote(body);
+        }
+      }
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(
           authorizedLease,
@@ -1401,6 +1485,7 @@ export class ModelGateway implements ModelGatewayRuntime {
           response,
           upstreamAbort,
           context,
+          masker,
         );
         return;
       }
@@ -1414,6 +1499,7 @@ export class ModelGateway implements ModelGatewayRuntime {
           upstreamAbort,
           context,
           body,
+          masker,
         );
         return;
       }
@@ -1425,6 +1511,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         upstreamAbort,
         context,
         body,
+        masker,
       );
     } finally {
       request.off("aborted", abortOnRequest);
@@ -1449,6 +1536,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     response: ServerResponse,
     abort: ModelGatewayRequestAbort,
     context: ModelGatewayRequestContext,
+    masker: PrivacyMasker | null,
   ): Promise<void> {
     const upstream = await this.callUpstream(
       lease.upstreamBaseUrl,
@@ -1468,6 +1556,18 @@ export class ModelGateway implements ModelGatewayRuntime {
         context,
       )
     ) {
+      return;
+    }
+    if (masker) {
+      await this.forwardRestoredNativeResponses(
+        lease,
+        body,
+        response,
+        abort,
+        context,
+        masker,
+        upstream,
+      );
       return;
     }
     copySafeUpstreamHeaders(upstream, response);
@@ -1519,6 +1619,97 @@ export class ModelGateway implements ModelGatewayRuntime {
     await pipeBody(stream, response);
   }
 
+  private async forwardRestoredNativeResponses(
+    lease: StoredLease,
+    body: JsonObject,
+    response: ServerResponse,
+    abort: ModelGatewayRequestAbort,
+    context: ModelGatewayRequestContext,
+    masker: PrivacyMasker,
+    upstream: Response,
+  ): Promise<void> {
+    copySafeUpstreamHeaders(upstream, response);
+    if (!upstream.body) {
+      response.writeHead(upstream.status);
+      response.end();
+      return;
+    }
+    if (isEventStream(upstream.headers.get("content-type"))) {
+      const stream = withIdleTimeout(
+        upstream.body,
+        this.options.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
+        abort,
+      );
+      beginSseResponse(response);
+      const restorer = new PrivacyRestorer(masker);
+      const writeEvents = async (events: readonly RestoredEvent[]) => {
+        for (const event of events) {
+          await writeSseEvent(response, event.event, event.payload);
+        }
+      };
+      for await (const event of parseSseStream(stream)) {
+        if (event.data.trim() === "[DONE]") continue;
+        let payload: JsonObject;
+        try {
+          payload = parseJsonObject(event.data);
+        } catch {
+          await writeResponseChunk(
+            response,
+            `event: ${event.event ?? "message"}\ndata: ${event.data}\n\n`,
+          );
+          continue;
+        }
+        const name =
+          event.event ?? stringValue(payload.type) ?? "message";
+        const outputs = restorer.restoreEvent(name, payload);
+        await writeEvents(outputs);
+        if (context.memoryOperation) {
+          const completed = outputs
+            .map((output) => completedResponseFromEvent(output.payload))
+            .find((value): value is JsonObject => value !== null);
+          if (completed) {
+            await this.captureMemoryUsage(
+              lease,
+              context.memoryOperation,
+              body,
+              completed,
+              context,
+            );
+            context.memoryOperation = null;
+          }
+        }
+      }
+      await writeEvents(restorer.flush());
+      response.end();
+      return;
+    }
+    const payload = await readJsonResponse(
+      upstream,
+      this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT,
+      this.options.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
+      abort,
+    );
+    const restored = restoreJsonValue(payload, masker);
+    if (!isRecord(restored)) {
+      throw new Error("model provider returned an invalid response");
+    }
+    if (context.memoryOperation) {
+      await this.captureMemoryUsage(
+        lease,
+        context.memoryOperation,
+        body,
+        restored,
+        context,
+      );
+      context.memoryOperation = null;
+    }
+    if (body.stream === true) {
+      await writeCompletedResponseAsSse(response, restored);
+      return;
+    }
+    writeJson(response, upstream.status, restored);
+  }
+
   private async forwardCompatibleResponses(
     lease: StoredLease,
     body: JsonObject,
@@ -1527,6 +1718,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     requestContext: ModelGatewayRequestContext,
     meteredRequestBody: JsonObject,
+    masker: PrivacyMasker | null,
   ): Promise<void> {
     let memoryOperation = requestContext.memoryOperation;
     const upstream = await this.callUpstream(
@@ -1561,28 +1753,37 @@ export class ModelGateway implements ModelGatewayRuntime {
         this.options.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
         abort,
       );
+      const restorer = masker ? new PrivacyRestorer(masker) : null;
+      const writeEvents = async (events: readonly RestoredEvent[]) => {
+        for (const event of events) {
+          const completed = completedResponseFromEvent(event.payload);
+          if (completed && memoryOperation) {
+            await this.captureMemoryUsage(
+              lease,
+              memoryOperation,
+              meteredRequestBody,
+              completed,
+              requestContext,
+            );
+            memoryOperation = null;
+          }
+          await writeSseEvent(response, event.event, event.payload);
+        }
+      };
       for await (const event of parseSseStream(stream)) {
         if (event.data.trim() === "[DONE]") continue;
         const payload = parseJsonObject(event.data);
         const rewritten = rewriteResponsesPayload(payload, context);
         if (!isRecord(rewritten)) continue;
-        const completed = completedResponseFromEvent(rewritten);
-        if (completed && memoryOperation) {
-          await this.captureMemoryUsage(
-            lease,
-            memoryOperation,
-            meteredRequestBody,
-            completed,
-            requestContext,
-          );
-          memoryOperation = null;
-        }
-        await writeSseEvent(
-          response,
-          event.event ?? stringValue(rewritten.type) ?? "message",
-          rewritten,
+        const name =
+          event.event ?? stringValue(rewritten.type) ?? "message";
+        await writeEvents(
+          restorer
+            ? restorer.restoreEvent(name, rewritten)
+            : [{ event: name, payload: rewritten }],
         );
       }
+      if (restorer) await writeEvents(restorer.flush());
       response.end();
       return;
     }
@@ -1596,20 +1797,24 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (!isRecord(rewritten)) {
       throw new Error("model provider returned an invalid response");
     }
+    const restored = masker ? restoreJsonValue(rewritten, masker) : rewritten;
+    if (!isRecord(restored)) {
+      throw new Error("model provider returned an invalid response");
+    }
     if (memoryOperation) {
       await this.captureMemoryUsage(
         lease,
         memoryOperation,
         meteredRequestBody,
-        rewritten,
+        restored,
         requestContext,
       );
     }
     if (streamRequested) {
-      await writeResponseAsSse(response, rewritten);
+      await writeCompletedResponseAsSse(response, restored);
       return;
     }
-    writeJson(response, 200, rewritten);
+    writeJson(response, 200, restored);
   }
 
   private async forwardChatCompletions(
@@ -1620,14 +1825,16 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     requestContext: ModelGatewayRequestContext,
     meteredRequestBody: JsonObject,
+    masker: PrivacyMasker | null,
   ): Promise<void> {
     const streamRequested = body.stream === true;
     let memoryOperation = requestContext.memoryOperation;
+    const chatBody = buildChatCompletionRequest(body, streamRequested);
     const upstream = await this.callUpstream(
       lease.upstreamBaseUrl,
       "chat/completions",
       lease.apiKey,
-      buildChatCompletionRequest(body, streamRequested),
+      masker ? withChatPlaceholderNote(chatBody) : chatBody,
       abort,
       requestContext,
     );
@@ -1658,28 +1865,41 @@ export class ModelGateway implements ModelGatewayRuntime {
         ),
         { headers: upstream.headers, status: upstream.status },
       );
+      const restorer = masker ? new PrivacyRestorer(masker) : null;
+      const writeEvents = async (events: readonly RestoredEvent[]) => {
+        for (const event of events) {
+          const terminal =
+            (event.payload.type === "response.completed" ||
+              event.payload.type === "response.incomplete") &&
+            isRecord(event.payload.response)
+              ? event.payload.response
+              : null;
+          if (terminal && memoryOperation) {
+            await this.captureMemoryUsage(
+              lease,
+              memoryOperation,
+              meteredRequestBody,
+              terminal,
+              requestContext,
+            );
+            memoryOperation = null;
+          }
+          await writeSseEvent(response, event.event, event.payload);
+        }
+      };
       for await (const event of chatCompletionStreamToResponses(
         timedResponse,
         lease.model,
       )) {
         const rewritten = rewriteResponsesPayload(event.data, context);
         if (!isRecord(rewritten)) continue;
-        if (
-          memoryOperation &&
-          (event.event === "response.completed" || event.event === "response.incomplete") &&
-          isRecord(rewritten.response)
-        ) {
-          await this.captureMemoryUsage(
-            lease,
-            memoryOperation,
-            meteredRequestBody,
-            rewritten.response,
-            requestContext,
-          );
-          memoryOperation = null;
-        }
-        await writeSseEvent(response, event.event, rewritten);
+        await writeEvents(
+          restorer
+            ? restorer.restoreEvent(event.event, rewritten)
+            : [{ event: event.event, payload: rewritten }],
+        );
       }
+      if (restorer) await writeEvents(restorer.flush());
       response.end();
       return;
     }
@@ -1694,20 +1914,24 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (!isRecord(rewritten)) {
       throw new Error("model provider returned an invalid response");
     }
+    const restored = masker ? restoreJsonValue(rewritten, masker) : rewritten;
+    if (!isRecord(restored)) {
+      throw new Error("model provider returned an invalid response");
+    }
     if (memoryOperation) {
       await this.captureMemoryUsage(
         lease,
         memoryOperation,
         meteredRequestBody,
-        rewritten,
+        restored,
         requestContext,
       );
     }
     if (streamRequested) {
-      await writeResponseAsSse(response, rewritten);
+      await writeCompletedResponseAsSse(response, restored);
       return;
     }
-    writeJson(response, 200, rewritten);
+    writeJson(response, 200, restored);
   }
 
   private async callUpstream(
@@ -1756,7 +1980,8 @@ export class ModelGateway implements ModelGatewayRuntime {
           dispatcher: context.localSensitiveDataRoute ? this.localDispatcher : this.httpProxyDispatcher,
         }) as unknown as Response;
       };
-      const upstream = await createModelProviderFetch(baseUrl, fetcher)(endpointUrl(baseUrl, endpoint), requestInit);
+      const transport = createModelProviderFetch(baseUrl, fetcher);
+      const upstream = await transport(endpointUrl(baseUrl, endpoint), requestInit);
       context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
       latency.mark("upstream_headers");
       if (!upstream.ok || !upstream.body) return upstream;
@@ -1770,7 +1995,17 @@ export class ModelGateway implements ModelGatewayRuntime {
     }
   }
 
-  private async prepareRequestImages(body: JsonObject, signal: AbortSignal): Promise<void> {
+  private async prepareRequestImages(
+    body: JsonObject,
+    signal: AbortSignal,
+    supportsImageInput: boolean,
+  ): Promise<void> {
+    // Never serialize images into text for a text-only model: upstreams count
+    // base64 as ordinary tokens, which can consume the whole context window.
+    if (!supportsImageInput) {
+      omitUnsupportedModelImages(body);
+      return;
+    }
     try {
       await prepareModelRequestImages(
         body, this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT, signal,
@@ -2005,6 +2240,67 @@ export class ModelGateway implements ModelGatewayRuntime {
       },
     });
   }
+
+  private reportPrivacyMasking(
+    hits: readonly MaskRequestHit[],
+    lease: Pick<
+      ModelGatewayLeaseInput,
+      "ownerId" | "conversationId" | "model"
+    >,
+    context: ModelGatewayRequestContext,
+  ): void {
+    if (!this.options.onPrivacyMasking) return;
+    const kinds: Record<string, number> = {};
+    const hintsByShape = new Map<string, PrivacyMaskingHint>();
+    let maskedCount = 0;
+    for (const hit of hits) {
+      if (hit.action !== "mask") continue;
+      maskedCount += 1;
+      kinds[hit.kind] = Number(kinds[hit.kind] ?? 0) + 1;
+      const key = `${hit.kind}\u0000${hit.length}\u0000${hit.location}`;
+      const hint = hintsByShape.get(key);
+      if (hint) hint.count += 1;
+      else {
+        hintsByShape.set(key, {
+          kind: hit.kind,
+          length: hit.length,
+          location: hit.location,
+          count: 1,
+        });
+      }
+    }
+    if (maskedCount === 0) return;
+    const hints = [...hintsByShape.values()]
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          left.kind.localeCompare(right.kind) ||
+          left.length - right.length ||
+          left.location.localeCompare(right.location),
+      )
+      .slice(0, PRIVACY_MASKING_ACTIVITY_HINT_LIMIT);
+    // Hints come from the hits already in memory; the report itself is
+    // sent fire-and-forget so a slow API never delays the model request.
+    const capture: RunnerPrivacyMaskingCapture = {
+      request_id: context.requestId,
+      owner_id: lease.ownerId,
+      conversation_id: lease.conversationId,
+      turn_id: context.turnId,
+      model: lease.model,
+      kinds,
+      masked_count: maskedCount,
+      hints,
+      observed_at: new Date(context.startedAt).toISOString(),
+    };
+    void Promise.resolve()
+      .then(() => this.options.onPrivacyMasking?.(capture))
+      .catch((error: unknown) => {
+        this.options.logger.warn(
+          { err: error, requestId: capture.request_id },
+          "privacy masking report failed",
+        );
+      });
+  }
 }
 
 export const modelGatewayEnvironmentKey = MODEL_GATEWAY_ENV_KEY;
@@ -2059,7 +2355,26 @@ function requestLogFields(context: ModelGatewayRequestContext): JsonObject {
       (latestMatchesRequest ? latestCorrelation.codexTurnId : null),
     memoryOperation: context.memoryOperation,
     abortSource: context.abortSource,
+    masking: context.masking ?? null,
     durationMs: Math.max(0, Date.now() - context.startedAt),
+  };
+}
+
+function maskingLogFields(
+  hits: readonly PrivacyMaskHit[],
+  tookMs: number,
+): NonNullable<ModelGatewayRequestContext["masking"]> {
+  const kinds: JsonObject = {};
+  const actions: JsonObject = {};
+  for (const hit of hits) {
+    kinds[hit.kind] = Number(kinds[hit.kind] ?? 0) + 1;
+    actions[hit.action] = Number(actions[hit.action] ?? 0) + 1;
+  }
+  return {
+    values: hits.length,
+    kinds,
+    actions,
+    tookMs: Math.max(1, Math.round(tookMs)),
   };
 }
 
@@ -2350,7 +2665,7 @@ function isEventStream(contentType: string | null): boolean {
   return contentType?.toLowerCase().startsWith("text/event-stream") ?? false;
 }
 
-async function writeResponseAsSse(
+async function writeCompletedResponseAsSse(
   response: ServerResponse,
   result: JsonObject,
 ): Promise<void> {
@@ -2436,57 +2751,6 @@ function publicErrorMessage(code: string): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
-}
-
-function isContextLengthExceededError(
-  payload: JsonObject | null,
-  statusCode?: number,
-): boolean {
-  if (!payload) return false;
-  const directError = isRecord(payload.error) ? payload.error : null;
-  const response = isRecord(payload.response) ? payload.response : null;
-  const responseError =
-    response && isRecord(response.error) ? response.error : null;
-  const candidates = [directError, responseError, payload].filter(
-    (candidate): candidate is JsonObject => candidate !== null,
-  );
-  if (
-    candidates.some((error) => error.code === CONTEXT_LENGTH_EXCEEDED)
-  ) {
-    return true;
-  }
-  return (
-    statusCode === 400 &&
-    candidates.some((error) => isVllmContextLengthExceededError(error))
-  );
-}
-
-function isVllmContextLengthExceededError(error: JsonObject): boolean {
-  const message = stringValue(error.message)?.toLowerCase() ?? "";
-  if (!message) return false;
-  const type = stringValue(error.type)?.toLowerCase() ?? "";
-  const parameter =
-    stringValue(error.parameter)?.toLowerCase() ??
-    stringValue(error.param)?.toLowerCase() ??
-    "";
-  const code = error.code;
-  const codeMatches = code === 400 || code === "400";
-  const typeMatches =
-    type.includes("badrequest") || type.includes("invalid_request");
-  const parameterMatches = [
-    "input_tokens",
-    "prompt_tokens",
-    "prompt",
-    "messages",
-    "input",
-  ].includes(parameter);
-  const messageMatches =
-    message.includes("maximum context length") ||
-    (message.includes("max_model_len") &&
-      (message.includes("exceed") || message.includes("larger than"))) ||
-    (message.includes("input tokens") &&
-      message.includes("reduce the length of the input prompt"));
-  return messageMatches && (codeMatches || typeMatches || parameterMatches);
 }
 
 function normalizeResponsesRequest(source: JsonObject): JsonObject {
@@ -2587,71 +2851,21 @@ function leaseForTransitionSource(
   return Object.freeze({ ...lease, ...source });
 }
 
-type ModelTransitionCompactionAuthorization =
-  | { kind: "manual" }
-  | { kind: "auto"; nonce: string };
-
 function modelTransitionCompactionFromHttpRequest(
   headers: IncomingMessage["headers"],
   body: JsonObject,
 ): ModelTransitionCompactionAuthorization | null {
-  const bodyMetadata = turnMetadataFromClientMetadata(body.client_metadata);
-  if (!bodyMetadata) return null;
-  const headerMetadata = singleHeaderValue(
-    headers["x-codex-turn-metadata"],
+  return modelTransitionCompactionFromTurnMetadata(
+    body.client_metadata,
+    singleHeaderValue(headers["x-codex-turn-metadata"]),
+    { requireBodyMetadata: true },
   );
-  if (headerMetadata !== null && headerMetadata !== bodyMetadata) return null;
-  return modelTransitionCompactionFromMetadata(bodyMetadata);
 }
 
 function modelTransitionCompactionFromClientMetadata(
   value: unknown,
 ): ModelTransitionCompactionAuthorization | null {
-  return modelTransitionCompactionFromMetadata(
-    turnMetadataFromClientMetadata(value),
-  );
-}
-
-function turnMetadataFromClientMetadata(value: unknown): string | null {
-  if (!isRecord(value)) return null;
-  return stringValue(value["x-codex-turn-metadata"]);
-}
-
-function modelTransitionCompactionFromMetadata(
-  value: string | null,
-): ModelTransitionCompactionAuthorization | null {
-  if (!value) return null;
-  try {
-    const metadata: unknown = JSON.parse(value);
-    if (
-      !isRecord(metadata) ||
-      metadata.request_kind !== "compaction" ||
-      !isRecord(metadata.compaction) ||
-      metadata.compaction.implementation !== "responses" ||
-      metadata.compaction.strategy !== "memento"
-    ) {
-      return null;
-    }
-    if (
-      metadata.compaction.trigger === "manual" &&
-      metadata.compaction.reason === "user_requested" &&
-      metadata.compaction.phase === "standalone_turn"
-    ) {
-      return { kind: "manual" };
-    }
-    if (
-      metadata.compaction.trigger === "auto" &&
-      (metadata.compaction.reason === "comp_hash_changed" ||
-        metadata.compaction.reason === "model_downshift") &&
-      metadata.compaction.phase === "pre_turn"
-    ) {
-      const nonce = stringValue(metadata[MODEL_TRANSITION_NONCE_METADATA_KEY]);
-      return nonce ? { kind: "auto", nonce } : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return modelTransitionCompactionFromTurnMetadata(value, null);
 }
 
 function memoryOperationFromHeaders(

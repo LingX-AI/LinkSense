@@ -58,7 +58,10 @@ afterEach(() => {
   document.documentElement.style.removeProperty("zoom")
 })
 
-function installController(useRealSelecto = false) {
+function installController(
+  useRealSelecto = false,
+  acceptEvent?: (event: MessageEvent<unknown>) => boolean
+) {
   let selectEnd:
     ((event: Readonly<{ selected: readonly Element[] }>) => void) | null = null
   const state = {
@@ -92,6 +95,7 @@ function installController(useRealSelecto = false) {
   Reflect.set(window, "Selecto", useRealSelecto ? Selecto : SelectoMock)
   const controller = installHtmlPreviewAnnotationController(window, {
     reportMessage: (message) => window.parent.postMessage(message, "*"),
+    acceptEvent,
     modeMessageType: htmlPreviewAnnotationModeMessageType,
     selectionMessageType: htmlPreviewSelectionMessageType,
     clearMessageType: htmlPreviewSelectionClearMessageType,
@@ -135,6 +139,19 @@ function annotationOverlay(selector: string): SVGSVGElement {
 }
 
 describe("HTML preview live selection", () => {
+  it("uses an injected host transport guard for annotation messages", () => {
+    document.body.innerHTML = '<h1 id="hero">Hero</h1>'
+    let accept = false
+    const guard = vi.fn(() => accept)
+    installController(false, guard)
+    setAnnotationMode(true)
+    expect(guard).toHaveBeenCalled()
+    expect(document.body).not.toHaveAttribute("data-office-annotation-scope")
+    accept = true
+    setAnnotationMode(true)
+    expect(document.body).toHaveAttribute("data-office-annotation-scope")
+  })
+
   it.each([0.5, 1, 1.5])(
     "keeps the drag rectangle at the mouse coordinates with %s document zoom and selects the enclosed elements",
     (zoom) => {

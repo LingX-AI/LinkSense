@@ -44,6 +44,9 @@ export function SidebarTaskSortMenu({
             variant="ghost"
             size="icon"
             className="hover:bg-transparent aria-expanded:bg-transparent"
+            title={t("conversation.taskSort.open", {
+              section: sectionLabel,
+            })}
             aria-label={t("conversation.taskSort.open", {
               section: sectionLabel,
             })}
@@ -56,15 +59,15 @@ export function SidebarTaskSortMenu({
         side="bottom"
         align="start"
         sideOffset={8}
-        className="w-55 rounded-xl border border-border p-2 shadow-(--app-dialog-shadow) ring-0"
+        className="w-[220px] rounded-xl border border-border p-1.5 shadow-(--app-dialog-shadow) ring-0"
       >
-        <DropdownMenuGroup className="flex flex-col gap-1">
-          <DropdownMenuLabel className="flex h-7 items-center py-0 leading-[var(--app-line-18)] font-normal">
+        <DropdownMenuGroup className="flex flex-col gap-0.5">
+          <DropdownMenuLabel className="flex h-6 items-center px-2 py-0 text-xs leading-[var(--app-line-18)] font-normal">
             {t("conversation.taskSort.label")}
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="m-0 h-px" />
           <DropdownMenuRadioGroup
-            className="flex flex-col gap-1"
+            className="flex flex-col gap-0.5"
             value={value}
             onValueChange={(nextValue) => {
               const parsed = sidebarTaskSortModeSchema.safeParse(nextValue)
@@ -76,14 +79,14 @@ export function SidebarTaskSortMenu({
                 key={mode}
                 value={mode}
                 closeOnClick
-                className="min-h-8 py-1.25 leading-[var(--app-line-22)] font-normal focus-visible:bg-transparent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset active:bg-accent [&_[data-slot=dropdown-menu-radio-item-indicator]_svg]:text-primary!"
+                className="min-h-6 gap-1.5 py-1 pr-7 pl-2 text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-normal focus-visible:bg-transparent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset active:bg-accent [&_[data-slot=dropdown-menu-radio-item-indicator]_svg]:size-3.5 [&_[data-slot=dropdown-menu-radio-item-indicator]_svg]:text-primary!"
                 aria-description={
                   mode === "priority"
                     ? t("conversation.taskSort.priorityDescription")
                     : undefined
                 }
               >
-                <DesignIcon name={modeIcons[mode]} />
+                <DesignIcon name={modeIcons[mode]} className="size-3.5" />
                 {t(`conversation.taskSort.${mode}`)}
               </DropdownMenuRadioItem>
             ))}

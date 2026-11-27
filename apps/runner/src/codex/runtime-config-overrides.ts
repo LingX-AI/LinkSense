@@ -31,6 +31,16 @@ export function linkSenseSkillConfigOverrides(
   ];
 }
 
+/**
+ * Text-only provider models must not receive the native `view_image` tool:
+ * screenshot tool results become base64 image parts in the model context.
+ */
+export function linkSenseImageCapabilityConfigOverrides(
+  supportsImageInput: boolean | undefined,
+): string[] {
+  return supportsImageInput === true ? [] : ["features.view_image=false"];
+}
+
 export const coreMcpEnvironmentVariables = [
   "LINKSENSE_COLLABORATION_MODE",
   "LINKSENSE_CONVERSATION_ID",
@@ -78,6 +88,8 @@ export function linkSenseModelProviderConfigOverrides(input: {
   allowWebSockets?: boolean;
   modelContextWindow?: number;
   modelAutoCompactTokenLimit?: number;
+  /** Catalog file that lets Codex resolve the configured window instead of clamping it. */
+  modelCatalogPath?: string;
 }): string[] {
   const autoCompactTokenLimit =
     input.modelAutoCompactTokenLimit ??
@@ -101,6 +113,9 @@ export function linkSenseModelProviderConfigOverrides(input: {
     ...(input.modelContextWindow === undefined
       ? []
       : [`model_context_window=${String(input.modelContextWindow)}`]),
+    ...(input.modelCatalogPath === undefined
+      ? []
+      : [`model_catalog_json=${JSON.stringify(input.modelCatalogPath)}`]),
     ...(autoCompactTokenLimit === undefined
       ? []
       : [

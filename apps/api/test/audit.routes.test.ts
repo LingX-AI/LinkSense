@@ -768,6 +768,7 @@ describe("AuditService metadata boundary", () => {
       }),
     ).toEqual({ conversation_id: CONVERSATION_ID, queue_no: 2 })
   })
+
 })
 
 class CsvTestWritable extends EventEmitter {

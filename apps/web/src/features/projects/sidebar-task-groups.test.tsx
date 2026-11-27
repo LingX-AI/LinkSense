@@ -191,17 +191,22 @@ describe("sidebar task project controls", () => {
         const trigger = within(section).getByRole("button", { name: label })
         await interaction.click(trigger)
         expect(empty).not.toBeVisible()
-        expect(
-          within(section).getByRole("button", {
-            name: i18n.t("conversation.taskSort.open", { section: label }),
-          })
-        ).toBeEnabled()
+        const sort = within(section).getByRole("button", {
+          name: i18n.t("conversation.taskSort.open", { section: label }),
+        })
+        expect(sort).toHaveAttribute(
+          "title",
+          i18n.t("conversation.taskSort.open", { section: label })
+        )
+        expect(sort).toBeEnabled()
         await interaction.keyboard("{Enter}")
         expect(empty).toBeVisible()
       }
-      expect(
-        screen.getByRole("button", { name: i18n.t("projects.create") })
-      ).toBeEnabled()
+      const createProject = screen.getByRole("button", {
+        name: i18n.t("projects.create"),
+      })
+      expect(createProject).toHaveAttribute("title", i18n.t("projects.create"))
+      expect(createProject).toBeEnabled()
       expect(screen.queryByRole("link")).not.toBeInTheDocument()
     }
   )
@@ -309,7 +314,7 @@ describe("sidebar task project controls", () => {
         "group-hover/project:opacity-0",
         "group-has-data-[popup-open]/project:opacity-0",
         "group-has-[:focus-visible]/project:opacity-0",
-        "[@media(hover:none)]:right-12"
+        "[@media(hover:none)]:right-[calc(3rem+var(--app-sidebar-row-height))]"
       )
       expect(status.querySelector("svg")).toHaveClass(
         "size-3.5",
@@ -405,7 +410,9 @@ describe("sidebar task project controls", () => {
       expect(heading).toHaveClass("text-xs", "font-normal")
       expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
     }
-    expect(screen.getByText(project.name)).toHaveClass("text-sm")
+    expect(screen.getByText(project.name)).toHaveClass(
+      "text-[length:var(--app-font-13)]"
+    )
   })
 
   it.each([
@@ -685,6 +692,7 @@ describe("sidebar task project controls", () => {
     renderGroups()
     const folder = screen.getByRole("button", { name: project.name })
     const more = screen.getByRole("button", { name: "日常工作的更多操作" })
+    expect(more).toHaveAttribute("title", "日常工作的更多操作")
     const header = folder.parentElement
 
     expect(header).toContainElement(more)
@@ -699,13 +707,13 @@ describe("sidebar task project controls", () => {
     expect(folder).toHaveClass(
       "h-(--app-sidebar-row-height)",
       "w-full",
-      "pr-12",
+      "pr-[calc(12px+2*var(--app-sidebar-row-height))]",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent"
     )
     expect(more).toHaveClass(
       "absolute",
-      "right-0",
+      "right-(--app-sidebar-row-height)",
       "size-(--app-sidebar-row-height)",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent",
@@ -753,6 +761,59 @@ describe("sidebar task project controls", () => {
     )
   })
 
+  it("starts a blank new task from the Recent section header", async () => {
+    const interaction = userEvent.setup()
+    const onNewTask = vi.fn()
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[project]}
+        loadingMore={false}
+        onAction={vi.fn()}
+        onNewTask={onNewTask}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+
+    const newTask = screen.getByRole("button", {
+      name: i18n.t("nav.newConversation"),
+    })
+    expect(newTask).toHaveAttribute("title", i18n.t("nav.newConversation"))
+    await interaction.click(newTask)
+    expect(onNewTask).toHaveBeenCalledOnce()
+  })
+
+  it("starts a new task in the project from the project row", async () => {
+    const interaction = userEvent.setup()
+    const onStartTask = vi.fn()
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[project]}
+        loadingMore={false}
+        onAction={vi.fn()}
+        onStartTask={onStartTask}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+
+    const newTask = screen.getByRole("button", {
+      name: i18n.t("projects.newTaskNamed", { title: project.name }),
+    })
+    expect(newTask).toHaveAttribute(
+      "title",
+      i18n.t("projects.newTaskNamed", { title: project.name })
+    )
+    await interaction.click(newTask)
+    expect(onStartTask).toHaveBeenCalledExactlyOnceWith(project.id)
+  })
+
   it("keeps the menu active away from the header and invokes an action without collapsing the folder", async () => {
     const interaction = userEvent.setup()
     const onAction = renderGroups()
@@ -764,7 +825,7 @@ describe("sidebar task project controls", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent)
-    ).toEqual(["编辑", "移除项目"])
+    ).toEqual(["编辑", "移除"])
     await interaction.hover(menu)
     expect(more).toHaveAttribute("data-popup-open")
     expect(folder).toHaveAttribute("aria-expanded", "true")

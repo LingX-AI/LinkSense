@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { BellIcon } from "lucide-react"
+import { DEFAULT_ORGANIZATION_DISPLAY_NAME } from "@linksense/shared"
 
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
@@ -17,10 +18,12 @@ export function BrowserNotificationSettings({
     preference,
     requestPending,
     feedback,
+    feedbackMessage,
     clearFeedback,
     disable,
     requestPermissionAndActivate,
   } = useBrowserNotificationActivation(userId)
+  const toggleLabel = t("browserNotifications.enable")
 
   const unavailable =
     !userId ||
@@ -28,25 +31,16 @@ export function BrowserNotificationSettings({
     ((!preference.supported || preference.permission === "denied") &&
       !preference.enabled)
   const statusMessage =
-    feedback === "storageError"
-      ? t("browserNotifications.storageError")
-      : feedback === "deliveryError"
-        ? t("browserNotifications.deliveryError")
-        : feedback === "feedError"
-          ? t("browserNotifications.feedError")
-          : feedback === "error"
-            ? t("browserNotifications.permissionError")
-            : feedback === "dismissed"
-              ? t("browserNotifications.permissionDismissed")
-              : feedback === "testSent"
-                ? t("browserNotifications.testSent")
-                : !preference.supported
-                  ? t("browserNotifications.unsupported")
-                  : preference.permission === "denied"
-                    ? t("browserNotifications.permissionDenied")
-                    : preference.enabled && preference.permission === "default"
-                      ? t("browserNotifications.permissionRequired")
-                      : null
+    feedbackMessage ??
+    (!preference.supported
+      ? t("browserNotifications.unsupported")
+      : preference.permission === "denied"
+        ? t("browserNotifications.permissionDenied", {
+            productName: DEFAULT_ORGANIZATION_DISPLAY_NAME,
+          })
+        : preference.enabled && preference.permission === "default"
+          ? t("browserNotifications.permissionRequired")
+          : null)
 
   return (
     <SettingsCard
@@ -62,15 +56,13 @@ export function BrowserNotificationSettings({
         />
       }
     >
-      <div className="flex min-h-20 items-center justify-between gap-6 py-4">
-        <span className="min-w-0 text-sm font-medium">
-          {t("browserNotifications.enable")}
-        </span>
+      <div className="flex items-center justify-between gap-6">
+        <span className="min-w-0 text-sm font-medium">{toggleLabel}</span>
         <Switch
           id="browser-notifications-enabled"
           checked={preference.enabled}
           disabled={unavailable}
-          aria-label={t("browserNotifications.enable")}
+          aria-label={toggleLabel}
           aria-describedby="browser-notifications-description"
           onCheckedChange={(checked) => {
             clearFeedback()
@@ -90,7 +82,9 @@ export function BrowserNotificationSettings({
               : feedback === "error" ||
                   feedback === "storageError" ||
                   feedback === "deliveryError" ||
-                  feedback === "feedError"
+                  feedback === "feedError" ||
+                  feedback === "denied" ||
+                  feedback === "unsupported"
                 ? "error"
                 : "warning"
           }

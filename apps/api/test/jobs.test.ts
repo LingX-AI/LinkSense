@@ -1,3 +1,4 @@
+
 import type { Job } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
@@ -694,6 +695,7 @@ function queueControl(input: {
     getJobs: vi.fn().mockResolvedValue(input.failedJobs),
     getJob: vi.fn().mockResolvedValue(input.selectedJob),
     add: vi.fn(),
+    addBulk: vi.fn(),
     close: vi.fn(),
     upsertJobScheduler: vi.fn(),
   } as unknown as MaintenanceQueueControl

@@ -34,9 +34,12 @@ import {
 } from "../src/adapters/runner.js";
 import {
   ConversationService,
+  deterministicUuid,
+  pendingStartProjectionTurnId,
   type ApplicationTurnConfiguration,
   type ExecutionCapability,
 } from "../src/modules/conversations/service.js";
+import { START_INTENT_UNSETTLED_RELEASE_MILLISECONDS } from "../src/modules/conversations/start-intent-policy.js";
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
 import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
 import { AutomationNotificationService } from "../src/modules/automations/notifications.js";
@@ -89,6 +92,13 @@ afterEach(async () => {
 });
 
 describe("ConversationService ownership and draft lifecycle", () => {
+  it("projects a pre-desktop cloud record without requiring new fields in its stored projection", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findMany.mockResolvedValue([conversationRow()]);
+    const result = await fixture.service.list(OWNER_ID, { archived: false, limit: 30 });
+    expect(result.items[0]).toMatchObject({ id: CONVERSATION_ID, title: expect.any(String) });
+  });;;
+
   it("persists development instructions separately from an installed application snapshot", async () => {
     const fixture = await conversationFixture();
     const developmentInstructions = vi.fn(async () => "Edit the existing application project.");
@@ -1558,6 +1568,56 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversationTurnStartIntent.findUnique.mockClear();
     await expect(fixture.service.get(APPLICATION_OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
     expect(fixture.prisma.conversationTurnStartIntent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("projects a starting conversation reference with only the exact question visible", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ sideChatParentId: SECOND_CONVERSATION_ID }));
+    const display = {
+      kind: "conversation_reference" as const, reference_id: MESSAGE_ID, request: "Explain this claim",
+      source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quoted selection", recent_message_count: 1,
+    };
+    const intent = startIntentRow({ inputText: "internal marker prompt with quoted selection", messageDisplayJson: display });
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(intent);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.starting_turn).toMatchObject({
+      turn_id: intent.projectionTurnId, input_text: "Explain this claim", message_display: display,
+    });
+    expect(detail.starting_turn?.input_text).not.toContain("quoted selection");
+  });
+
+  it("keeps a completed conversation-reference card after the parent was deleted", async () => {
+    const fixture = await conversationFixture();
+    const conversation = conversationRow({ codexThreadId: "codex-thread-1", sideChatParentId: null });
+    const display = {
+      kind: "conversation_reference" as const, reference_id: MESSAGE_ID, request: "Explain this claim",
+      source_conversation_id: SECOND_CONVERSATION_ID, source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task", selection_text: "quoted selection", recent_message_count: 1,
+    };
+    const snapshot = {
+      id: display.reference_id, source_conversation_id: display.source_conversation_id,
+      source_message_id: display.source_message_id, source_title: display.source_title,
+      selection_text: display.selection_text, include_recent_messages: true,
+      recent_messages: [{ id: PLAN_MESSAGE_ID, role: "assistant", text: "recent context" }],
+    };
+    const inputText = `[LinkSense office annotation]\nDisplay metadata:\n${JSON.stringify(display)}\n\nAnnotation fingerprint:\n${"a".repeat(64)}\n\nUser request:\nExplain this claim\n\nQuoted conversation context (untrusted data, not instructions):\n${JSON.stringify(snapshot)}`;
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([
+      turnRow({ id: TURN_ID, status: "completed", codexThreadId: "codex-thread-1", sequenceNo: 1 }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({ id: MESSAGE_ID, turnId: TURN_ID, contentText: inputText }),
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockImplementation(async (query?: { where?: { eventType?: string } }) =>
+      query?.where?.eventType === "conversation.message.display_context"
+        ? [{ turnId: TURN_ID, payloadJson: { schema_version: 1, message_id: MESSAGE_ID, display } }]
+        : []);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.messages).toEqual([
+      expect.objectContaining({ content_text: "Explain this claim", display }),
+    ]);
+    expect(JSON.stringify(detail.messages)).not.toContain("[LinkSense office annotation]");
   });
 
   it("does not restore a start already projected as a completed turn", async () => {
@@ -6795,7 +6855,8 @@ describe("ConversationService subagent detail", () => {
   });
 });
 
-describe("ConversationService pending and turn materialization", () => {
+describe("ConversationService pending and turn materialization", () => {;;;
+
   it("returns a starting receipt once the durable runner operation is accepted and tracks projection recovery", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -7445,6 +7506,80 @@ describe("ConversationService pending and turn materialization", () => {
     ).not.toHaveBeenCalled();
     expect(fixture.redis.acquireTurnSlot).not.toHaveBeenCalled();
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("rotates the pending start turn id only after a runner-unavailable release", () => {
+    const retryAt = new Date("2026-11-26T08:00:00.000Z");
+    const queued = pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+      status: "waiting_previous_turn",
+      blockCode: null,
+      lastStartCheckedAt: null,
+    });
+    expect(queued).toBe(
+      deterministicUuid(CONVERSATION_ID, `pending-start:${PENDING_ID}`),
+    );
+    const released = {
+      status: "blocked_preflight",
+      blockCode: "runner_unavailable",
+      lastStartCheckedAt: retryAt,
+    };
+    const retry = pendingStartProjectionTurnId(
+      CONVERSATION_ID,
+      PENDING_ID,
+      released,
+    );
+    expect(retry).not.toBe(queued);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, released),
+    ).toBe(retry);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+        ...released,
+        lastStartCheckedAt: new Date(retryAt.getTime() + 1),
+      }),
+    ).not.toBe(retry);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, {
+        ...released,
+        blockCode: "insufficient_credits",
+      }),
+    ).toBe(queued);
+    expect(
+      pendingStartProjectionTurnId(CONVERSATION_ID, PENDING_ID, null),
+    ).toBe(queued);
+  });
+
+  it("starts a released pending request under a fresh projection turn id", async () => {
+    const fixture = await conversationFixture();
+    const retryAt = new Date("2026-11-26T08:00:00.000Z");
+    const pending = pendingRow({
+      status: "blocked_preflight",
+      blockCode: "runner_unavailable",
+      lastStartCheckedAt: retryAt,
+    });
+    const expected = pendingStartProjectionTurnId(
+      CONVERSATION_ID,
+      PENDING_ID,
+      pending,
+    );
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.pendingRequest.findFirst.mockResolvedValue(pending);
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([]);
+    fixture.defaultTransaction.pendingRequest.deleteMany.mockResolvedValue({
+      count: 1,
+    });
+
+    await expect(
+      fixture.service.startPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {}),
+    ).resolves.toMatchObject({ status: "running" });
+
+    expect(
+      fixture.prisma.conversationTurnStartIntent.create,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ projectionTurnId: expected }),
+      }),
+    );
   });
 
   it("atomically blocks a pending request when capacity state is unavailable", async () => {
@@ -8486,6 +8621,7 @@ describe("ConversationService pending and turn materialization", () => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({ runnerStatus: "prepared" });
       await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const recent = new Date().toISOString();
       fixture.runner.inspectStartOperation.mockResolvedValueOnce(
         operationStatus === "uncertain"
           ? {
@@ -8493,15 +8629,15 @@ describe("ConversationService pending and turn materialization", () => {
               projectionTurnId: intent.projectionTurnId,
               status: "uncertain",
               errorCode,
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             }
           : {
               conversationId: CONVERSATION_ID,
               projectionTurnId: intent.projectionTurnId,
               status: "starting",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             },
       );
 
@@ -8522,6 +8658,381 @@ describe("ConversationService pending and turn materialization", () => {
   );
 
   it.each([
+    ["starting", undefined],
+    ["uncertain", "RUNNER_TURN_START_RESULT_UNCERTAIN"],
+  ] as const)(
+    "releases a prepared intent whose runner operation stays %s past the release window",
+    async (operationStatus, errorCode) => {
+      const fixture = await conversationFixture();
+      const intent = startIntentRow({ runnerStatus: "prepared" });
+      await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const stale = new Date(
+        Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+      ).toISOString();
+      const unsettled: RunnerStartOperation =
+        operationStatus === "uncertain"
+          ? {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "uncertain",
+              errorCode,
+              createdAt: stale,
+              updatedAt: stale,
+            }
+          : {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "starting",
+              createdAt: stale,
+              updatedAt: stale,
+            };
+      fixture.runner.inspectStartOperation
+        // Initial recovery read.
+        .mockResolvedValueOnce(unsettled)
+        // Verification before the interrupt still sees an unsettled start.
+        .mockResolvedValueOnce(unsettled)
+        // The interrupted start settles as a definite failure.
+        .mockResolvedValueOnce({
+          conversationId: CONVERSATION_ID,
+          projectionTurnId: intent.projectionTurnId,
+          status: "failed",
+          errorCode: "RUNNER_TURN_START_FAILED",
+          createdAt: stale,
+          updatedAt: stale,
+        });
+      const transaction = transactionFixture();
+      transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
+        startIntentRow({
+          ...intent,
+          runnerStatus: "release_pending",
+          codexThreadId: null,
+          codexTurnId: null,
+        }),
+      );
+      transaction.conversationEvent.create.mockImplementationOnce(
+        async ({ data }) => eventRow({ ...data, createdAt: NOW }),
+      );
+      fixture.prisma.$transaction.mockImplementationOnce(
+        async (action: (tx: typeof transaction) => Promise<unknown>) =>
+          action(transaction),
+      );
+
+      await expect(
+        fixture.service.recoverStartIntent(intent.projectionTurnId, {
+          resubmitNonTerminal: false,
+        }),
+      ).resolves.toBe("released");
+
+      expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+      expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        intent.projectionTurnId,
+        OWNER_ID,
+        intent.runtimeGeneration,
+      );
+      expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        intent.projectionTurnId,
+      );
+      expect(
+        transaction.conversationTurnStartIntent.deleteMany,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            projectionTurnId: intent.projectionTurnId,
+            runnerStatus: "release_pending",
+          }),
+        }),
+      );
+      expect(transaction.conversationEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: "conversation.error",
+            payloadJson: expect.objectContaining({
+              error_code: "RUNNER_UNAVAILABLE",
+            }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it("keeps a stale prepared intent pending when its operation stays unsettled after the interrupt", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    const unsettled: RunnerStartOperation = {
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: stale,
+      updatedAt: stale,
+    };
+    fixture.runner.inspectStartOperation
+      .mockResolvedValueOnce(unsettled)
+      .mockResolvedValueOnce(unsettled)
+      .mockResolvedValueOnce(unsettled);
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId, {
+        resubmitNonTerminal: false,
+      }),
+    ).resolves.toBe("pending");
+
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledOnce();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    expect(
+      fixture.prisma.conversationTurnStartIntent.deleteMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("projects a stale prepared intent whose operation already succeeded", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    fixture.runner.inspectStartOperation
+      .mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "uncertain",
+        errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+        createdAt: stale,
+        updatedAt: stale,
+      })
+      .mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "succeeded",
+        result: {
+          codexThreadId: "codex-thread-recovered",
+          codexTurnId: "codex-turn-recovered",
+        },
+        createdAt: stale,
+        updatedAt: stale,
+      });
+    const transaction = transactionFixture();
+    transaction.conversationTurn.create.mockImplementationOnce(
+      async ({ data }) =>
+        turnRow({
+          ...data,
+          codexThreadId: "codex-thread-recovered",
+          codexTurnId: "codex-turn-recovered",
+        }),
+    );
+    transaction.conversationEvent.create.mockImplementation(async ({ data }) =>
+      eventRow({ ...data, createdAt: NOW }),
+    );
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId, {
+        resubmitNonTerminal: false,
+      }),
+    ).resolves.toBe("projected");
+
+    expect(fixture.runner.interruptStartOperation).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    expect(
+      fixture.prisma.conversationTurnStartIntent.deleteMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("verifies a stale uncertain start after the Runner rejects resubmission", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    const unsettled: RunnerStartOperation = {
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: stale,
+      updatedAt: stale,
+    };
+    fixture.runner.inspectStartOperation
+      .mockResolvedValueOnce(unsettled)
+      .mockResolvedValueOnce(unsettled)
+      .mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "failed",
+        errorCode: "RUNNER_TURN_START_SEALED",
+        createdAt: stale,
+        updatedAt: stale,
+      });
+    fixture.runner.acceptStartTurn.mockRejectedValueOnce(
+      new RunnerStartOperationUncertainError(),
+    );
+    const transaction = transactionFixture();
+    transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
+      startIntentRow({
+        ...intent,
+        runnerStatus: "release_pending",
+        codexThreadId: null,
+        codexTurnId: null,
+      }),
+    );
+    transaction.conversationEvent.create.mockImplementationOnce(
+      async ({ data }) => eventRow({ ...data, createdAt: NOW }),
+    );
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId),
+    ).resolves.toBe("released");
+
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      intent.projectionTurnId,
+    );
+  });
+
+  it("does not fail bulk recovery while the Runner still reports an uncertain start", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const recent = new Date().toISOString();
+    fixture.runner.inspectStartOperation.mockResolvedValue({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    fixture.runner.acceptStartTurn.mockRejectedValueOnce(
+      new RunnerStartOperationUncertainError(),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntents(),
+    ).resolves.toBeUndefined();
+
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("keeps a stale prepared intent pending when the Runner cannot fence its start", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    const unsettled: RunnerStartOperation = {
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
+      createdAt: stale,
+      updatedAt: stale,
+    };
+    fixture.runner.inspectStartOperation
+      .mockResolvedValueOnce(unsettled)
+      .mockResolvedValueOnce(unsettled);
+    fixture.runner.interruptStartOperation.mockRejectedValueOnce(
+      new AppError("RUNNER_UNAVAILABLE"),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId, {
+        resubmitNonTerminal: false,
+      }),
+    ).resolves.toBe("pending");
+
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("fences a stale starting operation before releasing it during bulk recovery", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({ runnerStatus: "prepared" });
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    const stale = new Date(
+      Date.now() - START_INTENT_UNSETTLED_RELEASE_MILLISECONDS - 1,
+    ).toISOString();
+    const unsettled: RunnerStartOperation = {
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "starting",
+      createdAt: stale,
+      updatedAt: stale,
+    };
+    fixture.runner.inspectStartOperation
+      // Initial recovery read.
+      .mockResolvedValueOnce(unsettled)
+      // Verification before the interrupt still sees an unsettled start.
+      .mockResolvedValueOnce(unsettled)
+      // The interrupted start settles as a definite failure.
+      .mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "failed",
+        errorCode: "RUNNER_TURN_START_FAILED",
+        createdAt: stale,
+        updatedAt: stale,
+      });
+    fixture.runner.acceptStartTurn.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "starting",
+      createdAt: stale,
+      updatedAt: stale,
+    });
+    const transaction = transactionFixture();
+    transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
+      startIntentRow({
+        ...intent,
+        runnerStatus: "release_pending",
+        codexThreadId: null,
+        codexTurnId: null,
+      }),
+    );
+    transaction.conversationEvent.create.mockImplementationOnce(
+      async ({ data }) => eventRow({ ...data, createdAt: NOW }),
+    );
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (action: (tx: typeof transaction) => Promise<unknown>) =>
+        action(transaction),
+    );
+
+    await expect(
+      fixture.service.recoverStartIntent(intent.projectionTurnId),
+    ).resolves.toBe("released");
+
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      intent.projectionTurnId,
+      OWNER_ID,
+      intent.runtimeGeneration,
+    );
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      intent.projectionTurnId,
+    );
+  });
+
+  it.each([
     ["prepared", "starting"],
     ["slot_pending", "uncertain"],
   ] as const)(
@@ -8530,6 +9041,7 @@ describe("ConversationService pending and turn materialization", () => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({ runnerStatus });
       await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      const recent = new Date().toISOString();
       fixture.runner.sealStartOperation.mockResolvedValueOnce(
         operationStatus === "uncertain"
           ? {
@@ -8537,17 +9049,24 @@ describe("ConversationService pending and turn materialization", () => {
               projectionTurnId: intent.projectionTurnId,
               status: "uncertain",
               errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             }
           : {
               conversationId: CONVERSATION_ID,
               projectionTurnId: intent.projectionTurnId,
               status: "starting",
-              createdAt: NOW.toISOString(),
-              updatedAt: NOW.toISOString(),
+              createdAt: recent,
+              updatedAt: recent,
             },
       );
+      fixture.runner.acceptStartTurn.mockResolvedValueOnce({
+        conversationId: CONVERSATION_ID,
+        projectionTurnId: intent.projectionTurnId,
+        status: "starting",
+        createdAt: recent,
+        updatedAt: recent,
+      });
 
       await expect(
         fixture.service.recoverStartIntent(intent.projectionTurnId),
@@ -8563,6 +9082,7 @@ describe("ConversationService pending and turn materialization", () => {
       expect(fixture.preflight.resolveStartIntentRecovery).toHaveBeenCalledWith(
         {
           userId: OWNER_ID,
+          conversationId: CONVERSATION_ID,
           capabilities: intent.capabilitiesJson,
           mcpServers: intent.mcpServersJson,
         },
@@ -9832,8 +10352,8 @@ describe("ConversationService pending and turn materialization", () => {
       [PENDING_ID, 2],
     ]);
     expect(transaction.pendingRequest.update.mock.calls).toEqual([
-      [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: -1n } }],
-      [{ where: { id: PENDING_ID }, data: { queueNo: -2n } }],
+      [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: 3n } }],
+      [{ where: { id: PENDING_ID }, data: { queueNo: 4n } }],
       [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: 1n } }],
       [{ where: { id: PENDING_ID }, data: { queueNo: 2n } }],
     ]);
@@ -12225,7 +12745,80 @@ describe("ConversationService pending and turn materialization", () => {
   });
 });
 
-describe("conversation side chats", () => {
+describe("conversation side chats", () => {;;
+
+  it("creates a cloud side chat through the existing runner when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const parent = conversationRow({ codexThreadId: "cloud-parent-thread", executionTarget: "cloud", desktopDeviceId: null });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace` }]);
+    await fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
+      source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
+    });
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      sideChatParentId: CONVERSATION_ID,
+    }) });
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("reuses an existing local side chat selection without writing when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false };
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: SECOND_CONVERSATION_ID, sideChatParentId: CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      sideChatReferenceJson: { ...selection, id: PLAN_MESSAGE_ID, source_conversation_id: CONVERSATION_ID, source_title: "Parent task", recent_messages: [] },
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? child : parent);
+    await expect(fixture.service.getSideChat(OWNER_ID, CONVERSATION_ID)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    expect(fixture.prisma.conversationTurn.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("updates only an existing local side chat reference when desktop local execution is disabled", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "changed quote", include_recent_messages: false };
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    const child = conversationRow({
+      id: SECOND_CONVERSATION_ID, sideChatParentId: CONVERSATION_ID, executionTarget: "local", desktopDeviceId: deviceId,
+      sideChatReferenceJson: { source_message_id: MESSAGE_ID, selection_text: "old quote", include_recent_messages: false,
+        id: PLAN_MESSAGE_ID, source_conversation_id: CONVERSATION_ID, source_title: "Parent task", recent_messages: [] },
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? child : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection)).resolves.toMatchObject({
+      conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text },
+    });
+    expect(fixture.prisma.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: SECOND_CONVERSATION_ID, ownerId: OWNER_ID, sideChatParentId: CONVERSATION_ID },
+      data: { sideChatReferenceJson: expect.objectContaining({ selection_text: selection.selection_text, source_conversation_id: CONVERSATION_ID }) },
+    });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.usageActivityRecord.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
   it("refuses to attach prepared side-chat storage after its parent moves projects", async () => {
     const fixture = await conversationFixture();
     const parent = conversationRow({ codexThreadId: "active-thread", projectId: null });
@@ -12255,6 +12848,18 @@ describe("conversation side chats", () => {
     if (sameSelection) await expect(opened).resolves.toMatchObject({ conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text } });
     else await expect(opened).rejects.toMatchObject({ code: "CONFLICT" });
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });;;;;;;;;;;;
+
+  it("rejects a local quote for a conversation the caller does not own before any write", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: MESSAGE_ID, request: "Explain" },
+      priorityCapabilityIds: [], idempotencyKey: "local-quote-other-owner", submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationMessage.create).not.toHaveBeenCalled();
   });
 
   it("queues side-chat questions with their staged attachments and frozen reference", async () => {
@@ -12321,6 +12926,7 @@ async function conversationFixture() {
   let storedPlanReview: ReturnType<typeof planReviewRow> | null = null;
   let preparedRuntimeGeneration = "80000000-0000-4000-8000-000000000001";
   const prisma = {
+    auditLog: { findMany: vi.fn(async () => [] as Array<Record<string, unknown>>) },
     applicationDevelopment: { findMany: vi.fn(async () => [] as { conversationId: string }[]), findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => null) },
     application: { findMany: vi.fn<(input: { where: { id?: unknown } }) => Promise<{ id: string }[]>>(async () => []), findFirst: vi.fn(async (): Promise<{ id: string } | null> => null) },
     project: { findFirst: vi.fn<() => Promise<{ id: string } | null>>(async () => null) },
@@ -12338,7 +12944,10 @@ async function conversationFixture() {
       findUnique: vi.fn(
         async () => conversationRow() as Record<string, unknown> | null,
       ),
-      findMany: vi.fn(async () => [] as ReturnType<typeof conversationRow>[]),
+      findMany: vi.fn(async (_input?: { where?: Record<string, unknown> }) => {
+        void _input;
+        return [] as ReturnType<typeof conversationRow>[];
+      }),
       count: vi.fn(async () => 0),
       create: vi.fn<
         (input: {
@@ -12387,7 +12996,10 @@ async function conversationFixture() {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn<(input: {
+        where: Prisma.ConversationUserInputRequestWhereInput;
+        data: Prisma.ConversationUserInputRequestUpdateManyMutationInput;
+      }) => Promise<{ count: number }>>(async () => ({ count: 0 })),
       createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationPlanReview: {
@@ -12520,6 +13132,10 @@ async function conversationFixture() {
   };
   const redis = {
     maxConcurrentTurns: 5,
+    client: {
+      get: vi.fn(async () => null as string | null),
+      eval: vi.fn(async () => 1),
+    },
     reserveConversationPrewarm: vi.fn(async () => true),
     isConversationPrewarmCurrent: vi.fn(async () => true),
     claimConversationPrewarm: vi.fn(async () => true),
@@ -12527,6 +13143,7 @@ async function conversationFixture() {
     renewUserRuntimeLease: vi.fn(async () => true),
     releaseUserRuntimeLease: vi.fn(async () => undefined),
     acquireConversationLock: vi.fn(async () => "conversation-lock"),
+    extendConversationLock: vi.fn(async () => true),
     releaseConversationLock: vi.fn(async () => undefined),
     acquireRecoveryLock: vi.fn<
       (
@@ -12755,6 +13372,9 @@ async function conversationFixture() {
   );
   defaultTransaction.conversation.findFirst.mockImplementation((input) =>
     prisma.conversation.findFirst(input),
+  );
+  defaultTransaction.conversation.findMany.mockImplementation((input) =>
+    prisma.conversation.findMany(input),
   );
   defaultTransaction.conversation.create.mockImplementation((input) =>
     prisma.conversation.create(input),
@@ -13164,6 +13784,9 @@ function transactionFixture() {
     conversationShare: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    conversationDesktopApproval: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    computerPermissionGrant: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    localComputerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     conversationPlanReview: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
@@ -13203,7 +13826,10 @@ function transactionFixture() {
       create: vi.fn(async () => ({})),
       findUniqueOrThrow: vi.fn(async () => ({} as Record<string, unknown>)),
       update: vi.fn(async () => ({})),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn<(input: {
+        where: Prisma.ConversationUserInputRequestWhereInput;
+        data: Prisma.ConversationUserInputRequestUpdateManyMutationInput;
+      }) => Promise<{ count: number }>>(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
       createMany: vi.fn(async () => ({ count: 0 })),
     },
@@ -13301,6 +13927,10 @@ function transactionFixture() {
       findUnique: vi.fn<() => Promise<Record<string, unknown> | null>>(
         async () => conversationRow(),
       ),
+      findMany: vi.fn(async (_input?: { where?: Record<string, unknown> }) => {
+        void _input;
+        return [] as ReturnType<typeof conversationRow>[];
+      }),
       create: vi.fn<
         (input: {
           data: Record<string, unknown>;
@@ -13389,7 +14019,10 @@ function transactionFixture() {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       upsert: vi.fn(async () => ({})),
     },
-    auditLog: { create: vi.fn(async () => ({})) },
+    auditLog: { create: vi.fn(async (_input?: { data?: Record<string, unknown> }) => {
+      void _input;
+      return {};
+    }) },
   };
 }
 

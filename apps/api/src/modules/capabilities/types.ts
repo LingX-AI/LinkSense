@@ -99,7 +99,7 @@ export type CapabilityImportSource =
       kind: "manual_skill";
       name: string;
       displayName?: string | null;
-      description?: string | null;
+      description: string;
       skillMarkdown: string;
     }
   | { kind: "zip"; bytes: Buffer; filename: string };

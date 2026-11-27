@@ -149,7 +149,7 @@ export const jaJP = {
   webSites: {
     title: "マイサイト",
     description:
-      "公開済みサイトの管理、コンテンツの更新、公開の停止をいつでも行えます。",
+      "公開済みのページと Web アプリ、アクセスリンク、データサービス、公開状況を管理できます。",
     share: "サイトとして公開",
     dialog: {
       share: "サイトとして公開",
@@ -159,14 +159,29 @@ export const jaJP = {
     },
     shareDescription:
       "公開すると、リンクを知っているすべての人がこのサイトを閲覧できます。",
+    editDescription:
+      "名前、説明、カスタムリンクを変更します。オリジンリンクとアプリのデータは保持されます。",
     deleteDescription:
       "サイトと公開済みバージョンは完全に削除されます。このアドレスは誰でも再利用できるようになります。元のタスクとファイルは保持されます。",
     name: "サイト名",
     summary: "説明",
-    slug: "リンク名",
+    slug: "カスタム Slug",
+    slugPlaceholderEdit: "空欄のままにすると現在のリンクを維持します",
     slugPlaceholder: "空欄の場合は自動生成",
-    slugHelp: "英数字またはハイフンで 3～80 文字にしてください。",
-    slugChanged: "変更すると、古いリンクは直ちに無効になります。",
+    slugHelp:
+      "英数字またはハイフンで 3～80 文字にしてください。この名前はカスタムリンクに使われ、オリジンリンクは変わりません。",
+    passcode: "アクセスコード",
+    passcodePlaceholder: "アクセスコードを設定",
+    passcodeHelp:
+      "サイトを開くには訪問者がこのコードを入力する必要があります。空欄のままにすると公開のままです。",
+    invalidPasscode: "4 文字以上で入力してください。",
+    passcodeRemove: "アクセスコードを削除",
+    passcodeKeep: "アクセスコードを保持",
+    analytics: "アクセス統計",
+    analyticsHelp:
+      "サイトの訪問を記録し、詳細から統計ダッシュボードに移動できます。公開中のサイトのみ利用できます。",
+    analyticsDisabledHelp:
+      "サイトを再公開してからアクセス統計を有効にしてください。",
     url: "サイトのリンク",
     publishMode: "公開方法",
     updateExisting: "既存のサイトを更新",
@@ -220,13 +235,19 @@ export const jaJP = {
     },
     empty: "公開済みサイトはまだありません",
     emptyDescription:
-      "タスクで生成したウェブページを開いて「サイトとして公開」を選択すると、ここで管理できます。",
+      "通常の会話で作成したいページやアプリを伝え、公開を確認するとここで管理できます。既存のページから「サイトとして公開」を選択することもできます。",
     noResults: "一致するサイトがありません",
-    sourceTask: "作成元：{{title}}",
     sourceDeleted: "作成元のタスクは削除済みです",
     publishedAt: "公開日：{{date}}",
     resources: "{{count}} ファイル · {{size}}",
     visit: "サイトを開く",
+    openSite: "サイトを開く",
+    localOnly: "この端末でのみアクセスできます",
+    pageOnly: "Web アプリ · データサービス未接続",
+    dataConnected: "Web アプリ · データサービス接続済み",
+    dataCapabilityTitle: "Web アプリ",
+    dataServiceDisconnected: "データサービス未接続",
+    dataServiceConnected: "データサービス接続済み",
     copyNamed: "{{name}} のリンクをコピー",
     actions: "{{name}} を管理",
     edit: "編集",
@@ -235,6 +256,31 @@ export const jaJP = {
     enable: "再公開",
     download: "ウェブサイトをダウンロード",
     loadMore: "さらに読み込む",
+    details: {
+      open: "詳細",
+      description:
+        "アクセスリンク、アプリの機能、現在の公開情報を確認できます。",
+      links: "アクセスと共有",
+      alias: "カスタムリンク",
+      stable: "オリジンリンク",
+      copyAlias: "カスタムリンクをコピー",
+      copyStable: "オリジンリンクをコピー",
+      openAlias: "カスタムリンクを開く",
+      openStable: "オリジンリンクを開く",
+      publication: "公開情報",
+      passcode: "アクセスコード",
+      passcodeOn: "有効",
+      passcodeOff: "無効",
+      analytics: "アクセス統計",
+      analyticsOn: "有効",
+      analyticsOff: "無効",
+      openAnalytics: "統計ダッシュボードを開く",
+      source: "作成元の会話",
+      files: "ウェブリソース",
+      publishedAt: "現在のバージョンの公開日時",
+      updatedAt: "最終更新",
+      createdAt: "作成日時",
+    },
     invalidSlug:
       "英数字またはハイフンで 3～80 文字を入力してください。先頭と末尾にハイフンは使用できません。",
   },
@@ -405,7 +451,7 @@ export const jaJP = {
     automations: "自動化",
     conversations: "タスク",
     archived: "アーカイブ済みタスク",
-    capabilities: "プラグインセンター",
+    capabilities: "アプリとツール",
     knowledgeBases: "リソースライブラリ",
     pinned: "ピン留め",
     projects: "プロジェクト",
@@ -678,8 +724,7 @@ export const jaJP = {
     channelAccess: "メッセージチャネル",
     channelAccessDescription:
       "Weixin、WeCom、DingTalk、Teams、Feishu などのチャネルを管理",
-    capabilitiesDescription:
-      "プラグインセンターを閲覧し、個人のプラグインとスキルを管理",
+    capabilitiesDescription: "アプリ、サイト、ツールを探して管理します",
     archivedDescription: "アーカイブ済みタスクを表示",
     usersDescription: "ユーザーアカウント、ロール、ステータスを管理",
     rolesDescription: "固定ロールと権限の範囲を確認",
@@ -754,6 +799,77 @@ export const jaJP = {
       "この操作は取り消せません。タスク、カスタム指示、プラグイン、スキルは保持されます。",
     resettingMemories: "メモリをリセット中…",
     memoriesReset: "メモリをリセットしました",
+    privacyMasking: "プライバシーマスキング",
+    privacyMaskingDescription:
+      "モデルプロバイダーへ送信する前に秘密情報をプレースホルダーへ置き換え、応答がランタイムに届く前に元へ戻します。",
+    privacyMaskingEnabled: "プライバシーマスキングを有効にする",
+    privacyMaskingEnabledDescription:
+      "タスク用のモデルゲートウェイを経由するテキストをマスクします。自動タイトルの生成、ウェブ検索、画像生成、ナレッジベースのベクトル化は対象外です。タスク履歴とイベントには元のテキストが残ります。",
+    privacyMaskingSecrets: "秘密情報と認証情報",
+    privacyMaskingSecretsDescription:
+      "API キー、トークン、秘密鍵、パスワード、Authorization または Cookie ヘッダーの値。",
+    privacyMaskingWords: "カスタム語句",
+    privacyMaskingWordsDescription:
+      "1 行に 1 語または 1 フレーズ。プロジェクト名、社内コード名、プロバイダーへ送りたくない名前など。",
+    privacyMaskingWordsPlaceholder: "Nightjar プロジェクト\nAcme 社内",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "大文字と小文字を区別しない",
+    privacyMaskingAnyCaseDescription:
+      "nightjar、Nightjar、NIGHTJAR を同じ語として扱います。",
+    privacyMaskingWholeWord: "単語全体のみ",
+    privacyMaskingWholeWordDescription:
+      "より長い単語や識別子の一部はマスクしません。",
+    privacyMaskingAllow: "許可する値",
+    privacyMaskingAllowDescription:
+      "1 行に 1 つの値を入力します。検出された値が大文字と小文字も含めて完全に一致した場合だけ、そのまま送信します。カスタム語句の大文字・小文字の設定はこの一覧には適用されません。",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "プライバシーマスキング設定を保存しました。",
+    privacyMaskingSave: "プライバシーマスキングを保存",
+    privacyMaskingBehaviorNote:
+      "モデルには実際の値ではなくプレースホルダーが見えます。秘密情報そのものを確認するタスクは、その値を許可リストへ追加するまで動作しない場合があります。",
+    privacyMaskingPageDescription:
+      "モデルプロバイダーに送らない内容を選び、タスクを実行する前にサンプルテキストでルールを試せます。",
+    privacyMaskingWhatToMask: "マスクする内容",
+    privacyMaskingTryIt: "試してみる",
+    privacyMaskingTryItDescription:
+      "エージェントが送信しそうなテキストを貼り付けてください。実際のリクエストと同じ方法でマスクされ、内容は保存されません。",
+    privacyMaskingTryItPlaceholder:
+      "キー sk-proj-… でデプロイし、ステージング API を呼び出す",
+    privacyMaskingTryItOutput: "下書きルールを適用したテキストのプレビュー",
+    privacyMaskingTryItEmpty: "このテキストにマスクされる内容はありません。",
+    privacyMaskingTryItOffNote:
+      "マスキングはオフです。このプレビューは、オンにしたときに置き換えられる内容を示します。",
+    privacyMaskingKindPrivateKey: "秘密鍵",
+    privacyMaskingKindApiKey: "API キー",
+    privacyMaskingKindToken: "トークン",
+    privacyMaskingKindSecret: "シークレット",
+    privacyMaskingKindPassword: "パスワード",
+    privacyMaskingKindTerm: "カスタム語",
+    privacyMaskingKindEmail: "メールアドレス",
+    privacyMaskingKindPhone: "電話番号",
+    privacyMaskingKindIdCard: "身分証番号",
+    privacyMaskingKindBankCard: "銀行カード番号",
+    privacyMaskingActivity: "マスキング履歴",
+    privacyMaskingActivityDescription:
+      "値が置き換えられた直近 30 日間のリクエストを確認できます。種類、長さ、出現箇所、件数を記録し、元の値は保存しません。",
+    privacyMaskingSections: "設定と統計",
+    privacyMaskingSectionSettings: "設定",
+    privacyMaskingSectionActivity: "統計",
+    privacyMaskingActivityPeriod: "期間",
+    privacyMaskingActivity7Days: "7 日間",
+    privacyMaskingActivity30Days: "30 日間",
+    privacyMaskingActivityMasked: "件を置換",
+    privacyMaskingActivityRequests: "リクエスト",
+    privacyMaskingActivityEmpty:
+      "この期間にマスクされたリクエストはまだありません。",
+    privacyMaskingActivityLoadMore: "さらに読み込む",
+    privacyMaskingActivityHintLength: "{{length}} 文字",
+    privacyMaskingActivityLocationPrompt: "プロンプト",
+    privacyMaskingActivityLocationInstructions: "システム指示",
+    privacyMaskingActivityLocationToolArguments: "ツール引数",
+    privacyMaskingActivityLocationToolOutput: "ツール出力",
+    privacyMaskingActivityLocationTools: "ツール定義",
+    privacyMaskingActivityLocationOther: "その他",
     appearancePageDescription:
       "{{productName}} の画面テーマと基本の文字サイズを設定します。",
     theme: "テーマ",
@@ -2135,8 +2251,10 @@ export const jaJP = {
     dragSaving: "プロジェクトの順序を保存しています。",
     dragSaveFailed:
       "プロジェクトの順序を保存できませんでした。再試行してください。",
-    delete: "プロジェクトを削除",
+    delete: "削除",
+    newTaskNamed: "プロジェクト「{{title}}」で新規タスク",
     move: "プロジェクトに移動",
+    moveToPublicWorkspace: "共通ワークスペースに移動",
     moveNamed: "「{{title}}」をプロジェクトに移動",
     name: "プロジェクト名",
     namePlaceholder: "プロジェクト名を入力",
@@ -2294,12 +2412,12 @@ export const jaJP = {
     resetReasoningEffort: "推論の強度を既定値に戻す",
     modelNotConfigured: "モデルサービスは未設定です",
     reasoningEffort: "推論の強度",
-    modelContextUsageUnknown: "使用量はまだありません",
-    modelContextBadgeLabel: "背景コンテキストの上限：{{value}}",
-    modelContextTitle: "背景コンテキストの上限：",
     modelContextUsagePercent: "{{percent}}% 使用済み",
-    modelContextUsageDetail: "{{used}} 使用済み / 合計 {{total}}",
-    modelContextUnavailable: "コンテキストの使用量はまだありません",
+    modelContextUsageLabel: "コンテキスト {{used}} / {{total}}（{{percent}}%）",
+    modelContextUsageSummary: "{{used}} / {{total}}（{{percent}}%）",
+    modelContextWindowTitle: "コンテキストウィンドウ",
+    modelContextWindowOption: "{{size}} コンテキストウィンドウ",
+    modelContextDetailedBreakdown: "詳細な内訳を見る",
     stop: "停止",
     interrupting: "中断中…",
     attach: "ファイルを添付",
@@ -2356,6 +2474,8 @@ export const jaJP = {
     voiceDemoTranscript:
       "【音声デモ】今日の会議の要点をまとめ、対応事項のリストを作成してください。",
     voiceNotConfigured: "音声文字起こしは未設定です",
+    voiceNotConfiguredHint:
+      "音声文字起こしを<configure>設定</configure>",
     voiceServiceUnavailable:
       "音声文字起こしを一時的に利用できません。しばらくしてから再試行してください。",
     voiceStop: "音声入力を停止",
@@ -2557,6 +2677,7 @@ export const jaJP = {
       submit: "回答を送信",
       submitting: "送信中",
       cancel: "キャンセル",
+      dismissRequest: "リクエストを閉じる",
       selectPlaceholder: "選択肢を選ぶ",
       datePlaceholder: "日付を選択",
       clearDate: "日付を解除",
@@ -2788,15 +2909,32 @@ export const jaJP = {
       sources: "出典",
       noSources: "出典はまだありません",
       sourcesError: "出典を読み込めませんでした。再試行してください。",
-      open: "タスクの概要を開く",
-      close: "タスクの概要を閉じる",
-      title: "タスクの概要",
+      open: "セッションレールを開く",
+      close: "セッションレールを閉じる",
+      title: "セッションレール",
       subagents: "サブエージェント",
       subagentsUsed: "{{count}} 個のサブエージェントを使用",
       subagentsCompleted: "{{count}} 件完了",
       subagentsProgress: "{{completed}} / {{count}} 件完了",
       outputFiles: "出力ファイル",
       noOutputFiles: "出力ファイルはまだありません",
+      context: "コンテキスト",
+      contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}}（{{percent}}%）",
+      tokenInput: "入力",
+      tokenCachedInput: "キャッシュ入力",
+      tokenOutput: "出力",
+      tokenReasoning: "推論",
+      freeSpace: "空き容量",
+      untilAutoCompact: "自動圧縮まで {{tokens}}",
+      readyToCompact: "自動圧縮のしきい値に達しました",
+      compactSession: "セッションを圧縮",
+      compacting: "圧縮中…",
+      changes: "変更",
+      changedFiles_one: "{{count}} 件のファイルを変更",
+      changedFiles_other: "{{count}} 件のファイルを変更",
+      noChanges: "変更はまだありません",
+      backgroundTasks: "バックグラウンドタスク",
     },
     capabilitiesUsed: "ターンのプラグイン・スキル",
     loaded: "読み込み済み",
@@ -2878,6 +3016,8 @@ export const jaJP = {
       exitedReviewMode: "レビューモードを終了しました",
       contextCompactionRunning: "コンテキストを圧縮中",
       contextCompactionCompleted: "コンテキストを圧縮しました",
+      contextCompactionCompletedSavedTokens:
+        "コンテキストを圧縮しました · {{tokens}} トークン節約",
       contextCompactionIncomplete: "コンテキストの圧縮が完了しませんでした",
       collabAgentRunning: "サブエージェントを調整中",
       collabAgentCompleted: "サブエージェントを調整しました",
@@ -3127,9 +3267,39 @@ export const jaJP = {
     createTypeDescription: "アプリケーションの作成方法を選択してください。",
     creation: {
       recommended: "おすすめ",
-      interactiveTitle: "会話で操作可能なアプリを作成",
+      interactiveTitle: "対話でアプリを作成",
       interactiveDescription: "アイデアを伝えると、LinkSense が形にします。",
+      publicSiteTitle: "Web アプリを作成",
+      publicSiteDescription:
+        "公開サイトやアプリを作成し、開く・コピーできるリンクを受け取ります。",
       start: "作成を開始",
+    },
+    conversationCreation: {
+      title: "対話でアプリを作成",
+      description:
+        "目的を教えてください。利用方法、データ、リマインダーは必要な場合だけ確認します。",
+      goal: "何を実現したいですか？",
+      goalPlaceholder:
+        "例：水分補給アシスタント。まず画面を確認し、通知が必要かは後で決めたい。",
+      defaultGoal: "結果を左右する要件だけ確認してください。",
+      start: "対話を始める",
+      prompt:
+        "この目的を実現してください：{{goal}}。すでに伝えた情報を活用し、結果を左右する未確定の要件だけ質問してください。まず動作する下書きを作り、公開や定期タスクの有効化は自動で行わないでください。",
+    },
+    publicSiteCreation: {
+      title: "Web アプリを作成",
+      description:
+        "公開サイトや動的アプリを作成します。アカウント、データ、業務の要件は会話で追加できます。",
+      name: "サイト名",
+      goal: "サイトで行うこと（任意）",
+      goalPlaceholder: "例：日付で絞り込めるイベント日程ページを作成する",
+      defaultGoal: "サイトに必要な内容と操作を確認してください。",
+      start: "作成して公開",
+      openLocally: "公開後にローカルブラウザーで開く",
+      openInstruction:
+        "公開後、Browser Use でこのサイトをローカルブラウザーに一度だけ開いてください。",
+      prompt:
+        "公開サイトまたはアプリを作成してください。名前：{{name}}。要件：{{goal}}。要件に合わせて静的サイトまたはセルフホスト型の動的バックエンドを選び、完成後に公開してアクセスリンクを渡してください。",
     },
     createStandardApp: "標準アプリを作成",
     createStandardAppDescription:
@@ -3465,6 +3635,7 @@ export const jaJP = {
       "新しいパッケージで現在のスキルを置き換えます。新しいパッケージに含まれない既存ファイルは削除されます。スキルに必要なファイルをすべて含む完全なパッケージをアップロードしてください。",
     identifierHint: "更新してもスキルの識別子は変わりません。",
     content: "スキルの指示",
+    descriptionRequired: "スキルの説明を入力してください。",
     contentRequired: "スキルの指示を入力してください。",
     contentTooLarge:
       "指示が長すぎるため、オンラインでは編集できません。完全なスキルパッケージをダウンロードして編集し、再アップロードしてください。",
@@ -3488,7 +3659,7 @@ export const jaJP = {
       "これら {{count}} 個のファイルを削除することを確認しました",
   },
   marketplace: {
-    title: "プラグインセンター",
+    title: "アプリとツール",
     description:
       "公開プラグインとスキルを閲覧し、インストール済みコンテンツ、個人用コンテンツ、MCP 接続を一元管理します。",
     personalAccountDescription:
@@ -3504,7 +3675,7 @@ export const jaJP = {
       reviews: "掲載審査",
       listings: "すべての掲載項目",
     },
-    catalogTabsLabel: "プラグインセンターのカテゴリ",
+    catalogTabsLabel: "アプリとツールのカテゴリ",
     catalogTabs: {
       plugin: "プラグイン",
       skill: "スキル",
@@ -3650,6 +3821,7 @@ export const jaJP = {
     skillMarkdown: "SKILL.md の内容",
     skillIdentifier: "スキルの識別子",
     skillNameRequired: "スキルの識別子を入力してください。",
+    skillDescriptionRequired: "スキルの説明を入力してください。",
     skillNameTooLong: "スキルの識別子は 64 文字以内にしてください。",
     skillNameInvalid:
       "英小文字、数字、ハイフン（-）のみ使用できます。先頭・末尾のハイフンや連続するハイフンは使用できません。",
@@ -3669,7 +3841,7 @@ export const jaJP = {
       "現在の個人用プラグインまたはスキルを変更不可のスナップショットとしてコピーし、管理者に審査を申請します。",
     sourceCapability: "個人用プラグイン・スキルのソース",
     noPublishableSource:
-      "この掲載項目と同じ名前・種類の公開可能な個人用プラグインまたはスキルがありません。先にプラグインセンターでソースをインポートまたは更新してください。",
+      "この掲載項目と同じ名前・種類の公開可能な個人用プラグインまたはスキルがありません。先に「アプリとツール」でソースをインポートまたは更新してください。",
     immutableSnapshotNotice:
       "審査対象は独立した変更不可のスナップショットです。後から個人用プラグインやスキルを編集しても、この審査中のリリースは変わりません。",
     submitForReview: "審査を申請",
@@ -3682,7 +3854,7 @@ export const jaJP = {
       "アプリケーション、プラグイン、スキルの申請はまだありません。",
     publicationsDescription:
       "申請済みのアプリケーション、プラグイン、スキルを管理し、審査状況を確認して更新を公開します。",
-    backToCenter: "プラグインセンターに戻る",
+    backToCenter: "アプリとツールに戻る",
     manageApplicationListing: "掲載項目を管理",
     selectApplication: "掲載するアプリケーションを選択",
     selectApplicationDescription:
@@ -4021,6 +4193,11 @@ export const jaJP = {
         name: "{{productName}} 対話型アプリケーション開発",
         description:
           "会話を通じてアプリケーションを作成・編集し、リアルタイムのプレビュー、デバッグ、インストールを行います。",
+      },
+      publicSite: {
+        name: "{{productName}} 公開サイト開発",
+        description:
+          "公開サイトやセルフホスト型の動的アプリを作成し、アクセスリンクを提供します。",
       },
       skillCreator: {
         name: "{{productName}} スキル作成",
@@ -5041,7 +5218,8 @@ export const jaJP = {
       cachedInputPrice: "キャッシュ入力単価",
       outputPrice: "出力単価",
       contextWindow: "モデルのコンテキスト長",
-      contextWindowPlaceholder: "自動検出",
+      contextWindowPlaceholder: "空欄の場合は自動検出",
+      contextWindowShortcuts: "コンテキスト長のクイック値",
       contextWindowInvalid:
         "0 より大きい整数を入力してください。空欄の場合は自動検出します。",
       priceUnit: "米ドル / 100 万トークン",
@@ -5054,6 +5232,8 @@ export const jaJP = {
         "確定するとモデルを直ちに削除します。過去のタスクと使用履歴には影響しません。",
       modelDeleted: "モデルを削除しました。",
       supportedEfforts: "対応する推論の強度",
+      reasoningEffortsAutoHint:
+        "モデルに合わせて自動設定されます。必要な場合のみ変更してください。",
       selectedEfforts: "{{count}} 件選択中",
       defaultEffort: "既定の推論の強度",
       defaultModel: "既定の会話モデル",
@@ -5647,15 +5827,27 @@ export const jaJP = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "ja-JP"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "ja-JP"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "ja-JP"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "ja-JP"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "ja-JP"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "ja-JP"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "ja-JP"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "ja-JP"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "ja-JP"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "ja-JP"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "ja-JP"),
+    },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "ja-JP"
+      ),
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
@@ -5693,6 +5885,12 @@ export const jaJP = {
         "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",
       bundleInvalid:
         "ウェブページのパッケージが不完全か、未対応のファイルを含んでいます。作成元のタスクで更新して再試行してください",
+      analyticsNotConfigured:
+        "管理者がサイト統計サービスを設定する必要があります",
+      analyticsUnavailable:
+        "統計サービスは一時的に利用できません。しばらくしてから再試行してください",
+      analyticsUnpublished:
+        "公開中のサイトのみアクセス統計を有効にできます",
     },
     feishu: {
       connectionNotFound: "Feishu の接続が見つかりません。再接続してください。",
@@ -5972,6 +6170,10 @@ export const jaJP = {
     downloadForbidden: "この成果物をダウンロードする権限がありません。",
     runnerUnavailable:
       "実行サービスを利用できません。しばらくしてから再試行してください。",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "ja-JP"
+    ),
     turnStartClosed:
       "前の送信は終了しています。このリクエストは実行されていません。再送信してください。",
     deploymentStopped:

@@ -58,6 +58,11 @@ export const conversationCollaborationModeSchema = z.enum([
   "default",
   "plan",
 ]);
+export const conversationCreateInputSchema = z.object({
+  collaboration_mode: conversationCollaborationModeSchema.default("default"),
+  prewarmed_conversation_id: uuidSchema.optional(),
+  project_id: uuidSchema.nullable().optional(),
+});
 export const threadGoalStatusSchema = z.enum([
   "active",
   "paused",

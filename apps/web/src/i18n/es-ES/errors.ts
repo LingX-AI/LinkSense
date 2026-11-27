@@ -16,6 +16,12 @@ export const errorMessages = {
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "es-ES"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "es-ES"),
     },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "es-ES"
+      ),
+    },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
         "SKILL_UNINSTALL_NOT_ALLOWED",
@@ -50,6 +56,12 @@ export const errorMessages = {
         "Falta un recurso de la página ({{path}}). Pide al asistente de la tarea original que guarde la página junto con sus recursos antes de publicar",
       bundleInvalid:
         "El paquete de la página está incompleto o contiene archivos no compatibles. Actualízalo en la tarea original y vuelve a intentarlo",
+      analyticsNotConfigured:
+        "Un administrador debe configurar el servicio de estadísticas del sitio",
+      analyticsUnavailable:
+        "El servicio de estadísticas no está disponible temporalmente. Inténtalo de nuevo más tarde",
+      analyticsUnpublished:
+        "Solo un sitio publicado puede activar las estadísticas de visitas",
     },
     feishu: {
       connectionNotFound:
@@ -339,6 +351,10 @@ export const errorMessages = {
       "El servicio de ejecución no está disponible. Inténtalo más tarde.",
     turnStartClosed:
       "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "es-ES"
+    ),
     deploymentStopped:
       "Esta tarea se detuvo por una actualización del sistema. Se conservó el contenido existente. Revisa su progreso antes de continuar manualmente.",
     creditLimitExceeded:

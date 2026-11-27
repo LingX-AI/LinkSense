@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { conversationFileKindSchema } from "./conversations.js";
+import { projectRichOutputResourcesForShare } from "./rich-output.js";
 import { codexMessagePhaseSchema } from "./events.js";
 
 const sharedConversationMessageSchema = z
@@ -187,6 +188,7 @@ export const conversationShareSnapshotSchema = z
       return [
         {
           ...message,
+          content_text: projectRichOutputResourcesForShare(message.content_text),
           phase: "final_answer" as const,
           output_kind: "agent_message" as const,
         },

@@ -15,8 +15,9 @@ import {
   type ModelProviderProtocolMode,
   type ModelTokenPricing,
   type MemoryExtractionRuntime,
+  type PrivacyMaskingRuntime,
   type CodexModelReasoningCatalog,
-  type ConversationUserInputResponse,
+  type NativeUserInputResponse,
   runnerCodexSubAgentDetailSchema,
   runnerCodexSubAgentSummariesSchema,
   runnerCodexGoalSchema,
@@ -228,7 +229,9 @@ export type RunnerModelProviderRuntime = {
   pricing?: ModelTokenPricing;
   modelContextWindow?: number;
   modelAutoCompactTokenLimit?: number;
+  supportsImageInput?: boolean;
   memoryExtraction?: MemoryExtractionRuntime;
+  privacyMasking?: PrivacyMaskingRuntime;
 };
 
 export type RunnerStartInput = {
@@ -428,7 +431,8 @@ export class RunnerClient {
   private async workspaceHeaders(pathname: string, ownerId?: string, workspacePath?: string, serviceSessionId?: string): Promise<Record<string, string>> {
     const conversationId = /^\/conversations\/([0-9a-f-]{36})(?:\/|$)/iu.exec(pathname)?.[1];
     if (!ownerId || !conversationId) return {};
-    const selected = workspacePath === undefined ? await this.resolveWorkspace?.(ownerId, conversationId) : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
+    const resolved = await this.resolveWorkspace?.(ownerId, conversationId);
+    const selected = workspacePath === undefined ? resolved : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
     if (selected == null) return {};
     const placement = runtimePlacementSchema.parse(selected);
     return { [runtimeWorkspaceHeader]: placement.workspacePath, ...(placement.serviceSessionId ? { [runtimeServiceSessionHeader]: placement.serviceSessionId } : {}) };
@@ -507,14 +511,9 @@ export class RunnerClient {
     throw new AppError("RUNNER_UNAVAILABLE");
   }
 
-  async startTurn(input: RunnerStartInput): Promise<{
-    codexThreadId: string;
-    codexTurnId: string;
-  }> {
+  async startTurn(input: RunnerStartInput): Promise<Extract<RunnerStartOperation, { status: "succeeded" }>["result"]> {
     const waitDeadline = Date.now() + START_OPERATION_WAIT_LIMIT_MS;
     const { conversationId } = input;
-    const startPath = `/conversations/${conversationId}/turns/start`;
-    const operationPath = `${startPath}/${input.projectionTurnId}`;
     let operation = await this.acceptStartTurn(input);
 
     let consecutiveQueryFailures = 0;
@@ -524,10 +523,7 @@ export class RunnerClient {
       }
       await wait(100);
       try {
-        const queried = await this.queryStartOperation(
-          operationPath,
-          input.ownerId,
-        );
+        const queried = await this.inspectStartOperation(conversationId, input.projectionTurnId, input.ownerId);
         if (!queried) {
           throw new RunnerStartOperationUncertainError();
         }
@@ -557,7 +553,7 @@ export class RunnerClient {
     throw new AppError("RUNNER_UNAVAILABLE");
   }
 
-  inspectStartOperation(
+  async inspectStartOperation(
     conversationId: string,
     projectionTurnId: string,
     ownerId: string,
@@ -826,8 +822,9 @@ export class RunnerClient {
     codexThreadId: string;
     codexTurnId: string;
     itemId: string;
-    response: ConversationUserInputResponse;
+    response: NativeUserInputResponse;
   }): Promise<{ accepted: true }> {
+    if ("method" in input.response) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     let response: Response;
     try {
       response = await fetch(

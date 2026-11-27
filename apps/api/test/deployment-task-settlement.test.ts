@@ -1,3 +1,4 @@
+import { conversationReferenceDisplaySchema } from "@linksense/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { Prisma, PrismaClient } from "../src/generated/prisma/client.js";
 import { settleDeploymentTasks } from "../src/operations/deployment-task-stop.js";
@@ -26,6 +27,61 @@ const intent = {
   idempotencyKey: "request-key",
 };
 
+const referenceId = "50000000-0000-4000-8000-000000000001";
+const sourceConversationId = "50000000-0000-4000-8000-000000000002";
+const sourceMessageId = "50000000-0000-4000-8000-000000000003";
+const existingPendingId = "60000000-0000-4000-8000-000000000001";
+
+// A literal question can itself begin with a well-formed annotation prompt.
+const annotationShapedRequest = [
+  "[LinkSense office annotation]",
+  "Display metadata:",
+  JSON.stringify({
+    kind: "presentation_annotation",
+    file_id: "50000000-0000-4000-8000-000000000004",
+    file_name: "Quarterly review.pptx",
+    annotations: [
+      { request: "Improve this slide", slide_number: 3, selection_count: 2 },
+    ],
+    annotation_count: 1,
+  }),
+  "",
+  "Annotation fingerprint:",
+  "c".repeat(64),
+  "",
+  "User request:",
+  "Improve this slide",
+  "",
+  "Apply the user request to the selected elements.",
+].join("\n");
+
+function quoteDisplay(request: string) {
+  return conversationReferenceDisplaySchema.parse({
+    kind: "conversation_reference",
+    reference_id: referenceId,
+    request,
+    source_conversation_id: sourceConversationId,
+    source_message_id: sourceMessageId,
+    source_title: "Source task",
+    selection_text: "quoted selection",
+    recent_message_count: 0,
+  });
+}
+
+function annotationPrompt(request: string) {
+  return [
+    "[LinkSense office annotation]",
+    "Display metadata:",
+    JSON.stringify(quoteDisplay(request)),
+    "",
+    "Annotation fingerprint:",
+    "a".repeat(64),
+    "",
+    "User request:",
+    request,
+  ].join("\n");
+}
+
 function fixture() {
   const tx = {
     conversationTurn: {
@@ -52,7 +108,10 @@ function fixture() {
       updateMany: vi.fn(),
     },
     conversationPlanReview: { updateMany: vi.fn() },
-    conversation: { update: vi.fn() },
+    conversation: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn(),
+    },
     conversationEvent: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     automationRun: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn() },
@@ -270,6 +329,74 @@ describe("offline deployment settlement", () => {
         OR: [{ lastRunAt: null }, { lastRunAt: { lte: scheduledFor } }],
       },
       data: { lastRunStatus: "failed", lastErrorCode: "DEPLOYMENT_STOPPED" },
+    });
+  });
+
+  it("keeps the stored prompt for a cloud quote intent", async () => {
+    const f = fixture();
+    const display = quoteDisplay(annotationShapedRequest);
+    const storedInput = annotationPrompt(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      { ...intent, inputText: storedInput, messageDisplayJson: display },
+    ]);
+
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: storedInput,
+        status: "blocked_preflight",
+        blockCode: "deployment_stopped",
+      }),
+    });
+  });
+
+  it("keeps the stored prompt for a malformed local quote display", async () => {
+    const f = fixture();
+    const storedInput = annotationPrompt(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      {
+        ...intent,
+        inputText: storedInput,
+        messageDisplayJson: { kind: "conversation_reference" },
+      },
+    ]);
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inputText: storedInput,
+        blockCode: "deployment_stopped",
+      }),
+    });
+  });
+
+  it("does not rewrite or mark an existing pending draft reused by settlement", async () => {
+    const f = fixture();
+    const display = quoteDisplay(annotationShapedRequest);
+    f.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      {
+        ...intent,
+        pendingRequestId: existingPendingId,
+        inputText: annotationPrompt(annotationShapedRequest),
+        messageDisplayJson: display,
+      },
+    ]);
+    f.tx.pendingRequest.findUnique.mockResolvedValue({
+      id: existingPendingId,
+      conversationId,
+      submittedBy: ownerId,
+    });
+    await settleDeploymentTasks(f.prisma, f.redis, now);
+
+    expect(f.tx.pendingRequest.create).not.toHaveBeenCalled();
+    expect(f.tx.pendingRequest.update).toHaveBeenCalledWith({
+      where: { id: existingPendingId },
+      data: expect.objectContaining({
+        status: "blocked_preflight",
+        blockCode: "deployment_stopped",
+        steerOperationId: null,
+      }),
     });
   });
 });

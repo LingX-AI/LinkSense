@@ -1,10 +1,20 @@
 import { useId, useRef, useState } from "react"
-import { CopyIcon, GlobeIcon, Link2Icon, UploadIcon, XIcon } from "lucide-react"
+import {
+  CopyIcon,
+  GlobeIcon,
+  Link2Icon,
+  LockIcon,
+  LockOpenIcon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import {
   webSiteCreateSchema,
+  webSiteSchema,
   webSiteUpdateSchema,
+  webSitePasscodeSchema,
   webSiteSlugSchema,
   type WebSite,
 } from "@linksense/shared"
@@ -12,6 +22,7 @@ import { getErrorMessage } from "@/api/error-message"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { notify } from "@/components/feedback/notification"
 import { FieldShell } from "@/components/forms/form-field"
+import { PasswordInput } from "@/components/forms/password-input"
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import {
   RadioGroup,
@@ -39,9 +50,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
-import { copyConversationShareUrl } from "@/features/conversations/conversation-share-contracts"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import {
   createWebSite,
   deleteWebSite,
@@ -69,11 +81,13 @@ export function SiteDialog({
   onClose,
   portalContainer,
   lookup,
+  returnFocus,
 }: {
   action: SiteAction
-  onClose: () => void
+  onClose: (updated?: WebSite) => void
   portalContainer?: HTMLElement | null
   lookup?: SiteLookup
+  returnFocus?: HTMLElement
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
@@ -90,7 +104,17 @@ export function SiteDialog({
     action.kind === "share" ? "" : action.site.description
   )
   const [slug, setSlug] = useState(
-    action.kind === "share" ? "" : action.site.slug
+    action.kind === "share"
+      ? ""
+      : action.kind === "edit" &&
+          webSiteSchema.shape.id.safeParse(action.site.slug).success
+        ? ""
+        : action.site.slug
+  )
+  const [passcode, setPasscode] = useState("")
+  const [removePasscode, setRemovePasscode] = useState(false)
+  const [analytics, setAnalytics] = useState(
+    action.kind === "edit" ? action.site.analytics_enabled : false
   )
   const [publishMode, setPublishMode] = useState<"new" | "update">("new")
   const [selectedSite, setSelectedSite] = useState<WebSite | null>(null)
@@ -117,6 +141,18 @@ export function SiteDialog({
     action.kind === "publish" ||
     (action.kind === "share" && publishMode === "update")
   const metadata = { name, description, ...(slug.trim() ? { slug } : {}) }
+  const passcodeUpdate = removePasscode
+    ? { passcode: null }
+    : passcode.trim()
+      ? { passcode: passcode.trim() }
+      : {}
+  const slugUpdate = slug.trim() ? { slug: slug.trim() } : {}
+  const analyticsUpdate =
+    action.kind === "edit" && analytics !== action.site.analytics_enabled
+      ? { analytics }
+      : {}
+  const analyticsLocked =
+    action.kind === "edit" && action.site.status !== "published" && !analytics
   const sourceItems = (sources.data ?? []).map((file, index) => ({
     value: file.id,
     label: t(
@@ -141,7 +177,13 @@ export function SiteDialog({
               file_id: action.source.fileId,
             }).success
       : action.kind === "edit"
-        ? webSiteUpdateSchema.safeParse({ name, description, slug }).success
+        ? webSiteUpdateSchema.safeParse({
+            name,
+            description,
+            ...slugUpdate,
+            ...passcodeUpdate,
+            ...analyticsUpdate,
+          }).success
         : action.kind === "publish"
           ? Boolean(fileId)
           : true
@@ -159,11 +201,34 @@ export function SiteDialog({
           : selectedSite
             ? publishWebSite(selectedSite.id, action.source.fileId)
             : Promise.reject(new Error(t("webSites.selectExistingSite")))
-      if (action.kind === "edit")
-        return updateWebSite(
-          action.site.id,
-          webSiteUpdateSchema.parse({ name, description, slug })
-        )
+      if (action.kind === "edit") {
+        const settings = webSiteUpdateSchema.parse({
+          name,
+          description,
+          ...slugUpdate,
+          ...passcodeUpdate,
+        })
+        if (analyticsUpdate.analytics !== true)
+          return updateWebSite(action.site.id, {
+            ...settings,
+            ...analyticsUpdate,
+          })
+        const hasSettingsChange =
+          settings.name !== action.site.name ||
+          settings.description !== action.site.description ||
+          (settings.slug !== undefined && settings.slug !== action.site.slug) ||
+          settings.passcode !== undefined
+        const saved = hasSettingsChange
+          ? await updateWebSite(action.site.id, settings)
+          : null
+        try {
+          return await updateWebSite(action.site.id, { analytics: true })
+        } catch (error) {
+          if (!saved) throw error
+          notify.error(getErrorMessage(error, t))
+          return saved
+        }
+      }
       if (action.kind === "publish")
         return publishWebSite(action.site.id, fileId)
       await deleteWebSite(action.site.id)
@@ -173,7 +238,7 @@ export function SiteDialog({
       await client.invalidateQueries({ queryKey: webSiteKeys.all })
       if (site && (action.kind === "share" || action.kind === "publish"))
         setResult(site)
-      else onClose()
+      else onClose(site ?? undefined)
     },
     onSettled: () => {
       inFlight.current = false
@@ -182,8 +247,9 @@ export function SiteDialog({
   const copy = async () => {
     if (!visibleResult) return
     try {
-      await copyConversationShareUrl(
-        new URL(visibleResult.url_path, window.location.origin).href
+      await copyTextToClipboard(
+        visibleResult.url ??
+          new URL(visibleResult.url_path, window.location.origin).href
       )
       notify.success(t("webSites.copied"))
     } catch {
@@ -201,6 +267,7 @@ export function SiteDialog({
         variant="workspace"
         showCloseButton={false}
         portalContainer={portalContainer ?? undefined}
+        finalFocus={returnFocus ? () => returnFocus : undefined}
         className="max-h-[calc(100dvh_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-150"
       >
         <form
@@ -244,9 +311,11 @@ export function SiteDialog({
                         : "webSites.publishedDescription"
                     : action.kind === "delete"
                       ? "webSites.deleteDescription"
-                      : updating
-                        ? "webSites.updateDescription"
-                        : "webSites.shareDescription"
+                      : action.kind === "edit"
+                        ? "webSites.editDescription"
+                        : updating
+                          ? "webSites.updateDescription"
+                          : "webSites.shareDescription"
               )}
             </DialogDescription>
           </DialogHeader>
@@ -283,6 +352,7 @@ export function SiteDialog({
                   id={`${id}-url`}
                   readOnly
                   value={
+                    visibleResult.url ??
                     new URL(visibleResult.url_path, window.location.origin).href
                   }
                 />
@@ -358,10 +428,9 @@ export function SiteDialog({
                           id={`${id}-existing-url`}
                           readOnly
                           value={
-                            new URL(
-                              selectedSite.url_path,
-                              window.location.origin
-                            ).href
+                            selectedSite.url ??
+                            new URL(selectedSite.url_path, window.location.origin)
+                              .href
                           }
                         />
                         <p className="text-xs text-muted-foreground">
@@ -409,7 +478,6 @@ export function SiteDialog({
                     <FieldShell
                       id={`${id}-slug`}
                       label={t("webSites.slug")}
-                      required={action.kind === "edit"}
                       error={
                         slug && !webSiteSlugSchema.safeParse(slug).success
                           ? t("webSites.invalidSlug")
@@ -418,23 +486,123 @@ export function SiteDialog({
                     >
                       <Input
                         id={`${id}-slug`}
-                        aria-required={action.kind === "edit"}
+                        aria-describedby={`${id}-slug-help${slug && !webSiteSlugSchema.safeParse(slug).success ? ` ${id}-slug-error` : ""}`}
+                        aria-invalid={Boolean(
+                          slug && !webSiteSlugSchema.safeParse(slug).success
+                        )}
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={slug}
                         maxLength={80}
-                        placeholder={t("webSites.slugPlaceholder")}
+                        placeholder={t(
+                          action.kind === "edit"
+                            ? "webSites.slugPlaceholderEdit"
+                            : "webSites.slugPlaceholder"
+                        )}
                         disabled={mutation.isPending}
                         onChange={(event) => setSlug(event.target.value)}
                       />
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                      <p
+                        id={`${id}-slug-help`}
+                        className="text-xs leading-relaxed text-muted-foreground"
+                      >
                         {t("webSites.slugHelp")}
                       </p>
-                      {action.kind === "edit" &&
-                        slug.trim().toLowerCase() !== action.site.slug && (
-                          <p className="text-sm text-destructive">
-                            {t("webSites.slugChanged")}
-                          </p>
-                        )}
                     </FieldShell>
+                    {action.kind === "edit" && (
+                      <FieldShell
+                        id={`${id}-passcode`}
+                        label={t("webSites.passcode")}
+                        error={
+                          passcode &&
+                          !webSitePasscodeSchema.safeParse(passcode).success
+                            ? t("webSites.invalidPasscode")
+                            : undefined
+                        }
+                      >
+                        <PasswordInput
+                          id={`${id}-passcode`}
+                          fieldLabel={t("webSites.passcode")}
+                          autoComplete="new-password"
+                          aria-describedby={`${id}-passcode-help`}
+                          aria-invalid={Boolean(
+                            passcode &&
+                            !webSitePasscodeSchema.safeParse(passcode).success
+                          )}
+                          value={passcode}
+                          maxLength={128}
+                          placeholder={t("webSites.passcodePlaceholder")}
+                          disabled={mutation.isPending || removePasscode}
+                          onChange={(event) => {
+                            setPasscode(event.target.value)
+                            setRemovePasscode(false)
+                          }}
+                        />
+                        <p
+                          id={`${id}-passcode-help`}
+                          className="text-xs leading-relaxed text-muted-foreground"
+                        >
+                          {t("webSites.passcodeHelp")}
+                        </p>
+                        {action.site.passcode_protected && !passcode && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            className="mt-0.5 w-fit self-start justify-self-start rounded-full border-border/70 bg-transparent px-2.5 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground max-sm:min-h-11"
+                            aria-pressed={removePasscode}
+                            disabled={mutation.isPending}
+                            onClick={() => setRemovePasscode((value) => !value)}
+                          >
+                            {removePasscode ? (
+                              <LockIcon
+                                className="size-3"
+                                data-icon="inline-start"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <LockOpenIcon
+                                className="size-3"
+                                data-icon="inline-start"
+                                aria-hidden="true"
+                              />
+                            )}
+                            {t(
+                              removePasscode
+                                ? "webSites.passcodeKeep"
+                                : "webSites.passcodeRemove"
+                            )}
+                          </Button>
+                        )}
+                      </FieldShell>
+                    )}
+                    {action.kind === "edit" && (
+                      <FieldShell
+                        id={`${id}-analytics`}
+                        label={t("webSites.analytics")}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <p
+                            id={`${id}-analytics-help`}
+                            className="min-w-0 text-xs leading-relaxed text-muted-foreground"
+                          >
+                            {t(
+                              analyticsLocked
+                                ? "webSites.analyticsDisabledHelp"
+                                : "webSites.analyticsHelp"
+                            )}
+                          </p>
+                          <Switch
+                            id={`${id}-analytics`}
+                            checked={analytics}
+                            disabled={mutation.isPending || analyticsLocked}
+                            aria-describedby={`${id}-analytics-help`}
+                            onCheckedChange={setAnalytics}
+                          />
+                        </div>
+                      </FieldShell>
+                    )}
                   </>
                 )}
                 {action.kind === "publish" && (
@@ -505,7 +673,7 @@ export function SiteDialog({
             variant="ghost"
             className={action.kind === "delete" ? "h-8 px-4" : undefined}
             disabled={mutation.isPending}
-            onClick={onClose}
+            onClick={() => onClose()}
           >
             {t(visibleResult ? "webSites.done" : "webSites.cancel")}
           </Button>

@@ -57,3 +57,11 @@ export function sendAppError(
 export function assertNever(value: never): never {
   throw new AppError("INTERNAL_ERROR", { value: String(value) })
 }
+
+export function requestPathname(value: string): string {
+  try {
+    return new URL(value, "http://linksense.invalid").pathname
+  } catch {
+    return value.split(/[?#]/u, 1)[0] || "/"
+  }
+}

@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
-import pino from "pino";
+import { createLogger } from "../../lib/logger.js";
 import {
   runnerHeartbeatIntervalMs,
   runnerHeartbeatSchema,
@@ -14,11 +14,12 @@ import type {
 } from "../../adapters/redis.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
+import { START_RECOVERY_ATTEMPTS } from "../conversations/start-intent-policy.js";
 import type { ConversationEventService } from "./service.js";
 
 const queueName = "linksense-task-recovery";
 const pageSize = 100;
-const logger = pino({ name: "task-recovery" });
+const logger = createLogger("task-recovery");
 const jobSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("maintenance") }),
   z.strictObject({
@@ -263,8 +264,7 @@ export class TaskRecoveryScheduler {
   private async maintain(): Promise<void> {
     const status = await this.redis.runningTurnRecoveryStatus();
     if (!status.last_success_at) {
-      // Full reconciliation is reserved for startup or loss of the Redis
-      // capacity baseline. Ordinary ticks never enumerate running turns.
+      // Only startup or Redis baseline loss needs full runner reconciliation.
       await this.events.recoverRunningTurns({ requireObserved: false });
     }
     for (const entry of await this.redis.expiredRunnerOwners()) {
@@ -398,6 +398,7 @@ export class TaskRecoveryScheduler {
       select: { projectionTurnId: true, conversationId: true, createdAt: true },
     });
     for (const row of rows) {
+      const created = row.createdAt.getTime();
       await this.queue.add(
         "start",
         {
@@ -405,7 +406,14 @@ export class TaskRecoveryScheduler {
           conversationId: row.conversationId,
           projectionTurnId: row.projectionTurnId,
         },
-        { jobId: `start-${row.projectionTurnId}` },
+        {
+          // projectionTurnId is deterministic across retries; createdAt keeps
+          // the id unique per committed intent so retained jobs cannot shadow it.
+          jobId: `start-${row.projectionTurnId}-${created}`,
+          // The total budget covers the release window. A retained failed job
+          // ends this intent's dispatch instead of resetting the budget.
+          attempts: START_RECOVERY_ATTEMPTS,
+        },
       );
     }
     const last = rows.at(-1);
