@@ -32,12 +32,16 @@ FROM dependencies AS build
 COPY apps/runner apps/runner
 COPY packages/shared packages/shared
 COPY --chmod=0644 deploy/docker/runner-runtime-smoke.mjs /tmp/runner-runtime-smoke.mjs
+COPY --chmod=0755 deploy/docker/prune-production-deploy.sh /usr/local/bin/prune-production-deploy
 RUN pnpm --filter @linksense/shared build \
   && pnpm --filter @linksense/runner build
 # Legacy deploy also installs packages; keep access to the same download store.
+# The workspace-root Prisma CLI and its peers are build-time only and are not
+# imported by the runner or worker.
 RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
   --mount=type=cache,id=linksense-pnpm-metadata-root,target=/pnpm/metadata,sharing=locked \
   pnpm --filter @linksense/runner deploy --prod --legacy --prefer-offline --cache-dir=/pnpm/metadata /opt/linksense-runner \
+  && /usr/local/bin/prune-production-deploy /opt/linksense-runner \
   && chmod -R u=rwX,go=rX /opt/linksense-runner \
   && cd /opt/linksense-runner \
   && setpriv --reuid=1001 --regid=1000 --clear-groups \

@@ -114,8 +114,8 @@ CMD ["node", "--version"]
 FROM node-runtime AS api
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
-COPY --from=uv /uv /usr/local/bin/uv
-RUN apt-get update \
+RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
+  apt-get update \
   && apt-get install --yes --no-install-recommends \
     ca-certificates \
     curl \
